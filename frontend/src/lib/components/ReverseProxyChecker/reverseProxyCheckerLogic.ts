@@ -43,8 +43,8 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
     loaders(({ values, cache }) => ({
         hasReverseProxy: [
-            // null until the detection query resolves — consumers must distinguish "not yet
-            // checked" from a confirmed `false` so they don't act before the result is in.
+            // null while the answer is unknown: before the detection query resolves, or when the
+            // project sent no $pageview to judge. Consumers act only on a confirmed `false`.
             null as boolean | null,
             {
                 loadHasReverseProxy: async () => {
@@ -54,22 +54,35 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
 
                     cache.lastCheckedTimestamp = Date.now()
 
-                    const query = hogql`
+                    // Only $pageview counts, because the mobile SDKs that send $screen do not set
+                    // $lib_custom_api_host, so their events look unproxied even behind a reverse proxy.
+                    const proxiedQuery = hogql`
                         SELECT DISTINCT properties.$lib_custom_api_host AS lib_custom_api_host
                         FROM events
                         WHERE timestamp >= now() - INTERVAL 1 DAY
                         AND timestamp <= now()
                         AND properties.$lib_custom_api_host IS NOT NULL
-                        AND event IN ('$pageview', '$screen')
+                        AND event = '$pageview'
                         LIMIT 10`
+                    const pageviewQuery = hogql`
+                        SELECT 1
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 1 DAY
+                        AND timestamp <= now()
+                        AND event = '$pageview'
+                        LIMIT 1`
 
-                    const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Onboarding'
+                    const tags = {
+                        scene: sceneLogic.findMounted()?.values.activeSceneId ?? 'Onboarding',
+                        productKey: 'platform_and_support',
+                    }
                     try {
-                        const res = await api.queryHogQL(query, {
-                            scene: currentScene,
-                            productKey: 'platform_and_support',
-                        })
-                        return !!res.results?.find((x) => !!x[0])
+                        const proxied = await api.queryHogQL(proxiedQuery, tags)
+                        if (proxied.results?.find((x) => !!x[0])) {
+                            return true
+                        }
+                        const pageviews = await api.queryHogQL(pageviewQuery, tags)
+                        return pageviews.results?.length ? false : null
                     } catch (error) {
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast

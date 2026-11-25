@@ -90,6 +90,15 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "privacy" not in prompt.lower()
 
 
+def test_named_repository_outside_the_candidates_is_a_reason_to_abstain() -> None:
+    prompt = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
+    abstain_rules = prompt[prompt.index("## When to return `null`") : prompt.index("## Examples")]
+
+    assert "**When the request names a repository that is not a candidate.**" in abstain_rules
+    # The domain rule is what led the agent to a name match, so it must yield to the named repository.
+    assert "A domain match does not override a repository the" in abstain_rules
+
+
 def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:
     figures = {
         "acme/app": RepositoryFigures(

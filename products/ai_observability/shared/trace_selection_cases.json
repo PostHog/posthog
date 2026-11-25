@@ -13,6 +13,19 @@
         "expected_counts": { "total": 4, "errors": 0, "feedback": 0 }
     },
     {
+        "name": "oldest first by first event with the trace id breaking ties",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "older", "minutes": -30 },
+            { "event": "$ai_generation", "trace_id": "tie-b", "minutes": 0 },
+            { "event": "$ai_span", "trace_id": "tie-a", "minutes": 0 },
+            { "event": "$ai_generation", "trace_id": "tie-a", "minutes": 20 },
+            { "event": "$ai_generation", "trace_id": "newer", "minutes": 15 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "order": "oldest_first" },
+        "expected_trace_ids": ["older", "tie-a", "tie-b", "newer"],
+        "expected_counts": { "total": 4, "errors": 0, "feedback": 0 }
+    },
+    {
         "name": "a trace that started before the window but has an event inside it sits at its first event",
         "events": [
             { "event": "$ai_span", "trace_id": "early-start", "minutes": -9 },
@@ -396,5 +409,98 @@
         "selection": { "date_from": -60, "date_to": 60 },
         "expected_trace_ids": [],
         "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "session scope keeps only that session's traces",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "mine-late",
+                "minutes": 10,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-session",
+                "minutes": 5,
+                "properties": { "$ai_session_id": "session-b" }
+            },
+            { "event": "$ai_generation", "trace_id": "no-session", "minutes": 4 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "mine-early",
+                "minutes": 0,
+                "properties": { "$ai_session_id": "session-a" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["mine-early", "mine-late"],
+        "expected_counts": null
+    },
+    {
+        "name": "a trace sits in a session at the earliest of its events that name the session",
+        "events": [
+            { "event": "$ai_span", "trace_id": "late-tagged", "minutes": 1 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "late-tagged",
+                "minutes": 5,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "tagged",
+                "minutes": 3,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            { "event": "$ai_generation", "trace_id": "untagged", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["tagged", "late-tagged"],
+        "expected_counts": null
+    },
+    {
+        "name": "a session ignores the project's default test account filtering",
+        "team_test_account_filters": [
+            { "key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event" }
+        ],
+        "team_test_account_filters_default_checked": true,
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "internal",
+                "minutes": 1,
+                "properties": { "$ai_session_id": "session-a", "deployment": "staging" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "customer",
+                "minutes": 0,
+                "properties": { "$ai_session_id": "session-a" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["customer", "internal"],
+        "expected_counts": null
+    },
+    {
+        "name": "a trace whose events name two sessions is in each of them, here the later one",
+        "events": [
+            {
+                "event": "$ai_span",
+                "trace_id": "switched",
+                "minutes": 0,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "switched",
+                "minutes": 1,
+                "properties": { "$ai_session_id": "session-b" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-b", "order": "oldest_first" },
+        "expected_trace_ids": ["switched"],
+        "expected_counts": null
     }
 ]

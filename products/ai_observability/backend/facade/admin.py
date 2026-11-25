@@ -16,14 +16,6 @@ from products.ai_observability.backend.logic.eval_suggestions.review_queries imp
     load_labeled_cards as load_labeled_cards,
     load_review_cards as load_review_cards,
 )
-from products.ai_observability.backend.logic.tagger_migration.migration import (
-    MigrationAction as MigrationAction,
-    TaggerCounts as TaggerCounts,
-    TaggerMigrationStep as TaggerMigrationStep,
-    count_taggers as count_taggers,
-    migrate_taggers as migrate_taggers,
-    plan_tagger_migration as plan_tagger_migration,
-)
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionReviewVerdict as EvalSuggestionReviewVerdict,
 )

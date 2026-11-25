@@ -39,6 +39,7 @@ CONVERSATION_PARAMS: dict[str, str | int] = {"per_page": 50, "include_empty": "1
 
 # The people date filter is on the creation date, so it cannot find updated profiles.
 # Campaign listing requires user-tier tokens, so website-token imports exclude campaigns.
+# Campaign templates allow the website tier.
 ENDPOINTS: dict[str, CrispEndpoint] = {
     "conversations": CrispEndpoint(
         name="conversations",
@@ -72,6 +73,40 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         incremental_fields=[_datetime_incremental_field("conversation_updated_at")],
         default_incremental_field="conversation_updated_at",
     ),
+    "conversation_events": CrispEndpoint(
+        name="conversation_events",
+        path="website/{website_id}/conversation/{session_id}/events/1",
+        # Events have no documented unique identifier and no date filter, so the table is full refresh only.
+        primary_keys=(),
+        partition_key="timestamp",
+        fanout=DependentEndpointConfig(
+            parent_name="conversations",
+            resolve_param="session_id",
+            resolve_field="_path_id",
+            include_from_parent=["session_id"],
+            parent_field_renames={"session_id": "session_id"},
+            parent_params={**CONVERSATION_PARAMS, "order_date_created": "1"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        should_sync_default=False,
+    ),
+    "conversation_files": CrispEndpoint(
+        name="conversation_files",
+        path="website/{website_id}/conversation/{session_id}/files/1",
+        # One message can hold several attachments, so the fingerprint alone is not unique.
+        primary_keys=("session_id", "fingerprint", "url"),
+        partition_key="timestamp",
+        fanout=DependentEndpointConfig(
+            parent_name="conversations",
+            resolve_param="session_id",
+            resolve_field="_path_id",
+            include_from_parent=["session_id"],
+            parent_field_renames={"session_id": "session_id"},
+            parent_params={**CONVERSATION_PARAMS, "order_date_created": "1"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        should_sync_default=False,
+    ),
     "people": CrispEndpoint(
         name="people",
         path="website/{website_id}/people/profiles/1",
@@ -102,6 +137,26 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         primary_keys=("user_id",),
         pagination="single",
     ),
+    # Teams and inboxes need a paid Crisp plan, which returns 402 otherwise.
+    "teams": CrispEndpoint(
+        name="teams",
+        path="website/{website_id}/teams/list/1",
+        primary_keys=("team_id",),
+        should_sync_default=False,
+    ),
+    "inboxes": CrispEndpoint(
+        name="inboxes",
+        path="website/{website_id}/inboxes/list/1",
+        primary_keys=("inbox_id",),
+        should_sync_default=False,
+    ),
+    "campaign_templates": CrispEndpoint(
+        name="campaign_templates",
+        path="website/{website_id}/campaigns/templates/1",
+        primary_keys=("template_id",),
+        partition_key="created_at",
+        should_sync_default=False,
+    ),
     "visitors": CrispEndpoint(
         name="visitors",
         path="website/{website_id}/visitors/list/1",
@@ -118,6 +173,22 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         name="helpdesk_articles",
         path="website/{website_id}/helpdesk/page/list/{locale}/articles/1",
         primary_keys=("locale", "entity_id"),
+        fanout=DependentEndpointConfig(
+            parent_name="helpdesk_locales",
+            resolve_param="locale",
+            resolve_field="_path_id",
+            include_from_parent=["locale"],
+            parent_field_renames={"locale": "locale"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        should_sync_default=False,
+    ),
+    "helpdesk_feedbacks": CrispEndpoint(
+        name="helpdesk_feedbacks",
+        path="website/{website_id}/helpdesk/feedback/list/{locale}/articles/1",
+        # Feedbacks have no documented unique identifier, so the table is full refresh only.
+        primary_keys=(),
+        partition_key="created_at",
         fanout=DependentEndpointConfig(
             parent_name="helpdesk_locales",
             resolve_param="locale",

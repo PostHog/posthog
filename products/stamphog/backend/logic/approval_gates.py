@@ -46,7 +46,7 @@ from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import reviewable_repo_config
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation
-from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs, seen_on_head
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
@@ -170,7 +170,9 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         policy_files.update(
             {path: text for path, future in manifest_futures.items() if (text := reads.result(future)) is not None}
         )
-        # Like the review path, so a deny lift from a workflow publisher or a pinned App counts here too.
+        # Like the review path, so a deny lift from a workflow publisher or a pinned App counts here too. The
+        # floor is a database read, so it runs on this thread and stays out of the GitHub read pool.
+        seen = seen_on_head(team_id, repo_config_id=repo_config.id, pr_number=pr_number, head_sha=head_sha)
         proven_future = reads.submit(
             proven_check_runs,
             client,
@@ -179,6 +181,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
             head_sha=head_sha,
             check_runs=reads.result(check_runs_future),
             policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+            seen=seen,
         )
         author_team_slugs = reads.result(author_teams_future)
         if author_team_slugs is None:

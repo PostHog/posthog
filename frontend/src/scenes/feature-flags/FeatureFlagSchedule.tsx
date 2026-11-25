@@ -449,6 +449,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const {
         deleteScheduledChange,
         setScheduleDateMarker,
+        setSchedulePickedDay,
         setSchedulePayload,
         setScheduledChangeOperation,
         createScheduledChange,
@@ -481,6 +482,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         openEdit,
         closeEdit,
         setEditScheduledAt,
+        setEditPickedDay,
         setEditCronExpression,
         setEditEndDate,
         setEditPayloadValue,
@@ -664,6 +666,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     value={scheduleDateMarker}
                                     onChange={(value) => {
                                         setScheduleDateMarker(value)
+                                        setSchedulePickedDay(value)
                                         if (repeatsValue === 'cron' && cronExpression && value) {
                                             // Re-snap to the next cron match from the newly picked date
                                             setCronExpression(cronExpression)
@@ -1191,6 +1194,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             value={editScheduledAt}
                             onChange={(value) => {
                                 setEditScheduledAt(value)
+                                setEditPickedDay(value)
                                 if (editRepeatsValue === 'cron' && editCronExpression && value) {
                                     // Re-snap to the next cron match from the newly picked date
                                     setEditCronExpression(editCronExpression)

@@ -19,6 +19,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 
 import { JSONEditor } from '../components/JSONEditor'
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import type { DatasetItemReadApi } from '../generated/api.schemas'
 import type { DatasetItemModalValue } from './datasetItemModalLogic'
 import { DatasetItemModalLogicProps, datasetItemModalLogic, isStoredDatasetItem } from './datasetItemModalLogic'
@@ -317,7 +318,11 @@ function DatasetItemHistory({
                                 </LemonTag>
                                 <TZLabel time={version.version_created_at} />
                                 <span className="text-muted">
-                                    {version.version_created_by?.email ?? 'Unknown creator'}
+                                    {version.version_created_by_project_key_id ? (
+                                        <ProjectKeyLabel id={version.version_created_by_project_key_id} />
+                                    ) : (
+                                        (version.version_created_by?.email ?? 'Unknown creator')
+                                    )}
                                 </span>
                             </div>
                         ),

@@ -41,9 +41,8 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from products.ai_observability.backend.facade.contracts import EVALUATION_PASSED_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -286,7 +285,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             select=["id", "person"],
         )
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]

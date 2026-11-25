@@ -326,6 +326,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             logger.info('📝', `${this.name} - audience snapshot ready for batch ${state.batchJobId}`, {
                 audienceSize: response.audience_size,
             })
+            this.emitSkippedTestAccountFiltersLog(
+                state,
+                Array.isArray(response.skipped_test_account_filters) ? response.skipped_test_account_filters : []
+            )
             await job.reschedule({
                 scheduledAt: new Date(),
                 state: serializeResolverState({
@@ -472,7 +476,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         job,
                         state,
                         'realtime_cohort_unavailable',
-                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                        "Sending to a real-time cohort isn't available here yet. Use a different audience."
                     )
                     return
                 }
@@ -697,6 +701,31 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     metric_kind: 'other',
                     metric_name: 'audience_truncated',
                     count: 1,
+                },
+            ],
+            'hog_flow'
+        )
+    }
+
+    private emitSkippedTestAccountFiltersLog(state: BatchResolverState, skippedKeys: string[]): void {
+        if (skippedKeys.length === 0) {
+            return
+        }
+        const filters =
+            skippedKeys.length === 1
+                ? '1 test account filter that only applies'
+                : `${skippedKeys.length} test account filters that only apply`
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: state.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: state.batchJobId,
+                    instance_id: state.batchJobId,
+                    ...logEntry(
+                        'info',
+                        `This run left out ${filters} to events, not people: ${skippedKeys.join(', ')}`
+                    ),
                 },
             ],
             'hog_flow'

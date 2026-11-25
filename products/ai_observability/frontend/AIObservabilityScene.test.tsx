@@ -16,7 +16,16 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { AIObservabilityGenerations, AIObservabilityScene } from './AIObservabilityScene'
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { aiObservabilityTracesList } from './generated/api'
+import {
+    SESSION_TURNS_URL,
+    makeSessionListItem,
+    makeSessionListPage,
+    makeSessionTurnPage,
+    sessionCellsMocks,
+    traceTurnsMocks,
+} from './redesign/sessions/testFixtures'
 import { traceDrawerLogic } from './redesign/trace/traceDrawerLogic'
 import { makeTraceListPage } from './redesign/traces/testFixtures'
 
@@ -33,6 +42,7 @@ jest.mock('./generated/api', () => {
     return { ...actual, aiObservabilityTracesList: jest.fn(actual.aiObservabilityTracesList) }
 })
 
+const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
 const GENERATIONS_PATH = urls.aiObservabilityGenerations()
 const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
 const FRAME_TABS = '[data-attr="ai-observability-tabs"]'
@@ -119,7 +129,12 @@ function row(view: RenderResult): Element {
 
 describe('AIObservabilityScene', () => {
     beforeEach(() => {
-        useMocks({ get: { '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])] } })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])],
+                '/api/projects/:team_id/ai_observability/sessions/': () => [200, makeSessionListPage([])],
+            },
+        })
     })
 
     afterEach(cleanup)
@@ -138,7 +153,7 @@ describe('AIObservabilityScene', () => {
     describe('with the navigation flag on', () => {
         it.each([
             ['aiObservabilityTraces', 'ai-observability-scope-traces', 'ai-observability-traces-list'],
-            ['aiObservabilitySessions', 'ai-observability-scope-sessions', 'sessions-body'],
+            ['aiObservabilitySessions', 'ai-observability-scope-sessions', 'ai-observability-sessions-list'],
         ])('wraps the body of %s in the frame', (sceneKey, scope, body) => {
             const container = renderScene({ sceneKey })
 
@@ -146,6 +161,34 @@ describe('AIObservabilityScene', () => {
             expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
             expect(activeScopes(container)).toEqual([scope])
             expect(container.querySelector(`[data-attr="${body}"]`)).not.toBeNull()
+        })
+
+        it('renders the session page on a session path, inside the frame on the sessions scope', async () => {
+            useMocks({
+                get: {
+                    [SESSION_URL]: () => [200, makeSessionListItem({ id: 'a/b' })],
+                    [SESSION_TURNS_URL]: () => [200, makeSessionTurnPage([1])],
+                },
+                post: { ...sessionCellsMocks(), ...traceTurnsMocks() },
+            })
+            const container = renderScene({
+                sceneKey: 'aiObservabilitySessions',
+                url: combineUrl(urls.aiObservabilitySession('a/b'), { trace: 'trace-1' }).url,
+            })
+
+            // The older sessions view reads the same path, and must neither select the session nor drop the trace.
+            expect(router.values.searchParams).toEqual({ trace: 'trace-1' })
+            expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
+            expect(activeScopes(container)).toEqual(['ai-observability-scope-sessions'])
+            expect(container.querySelector('[data-attr="ai-observability-sessions-list"]')).toBeNull()
+            expect(container.querySelector('[data-attr="ai-observability-session-page"]')).not.toBeNull()
+            // The title is the customer's first prompt, which the header shows and the crumbs and page title never do.
+            await waitFor(() => expect(container.textContent).toContain('Why was I charged twice this month?'))
+            expect(aiObservabilitySharedLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual([
+                'AI observability',
+                'Sessions',
+                'Session',
+            ])
         })
 
         it('renders a page with no tab inside the frame with none active', () => {

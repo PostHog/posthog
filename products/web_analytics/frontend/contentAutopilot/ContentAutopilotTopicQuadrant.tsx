@@ -24,7 +24,7 @@ const LABELS: Record<TopicQuadrantKey, string> = {
 const formatRate = (value: number): string => percentage(value, 0)
 
 const CONFIG: ScatterChartConfig<TopicQuadrantPoint> = {
-    xAxis: { label: 'Mentioned in answers', domain: [0, 1], tickFormatter: formatRate },
+    xAxis: { label: 'Visibility', domain: [0, 1], tickFormatter: formatRate },
     yAxis: { label: 'Cited as a source', domain: [0, 1], tickFormatter: formatRate },
     showGrid: true,
     legend: { show: true },
@@ -32,7 +32,7 @@ const CONFIG: ScatterChartConfig<TopicQuadrantPoint> = {
     tooltip: {
         labelFormatter: (point) => point.meta?.topic ?? point.label,
         xFormatter: (value, point) =>
-            `Mentioned ${formatRate(value)} of ${pluralize(point.meta?.answers ?? 0, 'answer')}`,
+            `Visibility ${formatRate(value)} of ${pluralize(point.meta?.answers ?? 0, 'answer')}`,
         yFormatter: (value) => `Cited ${formatRate(value)}`,
     },
 }
@@ -80,7 +80,7 @@ export const ContentAutopilotTopicQuadrant = ({
         <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
                 title="Topics at a glance"
-                description="Each topic compared with your average mention and citation rates across all prompts. Pick a topic to see its prompts."
+                description="Groups compare each topic with your average visibility and citation rate."
             />
             <div
                 className="h-72 min-w-0 flex flex-col p-2"

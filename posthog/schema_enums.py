@@ -1493,6 +1493,8 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1517,6 +1519,8 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -2231,6 +2235,12 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationDetectedChange(StrEnum):
+    NEGATIVE_KEYWORD = "negative_keyword"
+    BRAND_NEGATIVE = "brand_negative"
+    KEYWORD_ADDED = "keyword_added"
+
+
 class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
     GOOGLE_ADS = "google_ads"
 
@@ -2275,6 +2285,10 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
     PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+    POSTHOG_CONVERSIONS_NOT_READY = "posthog_conversions_not_ready"
+    POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
+    POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
+    POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -3020,6 +3034,9 @@ class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
+    REPEATED_CTE_EXPANSION = "repeated_cte_expansion"
+    CROSS_JOIN_EQUALITY = "cross_join_equality"
+    DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT = "date_arrays_before_breakdown_limit"
 
 
 class QueryScanFixLocation(StrEnum):

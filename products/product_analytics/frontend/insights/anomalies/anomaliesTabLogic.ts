@@ -13,6 +13,7 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -31,6 +32,7 @@ import type {
 import {
     SignalsAnomaliesSearchRetrieveInterval,
     SignalsAnomaliesSearchRetrieveOrder,
+    SignalsAnomaliesSearchRetrieveViewedWithinDays,
 } from 'products/signals/frontend/generated/api.schemas'
 
 export const ANOMALIES_PAGE_SIZE = 50
@@ -39,12 +41,20 @@ export const SCORED_HISTORY_READY_DAYS = 14
 export const CHART_POINTS_MAX_ATTEMPTS = 3
 export const CHART_POINTS_RETRY_DELAY_MS = 1000
 
+// Null lists the insights of the whole project.
+export type AnomaliesScope = SignalsAnomaliesSearchRetrieveViewedWithinDays | null
+
+const DEFAULT_ANOMALIES_SCOPE: AnomaliesScope = SignalsAnomaliesSearchRetrieveViewedWithinDays.Number30
+const ANOMALIES_SCOPE_PARAM = 'anomalies_scope'
+const WHOLE_PROJECT_SCOPE_PARAM = 'project'
+
 export interface AnomaliesFilters {
     dateFrom: string
     // Null lists the series of every interval.
     interval: SignalsAnomaliesSearchRetrieveInterval | null
     dashboardId: number | null
     search: string
+    viewedWithinDays: AnomaliesScope
 }
 
 export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
@@ -52,6 +62,25 @@ export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
     interval: null,
     dashboardId: null,
     search: '',
+    viewedWithinDays: DEFAULT_ANOMALIES_SCOPE,
+}
+
+// An unknown value opens the default scope, so an old or edited link still loads.
+function scopeFromUrl(value: unknown): AnomaliesScope {
+    if (value === WHOLE_PROJECT_SCOPE_PARAM) {
+        return null
+    }
+    const days = Number(value)
+    return (
+        Object.values(SignalsAnomaliesSearchRetrieveViewedWithinDays).find((d) => d === days) ?? DEFAULT_ANOMALIES_SCOPE
+    )
+}
+
+function scopeToUrl(scope: AnomaliesScope): string | undefined {
+    if (scope === DEFAULT_ANOMALIES_SCOPE) {
+        return undefined
+    }
+    return scope == null ? WHOLE_PROJECT_SCOPE_PARAM : String(scope)
 }
 
 export type AnomaliesLoadError = 'not_available' | 'failed'
@@ -71,13 +100,6 @@ export function anomalySeriesKey(series: Pick<AnomalySeriesApi, 'insight_id' | '
 // Feedback is about the newest flagged bucket, so a later flag on the same series asks again.
 export function anomalyRatingKey(series: AnomalySeriesApi): string {
     return `${anomalySeriesKey(series)}-${series.last_flagged_bucket ?? ''}`
-}
-
-// The flagged series of one insight, so a breakdown with many flagged values takes one row until it is expanded.
-export interface InsightSeriesGroup {
-    insightId: number
-    // In ranked order, so the first one is the series the row shows.
-    series: AnomalySeriesApi[]
 }
 
 function errorStatus(error: unknown): number | undefined {
@@ -102,6 +124,7 @@ function filterProperties(filters: AnomaliesFilters): Record<string, unknown> {
         interval: filters.interval,
         has_dashboard: filters.dashboardId != null,
         has_search: !!filters.search.trim(),
+        viewed_within_days: filters.viewedWithinDays,
     }
 }
 
@@ -121,6 +144,7 @@ async function searchAnomalies(
         ...(filters.interval != null && { interval: filters.interval }),
         ...(filters.dashboardId != null && { dashboard_id: filters.dashboardId }),
         ...(filters.search.trim() && { search: filters.search.trim() }),
+        ...(filters.viewedWithinDays != null && { viewed_within_days: filters.viewedWithinDays }),
     })
 }
 
@@ -144,10 +168,8 @@ export interface anomaliesTabLogicValues {
     anomaliesLoading: boolean
     chartPoints: Record<string, AnomalyChartPoints>
     chartPointsStatus: Record<string, 'failed' | 'loading'>
-    expandedInsightIds: Record<number, boolean>
     filters: AnomaliesFilters
     hasMore: boolean
-    insightGroups: InsightSeriesGroup[]
     loadError: AnomaliesLoadError | null
     loadingMore: boolean
     series: AnomalySeriesApi[]
@@ -237,12 +259,8 @@ export interface anomaliesTabLogicActions {
     setLoadError: (loadError: AnomaliesLoadError) => {
         loadError: AnomaliesLoadError
     }
-    toggleInsightExpanded: (
-        insightId: number,
-        position: number
-    ) => {
-        insightId: number
-        position: number
+    setScopeFromUrl: (viewedWithinDays: AnomaliesScope) => {
+        viewedWithinDays: AnomaliesScope
     }
 }
 
@@ -261,7 +279,6 @@ export interface anomaliesTabLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         series: (anomalies: AnomalySearchResponseApi | null) => AnomalySeriesApi[]
-        insightGroups: (series: AnomalySeriesApi[]) => InsightSeriesGroup[]
         hasMore: (anomalies: AnomalySearchResponseApi | null) => boolean
     }
 }
@@ -280,6 +297,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
     })),
     actions({
         setFilters: (filters: Partial<AnomaliesFilters>) => ({ filters }),
+        setScopeFromUrl: (viewedWithinDays: AnomaliesScope) => ({ viewedWithinDays }),
         resetFilters: true,
         reportInsightOpened: (series: AnomalySeriesApi, position: number) => ({ series, position }),
         rateSeries: (series: AnomalySeriesApi, rating: AnomalyRowRating, position: number) => ({
@@ -288,7 +306,6 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             position,
         }),
         reportCreateAlertOpened: (series: AnomalySeriesApi, position: number) => ({ series, position }),
-        toggleInsightExpanded: (insightId: number, position: number) => ({ insightId, position }),
         setLoadError: (loadError: AnomaliesLoadError) => ({ loadError }),
         loadChartPoints: (series: AnomalySeriesApi[]) => ({ series }),
         setChartPoints: (requested: string[], response: AnomalyPointsResponseApi) => ({ requested, response }),
@@ -299,7 +316,9 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             DEFAULT_ANOMALIES_FILTERS as AnomaliesFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-                resetFilters: () => DEFAULT_ANOMALIES_FILTERS,
+                setScopeFromUrl: (state, { viewedWithinDays }) => ({ ...state, viewedWithinDays }),
+                // The scope picks whose insights the tab lists, so clearing the filters inside it keeps it.
+                resetFilters: (state) => ({ ...DEFAULT_ANOMALIES_FILTERS, viewedWithinDays: state.viewedWithinDays }),
             },
         ],
     }),
@@ -360,13 +379,6 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                 setLoadError: (_, { loadError }) => loadError,
             },
         ],
-        expandedInsightIds: [
-            {} as Record<number, boolean>,
-            {
-                loadAnomalies: () => ({}),
-                toggleInsightExpanded: (state, { insightId }) => ({ ...state, [insightId]: !state[insightId] }),
-            },
-        ],
         seriesRatings: [
             {} as Record<string, AnomalyRowRating>,
             {
@@ -419,22 +431,6 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         series: [
             (s) => [s.anomalies],
             (anomalies: AnomalySearchResponseApi | null): AnomalySeriesApi[] => anomalies?.series ?? [],
-        ],
-        insightGroups: [
-            (s) => [s.series],
-            (series: AnomalySeriesApi[]): InsightSeriesGroup[] => {
-                // Ranking is global, so a later page can add series to an insight that an earlier page placed.
-                const groups = new Map<number, InsightSeriesGroup>()
-                for (const row of series) {
-                    const group = groups.get(row.insight_id)
-                    if (group) {
-                        group.series.push(row)
-                    } else {
-                        groups.set(row.insight_id, { insightId: row.insight_id, series: [row] })
-                    }
-                }
-                return [...groups.values()]
-            },
         ],
         hasMore: [(s) => [s.anomalies], (anomalies: AnomalySearchResponseApi | null): boolean => !!anomalies?.has_more],
     }),
@@ -531,19 +527,25 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                 position,
             })
         },
-        toggleInsightExpanded: ({ insightId, position }) => {
-            if (!values.expandedInsightIds[insightId]) {
-                return
-            }
-            const group = values.insightGroups.find((candidate) => candidate.insightId === insightId)
-            posthog.capture('anomalies tab insight expanded', {
-                insight_id: insightId,
-                flagged_series: group?.series.length ?? 0,
-                position,
-            })
+    })),
+    actionToUrl(({ values }) => ({
+        setFilters: () => {
+            const { location, searchParams, hashParams } = router.values
+            const { [ANOMALIES_SCOPE_PARAM]: _, ...otherParams } = searchParams
+            const scope = scopeToUrl(values.filters.viewedWithinDays)
+            return [
+                location.pathname,
+                scope ? { ...otherParams, [ANOMALIES_SCOPE_PARAM]: scope } : otherParams,
+                hashParams,
+                { replace: true },
+            ]
         },
     })),
     afterMount(({ actions, values }) => {
+        const scope = scopeFromUrl(router.values.searchParams[ANOMALIES_SCOPE_PARAM])
+        if (scope !== values.filters.viewedWithinDays) {
+            actions.setScopeFromUrl(scope)
+        }
         posthog.capture('anomalies tab viewed', filterProperties(values.filters))
         actions.loadAnomalies()
     }),

@@ -4,13 +4,14 @@ from typing import TYPE_CHECKING
 
 import posthoganalytics
 
-from posthog.permissions import _FORCE_ENABLED_FLAGS, posthog_feature_flag_enabled
+from posthog.permissions import (
+    _FORCE_ENABLED_FLAGS,
+    dashboard_v2_enabled as _dashboard_v2_enabled,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
-
-DASHBOARD_V2_FLAG = "dashboard-v2"
 
 
 def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
@@ -35,12 +36,4 @@ def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> b
 
 
 def dashboard_v2_enabled(team: Team, user: User | None = None) -> bool:
-    """`dashboard-v2` is aggregated by project, so the browser, API and background jobs agree on it."""
-    distinct_id = str(user.distinct_id) if user is not None and user.distinct_id else str(team.uuid)
-    return posthog_feature_flag_enabled(
-        DASHBOARD_V2_FLAG,
-        distinct_id,
-        organization_id=team.organization_id,
-        team_id=team.pk,
-        only_evaluate_locally=True,
-    )
+    return _dashboard_v2_enabled(team, user)

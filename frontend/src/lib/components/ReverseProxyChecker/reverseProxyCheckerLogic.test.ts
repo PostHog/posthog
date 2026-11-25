@@ -8,18 +8,13 @@ import { initKeaTests } from '~/test/init'
 
 import { reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
 
-const hasReverseProxyValues = [['https://proxy.example.com'], [null]]
-const doesNotHaveReverseProxyValues = [[null], [null]]
-
-const useMockedValues = (results: (string | null)[][]): void => {
+const useMockedResults = (proxiedRows: string[][], pageviewRows: number[][]): void => {
     useMocks({
         post: {
-            '/api/environments/:team_id/query/:kind': () => [
-                200,
-                {
-                    results,
-                },
-            ],
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const body = JSON.stringify(await request.json())
+                return [200, { results: body.includes('lib_custom_api_host') ? proxiedRows : pageviewRows }]
+            },
         },
     })
 }
@@ -37,8 +32,12 @@ describe('reverseProxyCheckerLogic', () => {
         logic.unmount()
     })
 
-    it('should not have a reverse proxy set - when no data', async () => {
-        useMockedValues([])
+    it.each([
+        ['proxied pageviews', [['https://proxy.example.com']], [[1]], true],
+        ['pageviews without a proxy', [], [[1]], false],
+        ['no pageviews, as in an app that only sends $screen', [], [], null],
+    ])('reports %s', async (_name, proxiedRows, pageviewRows, expected) => {
+        useMockedResults(proxiedRows, pageviewRows)
 
         logic.mount()
 
@@ -47,35 +46,7 @@ describe('reverseProxyCheckerLogic', () => {
         })
             .toFinishAllListeners()
             .toMatchValues({
-                hasReverseProxy: false,
-            })
-    })
-
-    it('should not have a reverse proxy set - when data with no lib_custom_api_host values', async () => {
-        useMockedValues(doesNotHaveReverseProxyValues)
-
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadHasReverseProxy()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                hasReverseProxy: false,
-            })
-    })
-
-    it('should have a reverse proxy set', async () => {
-        useMockedValues(hasReverseProxyValues)
-
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadHasReverseProxy()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                hasReverseProxy: true,
+                hasReverseProxy: expected,
             })
     })
 
