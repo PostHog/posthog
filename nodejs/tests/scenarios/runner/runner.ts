@@ -349,7 +349,7 @@ function roundRobin(urls: readonly string[]): () => string {
     return () => urls[next++ % urls.length]
 }
 
-function localTarget(
+export function localTarget(
     environment: Environment,
     env: NodeJS.ProcessEnv,
     stateDir: string,

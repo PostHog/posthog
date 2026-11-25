@@ -66,11 +66,12 @@ import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/
 import { JournalEntry } from '../judge/judge'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
+import { Truth } from '../provider-edge/truth'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, TargetRun, createRunner } from './runner'
+import { RunResult, RunTarget, Runner, TargetRun, createRunner, localTarget } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -1056,6 +1057,7 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let edgeRecords: Truth
     let throughTheEdge: ProxyAgent
     let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
@@ -1261,10 +1263,12 @@ describe('runner through seed, drive and judge', () => {
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
             ...api.credentials,
         }
+        edgeRecords = new Truth()
         edge = await startProviderEdge({
             port: 0,
             trackingKeys: secretsOf(env).encryptionSaltKeys,
             caDir: path.join(cacheHome, 'edge-ca'),
+            truth: edgeRecords,
         })
         throughTheEdge = new ProxyAgent({
             uri: edge.url,
@@ -1328,12 +1332,15 @@ describe('runner through seed, drive and judge', () => {
         valves: ValveEntry[] = [],
         traffic?: string,
         options: Parameters<typeof shortSmoke>[2] = {},
-        signal: AbortSignal = NEVER_ABORTED
+        signal: AbortSignal = NEVER_ABORTED,
+        targetOf?: (environment: Environment) => RunTarget
     ): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env, {
+        const environment = environmentOf(delivering)
+        const result = await createRunner(environment, env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
             counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
+            target: targetOf?.(environment),
         }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
@@ -1451,15 +1458,57 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
-    it.each<['all' | 'all, leaving one job running', (sent: number) => number | null]>([
-        ['all', (sent) => -sent],
-        ['all, leaving one job running', () => null],
+    const resendingDuringTheCounterRead = (environment: Environment): RunTarget => {
+        const local = localTarget(environment, env, defaultStateDir(env), 60_000, false)
+        return {
+            ...local,
+            open(loaded, runId) {
+                const opened = local.open(loaded, runId)
+                return {
+                    ...opened,
+                    counters: {
+                        counted: (query) => {
+                            const sent = [...edgeRecords.records]
+                                .reverse()
+                                .find(({ kind, status }) => kind === 'ses.send' && status === 200)!
+                            edgeRecords.append({
+                                kind: sent.kind,
+                                status: sent.status,
+                                unitId: sent.unitId,
+                                actionId: sent.actionId,
+                                flowId: sent.flowId,
+                                detail: {},
+                            })
+                            return opened.counters!.counted(query)
+                        },
+                    },
+                }
+            },
+        }
+    }
+
+    it.each<
+        [
+            string,
+            'all' | 'all, leaving one job running',
+            (sent: number) => number | null,
+            ((environment: Environment) => RunTarget) | undefined,
+        ]
+    >([
+        ['delivering all', 'all', (sent) => -sent, undefined],
+        ['delivering all, leaving one job running', 'all, leaving one job running', () => null, undefined],
+        ['the edge accepts a resend while the counters are read', 'all', () => null, resendingDuringTheCounterRead],
     ])(
-        'scores the email sends no app metric counted when delivering %s',
-        async (delivering, drift) => {
-            const result = await run(delivering, [], 'event_email', {
-                measures: [{ name: 'counter_drift', params: {} }],
-            })
+        'scores the email sends no app metric counted when %s',
+        async (_story, delivering, drift, targetOf) => {
+            const result = await run(
+                delivering,
+                [],
+                'event_email',
+                { measures: [{ name: 'counter_drift', params: {} }] },
+                NEVER_ABORTED,
+                targetOf
+            )
 
             const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
                 ({ kind, status }) => kind === 'ses.send' && status === 200
