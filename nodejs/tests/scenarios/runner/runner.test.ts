@@ -1158,7 +1158,7 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            measures = SMOKE.card.measure,
+            measures = SMOKE.card.measure.filter(({ name }) => name !== 'counter_drift'),
             load: loadTargets,
             backlog,
             ramp,
@@ -1333,6 +1333,7 @@ describe('runner through seed, drive and judge', () => {
         const result = await createRunner(environmentOf(delivering), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
         }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
@@ -1450,6 +1451,19 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it('scores each email sent that no app metric counted as negative drift', async () => {
+        const result = await run('all', [], 'event_email', { measures: [{ name: 'counter_drift', params: {} }] })
+
+        const sent = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(({ answer }) => answer.accepted)
+        expect(sent).not.toHaveLength(0)
+        expect(api.captured[0]?.properties).toMatchObject({
+            m_counter_drift_owed: sent.length,
+            m_counter_drift_email_sent: -sent.length,
+            m_counter_drift_email_sent_counted: 0,
+            m_counter_drift_email_sent_sink: sent.length,
+            m_counter_drift_email_failed: 0,
+        })
+    }, 30_000)
     it.each([
         ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],

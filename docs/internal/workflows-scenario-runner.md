@@ -847,6 +847,16 @@ export type JournalEntry = {
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
+  - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
+    - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered`, `email_bounced` and `email_failed`.
+    - The sink's count for each counter comes from the truth of this run's units:
+      - `email_sent`: 2xx `ses.send` records.
+      - `email_delivered`: 0, because the edge publishes no delivery notifications.
+      - `email_bounced`: bounce notifications that the SES webhook answered with a 2xx.
+      - `email_failed`: sends the edge refused and never accepted.
+    - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when every counter matches the sink, or when no counter changed for 15 seconds. After 60 seconds it keeps the last read and marks it incomplete.
+    - Keys: `owed`, the email messages the journal owes, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift. When ClickHouse cannot be read, each counter's value is `null` and censored.
+    - The count of `$workflows_email_sent` events is not read yet. The stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe

@@ -34,6 +34,7 @@ import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '..
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
+import { COUNTER_READ, CounterRead, counterDrift, readCounters, sinkCountsOf } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -49,6 +50,7 @@ import {
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
 import { edgeTruth } from '../judge/truth'
+import { CounterProbe, clickhouseOf, createCounterProbe } from '../probe/counter-probe'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
@@ -77,6 +79,7 @@ const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
+    counters?: CounterProbe
     groups: ConsumerGroup[]
     connect(): Promise<void>
     seed(signal: AbortSignal): Promise<SeedState>
@@ -385,6 +388,7 @@ function localTarget(
             return {
                 truth: edgeTruth(edgeUrl),
                 probe,
+                counters: createCounterProbe(clickhouseOf(env)),
                 residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrl),
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
                 groups,
@@ -418,6 +422,7 @@ export type RunnerOptions = {
     topologyWithinMs?: number
     topologyEveryMs?: number
     target?: RunTarget
+    counterRead?: CounterRead
 }
 
 export function createRunner(
@@ -428,6 +433,7 @@ export function createRunner(
         topologyWithinMs = TOPOLOGY_WITHIN_MS,
         topologyEveryMs = TOPOLOGY_EVERY_MS,
         target,
+        counterRead = COUNTER_READ,
     }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
@@ -668,8 +674,20 @@ export function createRunner(
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)
+                const counters = card.measure.some(({ name }) => name === counterDrift.name)
+                    ? await (opened.counters
+                          ? readCounters(
+                                opened.counters,
+                                { teams: seeded.teamIds, from: Date.parse(startedAt) },
+                                sinkCountsOf(judge.evidence()),
+                                counterRead,
+                                signal
+                            )
+                          : { unread: `the ${runTarget.name} target has no counter read` })
+                    : undefined
                 const evidence = {
                     ...judge.evidence(),
+                    counters,
                     ...sampled,
                     ...probed,
                     sampledFrom: sampler.sampledFrom,
