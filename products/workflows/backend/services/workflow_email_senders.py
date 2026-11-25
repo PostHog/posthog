@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 SENDER_UNUSABLE_NOTICE_FLAG = "workflows-sender-unusable-notice"
 
 _PAGE_SIZE = 500
+_WORKFLOW_PAGE_SIZE = 50
 
 sender_unusable_notice_failures_total = Counter(
     "workflow_email_sender_unusable_notice_failures_total",
@@ -76,16 +77,11 @@ def unusable_email_steps(actions: list[dict[str, Any]], *, team_id: int) -> list
 
 
 def live_workflows_with_unusable_senders(team_id: int) -> list[WorkflowWithUnusableSenders]:
-    flows = list(
-        HogFlow.objects.filter(_HAS_EMAIL_STEP, team_id=team_id, status=HogFlow.State.ACTIVE)
-        .order_by("id")
-        .values("id", "name", "actions", "created_by_id")
-    )
-    if not flows:
-        return []
-    verification = own_sender_verification(team_id)
+    verification: Mapping[str, bool] | None = None
     workflows = []
-    for flow in flows:
+    for flow in _live_email_workflows(team_id):
+        if verification is None:
+            verification = own_sender_verification(team_id)
         if steps := _unusable_steps(flow["actions"] or [], verification):
             workflows.append(
                 WorkflowWithUnusableSenders(
@@ -93,6 +89,16 @@ def live_workflows_with_unusable_senders(team_id: int) -> list[WorkflowWithUnusa
                 )
             )
     return workflows
+
+
+def _live_email_workflows(team_id: int) -> Iterator[Mapping[str, Any]]:
+    live = HogFlow.objects.filter(_HAS_EMAIL_STEP, team_id=team_id, status=HogFlow.State.ACTIVE).order_by("id")
+    page = list(live.values("id", "name", "actions", "created_by_id")[:_WORKFLOW_PAGE_SIZE])
+    while page:
+        yield from page
+        page = list(
+            live.filter(id__gt=page[-1]["id"]).values("id", "name", "actions", "created_by_id")[:_WORKFLOW_PAGE_SIZE]
+        )
 
 
 def notify_unusable_email_senders() -> None:

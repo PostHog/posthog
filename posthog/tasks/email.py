@@ -1076,12 +1076,12 @@ def _can_view_workflow(subject: Subject, project: Resource, workflows: Resource,
             for resource in (project, workflows, workflow)
         ]
     )
-    return in_project and on_workflow and (on_workflows or _granted(subject, workflows, workflow))
+    return in_project and on_workflow and (on_workflows or _granted_any(subject, workflows))
 
 
-def _granted(subject: Subject, workflows: Resource, workflow: Resource) -> bool:
+def _granted_any(subject: Subject, workflows: Resource) -> bool:
     allowed = authorization.list_objects(resource=workflows, action=Action.VIEW, subject=subject)
-    return allowed.complete and not allowed.excluded and workflow.id in allowed.ids
+    return allowed.complete and not allowed.excluded and bool(allowed.ids)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

@@ -19,6 +19,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.services import workflow_email_senders
 from products.workflows.backend.services.workflow_email_senders import SENDER_UNUSABLE_NOTICE_FLAG
 from products.workflows.backend.tasks.workflow_email_health import notify_unusable_workflow_email_senders
 from products.workflows.backend.test.email_domain_api_test_case import DOMAIN, EmailDomainApiTestCase
@@ -99,6 +100,15 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         assert "Hello email" not in text
         assert f"/project/{self.team.id}/workflows/{broken.id}/workflow" in body
 
+    def test_reads_a_projects_workflows_past_the_first_page(self) -> None:
+        self.enterContext(patch(f"{workflow_email_senders.__name__}._WORKFLOW_PAGE_SIZE", 1))
+        self.workflow("Healthy", email_step("hello", "Hello email", self.verified))
+        self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
+
+        notify_unusable_workflow_email_senders()
+
+        assert ["Onboarding" in message.subject for message in mail.outbox] == [True]
+
     def test_emails_again_when_the_steps_senders_break_differently(self) -> None:
         flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
         notify_unusable_workflow_email_senders()
@@ -162,6 +172,12 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
                 ["org_admin", "project_admin", "creator"],
             ),
             ("creator_lost_project_access", False, [("creator", "project", "none")], ["org_admin", "project_admin"]),
+            (
+                "creator_kept_a_grant_on_another_workflow",
+                False,
+                [("creator", "workflows", "none"), ("creator", "another_workflow", "viewer")],
+                ["org_admin", "project_admin", "creator"],
+            ),
         ]
     )
     def test_emails_exactly_the_people_who_can_open_the_workflow(
@@ -187,11 +203,16 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
             access_level="admin",
             organization_member=members["project_admin"],
         )
+        another = self.workflow("Renewals", email_step("renew", "Renewal email", self.verified))
         for who, scope, level in rules:
             AccessControl.objects.create(
                 team=self.team,
                 resource="project" if scope == "project" else "hog_flow",
-                resource_id={"project": str(self.team.id), "this_workflow": str(flow.id)}.get(scope),
+                resource_id={
+                    "project": str(self.team.id),
+                    "this_workflow": str(flow.id),
+                    "another_workflow": str(another.id),
+                }.get(scope),
                 access_level=level,
                 organization_member=members.get(who),
             )
