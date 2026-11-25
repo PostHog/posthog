@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_PROPERTY_COLUMNS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
@@ -70,7 +71,7 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 from posthog.hogql.utils import ilike_matches, is_json_verbatim, like_matches
-from posthog.hogql.visitor import CloningVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
@@ -169,6 +170,12 @@ def resolve_materialized_property_source(
         return None
 
     if context.modifiers.materializationMode == "disabled":
+        return None
+
+    # ai_events is a Distributed table, so ClickHouse runs the joins of a query that reads it on the ai-events cluster.
+    # There, `person` is a Distributed shim built from the base DDL (posthog/models/ai_events/person_shims.py), and it
+    # has none of the pmat_* columns that the materialized-column registry lists for the main cluster.
+    if table_name == "person" and context.reads_ai_events:
         return None
 
     # The flag_evaluations typed columns are fixed DDL, so they are declared on the table, not read from the registry.
@@ -2892,6 +2899,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         return None
 
 
+class _AiEventsReadFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_table_type(self, node: ast.TableType) -> None:
+        if isinstance(node.table, AiEventsTable):
+            self.found = True
+
+
 def clickhouse_property_resolution(
     node: _T_AST, context: HogQLContext, settings: HogQLGlobalSettings | None = None
 ) -> _T_AST:
@@ -2903,4 +2919,7 @@ def clickhouse_property_resolution(
     """
     # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
     transform_null_in = isinstance(settings, HogQLGlobalSettings) and bool(settings.transform_null_in)
+    ai_events_finder = _AiEventsReadFinder()
+    ai_events_finder.visit(node)
+    context.reads_ai_events = ai_events_finder.found
     return cast(_T_AST, ClickHousePropertyResolver(context, transform_null_in=transform_null_in).visit(node))
