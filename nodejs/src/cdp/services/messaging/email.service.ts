@@ -75,7 +75,11 @@ import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBefor
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { PreferenceLookupError, RecipientPreferencesService } from './recipient-preferences.service'
-import { RecipientTokensService, preferencesTokenSourceForInvocation } from './recipient-tokens.service'
+import {
+    RecipientTokensService,
+    SES_HEADER_VALUE_MAX_LENGTH,
+    preferencesTokenSourceForInvocation,
+} from './recipient-tokens.service'
 
 const emailEngagementSettingReadFailuresTotal = new Counter({
     name: 'cdp_email_engagement_setting_read_failures_total',
@@ -116,6 +120,29 @@ const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME,
  */
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
+
+// References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
+// thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
+export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailType['thread']): MessageHeader[] {
+    if (!thread) {
+        return []
+    }
+    const ids = [...thread.references.filter((id) => id !== thread.inReplyTo), thread.inReplyTo]
+    const [root, ...rest] = ids
+    const newest: string[] = []
+    let length = root.length
+    for (const id of rest.reverse()) {
+        if (length + 1 + id.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            break
+        }
+        length += 1 + id.length
+        newest.unshift(id)
+    }
+    return [
+        { Name: 'In-Reply-To', Value: thread.inReplyTo },
+        { Name: 'References', Value: [root, ...newest].join(' ') },
+    ]
+}
 
 function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
     return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
@@ -1649,7 +1676,9 @@ export class EmailService {
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(text ? { text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: Object.fromEntries(
+                [AUTO_SUBMITTED_HEADER, ...threadHeaders(params.thread)].map(({ Name, Value }) => [Name!, Value!])
+            ),
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1830,6 +1859,7 @@ export class EmailService {
                 trackingHeader,
                 ...messageCreatedHeaders,
                 AUTO_SUBMITTED_HEADER,
+                ...threadHeaders(params.thread),
             ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({

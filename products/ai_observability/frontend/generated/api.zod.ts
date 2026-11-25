@@ -394,7 +394,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .boolean()
                     .optional()
                     .describe(
-                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result."
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and llm_analytics:read. For reported scorers, omit this flag or set false and supply the result."
                     ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
@@ -819,7 +819,7 @@ export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ * Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.
  */
 
 export const DatasetsExtendRetentionCreateBody = /* @__PURE__ */ zod.object({

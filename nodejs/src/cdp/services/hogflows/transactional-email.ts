@@ -44,6 +44,11 @@ const AcceptedSendCategorySchema = z
 export type SendCategory = z.infer<typeof SendCategorySchema>
 export type AcceptedSendCategory = z.infer<typeof AcceptedSendCategorySchema>
 
+const MessageIdSchema = z
+    .string()
+    .max(255)
+    .regex(/^<[!-;=?A-~]+@[!-;=?-~]+>$/)
+
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
     '.adp',
@@ -223,12 +228,17 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         message_category: AcceptedSendCategorySchema.optional(),
+        thread: z
+            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).max(100).readonly() })
+            .strict()
+            .readonly()
+            .optional(),
     })
     .strict()
     .readonly()
 
 export const BatchSendSchema = AcceptedSendSchema.unwrap()
-    .omit({ cc: true, bcc: true, attachments: true, message_category: true })
+    .omit({ cc: true, bcc: true, attachments: true, message_category: true, thread: true })
     .strict()
     .readonly()
 
@@ -519,6 +529,7 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.thread && { thread: { inReplyTo: send.thread.inReplyTo, references: [...send.thread.references] } }),
 })
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })

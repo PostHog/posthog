@@ -798,6 +798,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ['a reply-to address', () => ({ replyTo: ['help@example.com'] })],
         ['a custom from address', (integrationId) => ({ from: { integrationId, email: 'me@example.com' } })],
         ['a custom from name', (integrationId) => ({ from: { integrationId, name: 'Support' } })],
+        ['a reply thread', () => ({ thread: { inReplyTo: '<parent@example.com>', references: [] } })],
         [
             'a file attachment',
             () => ({

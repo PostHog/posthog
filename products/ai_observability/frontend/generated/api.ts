@@ -2130,7 +2130,7 @@ export const getDatasetsExtendRetentionCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ * Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.
  */
 export const datasetsExtendRetentionCreate = async (
     projectId: string,

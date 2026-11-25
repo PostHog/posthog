@@ -1058,7 +1058,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     # The configs that the exposure query builds from, so the filters read here are the ones it applies.
-    params = get_exposure_config_params_for_builder(criteria, experiment.team, experiment.start_date)
+    params = get_exposure_config_params_for_builder(criteria, experiment.start_date)
     config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]

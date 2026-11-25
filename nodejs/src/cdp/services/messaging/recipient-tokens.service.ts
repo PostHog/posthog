@@ -34,7 +34,7 @@ export type ValidatedPreferencesToken =
 
 // CAN-SPAM requires an opt-out link to work for at least 30 days after the email is sent.
 const PREFERENCES_TOKEN_MAX_AGE = '60d'
-const SES_HEADER_VALUE_MAX_LENGTH = 870
+export const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 export function preferencesTokenSourceForInvocation(
     invocation: Pick<CyclotronJobInvocationHogFunction, 'id' | 'functionId' | 'parentRunId' | 'state'>

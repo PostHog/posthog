@@ -3527,6 +3527,9 @@ export namespace Schemas {
       NoEventFilter: 'no_event_filter',
       NoStartDate: 'no_start_date',
       PersonsJoin: 'persons_join',
+      RepeatedCteExpansion: 'repeated_cte_expansion',
+      CrossJoinEquality: 'cross_join_equality',
+      DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
     } as const;
 
     export interface QueryScanWarning {
@@ -39393,9 +39396,13 @@ export namespace Schemas {
          */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** When this immutable version was created. */
       readonly version_created_at: string;
       readonly version_created_by: UserBasic | null;
+      /** @nullable */
+      readonly version_created_by_project_key_id: string | null;
       /** Project that owns the item. */
       readonly team_id: number;
     }
@@ -39452,6 +39459,8 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
       /**
@@ -39498,6 +39507,8 @@ export namespace Schemas {
       readonly revision: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** Project that owns the revision. */
       readonly team_id: number;
       /**
@@ -84646,11 +84657,15 @@ export namespace Schemas {
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
       /** User who last updated the scorer or created a version. */
       readonly updated_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_by_project_key_id: string | null;
       readonly team: number;
     }
 
@@ -88296,9 +88311,14 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       /** User who last saved this review. */
-      readonly reviewed_by: UserBasic;
+      readonly reviewed_by: UserBasic | null;
+      /**
+         * Public ID of the project key that last saved this review.
+         * @nullable
+         */
+      readonly reviewed_by_project_key_id: string | null;
       /** Saved scorer values for this review. */
       readonly scores: readonly TraceReviewScore[];
       readonly team: number;
@@ -113863,7 +113883,7 @@ export namespace Schemas {
       item_id: string;
       /** Exact UUID of an existing scorer version in this project. */
       scorer_version_id: string;
-      /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+      /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and llm_analytics:read. For reported scorers, omit this flag or set false and supply the result. */
       calculate?: boolean;
       /** Outcome of this scorer execution.
        *
@@ -117213,6 +117233,8 @@ export namespace Schemas {
       readonly created_at: string;
       /** User who created this version. */
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
     }
 
     /**
@@ -138360,6 +138382,8 @@ export namespace Schemas {
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
+     * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -138486,6 +138510,8 @@ export namespace Schemas {
       LLMPromptLabel: 'LLMPromptLabel',
       LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
+      TraceReview: 'TraceReview',
+      ScoreDefinition: 'ScoreDefinition',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -138598,6 +138624,8 @@ export namespace Schemas {
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
+     * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -138712,6 +138740,8 @@ export namespace Schemas {
       LLMPromptLabel: 'LLMPromptLabel',
       LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
+      TraceReview: 'TraceReview',
+      ScoreDefinition: 'ScoreDefinition',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
