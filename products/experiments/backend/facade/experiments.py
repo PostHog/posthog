@@ -7,19 +7,17 @@ with the message the API returns.
 from dataclasses import fields
 from typing import Any
 
-from django.utils import timezone
-
 from posthog.models.team.team import Team
 from posthog.paging import Page, PageRequest
 
 from products.experiments.backend.experiment_creator import to_experiment_creator
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    resolve_default_exposure_event,
-)
 from products.experiments.backend.logic import experiments
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS, apply_saved_metric_overrides
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    apply_saved_metric_overrides,
+    saved_metric_links,
+)
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -132,19 +130,10 @@ def _to_saved_metric_link(
 
 
 def _to_saved_metric_links(experiment: Experiment) -> tuple[ExperimentSavedMetricLinkView, ...]:
-    links = list(experiment.experimenttosavedmetric_set.all())
+    links = saved_metric_links(experiment)
     # The calculation keys read the team's experiment settings, so an experiment without shared metrics skips them.
     calculation_keys = ExperimentService.saved_metric_calculation_keys(experiment) if links else {}
     return tuple(_to_saved_metric_link(link, experiment.team, calculation_keys.get(link.id)) for link in links)
-
-
-def _resolved_exposure_event(experiment: Experiment) -> str:
-    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
-    if experiment.is_rule_linked:
-        return EXPERIMENT_EXPOSURE_EVENT
-    # A draft has no start_date yet, so resolve against now: that's the event it would get if
-    # launched today, which is what the setup UI needs to show.
-    return resolve_default_exposure_event(experiment.team, experiment.start_date or timezone.now())
 
 
 def _to_experiment_detail(experiment: Experiment) -> ExperimentDetail:
@@ -168,20 +157,25 @@ def _to_experiment_detail(experiment: Experiment) -> ExperimentDetail:
         flag_cleanup_task_id=experiment.flag_cleanup_task_id,
         repository=experiment.repository,
         can_freeze_exposure=experiment.can_freeze_exposure,
-        resolved_exposure_event=_resolved_exposure_event(experiment),
+        resolved_exposure_event=experiments.resolved_exposure_event(experiment),
     )
 
 
 def get_experiment(
-    *, team: Team, experiment_id: int, include_deleted: bool = False, lookup: ExperimentListFilters | None = None
+    *,
+    team: Team,
+    experiment_id: int,
+    include_deleted: bool = False,
+    search: str | None = None,
+    order: str | None = None,
 ) -> ExperimentDetail | None:
     """The experiment of the project with the id, or None when the project has no such experiment.
 
-    A deleted experiment counts only with `include_deleted`. `lookup` applies its `search` and `order` as the API
-    applies them to a read of one experiment: the experiment must match the search, and the order must be valid.
+    A deleted experiment counts only with `include_deleted`. `search` and `order` apply as the API applies them
+    to a read of one experiment: the experiment must match the search, and the order must be valid.
     """
     experiment = experiments.get_detail(
-        team=team, experiment_id=experiment_id, include_deleted=include_deleted, lookup=lookup
+        team=team, experiment_id=experiment_id, include_deleted=include_deleted, search=search, order=order
     )
     return None if experiment is None else _to_experiment_detail(experiment)
 

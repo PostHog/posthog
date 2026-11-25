@@ -1,7 +1,9 @@
-from dataclasses import fields
+from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any
 
-from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, Value, When
+from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
+from django.utils import timezone
 
 from posthog.models import TaggedItem
 from posthog.models.team.team import Team
@@ -11,6 +13,10 @@ from posthog.queryset_paging import select_page
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import ExperimentListFilters, ListAccess
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.logic.saved_metrics import visible_to
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
@@ -23,9 +29,7 @@ from products.feature_flags.backend.facade.filters import stored_payloads
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
-# Heavy JSON columns the list view never renders. Deferred for the list action so large
-# pages don't pay to read/decode detail-only data; the full serializer still loads them
-# for retrieve/update. None of these are touched by the list filters or status derivation.
+# Heavy JSON columns that the list does not return. The list filters, the status and the list mapper must not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
@@ -38,28 +42,12 @@ LIST_DEFERRED_FIELDS = (
     "secondary_metrics_ordered_uuids",
 )
 
-_RELATIONS = ("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
-
-
-def _flag_evaluation_contexts_prefetch() -> Prefetch:
-    return Prefetch(
-        "feature_flag__flag_evaluation_contexts",
-        queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-    )
-
-
-def _tags_prefetch() -> Prefetch:
-    return Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
-
 
 def _list_is_legacy_annotation() -> Case:
-    """DB-side `is_legacy` for the list endpoint, mirroring ``experiment_has_legacy_metrics`` in SQL.
+    """``experiment_has_legacy_metrics`` in SQL, for the list, which defers the metric columns.
 
-    The list serializer omits metrics, so it can't compute legacy-ness in Python without
-    re-reading the deferred JSON columns (one query per row). Instead we annotate the flag in the
-    single list query: a JSONB containment check on the inline metrics plus an ``EXISTS`` over the
-    saved metrics. The metric columns are referenced only in the predicate, so they stay out of the
-    SELECT output and the response — the deferral still holds.
+    A read of those columns in Python costs one query per row. The predicate reads them inside the list query,
+    and they stay out of the SELECT, so the deferral still holds.
     """
     inline_legacy = Q()
     for kind in LEGACY_METRIC_KINDS:
@@ -77,34 +65,42 @@ def _list_is_legacy_annotation() -> Case:
     )
 
 
-def _query_params(filters: ExperimentListFilters | None) -> dict[str, str]:
-    if filters is None:
-        return {}
-    values = ((field.name, getattr(filters, field.name)) for field in fields(filters))
-    return {name: value for name, value in values if value is not None}
+def _query_params(values: Mapping[str, str | None]) -> dict[str, str]:
+    return {name: value for name, value in values.items() if value is not None}
+
+
+def _experiments(team: Team) -> QuerySet[Experiment]:
+    return (
+        Experiment.objects.filter(team__project_id=team.project_id)
+        .select_related("feature_flag", "created_by", "holdout__created_by")
+        .prefetch_related(
+            Prefetch(
+                "feature_flag__flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
+        )
+    )
 
 
 def get_detail(
-    *, team: Team, experiment_id: int, include_deleted: bool, lookup: ExperimentListFilters | None
+    *, team: Team, experiment_id: int, include_deleted: bool, search: str | None, order: str | None
 ) -> Experiment | None:
     queryset = (
-        Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
-        .select_related(*_RELATIONS)
+        _experiments(team)
+        .filter(pk=experiment_id)
+        .select_related("team")
         .prefetch_related(
-            _flag_evaluation_contexts_prefetch(),
             Prefetch(
-                # order_by("id") keeps saved metrics in insertion order — select_related below adds
-                # joins that would otherwise leave the row order unspecified.
-                "experimenttosavedmetric_set",
-                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
-                    "id"
-                ),
-            ),
-            _tags_prefetch(),
+                "experimenttosavedmetric_set", queryset=ExperimentToSavedMetric.objects.select_related("saved_metric")
+            )
         )
     )
     queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        queryset, action="retrieve", query_params=_query_params(lookup), include_deleted=include_deleted
+        queryset,
+        action="retrieve",
+        query_params=_query_params({"search": search, "order": order}),
+        include_deleted=include_deleted,
     )
     return strict_fetch(queryset).first()
 
@@ -112,21 +108,23 @@ def get_detail(
 def list_page(
     *, team: Team, filters: ExperimentListFilters, access: ListAccess | None, page: PageRequest
 ) -> Page[Experiment]:
-    queryset = (
-        Experiment.objects.filter(team__project_id=team.project_id)
-        .select_related(*_RELATIONS)
-        .prefetch_related(_flag_evaluation_contexts_prefetch(), _tags_prefetch())
-        .defer(*LIST_DEFERRED_FIELDS)
-        .annotate(is_legacy_annotation=_list_is_legacy_annotation())
-    )
+    rows = _experiments(team).defer(*LIST_DEFERRED_FIELDS).annotate(is_legacy_annotation=_list_is_legacy_annotation())
     queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        visible_to(queryset, access), action="list", query_params=_query_params(filters)
+        visible_to(rows, access), action="list", query_params=_query_params(asdict(filters))
     )
     return select_page(strict_fetch(queryset), page)
 
 
+def resolved_exposure_event(experiment: Experiment) -> str:
+    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
+    if experiment.is_rule_linked:
+        return EXPERIMENT_EXPOSURE_EVENT
+    # A draft has no start_date, so the setup UI shows the event that the draft would count if it launched now.
+    return resolve_default_exposure_event(experiment.team, experiment.start_date or timezone.now())
+
+
 def _with_split_percent(variants: list) -> list:
-    # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
+    # The frontend shows and edits the split of each variant as split_percent, a copy of its rollout_percentage.
     return [
         {**variant, "split_percent": variant["rollout_percentage"]}
         if isinstance(variant, dict) and "rollout_percentage" in variant
@@ -139,8 +137,7 @@ def projected_parameters(experiment: Experiment) -> dict[str, Any]:
     """The `parameters` that the experiment API returns: the stored parameters, with the flag config keys
     taken from the flag, or from the rule of a rule-linked experiment."""
     stored = experiment.parameters
-    # The JSON column can legally hold a non-dict on legacy rows (see migration 0026); the flag
-    # is the source of truth for the keys below, so a malformed blob is simply dropped.
+    # Legacy rows can hold a non-dict (see migration 0026). The flag or rule supplies the keys below, so drop it.
     parameters = dict(stored) if isinstance(stored, dict) else {}
     if experiment.is_rule_linked:
         _project_rule_config(parameters, experiment)
@@ -179,14 +176,9 @@ def _project_rule_config(parameters: dict[str, Any], experiment: Experiment) -> 
 def _project_feature_flag_config(parameters: dict[str, Any], experiment: Experiment) -> None:
     """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
 
-    The flag is the source of truth for every key in ``FEATURE_FLAG_CONFIG_KEYS`` — `parameters`
-    is a deprecated compatibility surface (see the experiment model's `parameters` comment).
-    Reading these keys from the flag instead of the stored column lets us stop persisting the
-    `parameters` mirror without changing the API response. It also keeps read-modify-write
-    echoes safe: legacy rows still carry stale copies in the column until the backfill strips
-    them, and a client that spreads a GET response into a save must echo the flag's live
-    config, not stale values the update path would then sync onto the flag. The loaders read the
-    linked flag with the experiment, so this adds no queries.
+    The flag is the source of truth for every key in ``FEATURE_FLAG_CONFIG_KEYS``. Legacy rows can carry stale
+    copies in the column. A client that spreads a GET response into a save must echo the live config of the flag,
+    because the update path syncs those values onto the flag.
     """
     flag = experiment.feature_flag
     parameters["feature_flag_variants"] = _with_split_percent(flag.variants)

@@ -904,10 +904,6 @@ class ExperimentRef:
     created_by_id: int | None
 
 
-class ExperimentNotFound(Exception):
-    """Raised when the project has no experiment with the id."""
-
-
 @frozen
 class ExperimentFlag:
     """The feature flag of an experiment, with the fields of the minimal flag shape of the feature flags API."""
@@ -982,7 +978,6 @@ class ExperimentBasic:
     running_time_calculation: dict[str, Any] | None
     excluded_variants: tuple[str, ...] | None
     archived: bool
-    # Null counts as not deleted.
     deleted: bool | None
     created_by_id: int | None
     created_by: ExperimentCreator | None
@@ -1029,7 +1024,7 @@ class ExperimentListFilters:
     """The query parameters of the experiments list.
 
     Each value is the raw text of the query parameter with the same name, so the list parses and refuses it
-    the way the API does. A read of one experiment uses only `search` and `order`.
+    the way the API does.
     """
 
     status: str | None = None

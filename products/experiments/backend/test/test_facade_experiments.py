@@ -1,4 +1,4 @@
-from dataclasses import fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -33,8 +33,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _API_KEYS = {"exposure_cohort_id": "exposure_cohort", "experiment_id": "experiment", "saved_metric_id": "saved_metric"}
 _CONTRACT_ONLY_KEYS = {"team_id", "created_by_id"}
-# The API adds the access level of the viewer, and two fields that are always null: `health`, and
-# `saved_metrics_ids`, which a write reads and no attribute of the experiment backs.
+# The API adds the access level of the viewer, and `health` and `saved_metrics_ids`, which it always renders as null.
 _API_ONLY_KEYS = {"user_access_level", "health", "saved_metrics_ids"}
 
 _CASES = ["fully_populated", "rule_linked_draft", "launched", "null_deleted_in_another_environment"]
@@ -179,10 +178,7 @@ class TestExperimentReadFacade(APIBaseTest):
             deleted=None,
         )
 
-    def _assert_matches_api(self, contract: object, api_row: dict[str, Any]) -> None:
-        self.assertEqual(_rendered(contract), _without_api_only_keys(api_row))
-
-    @parameterized.expand([(case,) for case in _CASES])
+    @parameterized.expand(_CASES)
     def test_get_experiment_matches_the_api(self, case: str) -> None:
         experiment = getattr(self, f"_create_{case}")()
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
@@ -191,13 +187,13 @@ class TestExperimentReadFacade(APIBaseTest):
         detail = get_experiment(team=self.team, experiment_id=experiment.id)
 
         assert detail is not None
-        self._assert_matches_api(detail, response.json())
+        self.assertEqual(_rendered(detail), _without_api_only_keys(response.json()))
         self.assertEqual(_rendered(detail.feature_flag), MinimalFeatureFlagSerializer(experiment.feature_flag).data)
 
     @parameterized.expand(
         [
             ("default", ExperimentListFilters()),
-            ("order", ExperimentListFilters(order="name")),
+            ("order", ExperimentListFilters(order="-name")),
             ("search", ExperimentListFilters(search="populated")),
             ("status", ExperimentListFilters(status="running")),
         ]
@@ -209,28 +205,26 @@ class TestExperimentReadFacade(APIBaseTest):
         Experiment.objects.create(
             team=other_project, name="Elsewhere", feature_flag=self._flag("x", team=other_project)
         )
-        query = urlencode(
-            {field.name: getattr(filters, field.name) for field in fields(filters) if getattr(filters, field.name)}
-        )
+        query = urlencode({name: value for name, value in asdict(filters).items() if value})
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?{query}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        api_rows = response.json()["results"]
+        body = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, body)
 
         page = list_experiments(team=self.team, filters=filters, access=None, page=PageRequest(limit=100))
 
-        self.assertEqual(page.count, response.json()["count"])
-        self.assertEqual([row.id for row in page.results], [row["id"] for row in api_rows])
+        self.assertEqual(page.count, body["count"])
+        self.assertEqual([row.id for row in page.results], [row["id"] for row in body["results"]])
         self.assertTrue(page.results)
-        for contract, api_row in zip(page.results, api_rows):
-            self._assert_matches_api(contract, api_row)
+        for contract, api_row in zip(page.results, body["results"]):
+            self.assertEqual(_rendered(contract), _without_api_only_keys(api_row))
 
     @parameterized.expand(
         [
             ("live", {}, {}, True),
             ("deleted", {"deleted": True}, {}, False),
             ("deleted_with_include_deleted", {"deleted": True}, {"include_deleted": True}, True),
-            ("search_misses", {}, {"lookup": ExperimentListFilters(search="other")}, False),
-            ("search_matches_the_flag_key", {}, {"lookup": ExperimentListFilters(search="lookup-flag")}, True),
+            ("search_misses", {}, {"search": "other"}, False),
+            ("search_matches_the_flag_key", {}, {"search": "lookup-flag"}, True),
         ]
     )
     def test_get_experiment_finds_the_experiment_the_lookup_names(
