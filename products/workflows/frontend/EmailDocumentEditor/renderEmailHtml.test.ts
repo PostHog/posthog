@@ -119,6 +119,17 @@ describe('renderEmailHtml', () => {
         ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
     })
 
+    it('draws the divider on the canvas with the style the email uses', () => {
+        const style = { lineWidth: 10, borderColor: '#ff0000', width: 50, textAlign: 'right' as const }
+        const html = renderEmailHtml(doc({ type: 'horizontalRule', attrs: { emailStyle: style } }, paragraph('x')))
+
+        expect(html).toContain('width="50%" align="right"')
+        expect(html).toContain('border-top:10px solid #ff0000')
+        expect(blockStyleToCanvasCss(style, 'horizontalRule')).toMatch(
+            /padding:8px 0;height:10px;background:linear-gradient\(#ff0000,#ff0000\) right top\/50% 100%/
+        )
+    })
+
     it('cleans every style a saved document carries before the canvas shows it', () => {
         const saved = doc(
             {
