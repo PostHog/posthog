@@ -22,10 +22,13 @@ export interface ChartConfig {
     time?: TimeRange
 }
 
+// Every target is a query the moment its tile mounts, so a cap keeps one tile from flooding the query batch.
+const MAX_CHART_TARGETS = 26
+
 const chartTargetSchema = z.strictObject({
-    refId: z.string().min(1),
+    // The query batch endpoint rejects a longer refId or legend, and with it every other tile's query in the batch.
+    refId: z.string().min(1).max(200),
     query: widgetQuerySchema,
-    // The query batch endpoint rejects a longer legend, and with it every other tile's query in the batch.
     legend: z.string().max(1000).optional(),
 })
 
@@ -71,7 +74,7 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
         configSchema: z
             .strictObject({
                 query: widgetQuerySchema.optional(),
-                targets: z.array(chartTargetSchema).min(1).optional(),
+                targets: z.array(chartTargetSchema).min(1).max(MAX_CHART_TARGETS).optional(),
                 viz: vizSchemas.length > 0 ? z.union(vizSchemas) : z.never(),
                 time: timeRangeSchema.optional(),
             })

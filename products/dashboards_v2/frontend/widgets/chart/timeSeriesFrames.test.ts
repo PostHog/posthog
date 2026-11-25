@@ -84,6 +84,15 @@ describe('timeSeriesFromFrames', () => {
         expect(new Set(both.series.map((one) => one.color)).size).toBe(3)
     })
 
+    it('gives frames of one target that share a name their own keys', () => {
+        const { series } = timeSeriesFromFrames([
+            frame('api', ['2026-11-01'], [1], { refId: 'A' }),
+            frame('api', ['2026-11-01'], [2], { refId: 'A' }),
+        ])
+
+        expect(series.map((one) => one.key)).toEqual(['A:api', 'A:api#2'])
+    })
+
     it('keeps the colour a collision gave a series when the series it collided with goes away', () => {
         // `B:requests` and `C:value` hash to the same slot of a five-colour palette.
         const requests = frame('requests', ['2026-11-01'], [1], { refId: 'B' })

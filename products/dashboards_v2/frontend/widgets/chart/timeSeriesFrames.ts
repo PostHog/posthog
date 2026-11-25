@@ -74,15 +74,26 @@ export function timeSeriesFromFrames(
     palette?: string[],
     assignedColors?: Map<string, string>
 ): TimeSeriesData {
+    const keyByTime = new Map<string, string>()
+    const keyOf = (time: unknown): string => {
+        const text = String(time)
+        let key = keyByTime.get(text)
+        if (key === undefined) {
+            key = timeKey(text)
+            keyByTime.set(text, key)
+        }
+        return key
+    }
     const labelByKey = new Map<string, string>()
     for (const time of frames.flatMap((frame) => fieldValues(frame, 'time').map(String))) {
-        const key = timeKey(time)
+        const key = keyOf(time)
         const existing = labelByKey.get(key)
         if (existing === undefined || time.length > existing.length) {
             labelByKey.set(key, time)
         }
     }
     const labels = [...labelByKey.values()].sort()
+    const labelKeys = labels.map(keyOf)
     const multiTarget = frames.some((frame) => frame.refId !== undefined)
     // A frame without a unit, such as an event count, gets its own axis next to one that has a unit, such as latency.
     const units = [...new Set(frames.map(unitOf))]
@@ -90,16 +101,21 @@ export function timeSeriesFromFrames(
         units.length > 1 || units[0]
             ? units.map((unit, index) => ({ id: index === 0 ? 'left' : `unit-${index}`, unit }))
             : []
+    // A legend such as `{{job}}` can give several frames of one target the same name, and the chart needs unique keys.
+    const keyCounts = new Map<string, number>()
     const series = frames.map((frame, index): Series => {
         const values = fieldValues(frame, 'number')
         const axis = axes.find((candidate) => candidate.unit === unitOf(frame))
-        const byTime = new Map(fieldValues(frame, 'time').map((time, position) => [timeKey(time), values[position]]))
+        const byTime = new Map(fieldValues(frame, 'time').map((time, position) => [keyOf(time), values[position]]))
         const name = frame.name ?? (multiTarget ? `${frame.refId}` : `Series ${index + 1}`)
+        const baseKey = multiTarget ? `${frame.refId}:${frame.name ?? index}` : (frame.name ?? `series-${index}`)
+        const repeats = keyCounts.get(baseKey) ?? 0
+        keyCounts.set(baseKey, repeats + 1)
         return {
-            key: multiTarget ? `${frame.refId}:${frame.name ?? index}` : (frame.name ?? `series-${index}`),
+            key: repeats === 0 ? baseKey : `${baseKey}#${repeats + 1}`,
             label: name,
-            data: labels.map((label) => {
-                const value = byTime.get(timeKey(label))
+            data: labelKeys.map((labelKey) => {
+                const value = byTime.get(labelKey)
                 return typeof value === 'number' ? value : NaN
             }),
             ...(axis && axis.id !== 'left' ? { yAxisId: axis.id } : {}),
