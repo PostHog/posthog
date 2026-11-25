@@ -86,7 +86,10 @@ class TestBuildExecutionMessage(SimpleTestCase):
         self.assertEqual(build_execution_message(**kwargs), expected)
 
     def test_kafka_failure_is_swallowed(self):
-        with mock.patch("products.endpoints.backend.logs.get_producer", side_effect=Exception("kafka down")):
+        with (
+            mock.patch("products.endpoints.backend.logs.get_producer", side_effect=Exception("kafka down")),
+            mock.patch("products.endpoints.backend.logs.send_internal_log", autospec=True) as send_internal_log,
+        ):
             # Must not raise — emitting a log line is best-effort.
             log_endpoint_execution(
                 team_id=1,
@@ -95,6 +98,8 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 level="INFO",
                 message="Endpoint executed",
             )
+
+        send_internal_log.assert_called_once()
 
     def test_logs_product_failure_keeps_the_kafka_row(self):
         with (
