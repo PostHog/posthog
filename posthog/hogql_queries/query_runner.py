@@ -1941,6 +1941,20 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "TraceSpansAggregationQuery":
+        from posthog.schema import TraceSpansAggregationQuery
+
+        from products.tracing.backend.logic import aggregation_query_runner
+
+        return aggregation_query_runner(
+            cast(TraceSpansAggregationQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "PropertyValuesQuery":
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 
