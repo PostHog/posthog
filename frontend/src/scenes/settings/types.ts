@@ -333,6 +333,7 @@ export type SettingId =
     | 'tracing-distinct-id-attribute-keys'
     | 'tracing-retention'
     | 'tracing-session-id-attribute-keys'
+    | 'ui-sounds'
     | 'user-delete'
     | 'user-groups'
     | 'variables'
