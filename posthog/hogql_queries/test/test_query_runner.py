@@ -1813,20 +1813,29 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("on", True, True, 2),
-            ("turned_off_after_caching", True, False, 1),
-            ("off", False, False, 0),
+            ("on", True, True, None, 2),
+            ("turned_off_after_caching", True, False, None, 1),
+            ("off", False, False, None, 0),
+            ("on_the_property_definition_page", True, True, "PropertyDefinition", 0),
         ]
     )
     @mock.patch("posthog.hogql_queries.utils.event_usage.get_producer")
-    def test_property_usage_tracking_follows_its_flag(
-        self, _name: str, fresh_flag: bool, cache_hit_flag: bool, expected_payloads: int, mock_get_producer
+    def test_property_usage_tracking_follows_its_flag_and_scene(
+        self,
+        _name: str,
+        fresh_flag: bool,
+        cache_hit_flag: bool,
+        scene: str | None,
+        expected_payloads: int,
+        mock_get_producer,
     ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
-        query = {
+        query: dict[str, Any] = {
             "some_attr": "bla",
             "other_attr": [{"key": "plan", "type": "person", "value": "pro", "operator": "exact"}],
         }
+        if scene:
+            query["tags"] = {"scene": scene}
 
         def flags(enabled: bool):
             return lambda key, *args, **kwargs: enabled and key == PROPERTY_USAGE_TRACKING_FLAG

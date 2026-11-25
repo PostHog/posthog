@@ -1299,6 +1299,12 @@ class TestPropertyUsageMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             ("event", "$device_type", None, 0, other_previous, [])
         ]
 
+        # 01:30 the next day in Tokyo the window starts on 2026-02-20, so the 2026-02-19 count moves to the previous one.
+        with time_machine.travel(datetime(2026, 3, 20, 16, 30, tzinfo=UTC), tick=False):
+            assert summarize([{"type": "event", "name": "$browser"}]) == [
+                ("event", "$browser", None, 6, 105, [("2026-03-20", 6)])
+            ]
+
     def test_rejects_empty_property_list(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"

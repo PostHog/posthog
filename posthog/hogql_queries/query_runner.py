@@ -206,7 +206,11 @@ from posthog.hogql_queries.query_failure_handling import (
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
-from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_TRACKING_FLAG, log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.event_usage import (
+    PROPERTY_USAGE_TRACKING_FLAG,
+    USAGE_UNTRACKED_SCENES,
+    log_event_usage_from_query_metadata,
+)
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
@@ -2503,6 +2507,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _property_usage_tracking_enabled(self) -> bool:
         return self._team_flag_enabled_locally(PROPERTY_USAGE_TRACKING_FLAG)
 
+    @cached_property
+    def _counts_as_definition_usage(self) -> bool:
+        tags = getattr(self.query, "tags", None)
+        return getattr(tags, "scene", None) not in USAGE_UNTRACKED_SCENES
+
     def _team_flag_enabled_locally(self, flag_key: str) -> bool:
         # only_evaluate_locally keeps this flag check off the network - this runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
@@ -2970,7 +2979,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if not query_run.is_warming and results.query_metadata:
+            if not query_run.is_warming and self._counts_as_definition_usage and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
@@ -3159,7 +3168,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not query_run.is_warming:
+                if not query_run.is_warming and self._counts_as_definition_usage:
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
