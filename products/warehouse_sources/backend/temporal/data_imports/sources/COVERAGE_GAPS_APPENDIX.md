@@ -1653,8 +1653,8 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Experiments, trials, and trial components (ListExperiments, ListTrials, ListTrialComponents and their Describe operations, POST /)` — resolve ExperimentConfig references on training jobs and compare experiment runs, parameters, and metrics (high)
 - [x] `Transform jobs (ListTransformJobs and DescribeTransformJob, POST /)` — analyze batch inference status, duration, failures, and model use (high)
 - [x] `Pipeline executions (ListPipelineExecutions and DescribePipelineExecution, POST /)` — measure workflow success rates, execution duration, and repeated failures (high)
-- [ ] `Pipeline execution steps (ListPipelineExecutionSteps, POST /)` — locate slow or failed steps and connect pipeline runs to training and processing jobs (medium)
-- [ ] `Pipelines (ListPipelines and DescribePipeline, POST /)` — identify pipeline owners and definitions when comparing workflow execution results (medium)
+- [x] `Pipeline execution steps (ListPipelineExecutionSteps, POST /)` — locate slow or failed steps and connect pipeline runs to training and processing jobs (medium)
+- [x] `Pipelines (ListPipelines and DescribePipeline, POST /)` — identify pipeline owners and definitions when comparing workflow execution results (medium)
 - [x] `Monitoring executions (ListMonitoringExecutions, POST /)` — track model monitoring failures and execution status for deployed endpoints (medium)
 
 Note: The official AWS SDK model supplies operation names, HTTP methods, required inputs, and response fields. The four existing tables use list and describe operations; training metrics and status transitions are already included. Read operations use POST / and require operation names in X-Amz-Target. Pipelines, steps, experiments, and model packages need nested requests or describe calls; unrelated settings and write operations are excluded.
@@ -5414,7 +5414,7 @@ Note: The live SDMX dataflow catalogue was parsed and compared with the three fi
 
 ## Eventbrite — gaps
 
-Today (13): `attendee_report`, `attendees`, `canned_questions`, `categories`, `events`, `formats`, `orders`, `organizations`, `questions`, `sales_report`, `subcategories`, `ticket_classes`, `venues`
+Today (17): `attendee_report`, `attendees`, `canned_questions`, `categories`, `discounts`, `events`, `formats`, `inventory_tiers`, `members`, `orders`, `organizations`, `questions`, `sales_report`, `subcategories`, `ticket_classes`, `ticket_groups`, `venues`
 
 Diffed against: <https://jsapi.apiary.io/apis/eventbriteapiv3public/api-description-document>
 
@@ -5422,10 +5422,10 @@ Diffed against: <https://jsapi.apiary.io/apis/eventbriteapiv3public/api-descript
 - [x] `/reports/attendees/ (Retrieve an Attendee Report)` — aggregated attendee report, the companion headline metric to the sales report (high) — added as `attendee_report`, fanned out per event
 - [x] `/events/{event_id}/questions/ and /events/{event_id}/canned_questions/` — lookup resolving the question ids referenced by the answers embedded in attendee and order records (high) — added as `questions` and `canned_questions`
 - [x] `/subcategories/ (List of Subcategories)` — lookup resolving subcategory_id on events; only top-level categories are synced (high) — added as `subcategories`
-- [ ] `/organizations/{organization_id}/discounts/ (Search Discounts by Organization)` — discount and promo code definitions plus usage counts, needed to explain order pricing (medium)
-- [ ] `/organizations/{organization_id}/ticket_groups/` — ticket group lookup that groups the ticket classes already synced (medium)
-- [ ] `/organizations/{organization_id}/members/ (List Members of an Organization)` — organization membership, resolving who has access to the organizations already synced (medium)
-- [ ] `/events/{event_id}/inventory_tiers/ (List Inventory Tiers by Event)` — capacity/inventory tiers behind ticket classes, needed for sell-through analysis (medium)
+- [x] `/organizations/{organization_id}/discounts/ (Search Discounts by Organization)` — discount and promo code definitions plus usage counts, needed to explain order pricing (medium) — added as `discounts`, fanned out per event with `scope=event`
+- [x] `/organizations/{organization_id}/ticket_groups/` — ticket group lookup that groups the ticket classes already synced (medium) — added as `ticket_groups`, with `status=all`
+- [x] `/organizations/{organization_id}/members/ (List Members of an Organization)` — organization membership, resolving who has access to the organizations already synced (medium) — added as `members`
+- [x] `/events/{event_id}/inventory_tiers/ (List Inventory Tiers by Event)` — capacity/inventory tiers behind ticket classes, needed for sell-through analysis (medium) — added as `inventory_tiers`
 - [ ] `/organizations/{organization_id}/roles/ (List Roles by Organization)` — role lookup that resolves the role ids on organization members (low)
 - [ ] `/events/{event_id}/teams/ and /events/{event_id}/teams/{team_id}/attendees/` — event team structure and team-level attendee membership for team-based events (low)
 - [ ] `/events/{event_id}/pricing/ (List Pricing)` — fee and pricing breakdown per event, complements order line items (low)
@@ -10393,14 +10393,14 @@ Diffed against: <https://github.com/nytimes/public_api_specs>
 - [x] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high). Added as `archive`; first sync and full refresh cover the last 12 months, incremental restarts at the watermark's month.
 - [x] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high). Added as `times_wire` on `/content/all/all/{time-period}.json`: `/content.json` looks up one item by URL, the feed is the `{time-period}` route.
 - [x] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium). Added as `books_best_sellers` (fan-out over `/lists/names.json`, one row per book per list edition).
-- [ ] `books list names (/svc/books/v3/lists/names.json)` — lookup table resolving the list encoded names, dates and update cadence used by every other books endpoint (medium)
+- [ ] `books list names (/svc/books/v3/lists/names.json)` — lookup table resolving the list encoded names, dates and update cadence used by every other books endpoint (medium) Skipped: the current Books API spec says NYT removed the list names service on 2025-05-15.
 - [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium); skipped: no stable row id and no date filter, and a full pull is ~29,000 titles at 20 per page, more requests than the Books API's daily limit. `books_best_sellers` holds the same rankings per edition.
-- [ ] `community user-content (/svc/community/v3/user-content/by-date.json)` — reader comments joined to articles - the only engagement signal in the NYT APIs (medium)
-- [ ] `movie reviews (/svc/movies/v2/reviews/search.json)` — critics' reviews with pick flags, a distinct content corpus from article_search (low)
-- [ ] `movie critics (/svc/movies/v2/critics/{resource-type}.json)` — lookup resolving the critic bylines attached to movie reviews (low)
-- [ ] `books reviews (/svc/books/v3/reviews.json)` — NYT book reviews keyed by ISBN/title, joins onto the best-seller lists (low)
-- [ ] `semantic concepts (/svc/semantic/v2/concept/search.json)` — taxonomy lookup resolving the person/subject/location tags carried on articles (low)
-- [ ] `times tags (/svc/suggest/v1/timestags)` — controlled-vocabulary tag dictionary for normalizing article keywords (low)
+- [ ] `community user-content (/svc/community/v3/user-content/by-date.json)` — reader comments joined to articles - the only engagement signal in the NYT APIs (medium) Skipped: the Community API is retired; the NYT developer portal no longer lists it and api.nytimes.com returns 404 for its routes.
+- [ ] `movie reviews (/svc/movies/v2/reviews/search.json)` — critics' reviews with pick flags, a distinct content corpus from article_search (low) Skipped: the Movie Reviews API is retired; the NYT developer portal no longer lists it and api.nytimes.com returns 404 for its routes.
+- [ ] `movie critics (/svc/movies/v2/critics/{resource-type}.json)` — lookup resolving the critic bylines attached to movie reviews (low) Skipped: the Movie Reviews API is retired; api.nytimes.com returns 404 for its routes.
+- [ ] `books reviews (/svc/books/v3/reviews.json)` — NYT book reviews keyed by ISBN/title, joins onto the best-seller lists (low) Skipped: the current Books API spec says NYT removed the book reviews service on 2025-05-15.
+- [ ] `semantic concepts (/svc/semantic/v2/concept/search.json)` — taxonomy lookup resolving the person/subject/location tags carried on articles (low) Skipped: the Semantic API is retired; the NYT developer portal no longer lists it and api.nytimes.com returns 404 for its routes.
+- [ ] `times tags (/svc/suggest/v1/timestags)` — controlled-vocabulary tag dictionary for normalizing article keywords (low) Skipped: the TimesTags API is retired; the NYT developer portal no longer lists it and api.nytimes.com returns 404 for its routes.
 
 Note: Diffed against the NYT org's own OpenAPI JSON specs (archive_api, books_api, community, movie_reviews, semantic_api, times_tags, timeswire, top_stories, most_popular). PostHog covers 3 of the 9 published APIs. Also note top_stories is pinned to path /svc/topstories/v2/home.json and most_popular to the 7-day window - section and time-period are path segments in the spec, so the current tables expose one slice of each.
 
@@ -13546,8 +13546,8 @@ Today (5): `alert_rules`, `dashboards`, `logs`, `notification_channels`, `traces
 
 Diffed against: <https://signoz.io/docs/metrics-management/query-range-api/>
 
-- [ ] `metrics time series (POST /api/v5/query_range, signal=metrics)` — the third telemetry pillar; a warehouse user syncing an observability tool will expect metric series alongside logs and traces (medium)
-- [ ] `meter metrics (POST /api/v5/query_range over signoz.meter.log.count/.size, signoz.meter.span.count/.size, signoz.meter.metric.datapoint.count)` — daily ingestion volume and cost broken down by service.name or environment — the vendor's own billing-analysis use case (medium)
+- [ ] `metrics time series (POST /api/v5/query_range, signal=metrics)` — the third telemetry pillar; a warehouse user syncing an observability tool will expect metric series alongside logs and traces (medium) Skipped: each metric needs its own time and space aggregation, chosen by its type and temporality, so no single metric-agnostic query gives one generic table.
+- [x] `meter metrics (POST /api/v5/query_range over signoz.meter.log.count/.size, signoz.meter.span.count/.size, signoz.meter.metric.datapoint.count)` — daily ingestion volume and cost broken down by service.name or environment — the vendor's own billing-analysis use case (medium). Added as `meter_usage`: one row per metric, UTC day, service.name and deployment.environment; incremental reads the watermark day and the day before it again.
 
 Note: SigNoz's public API surface is small and PostHog covers most of it: logs and traces via POST /api/v5/query_range, plus /api/v1/rules, /api/v1/dashboards, /api/v1/channels. The metrics signal is excluded on purpose — settings.py documents that the v5 raw request type only supports logs and traces, so metrics need a per-metric aggregation query that does not map to a generic table. There is no publicly documented REST endpoint for alerts history, planned maintenance, or routing policies (those docs describe the UI only), so I did not report them. Note /api/v2/dashboards now exists alongside the v1 path in use.
 
