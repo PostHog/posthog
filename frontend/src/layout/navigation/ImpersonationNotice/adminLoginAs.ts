@@ -1,5 +1,7 @@
 import { getCookie } from 'lib/api'
 
+import { usersRetrieve } from '~/generated/core/api'
+
 async function ensureAdminOAuth2(): Promise<void> {
     const authCheckResponse = await fetch('/admin/auth_check', {
         method: 'GET',
@@ -95,5 +97,10 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
 
     if (!loginResponse.ok) {
         throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+    }
+
+    const user = await usersRetrieve('@me')
+    if (user.id !== userId || !user.is_impersonated) {
+        throw new Error('Could not log in as this user. Check that impersonation is allowed and try again.')
     }
 }

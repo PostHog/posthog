@@ -37,12 +37,12 @@ export function AccountMemberImpersonateButton({ member }: { member: AccountOrga
 
     const logIn = async (reason: string): Promise<void> => {
         setIsLoggingIn(true)
-        posthog.capture(AccountsEvents.RelatedUserImpersonated, {
-            region: member.region,
-            read_only: readOnly,
-        })
         try {
             await adminLoginAs({ userId: member.user.id, reason, readOnly })
+            posthog.capture(AccountsEvents.RelatedUserImpersonated, {
+                region: member.region,
+                read_only: readOnly,
+            })
             // A full page load resets org, project and scene state for the impersonated user, who can't open this account.
             window.location.assign(urls.default())
         } catch (error) {

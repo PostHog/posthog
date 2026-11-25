@@ -1,13 +1,15 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
@@ -93,7 +95,39 @@ describe('AccountRelatedUsersExpansion', () => {
         expect(impersonateButton.closest('a')).toBeNull()
         fireEvent.click(impersonateButton)
         expect(await screen.findByText('Log in as Alex Mercer')).toBeInTheDocument()
-        expect(screen.getByRole('checkbox', { name: 'Read-only mode (recommended)' })).toBeChecked()
+        expect(screen.getByLabelText('Read-only mode (recommended)')).toBeChecked()
+
+        useMocks({
+            get: {
+                '/admin/auth_check': () => [200, {}],
+                '/api/users/@me/': () => [200, { id: 1, is_impersonated: false }],
+            },
+            post: {
+                '/admin/login/user/42/': () => [200, {}],
+            },
+        })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        const originalLocation = window.location
+        const assign = jest.fn()
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: { ...originalLocation, assign },
+        })
+
+        try {
+            fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Investigate a support request' } })
+            fireEvent.click(screen.getByText('Log in', { selector: 'button span' }))
+
+            await waitFor(() =>
+                expect(errorToast).toHaveBeenCalledWith(
+                    'Could not log in as this user. Check that impersonation is allowed and try again.'
+                )
+            )
+            expect(screen.getByText('Log in as Alex Mercer')).toBeInTheDocument()
+            expect(assign).not.toHaveBeenCalled()
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+        }
     })
 
     it('copies selected emails across pages and excludes users without an email address', async () => {

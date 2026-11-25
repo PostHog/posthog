@@ -34,6 +34,7 @@ jest.mock('@posthog/lemon-ui', () => {
 
 const MOCK_IMPERSONATED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    id: 123,
     is_impersonated: true,
     is_impersonated_read_only: true,
     is_impersonated_until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -254,28 +255,39 @@ describe('impersonationNoticeLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('shows error toast and dispatches reImpersonateFailure on login failure', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
+        it.each([
+            { status: 403, currentUser: MOCK_DEFAULT_USER },
+            { status: 200, currentUser: MOCK_DEFAULT_USER },
+            { status: 200, currentUser: { ...MOCK_IMPERSONATED_USER, is_impersonated: false } },
+            { status: 200, currentUser: { ...MOCK_IMPERSONATED_USER, id: 456 } },
+        ])(
+            'rejects login status $status with session $currentUser.id/$currentUser.is_impersonated',
+            async ({ status, currentUser }) => {
+                logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
-            useMocks({
-                get: {
-                    '/admin/auth_check': () => [200, {}],
-                },
-                post: {
-                    '/admin/login/user/:id/': () => [403, { detail: 'Forbidden' }],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.reImpersonate('reason', true)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    isReImpersonating: false,
+                useMocks({
+                    get: {
+                        '/admin/auth_check': () => [200, {}],
+                        '/api/users/@me/': () => [200, currentUser],
+                    },
+                    post: {
+                        '/admin/login/user/:id/': () => [status, {}],
+                    },
                 })
 
-            expect(lemonToast.error).toHaveBeenCalled()
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.reImpersonate('reason', true)
+                })
+                    .toDispatchActions(['reImpersonateFailure'])
+                    .toNotHaveDispatchedActions(['loadUser'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        isReImpersonating: false,
+                    })
+
+                expect(lemonToast.error).toHaveBeenCalled()
+            }
+        )
 
         it('shows error toast when OAuth2 popup is blocked', async () => {
             logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
@@ -777,7 +789,7 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 456 }],
                 },
                 post: {
                     '/admin/login/user/:id/': () => [200, {}],
@@ -807,7 +819,12 @@ describe('impersonationNoticeLogic', () => {
             userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, is_impersonated_reason: 'persisted reason' })
 
             const fetchSpy = jest.spyOn(globalThis, 'fetch')
-            const { restore } = mockLocationReload()
+            const { reload, restore } = mockLocationReload()
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 456 }],
+                },
+            })
 
             try {
                 await expectLogic(logic, () => {
@@ -819,6 +836,7 @@ describe('impersonationNoticeLogic', () => {
                 )
                 const body = new URLSearchParams(loginCall![1]?.body as string)
                 expect(body.get('reason')).toBe('fresh reason')
+                expect(reload).toHaveBeenCalled()
             } finally {
                 restore()
                 fetchSpy.mockRestore()
