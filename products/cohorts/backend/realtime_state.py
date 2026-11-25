@@ -199,7 +199,10 @@ def _criteria_reason(cohort: Cohort) -> tuple[bool, CohortRealtimeUnavailableRea
     if any(leaf.get("type") != "cohort" and not leaf.get("bytecode_error") for leaf in uncompiled):
         return has_bytecode_and_error, None
     refused = [leaf for leaf in uncompiled if leaf.get("bytecode_error")]
-    if any(leaf.get("type") == "behavioral" and is_action_key(leaf.get("key")) for leaf in refused):
+    if any(
+        leaf.get("type") == "behavioral" and (leaf.get("event_type") == "actions" or is_action_key(leaf.get("key")))
+        for leaf in refused
+    ):
         return True, CohortRealtimeUnavailableReason.ACTION_CRITERIA
     if refused:
         return True, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA
