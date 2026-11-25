@@ -1,6 +1,5 @@
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     CREDIT_BUCKET_EXHAUSTED_DENIAL,
-    DESKTOP_AGENT_MODELS,
     POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
     POSTHOG_CODE_PRODUCT,
     DesktopGatewayMintError,
@@ -10,6 +9,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     desktop_limit_tier,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
+    model_listing_unavailable,
     plan_allowed_models,
     posthog_code_plan,
     record_gateway_token_refusal,
@@ -17,7 +17,6 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 
 __all__ = [
     "CREDIT_BUCKET_EXHAUSTED_DENIAL",
-    "DESKTOP_AGENT_MODELS",
     "POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL",
     "POSTHOG_CODE_PRODUCT",
     "DesktopGatewayMintError",
@@ -26,6 +25,7 @@ __all__ = [
     "desktop_limit_tier",
     "desktop_token_ttl_seconds",
     "mint_desktop_gateway_token",
+    "model_listing_unavailable",
     "plan_allowed_models",
     "posthog_code_plan",
     "record_gateway_token_refusal",

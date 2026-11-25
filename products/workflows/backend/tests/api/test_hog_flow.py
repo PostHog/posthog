@@ -4,7 +4,6 @@ from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from io import StringIO
-from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -64,6 +63,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.workflows.backend.facade.blast_radius import INCOMPLETE_AUDIENCE_CONDITION
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -9224,48 +9224,39 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_rejects_a_model_outside_the_task_model_catalogue(self):
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
-            return_value=(SimpleNamespace(model="claude-opus"),),
-        ):
-            response = self._post_flow({"model": {"value": {"model": "not-a-real-model"}}})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "actions__1__inputs__model"
-
     @parameterized.expand(
         [
-            ("offered", "claude-opus-5-5"),
-            ("retired_but_runnable", "claude-sonnet-4-6"),
-            ("sdk_implicit", "claude-haiku-4-5"),
-            ("desktop_legacy", "gpt-5.4"),
+            ("an_offered_model", {"model": "claude-opus-5-5"}, status.HTTP_201_CREATED),
+            ("an_older_version_its_token_still_admits", {"model": "gpt-6-sol"}, status.HTTP_201_CREATED),
+            ("a_model_outside_its_families", {"model": "claude-haiku-4-5"}, status.HTTP_400_BAD_REQUEST),
+            ("a_model_the_gateway_does_not_list", {"model": "not-a-real-model"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "an_effort_the_model_lists",
+                {"model": "claude-opus-5-5", "reasoning_effort": "high"},
+                status.HTTP_201_CREATED,
+            ),
+            (
+                "an_effort_the_model_does_not_list",
+                {"model": "gpt-5.5", "reasoning_effort": "max"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "an_effort_for_a_model_the_gateway_does_not_describe",
+                {"model": "moonshotai/kimi-k3.1-pro", "reasoning_effort": "high"},
+                status.HTTP_201_CREATED,
+            ),
         ]
     )
-    def test_accepts_a_model_in_the_task_model_catalogue(self, _name, model):
-        response = self._post_flow({"model": {"value": {"model": model}}})
+    def test_checks_a_task_step_model_against_what_a_workflow_run_may_call(self, _name, selection, expected):
+        response = self._post_flow({"model": {"value": selection}})
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "actions__1__inputs__model"
 
-    def test_rejects_a_reasoning_effort_the_selected_model_does_not_support(self):
-        # The runtime accepts model/effort pairs uncritically (WorkflowTaskCreateSerializer's
-        # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here
-        # would otherwise reach the agent sandbox unvalidated instead of failing anywhere.
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
-            return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
-        ):
-            response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "ultracode"}}})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "actions__1__inputs__model"
-
-    def test_accepts_a_reasoning_effort_the_selected_model_supports(self):
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
-            return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
-        ):
-            response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "high"}}})
+    def test_does_not_block_saving_while_the_model_listing_is_unreachable(self):
+        with serve_gateway_listing(()):
+            response = self._post_flow({"model": {"value": {"model": "whatever-model"}}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

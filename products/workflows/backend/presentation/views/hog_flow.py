@@ -149,12 +149,8 @@ from products.replay_vision.backend.facade.api import (
 )
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.tasks.backend.facade.model_catalogue import (
-    TASK_RUN_GATEWAY_PRODUCT,
-    reasoning_efforts_for,
-    runnable_model_choices,
-    uncataloged_runtime_adapter,
-)
+from products.tasks.backend.facade.model_catalogue import product_model_choices
+from products.tasks.backend.facade.run_config import get_reasoning_effort_error
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
@@ -2109,25 +2105,17 @@ class HogFlowActionSerializer(serializers.Serializer):
         model = model_value.get("model")
         reasoning_effort = model_value.get("reasoning_effort")
         if model:
-            choice = next((c for c in runnable_model_choices(TASK_RUN_GATEWAY_PRODUCT) if c.model == model), None)
-            if choice is not None:
-                supported_efforts = choice.supported_efforts
-            else:
-                runtime_adapter = uncataloged_runtime_adapter(model)
-                if runtime_adapter is None:
+            # An empty catalogue means the gateway is unreachable, not that no model is valid -
+            # skip rather than block every save during an outage.
+            admitted = product_model_choices("workflows", offered_only=False)
+            if admitted:
+                choice = next((c for c in admitted if c.model == model), None)
+                if choice is None:
                     raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
-                supported_efforts = reasoning_efforts_for(runtime_adapter, model)
-            if reasoning_effort and reasoning_effort not in supported_efforts:
-                raise serializers.ValidationError(
-                    {
-                        "inputs": {
-                            "model": (
-                                f"Reasoning effort '{reasoning_effort}' is not supported for model "
-                                f"'{model}'. Supported values: {', '.join(supported_efforts) or 'none'}."
-                            )
-                        }
-                    }
-                )
+                if reasoning_effort and (
+                    error := get_reasoning_effort_error(choice.runtime_adapter, model, reasoning_effort)
+                ):
+                    raise serializers.ValidationError({"inputs": {"model": error}})
 
         max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
         if max_parallel_tasks is not None:

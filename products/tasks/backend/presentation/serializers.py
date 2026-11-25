@@ -69,7 +69,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
-from products.tasks.backend.facade.model_catalogue import ModelChoice, uncataloged_runtime_adapter
+from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
@@ -4172,10 +4172,7 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            uncataloged_adapter = uncataloged_runtime_adapter(attrs["model"])
-            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or (
-                RuntimeAdapter(uncataloged_adapter) if uncataloged_adapter else None
-            )
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"])
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
             elif not is_pi_task:

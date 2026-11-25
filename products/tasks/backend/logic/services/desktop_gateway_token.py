@@ -21,7 +21,12 @@ from prometheus_client import Counter
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    FREE_TIER_MODELS,
+    family_listing_unavailable,
+    gateway_pin,
+    product_pin,
+)
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -180,8 +185,12 @@ def posthog_code_plan(team: "Team") -> PosthogCodePlan:
     return "free"
 
 
+def model_listing_unavailable() -> bool:
+    return family_listing_unavailable(POSTHOG_CODE_PRODUCT)
+
+
 def plan_allowed_models(plan: PosthogCodePlan) -> list[str]:
-    return list(DESKTOP_AGENT_MODELS) if plan == "paid" else list(FREE_TIER_MODELS)
+    return (product_pin(POSTHOG_CODE_PRODUCT) or []) if plan == "paid" else list(FREE_TIER_MODELS)
 
 
 def posthog_code_billing_synced(organization: "Organization") -> bool:

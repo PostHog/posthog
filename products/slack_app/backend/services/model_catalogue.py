@@ -19,15 +19,13 @@ from products.tasks.backend.facade.model_catalogue import (
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
     RuntimeGroup,
-    catalog_model_choices,
     display_name_for_model,
     filter_unsupported_effort,
     find_model_choice,
     group_by_runtime,
     label_for,
-    model_allowed_by_product_pin,
     normalize_model_id,
-    offered_model_choices as catalog_offered_model_choices,
+    product_model_choices,
     runtime_adapter_for,
 )
 
@@ -43,15 +41,11 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     Wider than what the App Home picker offers: a mention naming a retired model still
     resolves to it, because a person who asks for one by name is not choosing from a list.
     """
-    return tuple(
-        choice for choice in catalog_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
-    )
+    return product_model_choices("slack_app", offered_only=False)
 
 
 def offered_model_choices() -> tuple[ModelChoice, ...]:
-    return tuple(
-        choice for choice in catalog_offered_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
-    )
+    return product_model_choices("slack_app", offered_only=True)
 
 
 def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:

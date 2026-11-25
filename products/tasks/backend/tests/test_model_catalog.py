@@ -13,9 +13,16 @@ from products.tasks.backend.facade.model_catalogue import (
     GatewayModel,
     available_model_choices,
     plan_model_choices,
+    runtime_adapter_for,
 )
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
+from products.tasks.backend.logic.services import gateway_model_pin
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
+from products.tasks.backend.temporal.process_task.utils import (
+    ReasoningEffort,
+    RuntimeAdapter,
+    get_reasoning_effort_error,
+)
 
 
 def _resolved_catalog() -> dict[str, Any]:
@@ -149,6 +156,37 @@ def test_efforts_resolve_by_id_then_family_then_adapter(adapter: str, model: str
     assert model_catalog.reasoning_efforts_for(adapter, model) == expected
 
 
+@pytest.mark.parametrize(
+    "model,provider_efforts,expected",
+    [
+        ("gpt-9-sol", ["low", "medium", "high", "xhigh", "max"], ("low", "medium", "high", "xhigh", "max")),
+        ("gpt-9-sol", ["none", "minimal", "low", "high"], ("low", "high")),
+        ("gpt-9-sol", ["max", "low"], ("low", "max")),
+        ("gpt-9-sol", [], ()),
+        (
+            "claude-opus-9",
+            ["low", "medium", "high", "xhigh", "max"],
+            ("low", "medium", "high", "xhigh", "max", "ultracode"),
+        ),
+        ("claude-opus-9", ["low", "medium", "high", "max"], ("low", "medium", "high", "max")),
+        ("zai-org/glm-9", ["high", "xhigh", "max"], ("high", "xhigh", "max")),
+    ],
+    ids=[
+        "every_tier",
+        "tiers_the_catalog_lacks_are_dropped",
+        "catalog_order",
+        "no_effort_control",
+        "claude_with_xhigh_gains_ultracode",
+        "claude_without_xhigh",
+        "hosted_model_with_xhigh_gains_nothing",
+    ],
+)
+def test_provider_efforts_map_onto_catalog_tiers(
+    model: str, provider_efforts: list[str], expected: tuple[str, ...]
+) -> None:
+    assert model_catalog.reasoning_efforts_from_provider(model, provider_efforts) == expected
+
+
 def test_default_model_is_one_the_catalog_serves() -> None:
     for adapter, model in model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER.items():
         assert model in model_catalog.models_for_runtime_adapter(adapter), (
@@ -210,79 +248,248 @@ def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
         )
 
 
+_BASELINE = GatewayModel(
+    id="claude-sonnet-5",
+    owned_by="anthropic",
+    context_window=1000000,
+    input_per_mtok=2.0,
+    output_per_mtok=10.0,
+    api_shapes=("anthropic-messages",),
+)
+_CODEX_SHAPES = ("openai-chat-completions", "openai-responses")
+
+
+def _codex(model: str, **facts: Any) -> GatewayModel:
+    return GatewayModel(id=model, owned_by="openai", context_window=1050000, api_shapes=_CODEX_SHAPES, **facts)
+
+
+@pytest.mark.parametrize(
+    "listed,expected",
+    [
+        pytest.param(
+            GatewayModel(id="m", owned_by="anthropic", context_window=1, api_shapes=("anthropic-messages",)),
+            "claude",
+            id="anthropic_messages",
+        ),
+        pytest.param(
+            GatewayModel(id="m", owned_by="openai", context_window=1, api_shapes=_CODEX_SHAPES),
+            "codex",
+            id="openai_responses",
+        ),
+        pytest.param(
+            GatewayModel(
+                id="m", owned_by="posthog", context_window=1, api_shapes=(*_CODEX_SHAPES, "anthropic-messages")
+            ),
+            "claude",
+            id="both_shapes",
+        ),
+        pytest.param(
+            GatewayModel(id="m", owned_by="openai", context_window=1, api_shapes=("openai-embeddings",)),
+            None,
+            id="a_shape_no_runtime_speaks",
+        ),
+        pytest.param(
+            GatewayModel(id="m", owned_by="openai", context_window=1),
+            "codex",
+            id="no_shapes_from_a_known_owner",
+        ),
+        pytest.param(
+            GatewayModel(id="m", owned_by="bedrock", context_window=1),
+            None,
+            id="no_shapes_from_an_unknown_owner",
+        ),
+        pytest.param(
+            GatewayModel(id="another", owned_by="openai", context_window=1, api_shapes=_CODEX_SHAPES),
+            None,
+            id="not_listed",
+        ),
+    ],
+)
+def test_runtime_adapter_comes_from_the_listing_row(listed: GatewayModel, expected: str | None) -> None:
+    with serve_gateway_listing((listed,)):
+        assert runtime_adapter_for("m") == expected
+
+
 class TestAvailableModelChoices:
-    """The gateway-backed list the `/tasks/models` endpoint serves. Slack and the web read
-    the catalog directly, so this path is the only one still asking what is served now."""
-
-    def test_drops_providers_we_cannot_route(self) -> None:
-        gateway = (
-            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
-            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
+    def test_drops_models_no_runtime_can_drive(self) -> None:
+        listing = (
+            GatewayModel(
+                id="claude-fable-5", owned_by="anthropic", context_window=1, api_shapes=("anthropic-messages",)
+            ),
+            GatewayModel(
+                id="gemini-2.5-pro", owned_by="google", context_window=1, api_shapes=("gemini-generate-content",)
+            ),
         )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            assert [c.model for c in available_model_choices("posthog_code")] == ["claude-fable-5"]
+        with serve_gateway_listing(listing):
+            assert [choice.model for choice in available_model_choices("signals")] == ["claude-fable-5"]
 
-    def test_drops_models_the_product_pin_does_not_admit(self) -> None:
-        gateway = (
-            GatewayModel(id="claude-opus-5-5", owned_by="anthropic", context_window=1000000),
-            GatewayModel(id="gpt-4o", owned_by="openai", context_window=128000),
+    def test_drops_models_outside_the_products_families(self) -> None:
+        listing = (
+            GatewayModel(
+                id="claude-opus-5-5",
+                owned_by="anthropic",
+                context_window=1,
+                family="claude-opus",
+                api_shapes=("anthropic-messages",),
+            ),
+            _codex("gpt-4o", family="gpt-omni"),
         )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
+        with serve_gateway_listing(listing):
             choices = available_model_choices("posthog_code")
 
-        assert [(c.model, c.context_window) for c in choices] == [("claude-opus-5-5", 1000000)]
+        assert [(choice.model, choice.context_window) for choice in choices] == [("claude-opus-5-5", 1)]
 
-    def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
-        # The gateway owns these under the party serving them, not the harness that drives
-        # them, so routing on the owner alone dropped every one from the web picker.
-        gateway = (
-            GatewayModel(id="deepseek-ai/deepseek-v4-flash-0731", owned_by="baseten", context_window=128000),
-            GatewayModel(id="zai-org/glm-5.3-flash", owned_by="cloudflare", context_window=128000),
-            GatewayModel(id="moonshotai/kimi-k3", owned_by="moonshotai", context_window=128000),
-        )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            choices = available_model_choices("posthog_code")
+    @pytest.mark.parametrize(
+        "listed,expected",
+        [
+            pytest.param(
+                _codex(
+                    "gpt-5.4",
+                    name="GPT-5.4 (listed)",
+                    reasoning_efforts=("low", "medium", "high", "xhigh"),
+                    input_per_mtok=8.0,
+                    output_per_mtok=40.0,
+                ),
+                ("GPT-5.4 (listed)", ("low", "medium", "high", "xhigh"), "4×"),
+                id="every_fact",
+            ),
+            pytest.param(
+                _codex("gpt-5.4", name="GPT-5.4 (listed)"),
+                ("GPT-5.4 (listed)", (), None),
+                id="name_only",
+            ),
+            pytest.param(
+                _codex("gpt-5.4", input_per_mtok=8.0),
+                ("GPT-5.4", (), None),
+                id="half_a_price",
+            ),
+            pytest.param(_codex("gpt-5.4"), ("GPT-5.4", (), None), id="no_facts"),
+            pytest.param(
+                GatewayModel(
+                    id="claude-haiku-4-5",
+                    owned_by="anthropic",
+                    context_window=200000,
+                    name="Claude Haiku 4.5 (latest)",
+                    api_shapes=("anthropic-messages",),
+                ),
+                ("Claude Haiku 4.5", (), None),
+                id="alias_name",
+            ),
+            pytest.param(
+                GatewayModel(
+                    id="deepseek-ai/deepseek-v4-flash-0731",
+                    owned_by="posthog",
+                    context_window=1048000,
+                    api_shapes=(*_CODEX_SHAPES, "anthropic-messages"),
+                ),
+                ("Deepseek V4 Flash 0731", (), None),
+                id="vendor_prefixed_id_without_a_name",
+            ),
+            pytest.param(
+                _codex(
+                    "gpt-6.2-sol",
+                    name="Sol (listed)",
+                    reasoning_efforts=("low",),
+                    input_per_mtok=8.0,
+                    output_per_mtok=40.0,
+                ),
+                ("Sol (listed)", ("low",), "4×"),
+                id="a_cataloged_model_reads_its_listing_row_too",
+            ),
+        ],
+    )
+    def test_describes_a_model_from_its_listing_row(
+        self, listed: GatewayModel, expected: tuple[str, tuple[str, ...], str | None]
+    ) -> None:
+        with serve_gateway_listing((_BASELINE, listed)):
+            choice = next(choice for choice in available_model_choices("signals") if choice.model == listed.id)
 
-        assert [c.model for c in choices] == [m.id for m in gateway]
-        assert {c.runtime_adapter for c in choices} == {"claude"}
-        assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
+        assert (choice.label, choice.supported_efforts, choice.cost_multiplier) == expected
 
-    @parameterized.expand(
+    def test_quotes_no_cost_when_the_baseline_model_is_not_listed(self) -> None:
+        priced = _codex("gpt-5.4", input_per_mtok=8.0, output_per_mtok=40.0)
+        with serve_gateway_listing((priced,)):
+            (choice,) = available_model_choices("signals")
+
+        assert choice.cost_multiplier is None
+
+    @pytest.mark.parametrize(
+        "adapter,listed,effort,accepted",
+        [
+            pytest.param("codex", _codex("gpt-5.4", reasoning_efforts=("low", "max")), "max", True, id="listed_effort"),
+            pytest.param("codex", _codex("gpt-5.4", reasoning_efforts=("low",)), "max", False, id="unlisted_effort"),
+            pytest.param(
+                "codex", _codex("gpt-5.4", reasoning_efforts=()), "low", False, id="a_model_listing_no_efforts"
+            ),
+            pytest.param("codex", _codex("gpt-5.4"), "low", True, id="a_model_the_gateway_does_not_describe"),
+            pytest.param("codex", _codex("gpt-5.4"), "ultracode", False, id="an_effort_only_claude_code_takes"),
+            pytest.param("claude", _codex("gpt-5.4"), "low", False, id="an_undescribed_model_another_runtime_drives"),
+            pytest.param("codex", _codex("another-model", reasoning_efforts=("low",)), "max", True, id="not_listed"),
+            pytest.param(
+                "claude", _codex("gpt-5.4", reasoning_efforts=("low",)), "low", False, id="another_runtimes_model"
+            ),
+        ],
+    )
+    def test_effort_check_agrees_with_the_listing(
+        self, adapter: str, listed: GatewayModel, effort: str, accepted: bool
+    ) -> None:
+        with serve_gateway_listing((listed,)):
+            error = get_reasoning_effort_error(adapter, "gpt-5.4", effort)
+
+        assert (error is None) is accepted
+
+    @pytest.mark.parametrize(
+        "plan_pin,model,allowed",
         [
             ("posthog_code", "claude-opus-5-5", True),
             (FREE_TIER_PIN_KEY, "claude-opus-5-5", False),
             (FREE_TIER_PIN_KEY, "moonshotai/kimi-k3.1-pro", True),
-        ]
+        ],
     )
     def test_marks_whether_the_plan_pin_admits_each_model(self, plan_pin: str, model: str, allowed: bool) -> None:
-        gateway = (
-            GatewayModel(id="claude-opus-5-5", owned_by="anthropic", context_window=1000000),
-            GatewayModel(id="moonshotai/kimi-k3.1-pro", owned_by="moonshotai", context_window=1048576),
+        listing = tuple(
+            GatewayModel(
+                id=listed, owned_by="posthog", context_window=1, family=family, api_shapes=("anthropic-messages",)
+            )
+            for listed, family in (("claude-opus-5-5", "claude-opus"), ("moonshotai/kimi-k3.1-pro", "kimi-pro"))
         )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            choices = {c.model: c for c in plan_model_choices("posthog_code", plan_pin)}
+        with serve_gateway_listing(listing):
+            choices = {choice.model: choice for choice in plan_model_choices("posthog_code", plan_pin)}
 
         assert choices[model].allowed is allowed
 
 
-def test_every_model_resolves_to_its_catalog_flag() -> None:
-    # The gate and the pickers read one field now, so this fails if a row gains an
-    # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    for model in model_catalog.MODELS:
-        assert get_required_model_flag(model.id) == model.access_flag
-        assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gpt-6.2-sol", "tasks-sol-preview"),
+        ("gpt-6.3-sol", "tasks-sol-preview"),
+        ("openai/gpt-6.3-sol", "tasks-sol-preview"),
+        ("gpt-6.3-sol-pro", "tasks-sol-preview"),
+        ("gpt-6.3-astra", None),
+        ("gpt-9-unlisted", None),
+    ],
+    ids=[
+        "version_of_the_gated_family",
+        "newer_version_of_the_gated_family",
+        "provider_qualified_spelling",
+        "suffixed_variant_of_the_gated_family",
+        "another_family",
+        "model_the_gateway_does_not_list",
+    ],
+)
+def test_a_model_takes_the_rollout_flag_of_its_gateway_family(model: str, expected: str | None) -> None:
+    listing = (
+        _codex("gpt-6.2-sol", family="gpt-sol"),
+        _codex("gpt-6.3-sol", family="gpt-sol"),
+        _codex("gpt-6.3-sol-pro", family="gpt-sol"),
+        _codex("gpt-6.3-astra", family="gpt-astra"),
+    )
+    with (
+        patch.dict(gateway_model_pin.MODEL_FAMILY_ACCESS_FLAGS, {"gpt-sol": "tasks-sol-preview"}),
+        serve_gateway_listing(listing),
+    ):
+        assert get_required_model_flag(model) == expected
 
 
 @parameterized.expand(

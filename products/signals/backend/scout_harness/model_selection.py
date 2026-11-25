@@ -77,7 +77,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
 from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS
-from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter, get_runtime_adapter_for_model
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
 
@@ -199,11 +199,8 @@ def _runtime_adapter_for_pin(model_id: str) -> str:
     path keeps pure name inference, because changing it would reroute live trial distributions and
     the payload's object form can already pin a runtime explicitly.
     """
-    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE):
-        return RUNTIME_ADAPTER_CLAUDE
-    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX):
-        return RUNTIME_ADAPTER_CODEX
-    return _infer_runtime_adapter(model_id)
+    adapter = get_runtime_adapter_for_model(model_id)
+    return adapter.value if adapter else _infer_runtime_adapter(model_id)
 
 
 def scout_model_config_enabled(team: Team) -> bool:

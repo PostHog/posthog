@@ -78,9 +78,8 @@ class TestWithPromptModelSwitch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # Sonnet 4.6 supports low, medium and high, and the run rejects any other effort.
             ("effort_the_model_supports", "high", "high"),
-            ("effort_the_model_lacks", "max", None),
+            ("effort_the_model_lacks", "xhigh", None),
         ]
     )
     def test_an_effort_only_request_is_checked_against_the_run_model(self, _name, requested, expected) -> None:

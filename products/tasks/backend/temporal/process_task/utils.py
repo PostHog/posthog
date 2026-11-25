@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -64,8 +65,11 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 )
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
+    GATEWAY_FAMILY_MODELS_STATE_KEY,
     GATEWAY_PRODUCT_STATE_KEY,
     PRODUCT_ALLOWED_MODELS,
+    PRODUCT_MODEL_FAMILIES,
+    minted_family_models,
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, bundled_skills_disabled
@@ -73,6 +77,12 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _re
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
+from products.tasks.backend.logic.services.model_catalogue import (
+    models_for_runtime_adapter,
+    runtime_adapter_for,
+    supported_efforts,
+    takes_reasoning_effort,
+)
 from products.tasks.backend.logic.services.run_actor import (
     get_actor_distinct_id as get_actor_distinct_id,
     get_task_run_actor_user as get_task_run_actor_user,
@@ -183,7 +193,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     if runtime_adapter is None:
         return ()
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return model_catalog.models_for_runtime_adapter(adapter_value)
+    return models_for_runtime_adapter(adapter_value)
 
 
 def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, model: str | None) -> bool:
@@ -196,7 +206,7 @@ def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, m
     if runtime_adapter is None:
         return False
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return model_catalog.serves_model(adapter_value, model)
+    return runtime_adapter_for(model) == adapter_value
 
 
 # Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
@@ -279,7 +289,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
+    return tuple(ReasoningEffort(effort) for effort in supported_efforts(adapter_value, model))
 
 
 def get_reasoning_effort_error(
@@ -291,12 +301,11 @@ def get_reasoning_effort_error(
         return None
 
     effort_value = reasoning_effort.value if isinstance(reasoning_effort, ReasoningEffort) else reasoning_effort
-    supported_efforts = get_supported_reasoning_efforts(runtime_adapter, model)
-    if any(supported_effort.value == effort_value for supported_effort in supported_efforts):
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if takes_reasoning_effort(adapter_value, model, effort_value):
         return None
 
-    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    supported_values = ", ".join(effort.value for effort in supported_efforts) or "none"
+    supported_values = ", ".join(supported_efforts(adapter_value, model)) or "none"
     return (
         f"Reasoning effort '{effort_value}' is not supported for runtime_adapter "
         f"'{adapter_value}' and model '{model}'. Supported values: {supported_values}."
@@ -310,7 +319,7 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
     disagrees with itself. `None` when no adapter claims the model.
     """
-    adapter = model_catalog.runtime_adapter_for_model(model)
+    adapter = runtime_adapter_for(model)
     return RuntimeAdapter(adapter) if adapter else None
 
 
@@ -1767,7 +1776,8 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             run_id=str(ctx.run_id),
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
-        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+        family_models = json.loads(env_vars.pop(_FAMILY_MODELS_ENV, "[]"))
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned, family_models):
             if requires_pi_scout:
                 raise ProcessTaskTransientError(
                     "Could not record the Pi scout's gateway model pin.",
@@ -1815,20 +1825,30 @@ def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | 
 
 # Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
 _PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
+_FAMILY_MODELS_ENV = "_AI_GATEWAY_FAMILY_MODELS"
 
 
-def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
+def _record_pinned_gateway_product(
+    run_id: str, state: dict | None, minted_product: str | None, family_models: list[str] | None = None
+) -> bool:
     """Stamp the run with the pinned product of its token. False leaves a pinned run unstamped."""
     from products.tasks.backend.models import TaskRun  # noqa: PLC0415
 
+    recorded = state or {}
     pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
-    if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
+    stamps = {
+        GATEWAY_PRODUCT_STATE_KEY: pinned,
+        GATEWAY_FAMILY_MODELS_STATE_KEY: (family_models or None) if pinned else None,
+    }
+    if all(recorded.get(key) == value for key, value in stamps.items()):
         return True
+    changes: dict[str, Any] = {}
+    if updates := {key: value for key, value in stamps.items() if value}:
+        changes["updates"] = updates
+    if remove_keys := [key for key, value in stamps.items() if not value and key in recorded]:
+        changes["remove_keys"] = remove_keys
     try:
-        if pinned:
-            TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
-        else:
-            TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
+        TaskRun.update_state_atomic(run_id, **changes)
     except Exception:
         logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
         return pinned is None
@@ -1933,6 +1953,11 @@ def ai_gateway_env_vars(
         if free_pin is not None:
             mint_kwargs["allowed_models"] = free_pin
         mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+    family_models = () if "allowed_models" in mint_kwargs else minted_family_models(ai_product)
+    if family_models:
+        mint_kwargs["family_models"] = family_models
+    elif "allowed_models" not in mint_kwargs and ai_product in PRODUCT_MODEL_FAMILIES:
+        raise gateway_token_unavailable("model_listing_unavailable", team_id, ai_product)
     if run_id:
         mint_kwargs["run_id"] = run_id
     token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
@@ -1947,6 +1972,8 @@ def ai_gateway_env_vars(
     }
     if "allowed_models" in mint_kwargs:
         env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
+    if family_models:
+        env_vars[_FAMILY_MODELS_ENV] = json.dumps(family_models)
     if ai_stage:
         env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
@@ -1965,7 +1992,12 @@ _POSTHOG_CODE_REFUSAL_MESSAGES = {
 }
 # A credit lookup or mint can succeed on the next attempt.
 _TRANSIENT_REFUSALS = frozenset(
-    {"mint_failed", "pin_unrecorded", *(f"{bucket}_unknown" for bucket in PRODUCT_CREDIT_BUCKET.values())}
+    {
+        "mint_failed",
+        "model_listing_unavailable",
+        "pin_unrecorded",
+        *(f"{bucket}_unknown" for bucket in PRODUCT_CREDIT_BUCKET.values()),
+    }
 )
 
 

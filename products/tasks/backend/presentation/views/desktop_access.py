@@ -36,7 +36,6 @@ from products.tasks.backend.facade.access import (
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.facade.desktop_gateway import (
     CREDIT_BUCKET_EXHAUSTED_DENIAL,
-    DESKTOP_AGENT_MODELS,
     POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
     POSTHOG_CODE_PRODUCT,
     DesktopGatewayMintError,
@@ -45,6 +44,7 @@ from products.tasks.backend.facade.desktop_gateway import (
     desktop_limit_tier,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
+    model_listing_unavailable,
     plan_allowed_models,
     posthog_code_plan,
     record_gateway_token_refusal,
@@ -307,6 +307,12 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response["X-PostHog-Denial"] = CREDIT_BUCKET_EXHAUSTED_DENIAL
             return response
 
+        if model_listing_unavailable():
+            return _disabled(
+                "model_listing_unavailable",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="We couldn't load the model list. Try again.",
+            )
         plan = posthog_code_plan(team)
         allowed_models = plan_allowed_models(plan)
         try:
@@ -341,7 +347,7 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "plan": plan,
             # Go echoes only the pin it stored; a gateway without the echo stored what was sent.
             "allowed_models": echoed_models if isinstance(echoed_models, list) else allowed_models,
-            "product_models": list(DESKTOP_AGENT_MODELS),
+            "product_models": plan_allowed_models("paid"),
         }
         return Response(DesktopGatewayTokenSerializer(payload).data, status=status.HTTP_201_CREATED)
 

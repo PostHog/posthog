@@ -138,10 +138,10 @@ describe("modelNotchSuggestion", () => {
   });
 
   it("suggests a cheaper model on the codex ladder", () => {
-    // GPT-6 Sol is the first rung below gpt-5.5 that costs strictly less.
+    // GPT-6.2 Sol is the first rung below gpt-5.5 that costs strictly less.
     expect(modelNotchSuggestion("gpt-5.5")).toEqual({
       fromModelId: "gpt-5.5",
-      toModelId: "gpt-6-sol",
+      toModelId: "gpt-6.2-sol",
     });
   });
 });

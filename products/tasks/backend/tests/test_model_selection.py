@@ -1,9 +1,12 @@
 import pytest
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
-from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
+from products.tasks.backend.logic.services import gateway_model_pin
+from products.tasks.backend.logic.services.gateway_models import GatewayModel
 from products.tasks.backend.temporal.process_task.utils import (
     RuntimeAdapter,
     get_runtime_adapter_for_model,
@@ -54,7 +57,7 @@ def test_valid_selections_pass(runtime_adapter, model, reasoning_effort) -> None
             "codex", "claude-sonnet-5", None, "runs on runtime_adapter 'claude'", id="anthropic-model-under-codex"
         ),
         pytest.param("bedrock", "claude-sonnet-5", None, "Unknown runtime_adapter", id="unknown-adapter"),
-        pytest.param("claude", "claude-sonnet-4-6", "max", "not supported", id="effort-above-what-model-offers"),
+        pytest.param("claude", "claude-sonnet-4-6", "xhigh", "not supported", id="effort-the-model-does-not-list"),
     ],
 )
 def test_invalid_selections_raise(runtime_adapter, model, reasoning_effort, expected_message) -> None:
@@ -91,15 +94,13 @@ def test_open_weights_models_need_no_entitlement(model: str) -> None:
     ],
     ids=["canonical", "provider_qualified", "mixed_case", "padded"],
 )
-def test_get_required_model_flag_resolves_a_real_gate(model: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The test above only proves every open-weights spelling resolves to None. Without a
-    # gated catalog entry, a resolver that always returned None would pass it too, leaving
-    # the retained rollout mechanism untested until another model is gated. This adds one.
-    gated = model_catalog.CatalogModel(
-        "gated-test-model", model_catalog.CLAUDE, ("low",), access_flag="tasks-gated-test-model"
-    )
-    monkeypatch.setitem(model_catalog._MODEL_BY_ID, gated.id, gated)
-    assert get_required_model_flag(model) == gated.access_flag
+def test_get_required_model_flag_resolves_a_real_gate(model: str) -> None:
+    gated = GatewayModel(id="gated-test-model", owned_by="anthropic", context_window=1, family="gated-test")
+    with (
+        patch.dict(gateway_model_pin.MODEL_FAMILY_ACCESS_FLAGS, {"gated-test": "tasks-gated-test-model"}),
+        serve_gateway_listing((gated,)),
+    ):
+        assert get_required_model_flag(model) == "tasks-gated-test-model"
 
 
 @pytest.mark.parametrize(

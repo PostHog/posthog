@@ -5,7 +5,9 @@ which runtime adapter, model, and reasoning effort it uses, the model each adapt
 back to when a run pins none, and what each model costs relative to the rest. Every
 surface that offers or validates a selection derives from here:
 
-- the backend, through ``products.tasks.backend.temporal.process_task.utils``;
+- the backend, for which models a product offers, the default models and the slider rungs. It reads a
+  model's adapter, name, reasoning efforts and cost from the AI gateway listing instead, through
+  ``products.tasks.backend.logic.services.model_catalogue``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
 - the desktop app and its agent, through ``@posthog/agent-contracts/model-catalog``.
 
@@ -21,6 +23,7 @@ import and the Celery and settings machinery behind it.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 CLAUDE = "claude"
@@ -37,6 +40,11 @@ OPENAI = "openai"
 PROVIDER_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CLAUDE: ANTHROPIC,
     CODEX: OPENAI,
+}
+
+API_SHAPE_BY_RUNTIME_ADAPTER: dict[str, str] = {
+    CLAUDE: "anthropic-messages",
+    CODEX: "openai-responses",
 }
 
 LOW = "low"
@@ -386,10 +394,10 @@ CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     ),
     CODEX: (
         CapabilityNotch("gpt-6-luna", LOW),
-        CapabilityNotch("gpt-6-sol", LOW),
-        CapabilityNotch("gpt-6-sol", MEDIUM),
-        CapabilityNotch("gpt-6-sol", HIGH),
-        CapabilityNotch("gpt-6-sol", XHIGH),
+        CapabilityNotch("gpt-6.2-sol", LOW),
+        CapabilityNotch("gpt-6.2-sol", MEDIUM),
+        CapabilityNotch("gpt-6.2-sol", HIGH),
+        CapabilityNotch("gpt-6.2-sol", XHIGH),
         CapabilityNotch("gpt-6-astra", MAX),
     ),
 }
@@ -425,6 +433,11 @@ def runtime_adapter_for_model(model_id: str | None) -> str | None:
     return model.runtime_adapter if model else None
 
 
+def runtime_adapter_for_api_shapes(api_shapes: Iterable[str]) -> str | None:
+    served = set(api_shapes)
+    return next((adapter for adapter, shape in API_SHAPE_BY_RUNTIME_ADAPTER.items() if shape in served), None)
+
+
 def serves_model(runtime_adapter: str, model_id: str | None) -> bool:
     """Whether this adapter drives the model, whichever spelling the caller sends.
 
@@ -452,9 +465,20 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
+def gateway_model_id(model_id: str) -> str:
+    return normalize_model_id(model_id).removeprefix("@cf/")
+
+
 def is_anthropic_served_model(model_id: str | None) -> bool:
     """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
     return normalize_model_id(model_id or "").startswith("claude-")
+
+
+_VERSION_SEGMENT = re.compile(r"-\d[\d.]*(?=-|$)")
+
+
+def model_line(model_id: str) -> str:
+    return _VERSION_SEGMENT.sub("", normalize_model_id(model_id))
 
 
 def access_flag_for_model(model_id: str) -> str | None:
@@ -554,15 +578,12 @@ def _baseline_cost() -> ModelCost:
     return baseline
 
 
-def cost_multiplier_for(model_id: str) -> tuple[float, bool] | None:
+def cost_multiplier_for(cost: ModelCost, baseline: ModelCost | None = None) -> tuple[float, bool]:
     """This model's per-token cost relative to the baseline, and whether it is approximate.
 
     Input and output rarely scale together, so one multiplier is the mean of both ratios.
     """
-    cost = cost_for_model(model_id)
-    if cost is None:
-        return None
-    baseline = _baseline_cost()
+    baseline = baseline or _baseline_cost()
     input_ratio = cost.input_per_mtok / baseline.input_per_mtok
     output_ratio = cost.output_per_mtok / baseline.output_per_mtok
     spread = abs(input_ratio - output_ratio) / max(input_ratio, output_ratio)
@@ -585,13 +606,14 @@ def cost_multiplier_label(model_id: str) -> str | None:
     Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
     model differently.
     """
-    resolved = cost_multiplier_for(model_id)
-    if resolved is None:
-        return None
-    multiplier, approximate = resolved
-    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
     cost = cost_for_model(model_id)
-    return f"{base_label} base" if cost and cost.long_context else base_label
+    return None if cost is None else cost_multiplier_label_for_cost(cost)
+
+
+def cost_multiplier_label_for_cost(cost: ModelCost, baseline: ModelCost | None = None) -> str:
+    multiplier, approximate = cost_multiplier_for(cost, baseline)
+    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+    return f"{base_label} base" if cost.long_context else base_label
 
 
 def format_cost_rates(cost: ModelCost) -> str:
@@ -633,6 +655,14 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
     return FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
 
 
+def reasoning_efforts_from_provider(model_id: str, provider_efforts: Iterable[str]) -> tuple[str, ...]:
+    listed = set(provider_efforts)
+    efforts = tuple(effort for effort in _THROUGH_MAX if effort in listed)
+    if XHIGH in listed and is_anthropic_served_model(model_id):
+        return (*efforts, ULTRACODE)
+    return efforts
+
+
 __all__ = [
     "ANTHROPIC",
     "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
@@ -654,14 +684,19 @@ __all__ = [
     "cost_for_model",
     "cost_multiplier_for",
     "cost_multiplier_label",
+    "cost_multiplier_label_for_cost",
     "format_cost_rates",
     "is_offered_model",
     "label_for_model",
+    "model_line",
     "models_for_runtime_adapter",
     "normalize_model_id",
     "display_name_for_model",
     "format_model_id",
+    "gateway_model_id",
     "reasoning_efforts_for",
+    "reasoning_efforts_from_provider",
+    "runtime_adapter_for_api_shapes",
     "runtime_adapter_for_model",
     "serves_model",
     "supports_1m_context",

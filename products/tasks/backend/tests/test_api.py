@@ -4935,8 +4935,10 @@ class TestTaskAPI(BaseTaskAPITest):
             patch(
                 "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
                 return_value=(
-                    GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
-                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+                    GatewayModel(
+                        id="claude-opus-4-8", owned_by="anthropic", context_window=200_000, family="claude-opus"
+                    ),
+                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000, family="gpt"),
                 ),
             ),
             patch(f"{lookup}.prompt_model_switch_enabled", return_value=True),
@@ -6094,11 +6096,11 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_6_sol_max", "codex", "gpt-5.6-sol", "max", "openai"),
             ("gpt_5_6_luna_xhigh", "codex", "gpt-5.6-luna", "xhigh", "openai"),
             ("gpt_5_6_luna_max", "codex", "gpt-5.6-luna", "max", "openai"),
-            ("glm_5_2_high", "claude", "@cf/zai-org/glm-5.2", "high", "anthropic"),
-            ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
+            ("glm_5_3_high", "claude", "zai-org/glm-5.3", "high", "anthropic"),
+            ("glm_5_3_max", "claude", "zai-org/glm-5.3", "max", "anthropic"),
         ]
     )
-    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # GLM is gated, and this case is about the metadata a run persists rather than about
     # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
     @patch(
         "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
@@ -6400,8 +6402,8 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
-            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
+            ("gpt_5_xhigh", "gpt-5", "xhigh", "low, medium, high"),
+            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high, xhigh"),
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
         ]
     )
@@ -6436,7 +6438,7 @@ class TestTaskAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("unknown_model", "claude-sonnet-4-5", "high", "none"),
-            ("glm_medium", "@cf/zai-org/glm-5.2", "medium", "high, max"),
+            ("glm_medium", "zai-org/glm-5.3", "medium", "low, high, max"),
         ]
     )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
@@ -6560,10 +6562,10 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(
         self, reasoning_effort, mock_workflow, mock_capture
     ):
-        # claude-sonnet-4-6 supports low/medium/high but not xhigh/ultracode (claude-sonnet-5
-        # accepts the full set, ReviewHog pins its xhigh) - this pins the "Supported values:
-        # <non-empty list>" message and confirms the rejection capture also fires for a model
-        # with some supported efforts.
+        # claude-sonnet-4-6 lists low/medium/high/max but not xhigh, so it gets no ultracode either
+        # (claude-sonnet-5 accepts the full set, ReviewHog pins its xhigh). This pins the "Supported
+        # values: <non-empty list>" message and confirms the rejection capture also fires for a
+        # model with some supported efforts.
         task = self.create_task()
 
         response = self.client.post(
@@ -6582,7 +6584,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
+                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high, max."
             ),
             "attr": "reasoning_effort",
         }
@@ -6598,7 +6600,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "reasoning_effort": reasoning_effort,
                 "error": (
                     f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
+                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high, max."
                 ),
             },
             groups=ANY,
@@ -6845,7 +6847,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
-                "and model 'gpt-5.4'. Supported values: low, medium, high."
+                "and model 'gpt-5.4'. Supported values: low, medium, high, xhigh."
             ),
             "attr": "reasoning_effort",
         }
@@ -17067,6 +17069,39 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args[1]["json"]["params"]["value"], "claude-opus-5")
 
+    @parameterized.expand(
+        [
+            ("with_the_flag", True, status.HTTP_200_OK),
+            ("without_the_flag", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY, DEBUG=False)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled")
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    def test_command_switches_to_a_gated_model_only_with_its_flag(
+        self, _name, flag_enabled, expected_status, _mock_required_flag, mock_feature_enabled, mock_post
+    ):
+        reset_sandbox_jwt_key_cache()
+        mock_feature_enabled.return_value = flag_enabled
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-gated", "result": {"updated": True}})
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "moonshotai/kimi-k3"},
+                "id": "req-gated",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_post.called, flag_enabled)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_proxies_mcp_response_with_payload(self, mock_post):
@@ -20455,8 +20490,21 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
 
 class TestModelCatalogueAPI(BaseTaskAPITest):
     GATEWAY_MODELS = (
-        GatewayModel(id="claude-opus-5-5", owned_by="anthropic", context_window=1_000_000),
-        GatewayModel(id="moonshotai/kimi-k3.1-pro", owned_by="moonshotai", context_window=1_048_576),
+        GatewayModel(
+            id="claude-opus-5-5",
+            owned_by="anthropic",
+            context_window=1_000_000,
+            family="claude-opus",
+            reasoning_efforts=("low", "medium", "high", "xhigh", "max"),
+            api_shapes=("anthropic-messages",),
+        ),
+        GatewayModel(
+            id="moonshotai/kimi-k3.1-pro",
+            owned_by="moonshotai",
+            context_window=1_048_576,
+            family="kimi-pro",
+            api_shapes=("anthropic-messages",),
+        ),
         GatewayModel(id="titan-express", owned_by="bedrock", context_window=8_000),
     )
 

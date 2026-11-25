@@ -21,13 +21,14 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.access import DesktopAccessDecision, DesktopAccessResolutionError
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     DESKTOP_GATEWAY_MINTS,
     desktop_limit_tier,
     posthog_code_billing_synced,
     posthog_code_trusted,
 )
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
+from products.tasks.backend.logic.services.gateway_model_pin import FREE_TIER_MODELS, gateway_pin, product_pin
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
 
@@ -314,7 +315,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "plan": "free",
             # Go's echo, not what was sent: a region without a host shrinks the pin.
             "allowed_models": FREE_TIER_MODELS[:2],
-            "product_models": DESKTOP_AGENT_MODELS,
+            "product_models": product_pin("posthog_code"),
         }
 
     def test_the_limit_tier_is_chosen_for_this_user_and_sent(self) -> None:
@@ -334,11 +335,23 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
         ]
         self.organization.save()
-        response, post = self._mint(go=_minted(allowed_models=DESKTOP_AGENT_MODELS))
+        paid_pin = product_pin("posthog_code")
+        response, post = self._mint(go=_minted(allowed_models=paid_pin))
         assert response.status_code == status.HTTP_201_CREATED
-        assert post.call_args.kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
+        assert post.call_args.kwargs["json"]["allowed_models"] == paid_pin
+        assert {"claude-opus-5-5", "gpt-6.2-sol", "zai-org/glm-5.3"} <= set(
+            post.call_args.kwargs["json"]["allowed_models"]
+        )
         assert response.json()["plan"] == "paid"
-        assert response.json()["allowed_models"] == DESKTOP_AGENT_MODELS
+        assert response.json()["allowed_models"] == paid_pin
+
+    def test_no_token_is_minted_while_the_model_listing_is_unavailable(self) -> None:
+        with serve_gateway_listing(()):
+            response, post = self._mint()
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["reason"] == "model_listing_unavailable"
+        post.assert_not_called()
 
     def test_missing_echo_falls_back_to_the_sent_pin(self) -> None:
         response, _ = self._mint()

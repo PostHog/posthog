@@ -4,6 +4,7 @@ import {
   getCapabilityLadder,
 } from "@posthog/agent-contracts";
 import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
+import { MODELS } from "@posthog/agent-contracts/model-catalog";
 import {
   getContextWindowOptions as getClaudeContextWindowOptions,
   getEffortOptions as getClaudeEffortOptions,
@@ -40,6 +41,25 @@ export function isSupportedReasoningEffort(
     getReasoningEffortOptions(adapter, modelId)?.some(
       (option) => option.value === value,
     ) ?? false
+  );
+}
+
+function adapterTakesEffort(adapter: Adapter, value: string): boolean {
+  return MODELS.some(
+    (model) =>
+      model.runtimeAdapter === adapter &&
+      model.reasoningEfforts.some((effort) => effort === value),
+  );
+}
+
+export function isLaunchableReasoningEffort(
+  adapter: Adapter,
+  modelId: string,
+  value: string,
+): value is SupportedReasoningEffort {
+  return (
+    isSupportedReasoningEffort(adapter, modelId, value) ||
+    adapterTakesEffort(adapter, value)
   );
 }
 
