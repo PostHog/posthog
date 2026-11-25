@@ -26,7 +26,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
+from products.experiments.backend.recalculation import (
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+    RUN_ENTRY_HIDDEN_MESSAGE,
+)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalculation.logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -588,6 +592,81 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             assert (body["metric_errors"], body["failed_metrics"]) == ({}, 0)
         assert running_by_id.json()["metric_retries"] == {}
         assert "metric_calculation_failed" not in {finding["code"] for finding in health.json()["findings"]}
+
+    def _finished_run(
+        self, exp: Experiment, metric_errors: dict, metric_retries: dict | None = None
+    ) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="failed",
+            metric_uuids=["m1"],
+            total_metrics=1,
+            query_to=timezone.now() - timedelta(hours=1),
+            started_at=timezone.now() - timedelta(hours=1),
+            completed_at=timezone.now() - timedelta(minutes=30),
+            metric_errors=metric_errors,
+            metric_retries=metric_retries or {},
+        )
+
+    def test_run_reads_hide_the_message_of_an_entry_without_a_display_key(self):
+        exp = self._launched_experiment(flag_key="entry-without-key")
+        warehouse_error = "Not found: Table acme-prod:billing.payments_eu was not found in location EU"
+        error = {
+            "step": "calculation",
+            # The health check quotes the text of a validation error in this stored form.
+            "message": f"[ErrorDetail(string='{warehouse_error}', code='invalid')]",
+            "error_type": "validation_error",
+            "retriable": False,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+            "exposures_path": "direct_scan",
+        }
+        retry = {
+            "attempt": 1,
+            "max_attempts": 3,
+            "error_type": "server_error",
+            "message": warehouse_error,
+            "next_retry_at": "2026-11-01T10:05:00+00:00",
+        }
+        run = self._finished_run(exp, {"m1": error}, {"m1": retry})
+
+        by_id = self.client.get(self._by_id_url(exp.id, str(run.id)))
+        latest = self.client.get(self._latest_url(exp.id))
+        health = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/health/")
+
+        for response in (by_id, latest, health):
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert "payments_eu" not in response.content.decode()
+        for body in (by_id.json(), latest.json()):
+            assert body["id"] == str(run.id)
+            assert body["metric_errors"] == {"m1": {**error, "message": RUN_ENTRY_HIDDEN_MESSAGE}}
+            assert body["failed_metrics"] == 1
+        assert by_id.json()["metric_retries"] == {"m1": {**retry, "message": RUN_ENTRY_HIDDEN_MESSAGE}}
+        assert "metric_calculation_failed" in {finding["code"] for finding in health.json()["findings"]}
+
+    @parameterized.expand(
+        [
+            ("rejected_request", "request", "recalculation_window_too_long", RECALCULATION_WINDOW_TOO_LONG_MESSAGE),
+            ("metric_not_found", "discovery", "validation_error", "Metric m1 not found in experiment 1"),
+            ("statistics_error", "calculation", "insufficient_data", "Sample size must be positive"),
+        ]
+    )
+    def test_run_reads_keep_the_fixed_text_of_an_entry_without_a_display_key(
+        self, _name: str, step: str, error_type: str, message: str
+    ):
+        exp = self._launched_experiment(flag_key="fixed-text-entry")
+        error = {
+            "step": step,
+            "message": message,
+            "error_type": error_type,
+            "retriable": False,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+        }
+        run = self._finished_run(exp, {"m1": error})
+
+        body = self.client.get(self._by_id_url(exp.id, str(run.id))).json()
+
+        assert (body["metric_errors"], body["failed_metrics"]) == ({"m1": error}, 1)
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()

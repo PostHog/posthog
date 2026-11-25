@@ -452,7 +452,8 @@ def _record_failure(
     just overwrites the existing entry with a fresh timestamp. retriable is True only when a transient error
     exhausted its attempts, so the frontend heals that metric on page load and leaves the rest to a user retry.
     `display_key` is the `legacy_key` of the config that failed. Reads of the run serve the entry only while that
-    config is current (`entries_of_current_configs`). A failure without a config passes None.
+    config is current (`entries_of_current_configs`). A failure without a config passes None, and reads then serve its
+    message only when its step or error type holds fixed text.
     """
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():

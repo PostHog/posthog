@@ -87,6 +87,14 @@ RECALCULATION_WINDOW_TOO_LONG_MESSAGE = (
 # The field of a run's `metric_errors` or `metric_retries` entry that holds the display key (`legacy_key`) of the
 # calculation config that wrote the entry. `entries_of_current_configs` reads it, and no response includes it.
 RUN_ENTRY_DISPLAY_KEY = "display_key"
+RUN_ENTRY_HIDDEN_MESSAGE = (
+    "The details of this error aren't available. Recalculate the results to see the current error."
+)
+# The writers of these steps and error types store only text that PostHog wrote: the rejection of a request, the
+# failures to find the experiment or the metric, and the errors of the statistics. Every other writer can store the
+# text of a query error, which can name a warehouse table or column.
+_FIXED_TEXT_RUN_ENTRY_STEPS = ("request", "discovery")
+_FIXED_TEXT_RUN_ENTRY_ERROR_TYPES = ("insufficient_data",)
 
 
 class RecalculationRateLimited(Throttled):
@@ -136,8 +144,12 @@ def entries_of_current_configs(entries: object, configs: Iterable[MetricCalculat
     The entries are keyed by metric uuid, which stays the same when the metric or the exposure criteria change. The
     display key hashes both, and with them the warehouse connection that the calculation read. A reader's connection
     access is checked against the current config only, so an entry of an earlier config stays out, as the result rows
-    of that config do in `get_run_results`. An entry without a display key holds text that PostHog wrote, or was stored
-    before entries had the key, and stays in.
+    of that config do in `get_run_results`.
+
+    An entry without a display key has no config to check. Runs stored before entries had the key hold such entries,
+    and so does a writer without a metric config. The entry stays in, so its metric still counts as failed. Its message
+    stays only when its step or error type is one whose writers store fixed text, and is `RUN_ENTRY_HIDDEN_MESSAGE`
+    otherwise. A stored entry that isn't a dict counts as an empty entry without a display key.
     """
     if not isinstance(entries, dict):
         return {}
@@ -145,11 +157,18 @@ def entries_of_current_configs(entries: object, configs: Iterable[MetricCalculat
     for calculation_config in configs:
         display_keys.setdefault(calculation_config.metric_id, set()).add(calculation_config.legacy_key())
     current: dict[str, Any] = {}
-    for metric_uuid, entry in entries.items():
-        if not isinstance(entry, dict) or RUN_ENTRY_DISPLAY_KEY not in entry:
+    for metric_uuid, stored in entries.items():
+        entry = stored if isinstance(stored, dict) else {}
+        if RUN_ENTRY_DISPLAY_KEY in entry:
+            if entry[RUN_ENTRY_DISPLAY_KEY] in display_keys.get(metric_uuid, set()):
+                current[metric_uuid] = {name: value for name, value in entry.items() if name != RUN_ENTRY_DISPLAY_KEY}
+        elif (
+            entry.get("step") in _FIXED_TEXT_RUN_ENTRY_STEPS
+            or entry.get("error_type") in _FIXED_TEXT_RUN_ENTRY_ERROR_TYPES
+        ):
             current[metric_uuid] = entry
-        elif entry[RUN_ENTRY_DISPLAY_KEY] in display_keys.get(metric_uuid, set()):
-            current[metric_uuid] = {name: value for name, value in entry.items() if name != RUN_ENTRY_DISPLAY_KEY}
+        else:
+            current[metric_uuid] = {**entry, "message": RUN_ENTRY_HIDDEN_MESSAGE}
     return current
 
 
