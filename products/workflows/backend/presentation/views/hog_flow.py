@@ -1106,6 +1106,8 @@ SANDBOX_SENDER_SETUP_FAILURES = Counter(
     labelnames=["path"],
 )
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
+# A proposal's steps reach the live workflow through approval and publish, which compare against the staged draft.
+STEP_AUTHORING_ACTIONS = WORKFLOW_SAVE_ACTIONS | {"proposals"}
 
 
 def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
@@ -4376,12 +4378,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         return value
 
     def _validate_transactional_steps(
-        self, actions: list[Any], origin_product: str | None, stored: Optional[WorkflowEditState]
+        self, data: dict, origin_product: str | None, stored: Optional[WorkflowEditState]
     ) -> None:
         """Usage reports count a send as transactional by its step id, so only the workflows the transactional send
         APIs made may hold that step, and they keep the shape those APIs run."""
         if origin_product and is_transactional_origin(origin_product):
-            if not keeps_transactional_shape(origin_product, actions):
+            actions = data.get("actions", stored.actions if stored else [])
+            edges = data.get("edges", stored.edges if stored else [])
+            if not keeps_transactional_shape(origin_product, actions or [], edges or []):
                 raise serializers.ValidationError(
                     {
                         "actions": "This workflow runs a transactional send, so its steps can't change. "
@@ -4389,6 +4393,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     }
                 )
             self._refuse_marketing_category_on_transactional_step(actions)
+            return
+        actions = data.get("actions")
+        if not isinstance(actions, list):
             return
         if reserved := reserved_step_ids(actions):
             raise serializers.ValidationError(
@@ -4438,10 +4445,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
         origin_product = stored.origin_product if stored else data.get("origin_product")
-        if isinstance(submitted_actions, list) and getattr(self.context.get("view"), "action", None) in (
-            WORKFLOW_SAVE_ACTIONS
-        ):
-            self._validate_transactional_steps(submitted_actions, origin_product, stored)
+        if ("actions" in data or "edges" in data) and getattr(
+            self.context.get("view"), "action", None
+        ) in STEP_AUTHORING_ACTIONS:
+            self._validate_transactional_steps(data, origin_product, stored)
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
             for action in data.get("actions", stored.actions if stored else None) or []
