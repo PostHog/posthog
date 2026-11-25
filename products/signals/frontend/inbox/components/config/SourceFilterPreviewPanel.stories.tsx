@@ -178,7 +178,7 @@ export const RequestFailed: Story = {
 export const PhoneWidth: Story = {
     render: (args) => (
         // A 390px phone screen less the side padding of the modal.
-        <div className="w-[358px]">
+        <div className="w-[360px]">
             <SourceFilterPreviewPanel {...args} />
         </div>
     ),
