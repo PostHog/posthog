@@ -140,7 +140,7 @@ describe('ReportInbox', () => {
             })
             scroll.mockImplementation(() => undefined)
             const estimate = jest.spyOn(FlatList.prototype, 'scrollToOffset').mockImplementation(() => undefined)
-            const client = new QueryClient()
+            const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
             const view = render(
                 <QueryClientProvider client={client}>
                     <ReportInbox selectedReportId="report-15" active />

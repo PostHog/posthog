@@ -73,6 +73,11 @@ export type AiResearchV4Config = {
     AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
     /** Image writes to S3, and republished frontier records, in flight at once. */
     AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
+    /** Readers must look up a fetched image in the image index first: replay-data.md, Packed fetched images. */
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES: boolean
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS: number
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_MAX_BYTES: number
+    AI_RESEARCH_V4_IMAGE_FETCH_INDEX_TOPIC: string
     /**
      * Wall time the fetch pass of one poll batch may take.
      *
@@ -139,20 +144,6 @@ export type AiResearchV4Config = {
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: string
     /** A short local delivery timeout, so a slow topic fails a batch fast instead of holding its offsets. */
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: string
-
-    /** The v4 index sink: the bucket its Parquet files go to, under `index/`. */
-    AI_RESEARCH_V4_RRWEB_BUCKET: string
-    /** The v4 index sink's consumer group. Its own setting, so a v4 sink pod never joins the v3 sink group. */
-    AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: string
-    /**
-     * The v4 sink writes its files this long after its last flush, or when the buffer reaches either size below,
-     * whichever comes first. The byte size counts Kafka message bytes, so it also bounds the buffer's memory.
-     */
-    AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: number
-    AI_RESEARCH_V4_PARQUET_MAX_ROWS: number
-    AI_RESEARCH_V4_PARQUET_MAX_BYTES: number
-    /** Rows per row group in a v4 index file, so a large file has few row groups. */
-    AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: number
 }
 
 export function getDefaultAiResearchV4Config(): AiResearchV4Config {
@@ -181,6 +172,10 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 7,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES: false,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS: 2_000,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_MAX_BYTES: 16 * 1024 * 1024,
+        AI_RESEARCH_V4_IMAGE_FETCH_INDEX_TOPIC: 'ai_research_v4_index',
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS: 24 * 60 * 60 * 1000,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS: Date.parse('2026-10-30T00:00:00Z'),
@@ -205,13 +200,6 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${40 * 1024 * 1024 + 64 * 1024}`,
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: '20000',
-
-        AI_RESEARCH_V4_RRWEB_BUCKET: '',
-        AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: 'ai-research-v4-parquet-sink',
-        AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: 10 * 60 * 1000,
-        AI_RESEARCH_V4_PARQUET_MAX_ROWS: 1_000_000,
-        AI_RESEARCH_V4_PARQUET_MAX_BYTES: 128 * 1024 * 1024,
-        AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: 131_072,
     }
 }
 

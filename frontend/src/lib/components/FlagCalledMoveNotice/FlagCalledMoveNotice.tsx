@@ -38,9 +38,9 @@ export function FlagCalledMoveNotice({ name, groupType, className }: FlagCalledM
             <IconWarning className="shrink-0 mt-0.5 text-warning" />
             <span>
                 <code>$feature_flag_called</code> is moving from <code>events</code> to{' '}
-                <code>posthog.flag_evaluations</code>. Once the move finishes for your organization, insights and
-                queries on this event will stop returning results, and you can query{' '}
-                <code>posthog.flag_evaluations</code> instead.
+                <code>posthog.flag_evaluations</code>. Insights and most SQL queries on this event switch tables with no
+                edits. Once PostHog stops writing flag calls to <code>events</code>, they return only the last 90 days
+                of flag calls.
                 {typeof announcementUrl === 'string' && isHttpsUrl(announcementUrl) && (
                     <>
                         {' '}

@@ -842,6 +842,20 @@ describe('metrics query languages', () => {
             expect(builderToPromql({ clauses }).value).toMatch(/^label_replace\(histogram_quantile\(/)
         })
 
+        it.each([
+            ['count_rate', 'sum by (service_name) (rate({"http.server.request.duration_count"}))'],
+            ['count_increase', 'sum by (service_name) (increase({"http.server.request.duration_count"}))'],
+        ] as const)('writes %s as a range function over the _count series', (aggregation, expected) => {
+            const clauses = [
+                clause({
+                    metricName: 'http.server.request.duration',
+                    aggregation,
+                    groupBy: [{ key: 'service.name' }],
+                }),
+            ]
+            expect(builderToPromql({ clauses })).toEqual({ value: expected, issues: [] })
+        })
+
         it('spreads an ungrouped series over a grouped one with on() group_left', () => {
             const result = builderToPromql({
                 clauses: [
@@ -1029,6 +1043,25 @@ describe('metrics query languages', () => {
             expect(convertMetricsQuery(metricsQuery({ language: 'sql', sql }), 'builder').issues).toEqual([
                 GENERIC_LOSS_ISSUE,
             ])
+        })
+
+        it.each([
+            ['count_rate', '/ {interval_seconds}'],
+            ['count_increase', 'sum(c.contribution) AS series_value'],
+        ] as const)('writes %s as a range function over the histogram count', (aggregation, rangeValue) => {
+            const sql = builderToSql({
+                clauses: [clause({ metricName: 'http.server.request.duration', aggregation })],
+            }).value!
+            expect(sql).toContain('toFloat(count) AS value')
+            expect(sql).toContain('lagInFrame(toNullable(toFloat(count)))')
+            expect(sql).toContain("metric_type IN ('exponential_histogram', 'histogram', 'summary')")
+            expect(sql).toContain(rangeValue)
+            expect(sql).toContain('sum(s.series_value) AS value')
+            expect(sqlToBuilder(sql)).toEqual({
+                value: { clauses: [clause({ metricName: 'http.server.request.duration', aggregation })] },
+                issues: [],
+            })
+            expect(convertMetricsQuery(metricsQuery({ language: 'sql', sql }), 'builder').issues).toEqual([])
         })
 
         it('reads a handwritten SQL query with a group-by', () => {

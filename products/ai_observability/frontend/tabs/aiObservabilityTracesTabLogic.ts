@@ -11,7 +11,7 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { AnyPropertyFilter, UserType } from '../../../../frontend/src/types'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 
 export interface AIObservabilityTracesTabLogicProps {
@@ -172,6 +172,10 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 // For impersonated users (support agents), default to showing support traces
                 // For regular users, always filter out support traces
                 const filterSupportTraces = user?.is_impersonated ? shouldFilterSupportTraces : true
+                // The redesign drops the options menu, so it always shows these columns.
+                const redesign = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN]
+                const showInputOutput = redesign || showInputOutputColumns
+                const showSentiment = redesign || showSentimentColumn
 
                 return {
                     kind: NodeKind.DataTableNode,
@@ -191,14 +195,14 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         personId: personId ?? undefined,
                         groupKey: group?.groupKey,
                         groupTypeIndex: group?.groupTypeIndex,
-                        includeSentiment: showSentimentColumn,
+                        includeSentiment: showSentiment,
                     },
                     columns: [
-                        'id',
+                        ...(redesign ? [] : ['id']),
                         'traceName',
-                        ...(showInputOutputColumns ? ['inputState', 'outputState'] : []),
+                        ...(showInputOutput ? ['inputState', 'outputState'] : []),
                         'person',
-                        ...(showSentimentColumn ? ['__llm_sentiment'] : []),
+                        ...(showSentiment ? ['__llm_sentiment'] : []),
                         '__llm_tools',
                         'errorCount',
                         'totalLatency',

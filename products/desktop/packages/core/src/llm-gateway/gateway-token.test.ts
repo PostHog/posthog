@@ -94,7 +94,6 @@ function setup(
     authenticatedFetch,
     messagesUrl: () => "",
     usageUrl: () => "",
-    legacyUsageUrl: () => "",
     defaultModel: "m",
   };
   const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };

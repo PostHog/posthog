@@ -75,7 +75,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                                 client.Enqueue(posthog.Capture{
                                                     DistinctId: "distinct_id_of_your_user",
                                                     Event:      "event_name",
-                                                    SendFeatureFlags: true,
+                                                    SendFeatureFlags: posthog.SendFeatureFlags(true),
                                                 })
                                             `,
                                         },

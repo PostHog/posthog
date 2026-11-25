@@ -45,6 +45,9 @@ CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 # retention_ttl in posthog/query_cache/cache.py decides which writes get it.
 CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)
 
+# Share of metrics tile tail refreshes that also run the whole range and report the difference on `query executed`.
+METRICS_TAIL_REFRESH_VERIFY_RATE = get_from_env("METRICS_TAIL_REFRESH_VERIFY_RATE", 0.01, type_cast=float)
+
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
 TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
 

@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    pyarrow_schema_from_arrow_exportable,
     raise_on_nullability_drift,
     reconcile_batch_to_accumulated_schema,
     relax_batch_nullability,
@@ -710,23 +711,27 @@ def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
     assert table.column("column").to_pylist() == ['["[1,2)","[3,4]"]']
 
 
-def test_normalize_table_column_names_prevents_collisions():
-    # Create a table with columns that would collide when normalized
-    table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
+@pytest.mark.parametrize(
+    "source_columns,expected_columns",
+    [
+        (
+            ["foo___bar", "foo_bar", "another___field"],
+            {"_foo_bar": "foo___bar", "foo_bar": "foo_bar", "another_field": "another___field"},
+        ),
+        (["id", ""], {"id": "id", "unnamed_column": ""}),
+        (["id", "   "], {"id": "id", "unnamed_column": "   "}),
+        (["", " "], {"unnamed_column": "", "_unnamed_column": " "}),
+        (["unnamed_column", ""], {"unnamed_column": "unnamed_column", "_unnamed_column": ""}),
+    ],
+)
+def test_normalize_table_column_names(source_columns: list[str], expected_columns: dict[str, str]):
+    table = pa.table([pa.array([f"value of {name!r}"]) for name in source_columns], names=source_columns)
 
     normalized_table = normalize_table_column_names(table)
 
-    # First column gets normalized
-    assert "foo_bar" in normalized_table.column_names
-    # Second column that would collide gets underscore prefix
-    assert "_foo_bar" in normalized_table.column_names
-    # Non-colliding column gets normalized
-    assert "another_field" in normalized_table.column_names
-
-    # Verify the data is preserved
-    assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
-    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
-    assert normalized_table.column("another_field").to_pylist() == ["value3"]
+    assert sorted(normalized_table.column_names) == sorted(expected_columns)
+    for normalized_name, source_name in expected_columns.items():
+        assert normalized_table.column(normalized_name).to_pylist() == [f"value of {source_name!r}"]
 
 
 def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
@@ -2016,6 +2021,40 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     assert excinfo.value.column_name is None
     assert excinfo.value.stored_type is None
     assert excinfo.value.incoming_type is None
+
+
+@pytest.mark.parametrize(
+    "column_type,expected_type",
+    [
+        (pa.uuid(), pa.binary()),
+        (pa.struct([pa.field("id", pa.uuid())]), pa.struct([pa.field("id", pa.binary())])),
+        (pa.list_(pa.struct([pa.field("id", pa.uuid())])), pa.list_(pa.struct([pa.field("id", pa.binary())]))),
+        (
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.uuid())])),
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.binary())])),
+        ),
+    ],
+)
+def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension(
+    column_type: pa.DataType, expected_type: pa.DataType
+) -> None:
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", column_type, metadata={"source": "test"}), pa.field("name", pa.string())])
+    )
+
+    schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+
+    assert schema.field("id").type == expected_type
+    assert schema.field("id").metadata == {b"source": b"test"}
+    assert schema.field("name").type == pa.string()
+
+
+def test_pyarrow_schema_from_arrow_exportable_reraises_unrelated_errors():
+    not_a_delta_schema = MagicMock(spec=["__arrow_c_schema__"])
+    not_a_delta_schema.__arrow_c_schema__.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        pyarrow_schema_from_arrow_exportable(not_a_delta_schema)
 
 
 @pytest.mark.parametrize(

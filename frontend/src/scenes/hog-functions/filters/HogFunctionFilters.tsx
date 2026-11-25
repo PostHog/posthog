@@ -252,8 +252,8 @@ export function HogFunctionFilters({
                 label={isDataWarehouse ? null : useMapping ? 'Global filters' : 'Filters'}
                 info={
                     useMapping
-                        ? 'Filters applied to all events before they reach a mapping'
-                        : 'Filters applied to all events'
+                        ? 'Filters applied to all events before they reach a mapping. An event must match all of them.'
+                        : 'Filters applied to all events. An event must match all of them.'
                 }
             >
                 {({ value, onChange: _onChange }) => {
@@ -302,6 +302,9 @@ export function HogFunctionFilters({
                                             fullWidth
                                         />
                                     )}
+                                    <p className="mb-0 text-xs text-secondary">
+                                        If set, this function will only run when <b>all</b> of these filters match.
+                                    </p>
                                     <PropertyFilters
                                         propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
                                         taxonomicGroupTypes={taxonomicGroupTypes}

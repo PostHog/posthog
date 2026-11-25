@@ -8,8 +8,6 @@ enum PersonField {
     Uuid,
     TeamId,
     Properties,
-    PropertiesLastUpdatedAt,
-    PropertiesLastOperation,
     CreatedAt,
     Version,
     IsIdentified,
@@ -23,8 +21,6 @@ impl PersonField {
         Self::Uuid,
         Self::TeamId,
         Self::Properties,
-        Self::PropertiesLastUpdatedAt,
-        Self::PropertiesLastOperation,
         Self::CreatedAt,
         Self::Version,
         Self::IsIdentified,
@@ -38,8 +34,6 @@ impl PersonField {
             "uuid" => Some(Self::Uuid),
             "team_id" => Some(Self::TeamId),
             "properties" => Some(Self::Properties),
-            "properties_last_updated_at" => Some(Self::PropertiesLastUpdatedAt),
-            "properties_last_operation" => Some(Self::PropertiesLastOperation),
             "created_at" => Some(Self::CreatedAt),
             "version" => Some(Self::Version),
             "is_identified" => Some(Self::IsIdentified),
@@ -50,10 +44,7 @@ impl PersonField {
     }
 
     fn is_property_field(self) -> bool {
-        matches!(
-            self,
-            Self::Properties | Self::PropertiesLastUpdatedAt | Self::PropertiesLastOperation
-        )
+        matches!(self, Self::Properties)
     }
 
     fn clear(self, person: &mut Person) {
@@ -62,8 +53,6 @@ impl PersonField {
             Self::Uuid => person.uuid.clear(),
             Self::TeamId => person.team_id = 0,
             Self::Properties => person.properties.clear(),
-            Self::PropertiesLastUpdatedAt => person.properties_last_updated_at.clear(),
-            Self::PropertiesLastOperation => person.properties_last_operation.clear(),
             Self::CreatedAt => person.created_at = 0,
             Self::Version => person.version = 0,
             Self::IsIdentified => person.is_identified = false,
@@ -213,8 +202,6 @@ mod tests {
             uuid: "some-uuid".to_string(),
             team_id: 7,
             properties: b"{}".to_vec(),
-            properties_last_updated_at: b"ts".to_vec(),
-            properties_last_operation: b"op".to_vec(),
             created_at: 1000,
             version: 3,
             is_identified: true,
@@ -249,8 +236,9 @@ mod tests {
     fn person_field_all_covers_every_proto_field() {
         assert_eq!(
             PersonField::ALL.len(),
-            11,
-            "PersonField::ALL count doesn't match Person proto field count — \
+            9,
+            "PersonField::ALL count doesn't match the Person proto's maskable field count \
+             (every field except is_deleted, which masks neither select nor clear) — \
              did you add a field to the Person proto without updating PersonField?"
         );
         let mut person = populated_person();
@@ -324,8 +312,8 @@ mod tests {
     #[case::no_read_options(None, true)]
     #[case::empty_mask(Some(vec![]), true)]
     #[case::mask_includes_properties(Some(vec!["properties"]), true)]
-    #[case::mask_includes_properties_last_updated_at(Some(vec!["properties_last_updated_at"]), true)]
-    #[case::mask_includes_properties_last_operation(Some(vec!["properties_last_operation"]), true)]
+    #[case::retired_properties_last_updated_at(Some(vec!["properties_last_updated_at"]), false)]
+    #[case::retired_properties_last_operation(Some(vec!["properties_last_operation"]), false)]
     #[case::mask_with_only_non_property_fields(Some(vec!["id", "uuid"]), false)]
     fn person_needs_properties_reflects_whether_mask_requests_property_fields(
         #[case] mask_fields: Option<Vec<&str>>,
@@ -363,14 +351,6 @@ mod tests {
         assert_eq!(person.uuid, expected.uuid);
         assert_eq!(person.team_id, expected.team_id);
         assert_eq!(person.properties, expected.properties);
-        assert_eq!(
-            person.properties_last_updated_at,
-            expected.properties_last_updated_at
-        );
-        assert_eq!(
-            person.properties_last_operation,
-            expected.properties_last_operation
-        );
         assert_eq!(person.created_at, expected.created_at);
         assert_eq!(person.version, expected.version);
         assert_eq!(person.is_identified, expected.is_identified);
@@ -388,14 +368,6 @@ mod tests {
         assert!(person.uuid.is_empty(), "uuid should be zeroed");
         assert_eq!(person.team_id, 0, "team_id should be zeroed");
         assert!(person.properties.is_empty(), "properties should be zeroed");
-        assert!(
-            person.properties_last_updated_at.is_empty(),
-            "properties_last_updated_at should be zeroed"
-        );
-        assert!(
-            person.properties_last_operation.is_empty(),
-            "properties_last_operation should be zeroed"
-        );
         assert_eq!(person.created_at, 0, "created_at should be zeroed");
         assert_eq!(person.version, 0, "version should be zeroed");
         assert!(!person.is_identified, "is_identified should be zeroed");
@@ -411,8 +383,6 @@ mod tests {
     #[case::uuid("uuid", |p: &Person| p.uuid == "some-uuid")]
     #[case::team_id("team_id", |p: &Person| p.team_id == 7)]
     #[case::properties("properties", |p: &Person| !p.properties.is_empty())]
-    #[case::properties_last_updated_at("properties_last_updated_at", |p: &Person| !p.properties_last_updated_at.is_empty())]
-    #[case::properties_last_operation("properties_last_operation", |p: &Person| !p.properties_last_operation.is_empty())]
     #[case::created_at("created_at", |p: &Person| p.created_at == 1000)]
     #[case::version("version", |p: &Person| p.version == 3)]
     #[case::is_identified("is_identified", |p: &Person| p.is_identified)]

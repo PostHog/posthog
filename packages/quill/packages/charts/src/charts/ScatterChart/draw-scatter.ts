@@ -1,3 +1,5 @@
+import { color as d3Color } from 'd3-color'
+
 import { traceScatterMarker } from '../../core/canvas-renderer'
 import { dimColor } from '../../core/color-utils'
 import type { ChartDimensions } from '../../core/types'
@@ -10,8 +12,8 @@ const HOVER_HALO_RADIUS_PX = 2
 const BEST_FIT_WIDTH = 2
 const BEST_FIT_DASH = [6, 4]
 
-/** Fills translucent and strokes opaque, so an overlapping cloud reads as density while each marker
- *  keeps a crisp edge. A `cross` is strokes only, so it skips the fill. */
+/** Fill opacity multiplies the point color's alpha, so dimmed points keep both their fill and outline
+ *  dimmed. A `cross` is strokes only, so it skips the fill. */
 export function drawScatterMarkers(
     ctx: CanvasRenderingContext2D,
     positions: ScatterPointPosition[],
@@ -25,7 +27,7 @@ export function drawScatterMarkers(
         if (position.shape !== 'cross') {
             let fill = fills.get(position.color)
             if (fill === undefined) {
-                fill = dimColor(position.color, fillOpacity)
+                fill = dimColor(position.color, fillOpacity * (d3Color(position.color)?.opacity ?? 1))
                 fills.set(position.color, fill)
             }
             ctx.fillStyle = fill

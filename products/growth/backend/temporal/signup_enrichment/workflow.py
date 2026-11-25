@@ -44,11 +44,8 @@ ENRICH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=90)
 MAX_ENRICH_ATTEMPTS = 3
 
 # Harmonic's enrich mutation seeds async enrichment for a company it doesn't yet index, so a
-# domain it can't match at signup often resolves a few hours later. The delay also gives Clay's
-# own bridge columns (icp_est_revenue, icp_company_type) time to land — Clay's write lands after
-# ours far more often than not, so scoring at signup alone would frequently undercount. One
-# delayed recheck, run unconditionally for every org, recovers late-indexed companies and
-# rescores against Clay's columns alike, without polling.
+# domain it can't match at signup often resolves a few hours later. One delayed recheck, run
+# unconditionally for every org, recovers late-indexed companies without polling.
 RECHECK_DELAY = dt.timedelta(hours=4)
 
 

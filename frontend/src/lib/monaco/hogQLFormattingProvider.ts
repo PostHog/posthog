@@ -25,12 +25,18 @@ function isRawSqlModel(model: editor.ITextModel): boolean {
     return !!sourceQuery && 'sendRawQuery' in sourceQuery && !!sourceQuery.sendRawQuery
 }
 
-async function formatQuery(query: string, options: languages.FormattingOptions): Promise<FormatHogQLResult> {
+async function formatQuery(
+    query: string,
+    options: languages.FormattingOptions,
+    captureQueryTelemetry: boolean
+): Promise<FormatHogQLResult> {
     try {
         const { formatHogQL } = await retryImport(() => import('./formatHogQL'))
         return await formatHogQL(query, { tabWidth: options.tabSize, useTabs: !options.insertSpaces })
     } catch (error) {
-        posthog.captureException(error)
+        if (captureQueryTelemetry) {
+            posthog.captureException(error)
+        }
         return { formatted: null, failure: 'unverified' }
     }
 }
@@ -38,9 +44,10 @@ async function formatQuery(query: string, options: languages.FormattingOptions):
 export const hogQLFormattingProvider: () => languages.DocumentFormattingEditProvider = () => ({
     provideDocumentFormattingEdits: async (model, options) => {
         const query = model.getValue(editor.EndOfLinePreference.LF)
+        const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         const result = isRawSqlModel(model)
             ? ({ formatted: null, failure: 'raw_sql' } as const)
-            : await formatQuery(query, options)
+            : await formatQuery(query, options, logic?.props.captureQueryTelemetry !== false)
         posthog.capture('sql-editor-query-formatted', {
             succeeded: result.failure === null,
             changed: result.formatted !== null && result.formatted !== query,

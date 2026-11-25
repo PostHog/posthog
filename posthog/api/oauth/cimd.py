@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
@@ -42,12 +43,14 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
+from posthog.scopes.ceilings import filter_self_registered_ceiling, filter_to_unprivileged_scopes
+from posthog.scopes.oauth import OIDC_SCOPES
 from posthog.security.pinned_requests import PinnedIPAdapter, canonical_host, select_pinned_ip
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
+from .provisioning_review import open_review, review_required, start_review
 
 if TYPE_CHECKING:
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -266,6 +269,7 @@ _TUNNEL_HOST_SUFFIXES = frozenset(
         "sharedwithexpose.com",  # Expose
         "localto.net",  # Localtonet
         "tunnelto.dev",
+        "srv.us",
     }
 )
 
@@ -310,13 +314,30 @@ _JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
     }
 )
 
+# Public instances of editors, forges and storage where any visitor can publish a page or a file,
+# so a document there says nothing about who controls the client.
+_PUBLIC_EDITABLE_HOST_SUFFIXES = frozenset(
+    {
+        "etherpad.wikimedia.org",
+        "pad.riseup.net",
+        "pad.systemli.org",
+        "pad.tetaneutral.net",
+        "textdb.online",
+        "git.kaki87.net",
+        "play.min.io",
+    }
+)
 THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
-    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES | _PUBLIC_EDITABLE_HOST_SUFFIXES
 )
 
 THROWAWAY_HOST_MESSAGE = (
     "PostHog doesn't accept client metadata from this host. "
     "Host your client metadata document on a domain you control and use that URL as your client_id."
+)
+
+PROVISIONING_CONTENT_TYPE_MESSAGE = (
+    "A metadata document that sets com.posthog.provisioning must be served with Content-Type: application/json."
 )
 
 THROWAWAY_JWKS_HOST_MESSAGE = (
@@ -586,8 +607,68 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if logo_uri is not None and usable_logo_uri(logo_uri) is None:
         metadata.pop("logo_uri", None)
 
+    # Pads, forges and paste sites serve the text a user typed as HTML or plain text, so a
+    # provisioning document that is not served as JSON is not from a server its client runs.
+    if _cimd_declares_provisioning(metadata) and not _is_json_media_type(response.headers.get("Content-Type")):
+        raise CIMDValidationError(PROVISIONING_CONTENT_TYPE_MESSAGE)
+
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl
+
+
+def _is_json_media_type(content_type: str | None) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
+
+
+VERIFICATION_CHECK_PATH = "/oauth/cimd/verification-token-check/"
+VERIFICATION_CHECK_TIMEOUT_SECONDS = 3
+VERIFICATION_TOKEN_MAX_LENGTH = 256
+
+
+def _verifies_tokens_elsewhere() -> bool:
+    """One metadata document serves every region and carries one token, so one instance issues every token.
+    Any other instance confirms a published token with that issuer instead of looking it up locally."""
+    return bool(settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL)
+
+
+def _published_verification_tokens(metadata: CIMDMetadataDocument) -> list[str]:
+    com_posthog = metadata.get("com.posthog")
+    candidates = [
+        com_posthog.get("verification_token") if isinstance(com_posthog, dict) else None,
+        metadata.get("posthog_verification_token"),
+    ]
+    return [token for token in candidates if isinstance(token, str) and token]
+
+
+def _organization_link_issuer(metadata: CIMDMetadataDocument, url: str) -> str | None:
+    """The issuer's URL when it confirms one of the document's tokens for this URL, an empty string when it
+    confirms none, and None when it could not answer, so the caller keeps what it knew before."""
+    tokens = [
+        token for token in _published_verification_tokens(metadata) if len(token) <= VERIFICATION_TOKEN_MAX_LENGTH
+    ]
+    if not tokens:
+        return ""
+    issuer_url = settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL
+    try:
+        for token in tokens:
+            response = requests.post(
+                f"{issuer_url}{VERIFICATION_CHECK_PATH}",
+                json={"token": token, "cimd_url": url},
+                timeout=VERIFICATION_CHECK_TIMEOUT_SECONDS,
+            )
+            # The issuer refusing the request is its answer about this token, not a failure to answer, so
+            # a partner cannot keep an old link alive by publishing a token the issuer will not read.
+            if response.status_code == 400:
+                continue
+            response.raise_for_status()
+            if response.json().get("valid") is True:
+                return issuer_url
+    except (requests.RequestException, ValueError) as error:
+        logger.warning("cimd_verification_check_failed", url=url, error=str(error))
+        cache.set(_cache_key(url), True, timeout=CIMD_CACHE_MIN_TTL)
+        return None
+    return ""
 
 
 def _resolve_verification_token(
@@ -824,7 +905,12 @@ def _create_cimd_application(
 
     redirect_uris = " ".join(metadata.get("redirect_uris") or [])
     logo_uri = _logo_uri_for(metadata, url)
-    verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
+    if _verifies_tokens_elsewhere():
+        verification = None
+        organization_link_issuer = _organization_link_issuer(metadata, url) or ""
+    else:
+        verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
+        organization_link_issuer = ""
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
     if resolved_optional_scopes and not any(":" in scope for scope in resolved_scopes or []):
@@ -848,6 +934,7 @@ def _create_cimd_application(
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
+        organization_link_issuer=organization_link_issuer,
         scopes=resolved_scopes if resolved_scopes is not None else [],
         optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
@@ -935,8 +1022,17 @@ def _update_cimd_application(
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
-    new_org = verification.organization if verification else None
+    linked_issuer: str | None = app.organization_link_issuer
+    verification: CIMDVerificationToken | None = None
+    if _verifies_tokens_elsewhere():
+        new_org = None
+        linked_issuer = _organization_link_issuer(metadata, app.client_id)
+        if linked_issuer is None:
+            linked_issuer = app.organization_link_issuer
+    else:
+        verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
+        new_org = verification.organization if verification else None
+        linked_issuer = ""
     update_fields = [
         "name",
         "redirect_uris",
@@ -962,6 +1058,9 @@ def _update_cimd_application(
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
+    if linked_issuer != app.organization_link_issuer:
+        app.organization_link_issuer = linked_issuer
+        update_fields.append("organization_link_issuer")
 
     try:
         app.full_clean()
@@ -1024,7 +1123,7 @@ def _register_partner_if_declared(
         return
     if not _cimd_declares_provisioning(metadata):
         return
-    apply_provisioning_defaults(app)
+    apply_provisioning_defaults(app, metadata=metadata)
     app.refresh_from_db()
 
 
@@ -1206,7 +1305,7 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     refresh_cimd_metadata_task.delay(url)
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+def _cimd_provisioning_defaults_for(app: OAuthApplication, *, active: bool) -> "ProvisioningConfig":
     """The config a CIMD app gets when it registers itself, layered over whatever it already has.
 
     Nothing here touches client authentication: that is derived from the client's own metadata
@@ -1226,13 +1325,18 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     before the app first registered does not have it silently dropped here. For the ordinary
     case - a brand new self-registered client - the existing config is empty and the two are
     the same thing.
+
+    ``active`` is False while the partner waits on its review, so the capabilities are in place
+    for the moment the review accepts it, and nothing is usable before then.
     """
     return app.provisioning.model_copy(
-        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+        update={"active": active, "can_create_accounts": True, "can_provision_resources": True}
     )
 
 
-def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+def apply_provisioning_defaults(
+    app: OAuthApplication, *, metadata: CIMDMetadataDocument | None = None
+) -> OAuthApplication:
     """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
     Only ever promotes a client that is not a partner yet, and respects the `disabled` kill
@@ -1250,7 +1354,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     that is a partner but still public would accept an unauthenticated caller acting as that
     partner. The locked row supplies the key set, since a stale in-memory copy could promote an
     app whose document no longer publishes one.
+
+    Where a review is required, the partner is promoted inactive with a pending review, and the
+    review workflow starts once the promotion commits. An admin who activated the app before it
+    registered has already vouched for it, so that app skips the review.
     """
+    needs_review = False
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
         app._provisioning_config = current._provisioning_config
@@ -1261,14 +1370,23 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             return app
         if app.provisioning.disabled:
             return app
+        needs_review = review_required() and not app.provisioning.active
         app.is_provisioning_partner = True
-        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.provisioning = _cimd_provisioning_defaults_for(app, active=not needs_review)
         updated_fields = ["is_provisioning_partner", "_provisioning_config"]
         if current.jwks_uri:
             app.jwks_uri = current.jwks_uri
             app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
             updated_fields.append("client_type")
         app.save(update_fields=updated_fields)
+        if needs_review:
+            open_review(
+                app,
+                domain=registrable_domain(app.client_id),
+                metadata_document=cast(dict[str, object], metadata) if metadata is not None else None,
+            )
+            application_id = str(app.pk)
+            transaction.on_commit(lambda: start_review(application_id))
 
     # A partner appearing without an admin creating it is the event worth watching for abuse.
     # Only the promotion reaches here, so it fires on the transition and nowhere else.
@@ -1282,6 +1400,7 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             "partner_tier": app.partner_tier,
             "is_verified": app.organization_id is not None,
             "organization_id": str(app.organization_id) if app.organization_id else None,
+            "under_review": needs_review,
         },
     )
     return app

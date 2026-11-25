@@ -102,11 +102,23 @@ export class RecordingApiMetrics {
             | 'ok'
             | 'not_found'
             | 'deleted'
+            | 'too_large'
+            | 'busy'
             | 'rate_limited'
             | 'rate_limited_log_only'
             | 'rate_limit_unavailable'
             | 'error'
     ): void {
         this.replayBlockRequests.labels({ result }).inc()
+    }
+
+    private static readonly jwtVerificationFailures = new Counter({
+        name: 'recording_api_jwt_verification_failures_total',
+        help: 'Bearer tokens refused by signature, expiry or claims checks',
+        labelNames: ['audience', 'reason'],
+    })
+
+    public static incrementJwtVerificationFailure(audience: string, reason: string): void {
+        this.jwtVerificationFailures.labels({ audience, reason }).inc()
     }
 }

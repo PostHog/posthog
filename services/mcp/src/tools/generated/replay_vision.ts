@@ -1003,9 +1003,6 @@ const visionScannersCreate = (): ToolBase<
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
         }
@@ -1026,6 +1023,9 @@ const visionScannersCreate = (): ToolBase<
         }
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
+        }
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
         }
         if (params.query !== undefined) {
             body['query'] = params.query
@@ -1156,9 +1156,6 @@ const visionScannersEstimate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
         }
         if (params.scanner_id !== undefined) {
             body['scanner_id'] = params.scanner_id
@@ -1349,6 +1346,7 @@ const visionScannersList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 scanner_type: params.scanner_type,
+                scope_kind: params.scope_kind,
                 search: params.search,
                 tags: params.tags,
             },
@@ -1743,9 +1741,6 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
         }
@@ -1766,6 +1761,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
+        }
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
         }
         if (params.query !== undefined) {
             body['query'] = params.query

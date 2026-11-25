@@ -6,6 +6,22 @@ export interface AccountViewTileLogicProps {
     onConfigChange?: (config: AccountViewTileConfig) => void
 }
 
+export interface AccountViewWidgetProps extends AccountViewTileLogicProps {
+    onLoadingChange?: (loading: boolean) => void
+    accountId: string
+    externalId: string
+    projectId?: number
+    embedded?: boolean
+}
+
+export interface AccountViewTileConfigEditorProps {
+    projectId: number
+    accountId: string
+    config: AccountViewTileConfig
+    saving: boolean
+    onChange: (config: AccountViewTileConfig) => void
+}
+
 export function getTileString(config: AccountViewTileConfig | undefined, key: string, fallback = ''): string {
     const value = config?.[key]
     return typeof value === 'string' ? value : fallback

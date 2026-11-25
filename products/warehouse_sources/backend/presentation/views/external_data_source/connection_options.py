@@ -48,6 +48,20 @@ class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerial
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
         fields = ["enabled", "include_invoiceless_charges"]
+        extra_kwargs = {
+            "enabled": {
+                "help_text": (
+                    "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue "
+                    "analytics views. The synced warehouse tables are not changed."
+                ),
+            },
+            "include_invoiceless_charges": {
+                "help_text": (
+                    "Whether charges that have no invoice count as revenue. Turn it off to count only revenue "
+                    "that comes from invoices."
+                ),
+            },
+        }
 
 
 class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
@@ -341,6 +355,8 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
             status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
         )
 
+    # The request and response schemas are set on `ExternalDataSourceViewSet`: the response is the
+    # full source serializer, which this module cannot import without a cycle.
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""

@@ -24,6 +24,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     event_or_action_to_filter,
     get_source_value_expr,
 )
+from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import extend_date_from_for_cuped
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
@@ -120,15 +121,7 @@ def build_metric_predicate(
         timestamp_field_chain = [table_alias, "timestamp"]
         metric_event_filter = event_or_action_to_filter(team, source)
 
-    date_from = date_range_query.date_from_as_hogql()
-    if cuped_lookback_days is not None:
-        date_from = parse_expr(
-            "{date_from} - toIntervalDay({lookback_days})",
-            placeholders={
-                "date_from": date_from,
-                "lookback_days": ast.Constant(value=cuped_lookback_days),
-            },
-        )
+    date_from = extend_date_from_for_cuped(date_range_query.date_from_as_hogql(), cuped_lookback_days)
 
     return parse_expr(
         """

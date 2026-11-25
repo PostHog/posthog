@@ -33,7 +33,7 @@ jobs:
         strategy:
             matrix:
                 # Keep in sync with enabledManagers in .github/renovate.json5.
-                manager: [npm, github-actions, cargo, pep621, gomod, custom.regex]
+                manager: [npm, github-actions, cargo, pep621, gomod, custom.regex, nodenv, nvm]
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
@@ -53,7 +53,7 @@ jobs:
                   RENOVATE_FORCE: '{"enabledManagers": ["${{ matrix.manager }}"]}'
                   LOG_LEVEL: warn
                   npm_config_ignore_scripts: 'true'
-              run: npx --yes renovate@44.139.0 --platform=local --dry-run=lookup
+              run: npx --yes renovate@44.219.0 --platform=local --dry-run=lookup
 
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/upload-artifact@v7.0.1

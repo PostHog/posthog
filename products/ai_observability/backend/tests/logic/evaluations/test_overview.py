@@ -238,7 +238,7 @@ def test_pass_rate_median_change_uses_the_same_evaluations_in_both_periods() -> 
     )
     new = _result(_meta(), [_bucket(BUCKETS[0], passed=40, failed=60)])
 
-    overview = pass_rate_overview([steady, new], len(BUCKETS))
+    overview = pass_rate_overview([steady, new])
 
     assert overview.median == 60.0
     assert overview.median_comparison == contracts.PeriodComparison(current=80.0, previous=90.0)

@@ -1,9 +1,10 @@
+import './input-group.css'
+
 import { NumberField } from '@base-ui/react/number-field'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { Button } from './button'
-import './input-group.css'
 import { Input } from './input'
 import { cn } from './lib/utils'
 import { Textarea } from './textarea'
@@ -65,7 +66,12 @@ const InputGroupAddon = React.forwardRef<
                 if ((e.target as HTMLElement).closest('button')) {
                     return
                 }
-                e.currentTarget.parentElement?.querySelector('input')?.focus()
+                // A rich text editor is a contenteditable, not an input, but it is the group's control all the same.
+                e.currentTarget.parentElement
+                    ?.querySelector<HTMLElement>(
+                        "[data-slot='input-group-control'], [contenteditable='true'], input:not([type='hidden'], [type='file'])"
+                    )
+                    ?.focus()
             }}
             {...props}
         />
@@ -120,6 +126,8 @@ type InputGroupInputProps = Omit<React.ComponentProps<'input'>, 'size' | 'placeh
      * the input an `aria-label` too.
      */
     placeholder?: React.ReactNode
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
+    disabledReason?: React.ReactNode
 }
 
 // The input always sits in the field, whatever the placeholder is, so changing the placeholder never
@@ -149,7 +157,12 @@ const InputGroupInput = React.forwardRef<HTMLInputElement, InputGroupInputProps>
 )
 InputGroupInput.displayName = 'InputGroupInput'
 
-const InputGroupTextarea = React.forwardRef<React.ComponentRef<typeof Textarea>, React.ComponentProps<'textarea'>>(
+type InputGroupTextareaProps = React.ComponentProps<'textarea'> & {
+    /** Disables the field and says why in a tooltip. Takes the place of `disabled` while set. */
+    disabledReason?: React.ReactNode
+}
+
+const InputGroupTextarea = React.forwardRef<React.ComponentRef<typeof Textarea>, InputGroupTextareaProps>(
     function InputGroupTextarea({ className, ...props }, ref) {
         return (
             <Textarea
@@ -186,4 +199,12 @@ const InputGroupNumberInput = React.forwardRef<React.ComponentRef<typeof NumberF
     }
 )
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }
+export {
+    InputGroup,
+    InputGroupAddon,
+    InputGroupButton,
+    InputGroupText,
+    InputGroupInput,
+    InputGroupNumberInput,
+    InputGroupTextarea,
+}

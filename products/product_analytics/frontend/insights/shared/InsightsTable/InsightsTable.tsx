@@ -5,6 +5,7 @@ import { ReactNode } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { percentage } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
@@ -19,11 +20,14 @@ import { IndexedTrendResult } from 'products/product_analytics/frontend/insights
 import { AggregationColumnItem, AggregationColumnTitle, CALC_COLUMN_LABELS } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
+import { EventCountColumnItem, EventCountColumnTitle } from './columns/EventCountColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { QuillInsightsTable } from './QuillInsightsTable'
+import { seriesRowColor } from './seriesRowColor'
 import { CalcColumnState, InsightsTableColumn, MAX_VALUE_COLUMNS, useInsightsTableModel } from './useInsightsTableModel'
 
 export interface InsightsTableProps {
@@ -69,6 +73,7 @@ export function InsightsTable({
     editMode,
     emptyState = 'No insight results',
 }: InsightsTableProps): JSX.Element {
+    const quillSurface = useQuillSurface()
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
@@ -112,6 +117,21 @@ export function InsightsTable({
         renderCount,
         showMoreColumns,
     } = useInsightsTableModel({ filterKey, isLegend, embedded, isMainInsightView })
+
+    if (quillSurface && !isMainInsightView) {
+        return (
+            <QuillInsightsTable
+                filterKey={filterKey}
+                isLegend={isLegend}
+                embedded={embedded}
+                canEditSeriesNameInline={canEditSeriesNameInline}
+                seriesNameTooltip={seriesNameTooltip}
+                canCheckUncheckSeries={canCheckUncheckSeries}
+                editMode={editMode}
+                emptyState={emptyState}
+            />
+        )
+    }
 
     const toLemonColumn = (column: InsightsTableColumn): LemonTableColumn<IndexedTrendResult, any> => {
         switch (column.kind) {
@@ -303,6 +323,14 @@ export function InsightsTable({
                     key: column.key,
                     align: 'right',
                 }
+            case 'event-count':
+                return {
+                    title: <EventCountColumnTitle title={column.title} />,
+                    render: (_: any, item: IndexedTrendResult) => <EventCountColumnItem item={item} />,
+                    sorter: column.sorter,
+                    key: column.key,
+                    align: 'right',
+                }
             case 'value':
                 return {
                     title: isStickiness ? (
@@ -358,19 +386,9 @@ export function InsightsTable({
             emptyState={emptyState}
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
-            rowRibbonColor={
-                isLegend
-                    ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
-
-                          const themeColor = getTrendsColor(item)
-                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
-
-                          return mainColor
-                      }
-                    : undefined
-            }
+            rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
             firstColumnSticky
+            stickyHeader
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
             // Allow vertical scrolling so long tables inside constrained

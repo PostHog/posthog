@@ -47,7 +47,7 @@ class TaskRunLogsTool(ConsoleTool):
     key = RUN_LOGS_TOOL_KEY
     title = "Task run logs"
     owner = AGENT_INFRASTRUCTURE
-    group = "Data"
+    group = "AI"
     description = "Downloads the log of one task run."
 
     def page(self, request: HttpRequest) -> Page:
@@ -107,3 +107,10 @@ class PostHogDesktopPanel(Panel):
                 undo_hint="An organization admin can accept the terms again in organization settings.",
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/tasks/taskrun/<uuid:pk>/download-logs/",
+    title="Downloading task run logs",
+    url="/admin/console/tools/task-run-logs/download/?run={pk}",
+)

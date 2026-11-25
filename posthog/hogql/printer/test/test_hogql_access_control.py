@@ -785,6 +785,33 @@ class TestWarehouseTableAccessControl(BaseTest):
         # allowed_table has no source, so no rule about sources may reach it.
         assert "allowed_table" not in database._denied_tables
 
+    @parameterized.expand([("denied", True), ("no_rule", False)])
+    def test_query_log_warehouse_table_ids_hides_denied_table_ids(self, _label: str, deny: bool):
+        from posthog.hogql.parser import parse_select
+
+        if deny:
+            self._create_ac(
+                resource="warehouse_table",
+                resource_id=str(self.denied_table.id),
+                access_level="none",
+                member=self._membership(),
+            )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, database=database, enable_select_queries=True
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT warehouse_table_ids FROM query_log"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        printed_values = list(context.values.values())
+        assert (str(self.denied_table.id) in printed_values) is deny
+        assert str(self.allowed_table.id) not in printed_values
+        assert ("arrayFilter" in sql) is deny
+
     def test_system_tables_listing_hides_denied_tables_and_tables_of_a_denied_source(self):
         from posthog.hogql.parser import parse_select
 
@@ -930,6 +957,79 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_table")
+
+    @parameterized.expand(
+        [
+            ("no_rules", None, True),
+            ("source_denied", "external_data_source", False),
+            ("all_tables_denied", "warehouse_objects", False),
+            # A row that kept its synced table answers to that table's rules, not its source's.
+            ("kept_table_denied", "warehouse_table", False),
+        ]
+    )
+    def test_dual_mode_live_only_table_follows_its_source(
+        self, _label: str, denied_resource: str | None, expected_visible: bool
+    ) -> None:
+        from products.warehouse_sources.backend.facade.models import (
+            DataWarehouseTable,
+            ExternalDataSchema,
+            ExternalDataSource,
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="pg",
+            job_inputs={"schema": "public"},
+        )
+        kept_table = (
+            DataWarehouseTable.objects.create(
+                name="pg_invoices",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                team=self.team,
+                credential=self.credential,
+                external_data_source=source,
+                url_pattern="s3://bucket/invoices/*",
+                columns={"id": "String"},
+            )
+            if denied_resource == "warehouse_table"
+            else None
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="public.invoices",
+            source=source,
+            table=kept_table,
+            should_sync=False,
+            live_query_enabled=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "invoices",
+                }
+            },
+        )
+        if denied_resource == "external_data_source":
+            self._create_ac(
+                resource=denied_resource, resource_id=str(source.id), access_level="none", member=self._membership()
+            )
+        elif kept_table is not None:
+            self._create_ac(
+                resource=denied_resource, resource_id=str(kept_table.id), access_level="none", member=self._membership()
+            )
+        elif denied_resource is not None:
+            self._create_ac(resource=denied_resource, access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user, connection_id=str(source.id))
+
+        assert database.has_table("public.invoices") is expected_visible
+        if not expected_visible:
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table("public.invoices")
 
 
 class TestWarehouseTableAccessControlFlagOff(BaseTest):

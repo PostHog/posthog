@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -31,7 +30,7 @@ export const scene: SceneExport<TransactionalEmailLogEntryLogicProps> = {
 export function TransactionalEmailLogEntryScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     // The scene binds the logic to the message ID in the URL.
-    const { email, emailLoading, emailFailed } = useValues(transactionalEmailLogEntryLogic)
+    const { email, emailLoading, emailFailed, emailPageUrl } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
 
     if (!showTransactional) {
@@ -71,11 +70,11 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     resourceType={{ type: 'transactional' }}
                     isLoading={!email}
                     actions={
-                        email?.template_id ? (
+                        emailPageUrl ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={urls.transactionalTemplate(email.template_id)}
+                                to={emailPageUrl}
                                 data-attr="transactional-email-log-entry-open-template"
                             >
                                 Open email
@@ -100,7 +99,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                         </div>
                         <div className="w-full @3xl:w-80 shrink-0 flex flex-col gap-4">
                             {email.distinct_id && <TransactionalEmailPersonCard distinctId={email.distinct_id} />}
-                            <TransactionalEmailDetails email={email} />
+                            <TransactionalEmailDetails email={email} emailUrl={emailPageUrl} />
                         </div>
                     </div>
                 </div>

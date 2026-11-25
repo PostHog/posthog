@@ -17,6 +17,22 @@ class AccountPersonsWebBurstThrottle(UserOrEmailRateThrottle):
     rate = "180/minute"
 
 
+class AccountPersonMembershipsRequestSerializer(serializers.Serializer):
+    person_ids = serializers.ListField(
+        child=serializers.UUIDField(), min_length=1, max_length=500, help_text="Loaded person IDs to enrich, up to 500."
+    )
+
+
+class PersonAccountSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Accessible account ID.")
+    name = serializers.CharField(help_text="Account display name.")
+
+
+class AccountPersonMembershipsSerializer(serializers.Serializer):
+    person_id = serializers.UUIDField(help_text="Current person ID from the requested account.")
+    accounts = PersonAccountSerializer(many=True, help_text="Accessible accounts this person belongs to.")
+
+
 class AccountPersonsWebSustainedThrottle(UserOrEmailRateThrottle):
     scope = "account_persons_sustained"
     rate = "1200/hour"

@@ -413,7 +413,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             actions.loadVisibleData()
         }
         if (!values.database) {
-            actions.loadDatabase()
+            actions.loadDatabase({ shallow: true })
         }
     }),
 ])

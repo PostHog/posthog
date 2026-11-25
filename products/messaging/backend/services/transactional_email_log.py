@@ -1,11 +1,12 @@
 """The transactional email log: every send of a project, read from the email_status_events table.
 
 A send writes one row per status change. The queued row carries the recipient and the workflow, the sent row the
-sending domain, and opens and clicks add rows of their own. The delivery status of a send is its highest-ranked
-delivery row, so an open never hides a bounce.
+sending domain, and opens and clicks add rows of their own. A scheduled send writes a scheduled row in place of the
+queued one, and the log reads it as a queued row. The delivery status of a send is its highest-ranked delivery row, so
+an open never hides a bounce.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
@@ -16,16 +17,19 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
     EmailStatsGroupBy,
     EmailStatsInterval,
+    TransactionalEmailConversions,
+    TransactionalEmailImpact,
     TransactionalEmailLogDetail,
     TransactionalEmailLogEntry,
     TransactionalEmailLogEvent,
@@ -39,9 +43,13 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
+    EMAIL_STATUS_SHOWN_REASON,
+    EMAIL_UNTRACKED_REASON,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.services.code_emails import code_emails_by_workflow
+from products.messaging.backend.services.transactional_email_status import message_created_at
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
@@ -55,6 +63,9 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
+_DISTINCT_ID_COPIES_IN_QUERY = 3
+_SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
+IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
 _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
@@ -62,14 +73,22 @@ _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
 _SEARCH: dict[str, int] = {"optimize_read_in_order": 0}
 
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
+_FIRST_ROW = "status IN ('queued', 'scheduled')"
+# A scheduled send that hasn't gone out yet is waiting to go out, the same as a queued one, since its first row. A
+# reschedule writes another scheduled row but doesn't queue the send again.
+_STATUS = "if(status = 'scheduled', 'queued', status)"
 
 # One row per message. `argMaxIf` keeps the delivery status, and the `anyIf` columns read the one row that sets each.
 _MESSAGE_COLUMNS = f"""
     message_id,
     min(created_at) AS queued_at,
-    argMaxIf(status, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
-    argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT}) AS delivery_status_at,
-    argMaxIf(reason, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
+    argMaxIf({_STATUS}, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
+    if(
+        delivery_status = 'queued',
+        minIf(status_at, {_FIRST_ROW}),
+        argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT})
+    ) AS delivery_status_at,
+    argMaxIf({EMAIL_STATUS_SHOWN_REASON}, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
     anyIf(recipient, recipient != '') AS message_recipient,
     anyIf(function_id, function_id != '') AS message_function_id,
     anyIf(sending_domain, sending_domain != '') AS message_sending_domain,
@@ -92,13 +111,10 @@ def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
     return _Period(start=start, end=end)
 
 
-def _queued_at(message_id: UUID) -> datetime | None:
-    """When a message was queued, which its id starts with, or None when the log can't hold a message with this id."""
-    queued_ms = int.from_bytes(message_id.bytes[:6], "big")
-    now = datetime.now(UTC)
-    if not (now - RETENTION).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
-        return None
-    return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
+def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
+    # The log reads email_status_events, which its own consumer fills, so a send the email_status consumer has not
+    # reached yet is still found.
+    return message_created_at(team_id, message_id, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
 def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
@@ -134,13 +150,24 @@ def _sees_no_sends(access: WorkflowViewAccess | None) -> bool:
     return access is not None and not access.can_view_deleted and not access.viewable_ids
 
 
-def _code_send_keys(team_id: int, workflow_ids: Sequence[str]) -> dict[str, str]:
-    """The `template_key` of each workflow behind a send from code, which has no template to name it."""
+@frozen
+class _CodeSends:
+    # The `template_key` of each workflow behind a send from code, which has no template to name it.
+    keys: dict[str, str]
+    code_email_ids: dict[str, str]
+
+
+def _code_sends(team_id: int, workflow_ids: Sequence[str]) -> _CodeSends:
     ids = [UUID(workflow_id) for workflow_id in set(workflow_ids) if _is_uuid(workflow_id)]
     if not ids:
-        return {}
+        return _CodeSends(keys={}, code_email_ids={})
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(hog_flow_id__in=ids)
-    return {str(hog_flow_id): key for hog_flow_id, key in keys.values_list("hog_flow_id", "key")}
+    return _CodeSends(
+        keys={str(hog_flow_id): key for hog_flow_id, key in keys.values_list("hog_flow_id", "key")},
+        code_email_ids={
+            workflow_id: str(email.id) for workflow_id, email in code_emails_by_workflow(team_id, ids).items()
+        },
+    )
 
 
 def _is_uuid(value: str) -> bool:
@@ -153,7 +180,7 @@ def _is_uuid(value: str) -> bool:
 
 def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLogEntry]:
     templates = _templates_by_workflow(team_id, [row[6] for row in rows])
-    code_send_keys = _code_send_keys(team_id, [row[6] for row in rows])
+    code_sends = _code_sends(team_id, [row[6] for row in rows])
     entries = []
     for row in rows:
         (message_id, queued_at, status, status_at, reason, recipient, workflow_id, domain, opened, clicked) = row
@@ -172,7 +199,8 @@ def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLo
                 recipient=recipient,
                 workflow_id=workflow_id,
                 template_id=str(template.id) if template else None,
-                template_name=template.name if template else code_send_keys.get(workflow_id, ""),
+                template_name=template.name if template else code_sends.keys.get(workflow_id, ""),
+                code_email_id=None if template else code_sends.code_email_ids.get(workflow_id),
                 sending_domain=domain,
                 opened=bool(opened),
                 clicked=bool(clicked),
@@ -186,6 +214,7 @@ def list_transactional_emails(
     *,
     search: str | None = None,
     status: EmailDeliveryStatus | None = None,
+    reason: str | None = None,
     workflow_id: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -202,14 +231,14 @@ def list_transactional_emails(
     period_filter = "team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s"
     having = ["delivery_status != ''"]
     params: dict[str, Any] = {"start": start, "end": end, "limit": limit + 1, "offset": offset}
-    # Only the queued row names the recipient and the workflow, so these filters pick messages from queued rows.
+    # Only the first row names the recipient and the workflow, so these filters pick messages from first rows.
     queued_filters: list[str] = []
     settings: dict[str, int] = {}
 
     search = (search or "").strip()
     message_id = UUID(search) if search and _is_uuid(search) else None
     if message_id:
-        sent_around = _queued_at(message_id)
+        sent_around = _message_created_at(team_id, message_id)
         if sent_around is None:
             return [], False
         params["message_id"] = str(message_id)
@@ -222,6 +251,9 @@ def list_transactional_emails(
     if status:
         having.append("delivery_status = %(status)s")
         params["status"] = status.value
+    if reason:
+        having.append("delivery_reason = %(reason)s")
+        params["reason"] = reason
     if workflow_id:
         queued_filters.append("function_id = %(workflow_id)s")
         having.append("message_function_id = %(workflow_id)s")
@@ -230,18 +262,18 @@ def list_transactional_emails(
         queued_filters.append(_access_condition("function_id", access, params))
         having.append(_access_condition("message_function_id", access, params))
 
-    queued = " AND ".join([period_filter, "status = 'queued'", *queued_filters])
-    candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
+    queued = " AND ".join([period_filter, _FIRST_ROW, *queued_filters])
+    candidates = f"SELECT DISTINCT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
     if message_id:
         scope = "AND message_id = %(message_id)s"
-    elif status:
+    elif status or reason:
         # A delivery status comes from all of a message's rows, so this reads every message in the period.
         settings.update(_GROUP_AS_READ)
         scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""
     else:
-        # The page comes from queued rows alone, so a long period doesn't group every message to show 50 of them.
-        # Kafka can deliver a queued row twice, so this takes extra rows and the grouping below drops the repeats.
-        params["candidates"] = (limit + 1 + offset) * 2
+        # The page comes from first rows alone, so a long period doesn't group every message to show 50 of them.
+        # Kafka can deliver a first row twice, and every reschedule writes another, so the limit counts messages.
+        params["candidates"] = limit + 1 + offset
         scope = (
             f"AND (created_at, message_id) IN ({candidates} ORDER BY created_at DESC, message_id DESC"
             " LIMIT %(candidates)s)"
@@ -270,7 +302,7 @@ def get_transactional_email(
 ) -> TransactionalEmailLogDetail | None:
     """One send with every status it went through, or None when the project has no send with this id, or the reader
     may not view its workflow."""
-    queued = _queued_at(message_id)
+    queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
     params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}
@@ -290,9 +322,9 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT status, status_at, reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT {_STATUS}, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
-        GROUP BY status, status_at, reason
+        GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
         """,
         params,
@@ -303,6 +335,9 @@ def get_transactional_email(
             continue
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
         if kind == EmailLogEventKind.FAILED and timeline and timeline[-1].kind == EmailLogEventKind.FAILED:
+            continue
+        # Each reschedule writes another scheduled row, but the send was queued once.
+        if kind == EmailLogEventKind.QUEUED and any(event.kind == EmailLogEventKind.QUEUED for event in timeline):
             continue
         timeline.append(TransactionalEmailLogEvent(kind=EmailLogEventKind(kind), at=at, reason=reason or None))
 
@@ -316,6 +351,8 @@ def get_transactional_email(
         distinct_id=asset.distinct_id if asset else "",
         # The stored copy opens through its workflow, so a deleted workflow's copy can't be shown.
         action_id=asset.action_id if asset and (access is None or entry.workflow_id in access.viewable_ids) else "",
+        # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
+        # the copy itself shows whether the content was withheld.
         sensitive=bool(template and template.sensitive),
     )
 
@@ -365,21 +402,28 @@ def transactional_email_stats(
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
     )
-    code_send_keys = (
-        _code_send_keys(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
+    code_sends = (
+        _code_sends(team_id, [row[0] for row in rows])
+        if group_by == EmailStatsGroupBy.TEMPLATE
+        else _CodeSends(keys={}, code_email_ids={})
     )
     stats = []
     for key, sent, delivered, bounced, complained, opened, clicked, failed in rows:
         template = templates.get(key)
+        live_template = template if template and not template.deleted else None
         if group_by == EmailStatsGroupBy.TEMPLATE:
-            label = template.name if template and not template.deleted else code_send_keys.get(key, "")
+            label = live_template.name if live_template else code_sends.keys.get(key, "")
+            code_email_id = None if live_template else code_sends.code_email_ids.get(key)
             key = str(template.id) if template else key
         else:
             label = key
+            code_email_id = None
         stats.append(
             TransactionalEmailStatsRow(
                 key=key,
                 label=label,
+                template_id=str(live_template.id) if live_template else None,
+                code_email_id=code_email_id,
                 sent=sent,
                 delivered=delivered,
                 bounced=bounced,
@@ -558,7 +602,222 @@ def transactional_email_results(
     )
 
 
+def transactional_email_impact(
+    team: Team,
+    user: User | None,
+    workflow_id: str,
+    event: str | None,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> TransactionalEmailImpact:
+    """How far one email's sends got, from sent to clicked, and how often the person behind a send did `event` within
+    a week of clicking, against sends that were delivered and never clicked."""
+    period = _window(date_from, date_to)
+    params: dict[str, Any] = {
+        "start": period.start,
+        "end": period.end,
+        "workflow_id": workflow_id,
+        "untracked_reason": EMAIL_UNTRACKED_REASON,
+    }
+    [(sent, delivered, opened, clicked, not_clicked, untracked)] = _execute(
+        team.id,
+        f"""
+        SELECT
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained')),
+            countIf(delivery_status IN ('delivered', 'complained')),
+            countIf(was_opened),
+            countIf(was_clicked),
+            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND was_untracked)
+        FROM (
+            SELECT
+                {_MESSAGE_COLUMNS},
+                countIf(status = 'sent' AND reason = %(untracked_reason)s) > 0 AS was_untracked
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE delivery_status != '' AND message_function_id = %(workflow_id)s
+        """,
+        params,
+        _GROUP_AS_READ,
+    )
+    if not event:
+        return TransactionalEmailImpact(
+            sent=sent,
+            delivered=delivered,
+            opened=opened,
+            clicked=clicked,
+            not_clicked=not_clicked,
+            untracked=untracked,
+            window_days=IMPACT_WINDOW_DAYS,
+            after_click=None,
+            without_click=None,
+        )
+    sends = _sends_to_follow(team, user, workflow_id, period)
+    converted = _converted_sends(team, user, event, sends)
+    return TransactionalEmailImpact(
+        sent=sent,
+        delivered=delivered,
+        opened=opened,
+        clicked=clicked,
+        not_clicked=not_clicked,
+        untracked=untracked,
+        window_days=IMPACT_WINDOW_DAYS,
+        after_click=_conversions_of([send for send in sends if send.clicked], converted),
+        without_click=_conversions_of([send for send in sends if not send.clicked], converted),
+    )
+
+
+@frozen
+class _FollowedSend:
+    message_id: str
+    distinct_id: str
+    recipient: str
+    clicked: bool
+    since: datetime
+
+
+def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
+    rows = _execute(
+        team.id,
+        f"""
+        SELECT toString(message_id), was_clicked, if(was_clicked, first_clicked_at, greatest(queued_at, first_sent_at))
+        FROM (
+            SELECT
+                {_MESSAGE_COLUMNS},
+                minIf(status_at, status = 'clicked') AS first_clicked_at,
+                minIf(status_at, status = 'sent') AS first_sent_at
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
+          AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
+        ORDER BY queued_at DESC
+        LIMIT %(limit)s BY was_clicked
+        """,
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        _GROUP_AS_READ,
+    )
+    assets = fetch_message_assets_for_invocations(team.id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW)
+    distinct_ids = {
+        asset.invocation_id: asset.distinct_id
+        for asset in assets
+        if asset.function_id == workflow_id and asset.distinct_id
+    }
+    persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
+    return [
+        _FollowedSend(
+            message_id=message_id,
+            distinct_id=distinct_ids[message_id],
+            recipient=persons.get(distinct_ids[message_id], f"distinct:{distinct_ids[message_id]}"),
+            clicked=bool(was_clicked),
+            since=since.replace(tzinfo=UTC),
+        )
+        for message_id, was_clicked, since in rows
+        if message_id in distinct_ids
+    ]
+
+
+def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
+    converted: set[str] = set()
+    for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
+        converted |= _converted_in_batch(team, user, event, batch)
+    return converted
+
+
+def _max_query_size(team_id: int) -> int:
+    team_limit = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    # ClickHouse reads a zero max_query_size as no limit, so batches then follow the default limit.
+    return team_limit if isinstance(team_limit, int) and team_limit > 0 else default_settings()["max_query_size"]
+
+
+def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    # The batched values take at most a quarter of the query, which leaves the rest for the query text around them.
+    budget = _max_query_size(team_id) // 4
+    batch: list[T] = []
+    batch_bytes = 0
+    for item in items:
+        item_bytes = query_bytes_of(item)
+        if batch and batch_bytes + item_bytes > budget:
+            yield batch
+            batch, batch_bytes = [], 0
+        batch.append(item)
+        batch_bytes += item_bytes
+    if batch:
+        yield batch
+
+
+def _query_bytes_of(send: _FollowedSend) -> int:
+    return (
+        _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
+        + _escaped_literal_bytes(send.recipient)
+        + _escaped_literal_bytes(send.message_id)
+        + _SINCE_MS_LITERAL_BYTES
+    )
+
+
+def _escaped_literal_bytes(value: str) -> int:
+    return 2 * len(value.encode()) + len("'', ")
+
+
+def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
+    window = timedelta(days=IMPACT_WINDOW_DAYS)
+    start = min(send.since for send in sends)
+    end = max(send.since for send in sends) + window + timedelta(seconds=1)
+    response = execute_hogql_query(
+        """
+        SELECT DISTINCT sends.message_id
+        FROM ("""
+        + _RECIPIENT_EVENTS
+        + """) AS conversions
+        INNER JOIN (
+            SELECT
+                tupleElement(send, 1) AS message_id,
+                tupleElement(send, 2) AS recipient,
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
+        ) AS sends ON conversions.recipient = sends.recipient
+        WHERE conversions.timestamp >= sends.since
+          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "revenue": ast.Constant(value=None),
+            "event": ast.Constant(value=event),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
+            "message_ids": ast.Constant(value=[send.message_id for send in sends]),
+            "recipients": ast.Constant(value=[send.recipient for send in sends]),
+            "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
+            "window_seconds": ast.Constant(value=int(window.total_seconds())),
+            "limit": ast.Constant(value=len(sends)),
+        },
+        query_type="transactional_email_impact_conversions",
+        workload=Workload.ONLINE,
+    )
+    return {message_id for (message_id,) in response.results or []}
+
+
+def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> TransactionalEmailConversions:
+    return TransactionalEmailConversions(
+        sends=len(sends), converted=sum(1 for send in sends if send.message_id in converted)
+    )
+
+
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
+    persons: dict[str, str] = {}
+    for batch in _batches_by_query_size(team.id, distinct_ids, _escaped_literal_bytes):
+        persons |= _persons_in_batch(team, user, batch)
+    return persons
+
+
+def _persons_in_batch(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     response = execute_hogql_query(
         """
         SELECT distinct_id, toString(person_id) FROM person_distinct_ids
@@ -572,6 +831,20 @@ def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[
         workload=Workload.ONLINE,
     )
     return dict(response.results or [])
+
+
+_RECIPIENT_EVENTS = """
+    SELECT
+        if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
+           toString(person_id), concat('distinct:', distinct_id)) AS recipient,
+        timestamp,
+        {revenue} AS value
+    FROM events
+    WHERE event = {event}
+      AND timestamp >= {start} AND timestamp < {end}
+      AND (distinct_id IN {distinct_ids}
+           OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
+"""
 
 
 @frozen
@@ -608,18 +881,9 @@ def _conversions(
     response = execute_hogql_query(
         """
         SELECT conversions.recipient, min(conversions.timestamp), sum(conversions.value)
-        FROM (
-            SELECT
-                if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
-                   toString(person_id), concat('distinct:', distinct_id)) AS recipient,
-                timestamp,
-                {revenue} AS value
-            FROM events
-            WHERE event = {event}
-              AND timestamp >= {start} AND timestamp < {end}
-              AND (distinct_id IN {distinct_ids}
-                   OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
-        ) AS conversions
+        FROM ("""
+        + _RECIPIENT_EVENTS
+        + """) AS conversions
         INNER JOIN (
             SELECT tupleElement(send, 1) AS recipient, fromUnixTimestamp64Milli(tupleElement(send, 2)) AS sent_at
             FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_ms})) AS send)

@@ -1083,7 +1083,7 @@ describe('infiniteListLogic', () => {
                 .toMatchValues({
                     showErrorState: true,
                     showEmptyState: false,
-                    showNonCapturedEventOption: false,
+                    showNonCapturedOption: false,
                     results: [],
                     value: selectedEvent,
                 })
@@ -1091,7 +1091,7 @@ describe('infiniteListLogic', () => {
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
                 expect(retryingLogic.values.results).toEqual([])
-                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
+                expect(retryingLogic.values.showNonCapturedOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
@@ -1356,7 +1356,38 @@ describe('infiniteListLogic', () => {
                 listLogic.actions.setSearchQuery(query)
             })
                 .toFinishAllListeners()
-                .toMatchValues({ showNonCapturedEventOption: expected })
+                .toMatchValues({ showNonCapturedOption: expected })
+        })
+    })
+
+    describe('the "not seen yet" option per group', () => {
+        it.each([
+            ['offers', TaxonomicFilterGroupType.PersonProperties, 'plan_from_flags', {}, true],
+            ['offers nothing for a defined name', TaxonomicFilterGroupType.PersonProperties, 'is_admin', {}, false],
+            [
+                'offers nothing when only events are allowed',
+                TaxonomicFilterGroupType.PersonProperties,
+                'plan_from_flags',
+                { allowNonCapturedPersonProperties: false, allowNonCapturedEvents: true },
+                false,
+            ],
+            ['offers nothing in the events group', TaxonomicFilterGroupType.Events, 'checkout_started', {}, false],
+        ])('%s (%s, searching %p)', async (_, listGroupType, query, props, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `not-seen-per-group-${listGroupType}-${query}-${expected}`,
+                listGroupType,
+                taxonomicGroupTypes: [listGroupType],
+                showNumericalPropsOnly: false,
+                allowNonCapturedPersonProperties: true,
+                ...props,
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedOption: expected })
         })
     })
 
@@ -1381,7 +1412,7 @@ describe('infiniteListLogic', () => {
                     listLogic.actions.setSearchQuery(query)
                 })
                     .toFinishAllListeners()
-                    .toMatchValues({ showNonCapturedEventOption: false })
+                    .toMatchValues({ showNonCapturedOption: false })
             }
         )
     })
@@ -1469,6 +1500,26 @@ describe('infiniteListLogic', () => {
                 .toMatchValues({
                     results: partial([partial({ name: 'first' }), partial({ name: 'second' })]),
                 })
+        })
+
+        it('prefers the caller options over the default options of a group', async () => {
+            // The internal event properties group defaults to activity log keys; a destination trigger
+            // for another internal event passes its own keys.
+            const internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testInternalList',
+                listGroupType: TaxonomicFilterGroupType.InternalEventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEventProperties],
+                showNumericalPropsOnly: false,
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.InternalEventProperties]: [{ name: 'priority' }, { name: 'repo_slug' }],
+                },
+            })
+            internalLogic.mount()
+
+            await expectLogic(internalLogic).toMatchValues({
+                results: [partial({ name: 'priority' }), partial({ name: 'repo_slug' })],
+            })
+            internalLogic.unmount()
         })
     })
 

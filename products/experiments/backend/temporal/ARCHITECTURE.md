@@ -1,6 +1,6 @@
 # Recalculation workflow architecture
 
-This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `posthog/temporal/experiments/`), see that package's `README.md`.
+This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `products/experiments/backend/temporal/timeseries/`), see that package's `README.md`.
 
 ## What it does
 
@@ -100,7 +100,7 @@ A changed metric has a new fingerprint, so it recomputes, and the upsert replace
 The previous `recalculation_id` then reads the new result for that metric, the same as a stopped experiment after a config change (below).
 
 **Stopped experiments never get per-run isolation.**
-A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation_logic.py`).
+A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation/logic.py`).
 So every run of a stopped experiment uses the same `(experiment, metric_uuid, query_to)` row for a metric, and the rule above decides what a reload does:
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
@@ -231,7 +231,7 @@ An entry without the flag predates it and counts as non-retriable, so an old run
 
 #### The cold-start payload
 
-`TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `posthog/temporal/experiments/README.md`.
+`TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `products/experiments/backend/temporal/timeseries/README.md`.
 
 `GET /metrics_recalculation/latest` returns a synthetic "completed" payload built from each metric's latest timeseries point (`build_timeseries_cold_start_payload`) when no real recalc run exists yet. This is the cold-start placeholder: the user sees the freshest cached timeseries values instead of a bare 404 on first open. Only points younger than `TIMESERIES_FALLBACK_MAX_AGE` (24 hours) count, so an older point reads as a gap and the frontend starts a `cold_run` for it; a fallback that covers every metric is accepted as is. The GET path never triggers a recompute itself; it only reads.
 
@@ -263,14 +263,14 @@ No fingerprint recompute needed: the table has `experiment_id` and timestamps di
 
 Two parallel surfaces:
 
-- **Prometheus / Grafana.** The worker-side interceptor (`recalculation_metrics.py`) emits per-activity and end-to-end latency histograms, success/failure counters per activity type, and a `workflow_finished{status}` counter. These power dashboards and alerts about worker health (latency p95, recalc success rate, infrastructure failure rate). The `status` attribute on `workflow_finished` uses the business-level outcome (any failed metric → `"failed"`), so a 9-of-10-failed run is correctly counted as a failure.
+- **Prometheus / Grafana.** The worker-side interceptor (`recalculation/metrics.py`) emits per-activity and end-to-end latency histograms, success/failure counters per activity type, and a `workflow_finished{status}` counter. These power dashboards and alerts about worker health (latency p95, recalc success rate, infrastructure failure rate). The `status` attribute on `workflow_finished` uses the business-level outcome (any failed metric → `"failed"`), so a 9-of-10-failed run is correctly counted as a failure.
 - **PostHog events.** Frontend captures a consolidated `experiment metric recalculation` event with a `status` property (`triggered` / `polled` / `completed` / `failed`) at each lifecycle moment. These power user-behavior dashboards (how often do users click Reload, what fraction of recalcs end in failure from the user's perspective). See `docs/superpowers/specs/2026-06-04-experiment-metric-recalculation-events.md`.
 
 The split is intentional: Grafana tells you about the worker process, PostHog tells you about the user experience. Alerts can live in either depending on what's being monitored.
 
 ## Performance notes
 
-- **Fan out all metrics at once, Temporal owns retries.** The workflow schedules one calc activity per metric in a single `asyncio.gather` (`recalculation_workflow.py`), with no concurrency of its own. The activity slots of the worker that runs the calc activity set the pacing. The per-org ClickHouse app-query limiter does not apply inside Temporal activities. Scheduling every metric up front also keeps the task-queue backlog honest for the autoscaler. The per-run fan-out is unbounded by design; the scheduled path bounds how many runs it starts at once instead (see "Scheduled recalculation"). The workflow runs on its own `experiments-recalculation-task-queue` (see `EXPERIMENTS_RECALCULATION_TASK_QUEUE`), served by a dedicated worker deployment, so recalc load can be scaled and throttled independently of the general-purpose worker. That deployment autoscales on backlog, so its slots (`MAX_CONCURRENT_ACTIVITIES` times the pod count) do not cap the number of concurrent queries. The activity task queue below does.
+- **Fan out all metrics at once, Temporal owns retries.** The workflow schedules one calc activity per metric in a single `asyncio.gather` (`recalculation/workflow.py`), with no concurrency of its own. The activity slots of the worker that runs the calc activity set the pacing. The per-org ClickHouse app-query limiter does not apply inside Temporal activities. Scheduling every metric up front also keeps the task-queue backlog honest for the autoscaler. The per-run fan-out is unbounded by design; the scheduled path bounds how many runs it starts at once instead (see "Scheduled recalculation"). The workflow runs on its own `experiments-recalculation-task-queue` (see `EXPERIMENTS_RECALCULATION_TASK_QUEUE`), served by a dedicated worker deployment, so recalc load can be scaled and throttled independently of the general-purpose worker. That deployment autoscales on backlog, so its slots (`MAX_CONCURRENT_ACTIVITIES` times the pod count) do not cap the number of concurrent queries. The activity task queue below does.
 
 - **Activity task queue with a fixed cap.** A scheduled burst can send more concurrent queries than the ClickHouse default user allows, and the rejections then also hit other products that share that user. The calc activity is also registered on `experiments-recalculation-activity-task-queue` (`EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE`), with no workflows. A fixed worker with no autoscaling polls it in each region, so its pod count times its slot count is a hard cap on concurrent recalculation queries for the runs routed there. The workflow and its light Postgres activities stay on the main queue.
 
@@ -324,7 +324,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## What this doc doesn't cover
 
-- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows). See that package's `README.md`.
+- The legacy timeseries family of workflows (`products/experiments/backend/temporal/timeseries/`, three workflows). See that package's `README.md`.
 - The Temporal SDK basics. See `posthog/temporal/README.md`.
 - Frontend polling and rendering in depth. The kea logic has landed (`experimentMetricsLogic.ts`, with `RecalculationStatus.tsx` for rendering); this doc covers only the backend contract it polls. See the "GET path" decisions above and the poll loop in that logic.
 - Eviction implementation. The plan above is design intent; the actual workflow is a separate PR.

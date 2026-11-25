@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import itertools
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -55,7 +56,11 @@ from posthog.temporal.alerts.types import (
     ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
+from posthog.temporal.alerts.workflows import (
+    _PATCH_CONCURRENT_CHILD_STARTS,
+    CheckAlertWorkflow,
+    ScheduleDueAlertChecksWorkflow,
+)
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
@@ -273,6 +278,42 @@ async def test_schedule_due_alert_checks_admits_only_the_free_capacity() -> None
     assert _started_alert_ids(run) == [alert.alert_id for alert in alerts]
     assert run.admitted == [[alert.alert_id for alert in alerts[:2]], [alert.alert_id for alert in alerts[2:]]]
     assert run.sleep.await_count == 2
+
+
+@pytest.mark.parametrize(
+    "patched,expected_peak_starts",
+    [
+        pytest.param(True, 3, id="batch_starts_together"),
+        pytest.param(False, 1, id="run_started_before_the_patch"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_starts_an_admitted_batch_concurrently(
+    patched: bool, expected_peak_starts: int
+) -> None:
+    # A start that the workflow awaits alone costs a workflow task round trip, which caps how many
+    # checks one run can start before its budget ends.
+    starting = 0
+    peak_starts = 0
+
+    async def start_child(*args: Any, **kwargs: Any) -> None:
+        nonlocal starting, peak_starts
+        starting += 1
+        peak_starts = max(peak_starts, starting)
+        await asyncio.sleep(0)
+        starting -= 1
+
+    with (
+        _admission_scheduler(due_pages=[_alerts(3)], free_capacity=[10], start_child_side_effect=start_child) as run,
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.patched",
+            side_effect=lambda patch_id: patched or patch_id != _PATCH_CONCURRENT_CHILD_STARTS,
+        ),
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert _started_alert_ids(run) == ["alert-0", "alert-1", "alert-2"]
+    assert peak_starts == expected_peak_starts
 
 
 @pytest.mark.asyncio

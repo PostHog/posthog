@@ -53,11 +53,29 @@ SCHEDULE_RRULE_ERROR = (
     "Scheduled reports support daily or weekly cadences. Use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'."
 )
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+MAX_EMAIL_ADDRESSES = 100
 REPORT_NOT_SUPPORTED_ERROR = "Reports are not supported for this evaluation."
+AI_DATA_PROCESSING_NOT_APPROVED_ERROR = (
+    "Evaluation reports need AI data processing to be approved in organization settings."
+)
 
 
 def default_schedule_anchor() -> dt.datetime:
     return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+
+def _workflow_start_time(client, workflow_id: str) -> dt.datetime | None:
+    try:
+        return async_to_sync(client.get_workflow_handle(workflow_id).describe)().start_time
+    except Exception:
+        logger.warning("Could not read the running report workflow", workflow_id=workflow_id, exc_info=True)
+        return None
+
+
+class EvaluationReportGenerateResponseSerializer(serializers.Serializer):
+    requested_at = serializers.DateTimeField(
+        help_text="Server time of the request. The new report is the first run created after it."
+    )
 
 
 class EvaluationReportListQuerySerializer(serializers.Serializer):
@@ -255,8 +273,15 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid recurrence rule.") from exc
         return value
 
+    def _enable_if_approved(self) -> bool:
+        if not self.context["get_team"]().organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError({"enabled": [AI_DATA_PROCESSING_NOT_APPROVED_ERROR]})
+        return True
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if attrs.get("enabled"):
+            self._enable_if_approved()
         if (
             self.instance is not None
             and isinstance(self.initial_data, dict)
@@ -307,14 +332,27 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Delivery targets must be a list.")
         team = self.context["get_team"]()
         slack_ids_to_verify: set[int] = set()
+        email_address_count = 0
         for target in value:
             if not isinstance(target, dict):
                 raise serializers.ValidationError("Each delivery target must be an object.")
             target_type = target.get("type")
             if target_type not in ("email", "slack"):
                 raise serializers.ValidationError(f"Invalid delivery target type: {target_type}")
-            if target_type == "email" and not target.get("value"):
-                raise serializers.ValidationError("Email delivery target must include a 'value' field.")
+            if target_type == "email":
+                email_value = target.get("value")
+                addresses = (
+                    [address for address in email_value.split(",") if address.strip()]
+                    if isinstance(email_value, str)
+                    else []
+                )
+                if not addresses:
+                    raise serializers.ValidationError("Email delivery target must include at least one email address.")
+                email_address_count += len(addresses)
+                if email_address_count > MAX_EMAIL_ADDRESSES:
+                    raise serializers.ValidationError(
+                        f"Email delivery targets can include at most {MAX_EMAIL_ADDRESSES} email addresses."
+                    )
             if target_type == "slack":
                 integration_id = target.get("integration_id")
                 channel = target.get("channel")
@@ -340,7 +378,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
         evaluation = validated_data["evaluation"]
-        defaults = {**validated_data, "created_by": request.user}
+        # get_or_create evaluates callable defaults only when it inserts a new row.
+        defaults = {"enabled": self._enable_if_approved, **validated_data, "created_by": request.user}
         report, created = EvaluationReport.objects.get_or_create(
             evaluation=evaluation,
             team_id=team.id,
@@ -475,7 +514,7 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
+        help_text="Pass percentage excluding N/A. Null when no results passed or failed.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
@@ -534,7 +573,19 @@ class _EvaluationReportMetricsField(serializers.JSONField):
 
 
 @extend_schema_field(serializers.ListSerializer(child=serializers.CharField()))
-class _EvaluationReportDeliveryErrorsField(serializers.JSONField):
+class _EvaluationReportStringListField(serializers.JSONField):
+    pass
+
+
+class EvaluationReportDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=EvaluationReportRun.DestinationType.choices, help_text="Destination kind: 'slack' or 'email'."
+    )
+    name = serializers.CharField(help_text="Slack channel name or email address.")
+
+
+@extend_schema_field(EvaluationReportDestinationSerializer(many=True))
+class _EvaluationReportDestinationsField(serializers.JSONField):
     pass
 
 
@@ -548,9 +599,16 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
     )
-    delivery_errors = _EvaluationReportDeliveryErrorsField(
+    delivery_errors = _EvaluationReportStringListField(
         read_only=True,
         help_text="Delivery error messages. Empty when all configured deliveries succeeded.",
+    )
+    delivery_destinations = _EvaluationReportDestinationsField(
+        read_only=True,
+        help_text=(
+            "Slack channels and email addresses this report was addressed to, including any that failed "
+            "(see delivery_errors). Empty for reports sent before this was recorded."
+        ),
     )
 
     class Meta:
@@ -564,6 +622,7 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
             "period_end",
             "delivery_status",
             "delivery_errors",
+            "delivery_destinations",
             "created_at",
         ]
         read_only_fields = fields
@@ -783,7 +842,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         serializer = EvaluationReportRunSerializer(queryset, many=True)
         return Response(serializer.data)
 
-    @extend_schema(request=None, responses={202: None})
+    @extend_schema(request=None, responses={202: EvaluationReportGenerateResponseSerializer})
     @action(detail=True, methods=["post"], url_path="generate", required_scopes=["evaluation:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
@@ -793,6 +852,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             report.evaluation.output_type, report.evaluation.target, report.evaluation.output_config
         ):
             raise serializers.ValidationError({"evaluation": REPORT_NOT_SUPPORTED_ERROR})
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(AI_DATA_PROCESSING_NOT_APPROVED_ERROR)
 
         try:
             from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME
@@ -807,9 +868,10 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        requested_at = dt.datetime.now(tz=dt.UTC)
         # Stable workflow ID windowed to the minute: if a user smashes the button, Temporal
         # rejects the duplicate start (WorkflowAlreadyStarted) and we treat that as success.
-        workflow_id = f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).strftime('%Y%m%dT%H%M')}"
+        workflow_id = f"eval-report-manual-{report.id}-{requested_at.strftime('%Y%m%dT%H%M')}"
         try:
             client = sync_connect()
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
@@ -828,11 +890,20 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                     report_id=str(report.id),
                     workflow_id=workflow_id,
                 )
-                return Response(status=status.HTTP_202_ACCEPTED)
+                # The page waits for a run created after this time. The running job may already have stored its run,
+                # so a duplicate answers with when that job started rather than when this request arrived.
+                started_at = _workflow_start_time(client, workflow_id) or requested_at.replace(second=0, microsecond=0)
+                return Response(
+                    EvaluationReportGenerateResponseSerializer({"requested_at": started_at}).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))
             return Response(
                 {"error": "Failed to trigger report generation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        return Response(
+            EvaluationReportGenerateResponseSerializer({"requested_at": requested_at}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )

@@ -4,13 +4,63 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from django.db.models import Q
 from django.utils import timezone
 
-from products.visual_review.backend.facade.enums import RunStatus, RunType, ToleratedReason
+from products.visual_review.backend.facade.enums import (
+    BaselineApprovalState,
+    BaselineEntrySource,
+    RunStatus,
+    RunType,
+    ToleratedReason,
+)
 from products.visual_review.backend.logic import artifact_store, repos, retention, story_index
-from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
+from products.visual_review.backend.models import (
+    Artifact,
+    BaselineApproval,
+    BaselineEntry,
+    QuarantinedIdentifier,
+    Run,
+    RunSnapshot,
+    ToleratedHash,
+)
 from products.visual_review.backend.tasks.tasks import sweep_visual_review_artifacts, sweep_visual_review_runs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+
+def _ledger_entry(repo, now, hashes: dict[str, str]) -> None:
+    BaselineEntry.objects.create(
+        repo=repo,
+        team_id=repo.team_id,
+        run_type=RunType.STORYBOOK,
+        identifier="Button",
+        position=0,
+        commit_sha="a" * 40,
+        source=BaselineEntrySource.SEED,
+        **hashes,
+    )
+
+
+def _approval(repo, now, state: BaselineApprovalState, hashes: dict[str, str], pr_number: int = 7) -> BaselineApproval:
+    return BaselineApproval.objects.create(
+        repo=repo,
+        team_id=repo.team_id,
+        run_type=RunType.STORYBOOK,
+        pr_number=pr_number,
+        identifier="Button",
+        commit_sha="a" * 40,
+        approved_at=now,
+        state=state,
+        **hashes,
+    )
+
+
+def _open_approval(repo, now, hashes: dict[str, str]) -> None:
+    _approval(repo, now, BaselineApprovalState.OPEN, hashes)
+
+
+def _promoted_approval(repo, now, hashes: dict[str, str]) -> None:
+    _approval(repo, now, BaselineApprovalState.PROMOTED, hashes)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -133,6 +183,64 @@ class TestRetentionSweep:
         retention.sweep_repo_runs(repo, now=now)
 
         assert Run.objects.filter(id=quiet.id).exists() is survives
+
+    @pytest.mark.parametrize(
+        ("approval_pr_number", "listed_in_record", "state", "survives"),
+        [
+            (7, False, BaselineApprovalState.OPEN, True),
+            (5, True, BaselineApprovalState.OPEN, True),
+            (5, False, BaselineApprovalState.OPEN, False),
+            (7, False, BaselineApprovalState.PROMOTED, False),
+        ],
+    )
+    def test_quiet_branch_keeps_a_run_whose_verdict_an_open_approval_can_change(
+        self, approval_pr_number, listed_in_record, state, survives, repo, now
+    ):
+        approval = _approval(repo, now, state, {"content_hash": "h1"}, pr_number=approval_pr_number)
+        quiet = self._run(repo, now, age_days=31)
+        if listed_in_record:
+            Run.objects.filter(id=quiet.id).update(
+                metadata={"baseline": {"candidate_approval_ids": [str(approval.id)]}}
+            )
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=quiet.id).exists() is survives
+
+    def test_delete_keeps_a_run_approved_after_the_candidate_query(self, repo, now):
+        quiet = self._run(repo, now, age_days=31)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+        sweep = retention.RetentionSweep(repo, now=now)
+        candidates = sweep._quiet_branch_run_ids(10, quiet_days=30, branches=Q(branch="feature/x"))
+        assert candidates == [quiet.id]
+
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+
+        assert sweep._delete_runs(candidates) == 0
+        assert Run.objects.filter(id=quiet.id).exists()
+
+    def test_superseded_runs_of_a_pr_with_an_open_approval_do_not_block_the_batch(self, repo, now, monkeypatch):
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+        latest = self._run(repo, now, age_days=5, pr_number=7)
+        old_superseded = self._run(repo, now, age_days=50, pr_number=7, superseded_by=latest)
+        later_expired = self._run(repo, now, age_days=40, branch="feature/y", pr_number=8, superseded_by=latest)
+        monkeypatch.setattr(retention, "MAX_RUNS_PER_SWEEP", 1)
+
+        retention.sweep_repo_runs(repo, now=now)
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert not Run.objects.filter(id__in=[old_superseded.id, later_expired.id]).exists()
+        assert Run.objects.filter(id=latest.id).exists()
+
+    def test_newest_run_of_a_pr_with_an_open_approval_is_kept(self, repo, now):
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+        newest = self._run(repo, now, age_days=31)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=newest.id).exists()
 
     def test_quiet_branch_group_goes_in_one_sweep(self, repo, now):
         latest = self._run(repo, now, age_days=31)
@@ -302,6 +410,28 @@ class TestRetentionSweep:
 
         assert result.artifacts_deleted == 0
         assert Artifact.objects.filter(id=artifact.id).exists()
+
+    @pytest.mark.parametrize(
+        ("name_it", "field", "kept"),
+        [
+            (_ledger_entry, "content_hash", True),
+            (_ledger_entry, "previous_hash", False),
+            (_open_approval, "content_hash", True),
+            (_open_approval, "ledger_base_hash", True),
+            (_open_approval, "effective_base_hash", True),
+            (_promoted_approval, "content_hash", False),
+        ],
+    )
+    def test_artifact_named_by_the_baseline_ledger_is_kept(self, name_it, field, kept, repo, now):
+        artifact = self._artifact(repo, now, content_hash="ledger1", age_days=30)
+        name_it(repo, now, {field: artifact.content_hash})
+        sweep = retention.RetentionSweep(repo, now=now)
+
+        # The guarded DELETE has to refuse on its own, because a referrer can appear after the
+        # candidate query read the artifact.
+        assert (artifact.id in sweep._unreferenced_artifact_ids(10)) is not kept
+        assert bool(sweep._delete_artifact_rows([artifact.id])) is not kept
+        assert Artifact.objects.filter(id=artifact.id).exists() is kept
 
     @pytest.mark.parametrize("field", ["current_hash", "baseline_hash"])
     def test_hash_reference_from_another_repo_does_not_keep_an_artifact(self, field, repo, other_repo, now):

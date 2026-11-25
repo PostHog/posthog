@@ -3,21 +3,43 @@ from typing import Final
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.normalizer import RecipeNormalizer
-from ..message_normalizer.run_limits import time_limit
+from ..message_normalizer.run_limits import execution_budget, time_limit
 from ..message_normalizer.values import MISSING, CompatMessage, Value
 from .message_lists import conversation_of
-from .step_messages import to_messages
+from .step_messages import parsed_json_text, to_messages
 
 logger = structlog.get_logger(__name__)
 
 # One deadline covers compiling the team's recipes and normalizing both sides, so one node read spends at most this
 # long in the normalizer, however many recipe runs it makes.
 NODE_READ_TIME_LIMIT_SECONDS: Final = 1.0
+
+
+@frozen
+class SideReading:
+    """Whether the engine recognized a side. An empty side has nothing to recognize, so it counts as recognized."""
+
+    recognized: bool
+    runtime_error: str | None = None
+
+
+@frozen
+class StepReading:
+    content: contracts.TraceNodeContent
+    input: SideReading
+    output: SideReading
+
+
+@frozen
+class _ReadSide:
+    side: contracts.TraceMessagesSide | contracts.TraceJsonSide
+    reading: SideReading
 
 
 def step_content(
@@ -29,8 +51,22 @@ def step_content(
     build_normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
 ) -> contracts.TraceNodeContent:
+    return read_step(
+        kind, node_id, input_value, output_value, build_normalizer=build_normalizer, team_id=team_id
+    ).content
+
+
+def read_step(
+    kind: contracts.TraceNodeKind,
+    node_id: str,
+    input_value: Value,
+    output_value: Value,
+    *,
+    build_normalizer: Callable[[], RecipeNormalizer],
+    team_id: int,
+) -> StepReading:
     # Building the team's normalizer reads and compiles its recipes, so one node read builds it at most once.
-    normalizer = _built_once(build_normalizer)
+    normalizer = built_once(build_normalizer)
     input_prefix, output_prefix = f"{node_id}-in", f"{node_id}-out"
     with time_limit(NODE_READ_TIME_LIMIT_SECONDS):
         # Both sides share one deadline, so a side that is already a conversation renders before any team-recipe check
@@ -41,17 +77,24 @@ def step_content(
         output_side = _conversation_side(
             kind, node_id, output_value, input_value, "assistant", output_prefix, normalizer=normalizer, team_id=team_id
         )
-        return contracts.TraceNodeContent(
-            input=input_side
+        read_input = (
+            input_side
             if input_side is not None
             else _team_recipe_or_json_side(
                 kind, node_id, input_value, "user", input_prefix, normalizer=normalizer, team_id=team_id
-            ),
-            output=output_side
+            )
+        )
+        read_output = (
+            output_side
             if output_side is not None
             else _team_recipe_or_json_side(
                 kind, node_id, output_value, "assistant", output_prefix, normalizer=normalizer, team_id=team_id
-            ),
+            )
+        )
+        return StepReading(
+            content=contracts.TraceNodeContent(input=read_input.side, output=read_output.side),
+            input=read_input.reading,
+            output=read_output.reading,
         )
 
 
@@ -59,9 +102,9 @@ class _NormalizerUnavailableError(RecipeRuntimeError):
     pass
 
 
-def _built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
-    # A build that fails would fail again for the other side, so the failure is kept. The first side raises it and
-    # reports it, and a later side raises a bounded error so the same failure reaches error tracking once.
+def built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
+    # A build that fails would fail again for the next side or step, so the failure is kept. The first call raises it
+    # and reports it, and a later call raises a bounded error so the same failure reaches error tracking once.
     built: list[RecipeNormalizer | Exception] = []
 
     def normalizer() -> RecipeNormalizer:
@@ -93,7 +136,7 @@ def _conversation_side(
     *,
     normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
-) -> contracts.TraceMessagesSide | contracts.TraceJsonSide | None:
+) -> _ReadSide | None:
     source = _conversation_source(kind, value, other=other)
     if source is _NOT_A_CONVERSATION:
         return None
@@ -121,8 +164,8 @@ def _team_recipe_or_json_side(
     *,
     normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
-) -> contracts.TraceMessagesSide | contracts.TraceJsonSide:
-    def build() -> contracts.TraceMessagesSide | contracts.TraceJsonSide:
+) -> _ReadSide:
+    def build() -> _ReadSide:
         team_side = _team_recipe_side(
             value,
             default_role=default_role,
@@ -131,18 +174,29 @@ def _team_recipe_or_json_side(
             normalizer=normalizer,
             team_id=team_id,
         )
-        return team_side if team_side is not None else contracts.TraceJsonSide(kind="json", value=value)
+        if team_side is not None:
+            return _ReadSide(side=team_side, reading=SideReading(recognized=True))
+        try:
+            with execution_budget():
+                shown = parsed_json_text(value)
+        except RecipeRuntimeError:
+            # Parsing JSON text only changes how the side looks, so running out of budget is not a recipe failure.
+            shown = value
+        return _ReadSide(
+            side=contracts.TraceJsonSide(kind="json", value=shown),
+            reading=SideReading(recognized=not _is_unreadable_json(shown)),
+        )
 
     return _guarded(build, kind, value, team_id=team_id)
 
 
 def _guarded(
-    build: Callable[[], contracts.TraceMessagesSide | contracts.TraceJsonSide],
+    build: Callable[[], _ReadSide],
     kind: contracts.TraceNodeKind,
     value: Value,
     *,
     team_id: int,
-) -> contracts.TraceMessagesSide | contracts.TraceJsonSide:
+) -> _ReadSide:
     # Event data and team recipes can take any shape, so no failure while reading one side may fail the node read.
     try:
         return build()
@@ -159,7 +213,16 @@ def _guarded(
         )
         if not bounded:
             capture_exception(error, {"team_id": team_id, "node_kind": kind})
-        return contracts.TraceJsonSide(kind="json", value=value)
+        return _ReadSide(
+            side=contracts.TraceJsonSide(kind="json", value=value),
+            reading=SideReading(recognized=False, runtime_error=str(error) if bounded else None),
+        )
+
+
+def _is_unreadable_json(value: Value) -> bool:
+    # Only an object or an array shows as a JSON tree that a parser could turn into messages. Text, numbers and
+    # booleans read fine as they are, and no parser can make a conversation of them.
+    return isinstance(value, dict | list) and bool(value)
 
 
 def _is_empty(value: object) -> bool:
@@ -190,11 +253,20 @@ def _messages_side(
     node_id: str,
     normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
-) -> contracts.TraceMessagesSide:
+) -> _ReadSide:
     if _is_empty(value):
-        return contracts.TraceMessagesSide(kind="messages", messages=[])
-    compat = normalizer().normalize_messages(value, default_role).messages
-    return _side_of(compat, id_prefix=id_prefix, node_id=node_id, team_id=team_id)
+        return _ReadSide(
+            side=contracts.TraceMessagesSide(kind="messages", messages=[]), reading=SideReading(recognized=True)
+        )
+    team_normalizer = normalizer()
+    outcome = team_normalizer.normalize_messages(value, default_role)
+    side = _side_of(outcome.messages, id_prefix=id_prefix, node_id=node_id, team_id=team_id)
+    # A team recipe can match and emit only content that renders nothing, which leaves an empty conversation where the
+    # value was. A built-in recipe rendering nothing means the messages themselves are empty, which no recipe can fix.
+    team_recipe_rendered_nothing = (
+        bool(outcome.matched_recipe_ids & team_normalizer.custom_recipe_ids) and not side.messages
+    )
+    return _ReadSide(side=side, reading=SideReading(recognized=outcome.recognized and not team_recipe_rendered_nothing))
 
 
 def _team_recipe_side(

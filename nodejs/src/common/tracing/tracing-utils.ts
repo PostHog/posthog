@@ -151,6 +151,8 @@ interface FunctionInstrumentationOptions {
     getLoggingContext?: () => Record<string, any>
     logExecutionTime?: boolean
     sendException?: boolean
+    /** Called on a thrown error when `sendException` is on; false skips the capture. Timeouts are still reported. */
+    shouldCaptureException?: (error: unknown) => boolean
     measureTime?: boolean
     /** Stamped as the `tag` attribute on the span and the summary metric, to tell apart callers sharing a key. */
     tag?: string
@@ -201,6 +203,7 @@ export async function instrumentFn<T>(
     const getLoggingContext = (typeof options === 'string' ? undefined : options.getLoggingContext) ?? undefined
     const timeout = (typeof options === 'string' ? undefined : options.timeoutMs) ?? defaultConfig.TASK_TIMEOUT * 1000
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
+    const shouldCaptureException = typeof options === 'string' ? undefined : options.shouldCaptureException
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
     const tag = typeof options === 'string' ? undefined : options.tag
@@ -219,7 +222,9 @@ export async function instrumentFn<T>(
               try {
                   return await func()
               } catch (error) {
-                  captureException(error)
+                  if (shouldCaptureException?.(error) ?? true) {
+                      captureException(error)
+                  }
                   throw error
               }
           }

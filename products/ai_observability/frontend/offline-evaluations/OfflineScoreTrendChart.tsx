@@ -168,9 +168,15 @@ export function OfflineScoreTrendChart({
                                                     <dd className="text-right tabular-nums mb-0">
                                                         {summary.result_count - summary.status_counts.ok}
                                                     </dd>
-                                                    <dt className="opacity-70">Missing</dt>
+                                                    <dt className="opacity-70">
+                                                        {summary.scorer.calculation === 'composite'
+                                                            ? 'Not requested'
+                                                            : 'Missing'}
+                                                    </dt>
                                                     <dd className="text-right tabular-nums mb-0">
-                                                        {summary.missing_result_count}
+                                                        {summary.scorer.calculation === 'composite'
+                                                            ? summary.not_requested_count
+                                                            : summary.missing_result_count}
                                                     </dd>
                                                 </dl>
                                                 <div className="opacity-70 mt-1">{`${summary.distinct_case_count} distinct cases · ${summary.trial_item_count} trial items`}</div>

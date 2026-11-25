@@ -22,7 +22,7 @@ import {
     IconRust,
     IconSwift,
 } from '@posthog/icons'
-import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -65,6 +65,8 @@ export type GitHubRepositoryPickerProps = {
      * stored short names working; 'full_name' is for callers matching a webhook delivery's
      * "owner/repo" property, which carries no owner otherwise. */
     valueKey?: 'name' | 'full_name'
+    /** Pick the repository on its own when it is the only option and nothing is selected yet. */
+    selectOnlyOption?: boolean
 }
 
 export const GitHubRepositoryPicker = ({
@@ -73,20 +75,34 @@ export const GitHubRepositoryPicker = ({
     integrationId,
     className,
     valueKey,
+    selectOnlyOption = false,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId, { valueKey })
+    const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey })
+    const onlyOption = selectOnlyOption && !loading && options.length === 1 ? options[0].key : null
+
+    useEffect(() => {
+        if (onlyOption && !value) {
+            onChange(onlyOption)
+        }
+    }, [onlyOption, value, onChange])
 
     return (
-        <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
-            value={value ? [value] : []}
-            mode="single"
-            data-attr="select-github-repository"
-            placeholder="Select a repository..."
-            options={options}
-            loading={loading}
-            className={className}
-        />
+        <div className={className}>
+            {failed && (
+                <LemonBanner type="error" className="mb-2" action={{ children: 'Retry', onClick: retry }}>
+                    Could not load repositories. Try again.
+                </LemonBanner>
+            )}
+            <LemonInputSelect
+                onChange={(val) => onChange?.(val[0] ?? null)}
+                value={value ? [value] : []}
+                mode="single"
+                data-attr="select-github-repository"
+                placeholder="Select a repository..."
+                options={options}
+                loading={loading}
+            />
+        </div>
     )
 }
 
@@ -187,9 +203,9 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
 export function useRepositories(
     integrationId: number,
     { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
-): { options: LemonInputSelectOption[]; loading: boolean } {
+): { options: LemonInputSelectOption[]; loading: boolean; failed: boolean; retry: () => void } {
     const logic = githubIntegrationLogic({ id: integrationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
+    const { repositories, repositoriesLoading, repositoriesFailed } = useValues(logic)
     const { loadRepositories } = useActions(logic)
 
     useEffect(() => {
@@ -213,5 +229,5 @@ export function useRepositories(
         [repositories, valueKey]
     )
 
-    return { options, loading: repositoriesLoading }
+    return { options, loading: repositoriesLoading, failed: repositoriesFailed, retry: loadRepositories }
 }

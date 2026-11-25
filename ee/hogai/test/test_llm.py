@@ -930,12 +930,6 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             ("server_error", _anthropic_error(529)),
             ("provider_billing", _anthropic_error(400, "invalid_request_error", _WORKSPACE_LIMIT)),
             ("provider_billing", _anthropic_error(402, "billing_error", "Payment required")),
-            (
-                "credit_bucket",
-                _anthropic_error(
-                    402, "billing_error", "out", {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}
-                ),
-            ),
         ]
         for reason, outcome in cases:
             with self.subTest(reason=reason, outcome=outcome):
@@ -990,22 +984,22 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         self.assertTrue(is_ai_gateway_served(result))
 
     async def test_non_retryable_gateway_failures_raise_without_fallback(self):
-        cases: list[tuple[str, httpx.Response]] = [
-            ("bad request", _anthropic_error(400, "invalid_request_error", "prompt is too long")),
+        credit_bucket_denial = _anthropic_error(
+            402, "billing_error", "out", {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}
+        )
+        cases: list[tuple[str, httpx.Response, bool]] = [
+            ("bad request", _anthropic_error(400, "invalid_request_error", "prompt is too long"), True),
             (
                 "gateway's own credit denial",
                 _anthropic_error(402, "billing_error", _WORKSPACE_LIMIT, {"X-PostHog-Denial": "insufficient_credits"}),
+                True,
             ),
-            (
-                "credit bucket denial of a billed call",
-                _anthropic_error(
-                    402, "billing_error", "out", {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}
-                ),
-            ),
-            ("forbidden", _anthropic_error(403)),
-            ("not found", _anthropic_error(404)),
+            ("credit bucket denial of a billed call", credit_bucket_denial, True),
+            ("credit bucket denial of an unbilled call", credit_bucket_denial, False),
+            ("forbidden", _anthropic_error(403), True),
+            ("not found", _anthropic_error(404), True),
         ]
-        for name, outcome in cases:
+        for name, outcome, billed in cases:
             with self.subTest(name):
                 self.requests.clear()
                 self.gateway_outcome = outcome
@@ -1015,7 +1009,9 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                     patch.object(AI_GATEWAY_FALLBACK_COUNTER, "labels") as mock_labels,
                     self.assertRaises(Exception),
                 ):
-                    await model.agenerate([[HumanMessage(content="hello")]], callbacks=[self._max_handler()])
+                    await model.agenerate(
+                        [[HumanMessage(content="hello")]], callbacks=[self._max_handler()] if billed else None
+                    )
 
                 self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
                 mock_labels.assert_not_called()
@@ -1167,7 +1163,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         [
             ("gateway counts", None, 3),
             ("gateway rate limit falls back to the twin", 429, 7),
-            ("exhausted credits fall back to the twin", 402, 7),
+            ("exhausted credits raise", 402, None),
         ]
     )
     def test_token_counting_goes_through_the_gateway(self, _name, gateway_status, expected_tokens):
@@ -1187,7 +1183,11 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             raise anthropic.APIStatusError("denied", response=response, body=None)
 
         with patch.object(ChatAnthropic, "get_num_tokens_from_messages", count):
-            self.assertEqual(model.get_num_tokens_from_messages([HumanMessage(content="hello")]), expected_tokens)
+            if expected_tokens is None:
+                with self.assertRaises(anthropic.APIStatusError):
+                    model.get_num_tokens_from_messages([HumanMessage(content="hello")])
+            else:
+                self.assertEqual(model.get_num_tokens_from_messages([HumanMessage(content="hello")]), expected_tokens)
 
     def test_sync_calls_route_through_the_gateway(self):
         model = self._model()
@@ -1359,6 +1359,33 @@ class TestMaxChatOpenAIAIGateway(BaseTest):
             self.assertFalse(any(name.startswith("x-posthog-") for name in last.headers))
             if responses_api:
                 self.assertIn("You are currently in project", json.loads(last.content)["instructions"])
+
+    def test_pulse_routes_without_a_runner_config(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=_openai_body("gateway", False))
+
+        model = self._model(self.gateway, posthog_properties={"ai_product": "pulse", "ai_feature": "brief_synthesis"})
+        model.root_client = model.root_client.with_options(
+            http_client=httpx.Client(transport=httpx.MockTransport(respond)), max_retries=0
+        )
+        model.client = model.root_client.chat.completions
+
+        result = model.generate([[HumanMessage(content="hello")]])
+
+        self.assertTrue(is_ai_gateway_served(result))
+        self.assertEqual([request.url.host for request in requests], ["ai-gateway.test"])
+        headers = requests[0].headers
+        self.assertEqual(headers["x-posthog-product"], "pulse")
+        self.assertEqual(headers["x-posthog-distinct-id"], self.user.distinct_id)
+        self.assertEqual(headers["x-posthog-privacy-mode"], "true")
+        self.assertNotIn("x-posthog-billable", headers)
+        self.assertEqual(
+            json.loads(headers["x-posthog-properties"]),
+            {"ai_product": "pulse", "ai_feature": "brief_synthesis", "team_id": str(self.team.id)},
+        )
 
     async def test_gateway_denial_raises_without_fallback(self):
         requests: list[httpx.Request] = []

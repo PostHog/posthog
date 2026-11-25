@@ -68,6 +68,7 @@ class DisplaySpec(_Model):
     min: float | None = Field(default=None, description="Lower end of the axis or gauge.")
     max: float | None = Field(default=None, description="Upper end of the axis or gauge.")
     log_scale: bool = Field(default=False, description="Use a logarithmic y-axis.")
+    sparkline: bool = Field(default=True, description="Draw a graph under the value of a stat panel.")
 
 
 class TargetSpec(_Model):
@@ -251,3 +252,4 @@ class ImportState(_Model):
     checks: dict[str, PanelCheck] = Field(default_factory=dict)
     layout_check: LayoutCheck | None = None
     result: ImportResult | None = None
+    dismissed: bool = False

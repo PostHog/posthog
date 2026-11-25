@@ -1,12 +1,9 @@
-"""Where the credential for reading a repository's ownership files comes from.
+"""The credential for reading a repository's ownership files.
 
-Engineering analytics reports on a repository the team already connected as a warehouse source, so
-that source holds a credential for it. Using it is what lets a private repository resolve at all.
-The credential comes from the one source the read is already scoped to, never from a walk over the
-team's other sources: a source the caller may not access can list the same repository, and reading
-with its credential would hand the caller data the per-source warehouse RBAC denies them. A read
-that has no selected source, or whose source holds no usable credential, falls back to the team's
-GitHub integration, and then to the anonymous public reader.
+The credential comes only from the source the read is scoped to. Another source of the team can
+list the same repository, and its credential would hand the caller data that the per-source
+warehouse RBAC denies them. A read with no usable source credential falls back to the team's GitHub
+integration, and then to the anonymous public reader.
 """
 
 from posthog.egress.limiter.policies import Priority
@@ -25,8 +22,6 @@ def _fetcher_for_credential(
     team_id: int, credential: GitHubSourceCredential, *, priority: Priority
 ) -> GitHubFilesFetcher | None:
     if credential.personal_access_token:
-        # The token is the customer's own, on the customer's own GitHub budget, so it names no
-        # installation for the egress limiter to gate on.
         return GitHubFilesFetcher.from_token(credential.personal_access_token, priority=priority)
     if credential.integration_id is None:
         return None
@@ -39,13 +34,8 @@ def _fetcher_for_credential(
 
 
 def repo_files(team: Team, repository: str, *, source_id: str, priority: Priority) -> ProbeableRepoFiles:
-    """The reader for this repository's ownership files, authenticated where the team allows it.
-
-    ``source_id`` is the source the caller resolved this repository from (see
-    ``CuratedGitHubSource.source_id``), and the only source a credential may come from here. Pass an
-    empty string for a read that has no selected source; it falls back like a source with no
-    credential does.
-    """
+    """``source_id`` must be the source the caller resolved this repository from. Pass an empty
+    string for a read that has no selected source."""
     credential = warehouse_sources.github_source_credential(team_id=team.pk, source_id=source_id) if source_id else None
     if credential is not None:
         fetcher = _fetcher_for_credential(team.pk, credential, priority=priority)

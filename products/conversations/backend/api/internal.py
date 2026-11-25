@@ -3,7 +3,7 @@ Internal ticket endpoints for the Conversations product.
 
 The service-to-service surface the CDP worker's ticket workflow actions call. Callers
 authenticate with a short-lived scoped service JWT pinned to one team and one ticket
-(#82564 tracks retiring the legacy secret_api_token route in api/external.py). Mounted
+(#82564 tracks retiring the external route in api/external.py). Mounted
 under /api/projects/<team_id>/internal/ in posthog/urls.py, a namespace Contour ingress
 does not expose, so the route is unreachable from the public internet.
 """
@@ -50,8 +50,7 @@ class InternalTicketView(APIView):
     PATCH /api/projects/<team_id>/internal/conversations/tickets/<ticket_id> — Update ticket fields
     POST /api/projects/<team_id>/internal/conversations/tickets/<ticket_id> — Post a reply or private note
 
-    JWT-only from birth: there is no legacy-token fallback here, so this route never
-    accepts secret_api_token. The auth class binds the request to the token's team and
+    JWT-only: the auth class binds the request to the token's team and
     rejects tokens whose team differs from the URL's.
     """
 

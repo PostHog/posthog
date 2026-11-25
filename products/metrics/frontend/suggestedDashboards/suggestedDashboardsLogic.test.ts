@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     metricsSuggestedDashboardsDashboardCreate,
+    metricsSuggestedDashboardsDismissCreate,
     metricsSuggestedDashboardsList,
 } from 'products/metrics/frontend/generated/api'
 import type { MetricsSuggestedDashboardApi } from 'products/metrics/frontend/generated/api.schemas'
@@ -16,10 +17,12 @@ import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsSuggestedDashboardsDashboardCreate: jest.fn(),
+    metricsSuggestedDashboardsDismissCreate: jest.fn(),
     metricsSuggestedDashboardsList: jest.fn(),
 }))
 
 const mockCreate = jest.mocked(metricsSuggestedDashboardsDashboardCreate)
+const mockDismiss = jest.mocked(metricsSuggestedDashboardsDismissCreate)
 const mockList = jest.mocked(metricsSuggestedDashboardsList)
 
 const suggestion = (overrides: Partial<MetricsSuggestedDashboardApi> = {}): MetricsSuggestedDashboardApi => ({
@@ -41,6 +44,7 @@ describe('suggestedDashboardsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockCreate.mockReset().mockResolvedValue({ dashboard_id: 42 })
+        mockDismiss.mockReset().mockResolvedValue(undefined)
         mockList.mockReset().mockResolvedValue([suggestion()])
         logic = suggestedDashboardsLogic()
         logic.mount()
@@ -64,5 +68,23 @@ describe('suggestedDashboardsLogic', () => {
         expect(mockCreate).toHaveBeenCalledTimes(createCalls)
         expect(router.values.location.pathname).toContain(urls.dashboard(openedId))
         expect(logic.values.openingId).toBeNull()
+    })
+
+    it.each([
+        ['a dismissed suggestion stays out of the menu when a list request still returns it', true, []],
+        ['a suggestion comes back when its dismissal fails', false, ['Envoy proxy']],
+    ])('%s', async (_name, dismissalSucceeds, visibleNames) => {
+        if (!dismissalSucceeds) {
+            mockDismiss.mockRejectedValue(new Error('refused'))
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.dismissSuggestion(suggestion())
+            logic.actions.loadSuggestions()
+        }).toFinishAllListeners()
+
+        expect(logic.values.visibleSuggestions?.map((item) => item.name)).toEqual(visibleNames)
+        expect(logic.values.newSuggestionCount).toEqual(visibleNames.length)
     })
 })

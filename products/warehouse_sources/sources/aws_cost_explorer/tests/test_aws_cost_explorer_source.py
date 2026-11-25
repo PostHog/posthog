@@ -60,6 +60,14 @@ class TestAwsCostExplorerSource:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
         assert any(key in observed_error for key in self.source.get_retryable_errors())
 
+    def test_a_linked_account_without_discount_permission_stops_retrying(self) -> None:
+        observed_error = (
+            "AWS Cost Explorer request failed: ValidationException - Linked accounts without permissions "
+            "to view discounts may not query for this metric: NET_AMORTIZED_COST"
+        )
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
+
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2024, 5, 1, tzinfo=dt.UTC)
 
@@ -83,3 +91,25 @@ class TestAwsCostExplorerSource:
 
         assert iter(items) is not None
         send.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "endpoint,partition_keys",
+        [
+            ("cost_and_usage_daily", ["period_start"]),
+            ("savings_plans_utilization_details_daily", ["period_start"]),
+            ("cost_forecast_daily", ["period_start"]),
+            ("dimension_values", None),
+            ("rightsizing_recommendations", None),
+            ("reservation_purchase_recommendations", None),
+        ],
+    )
+    def test_only_tables_with_a_period_are_partitioned_on_it(
+        self, endpoint: str, partition_keys: list[str] | None
+    ) -> None:
+        inputs = make_inputs(endpoint)
+
+        response = self.source.source_for_pipeline(
+            self.config, self.source.get_resumable_source_manager(inputs), inputs
+        )
+
+        assert response.partition_keys == partition_keys

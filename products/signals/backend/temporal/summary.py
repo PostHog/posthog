@@ -4,7 +4,7 @@ import json
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -237,11 +237,8 @@ class ReportDecision:
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
     # `None` for the no-repo branch, which does no research and so never asks.
     charts_enabled: bool | None = None
-    # Suggested prompts to store with the title/summary. `[]` when the decision carries a freshly
-    # written title and summary, because the pipeline does not author prompts yet: whatever a scout
-    # suggested was written against the prose this decision replaces, so leaving it would put
-    # prompts about the old report under the new one. `None` for the no-repo branch, which keeps
-    # the prose and so keeps the prompts too.
+    # Suggested prompts to store with the title/summary (see `RunAgenticReportOutput.suggested_prompts`).
+    # `None` for the no-repo branch, which keeps the prose and so keeps the prompts too.
     suggested_prompts: list[str] | None = field(default_factory=list)
     # The report's whole tag set to store with the title/summary, or `None` to keep the stored set.
     # `None` for the no-repo branch, which does no research.
@@ -289,6 +286,19 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
 
 RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
 RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def summary_execution_timeout(debounce_seconds: int = 0) -> timedelta:
+    """The `execution_timeout` of a summary workflow that waits `debounce_seconds` before it researches.
+
+    The hour covers the research work. The other terms cover the workflow's own sleeps, which the hour
+    was never sized for: the research debounce at entry, the implementation buffer at settle, and the
+    waits between sandbox retries. A run that loops through several buffers can still outlive this.
+    It is a backstop, and the report stays READY and re-promotes.
+    """
+    return (
+        timedelta(hours=1, seconds=debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS) + RESEARCH_SANDBOX_RETRY_BUDGET
+    )
 
 
 def _is_research_sandbox_unavailable(error: BaseException) -> bool:
@@ -702,6 +712,30 @@ class SignalReportSummaryWorkflow:
                     ),
                 )
                 await self._wait_for_task_settlement(inputs)
+                # The pre-research judge saw only the input signals, so research-written text that
+                # fails its own judge must not surface or feed autostart.
+                if (
+                    workflow.patched("signals-research-prose-safety")
+                    and agentic_result.unsafe_prose_explanation is not None
+                ):
+                    log.warning(
+                        "Report research output failed safety review",
+                        explanation=agentic_result.unsafe_prose_explanation,
+                    )
+                    await workflow.execute_activity(
+                        mark_report_failed_activity,
+                        MarkReportFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            error=f"Research output failed safety review: {agentic_result.unsafe_prose_explanation}",
+                            failure_reason="research_safety_judge_rejected",
+                            signal_count=signal_count,
+                            source_products=source_products,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    return False
                 decision = ReportDecision(
                     title=agentic_result.title,
                     summary=agentic_result.summary,
@@ -719,6 +753,7 @@ class SignalReportSummaryWorkflow:
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
                     tags=agentic_result.tags,
+                    suggested_prompts=agentic_result.suggested_prompts,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -983,6 +1018,22 @@ async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsIn
     return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
+def revert_report_to_candidate(team_id: int, report_id: str, *, started_before: datetime | None = None) -> bool:
+    """Move an IN_PROGRESS report back to CANDIDATE under a row lock. Returns whether the report moved.
+
+    With `started_before`, the report moves only if its current run started before that time. A caller
+    that decided from an earlier read therefore leaves alone a run that started after that read.
+    """
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        if report.status != SignalReport.Status.IN_PROGRESS:
+            return False
+        if started_before is not None and (report.last_run_at is None or report.last_run_at >= started_before):
+            return False
+        report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
+    return True
+
+
 @dataclass
 class RevertReportToCandidateInput:
     team_id: int
@@ -996,16 +1047,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     """Return a report paused mid-run by the quota gate from in_progress to candidate, so the next
     matching signal re-promotes it (no promotion rule ever picks up an in_progress report).
     """
-
-    @transaction.atomic
-    def do_update() -> None:
-        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-        if report.status != SignalReport.Status.IN_PROGRESS:
-            return
-        updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        report.save(update_fields=updated_fields)
-
-    await database_sync_to_async(do_update, thread_sensitive=False)()
+    await database_sync_to_async(revert_report_to_candidate, thread_sensitive=False)(input.team_id, input.report_id)
     logger.info(
         "Reverted quota-paused report to candidate",
         report_id=input.report_id,
@@ -1180,8 +1222,7 @@ class MarkReportReadyInput:
     # workflow history replays as.
     layers: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
-    # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
-    # scout wrote were written against the summary this transition is replacing.
+    # default. The research pipeline passes a judged list, which may be `[]`.
     suggested_prompts: list[str] | None = None
     # The chart rollout state the research run saw, for the completion event. Not persisted.
     charts_enabled: bool | None = None

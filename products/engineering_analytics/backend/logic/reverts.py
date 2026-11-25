@@ -1,22 +1,25 @@
-"""Reverts: telling a pull request that undoes another apart from ordinary work, defined once.
-
-GitHub records no link between a revert and the change it undoes, so the only signal in the
-warehouse is the title. Two shapes name a revert:
-
-- GitHub's revert button: ``Revert "<original title>"``.
-- A conventional-commit title: ``revert: <subject>`` or ``revert(<scope>): <subject>``, with an
-  optional breaking-change ``!`` before the colon, the form a repository that lints pull request
-  titles produces.
-
-Both patterns are anchored at the start of the title, so a title that merely mentions a revert
-does not count. The pattern stays backslash-free so it survives embedding in a HogQL string
-literal unescaped.
+"""GitHub records no link between a revert and the change it undoes, so the title is the only
+signal. A revert is GitHub's ``Revert "<original title>"`` or a conventional-commit
+``revert: <subject>`` / ``revert(<scope>): <subject>`` title.
 """
 
+# The pattern has no backslash, so it can sit in a HogQL string literal unescaped.
 _REVERT_TITLE_PATTERN = '(?i)^revert( "|([(][^()]*[)])?!?: )'
 
 
 def revert_title_expr(title_column: str) -> str:
-    """HogQL: whether ``title_column`` names a revert. ``ifNull`` keeps a NULL title from poisoning
-    a ``countIf`` the way a NULL inside ``match`` would."""
+    """A HogQL boolean expression. It is false for a NULL title, so it is safe inside ``countIf``."""
     return f"match(ifNull({title_column}, ''), '{_REVERT_TITLE_PATTERN}')"
+
+
+_REVERTED_REFERENCE_PATTERN = (
+    "(?im)^[[:blank:]]*(?:this[[:blank:]]+)?reverts[[:blank:]]+(?:([a-z0-9_.-]+/[a-z0-9_.-]+))?#([0-9]+)"
+)
+
+
+def reverted_pr_number_expr(*, title_column: str, body_column: str, repo_full_name_column: str) -> str:
+    body = f"ifNull({body_column}, '')"
+    referenced_repo = f"regexpExtract({body}, '{_REVERTED_REFERENCE_PATTERN}', 1)"
+    referenced_number = f"regexpExtract({body}, '{_REVERTED_REFERENCE_PATTERN}', 2)"
+    names_this_repo = f"({referenced_repo} = '' OR lower({referenced_repo}) = lower({repo_full_name_column}))"
+    return f"if({revert_title_expr(title_column)} AND {names_this_repo}, toInt({referenced_number}), NULL)"

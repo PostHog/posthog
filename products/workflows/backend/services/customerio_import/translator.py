@@ -20,6 +20,7 @@ from products.workflows.backend.facade.contracts import (
     CampaignSource,
     ImportNote,
     ImportOptions,
+    ImportSegment,
     SnippetRoom,
     TranslatedWorkflow,
 )
@@ -55,7 +56,11 @@ _MESSAGE_SUBJECT = re.compile(r"\{\{-?\s*message\.subject\s*(?:\|\s*default:\s*(
 _PLACEHOLDER_WEBHOOK_URL = "https://webhook-url-not-imported.invalid"
 _LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
 _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
-_STATIC_SEGMENT_TYPES = {"static", "manual"}
+# Stands in for a check that has no PostHog equivalent. Leaving the check out would send to people Customer.io does not
+# send to, so nobody passes until someone replaces it.
+_NOBODY: dict[str, Any] = {"key": "false", "type": "hogql", "value": None}
+_AUDIENCE_ID = "cio_audience"
+STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
     "push_action": "push notification",
@@ -81,6 +86,11 @@ class _Builder:
         # Outgoing links per source action id: (target source id, edge type, index).
         self.links: dict[str, list[tuple[str, str, int | None]]] = {}
         self.snippet_room = snippet_room
+        # Person filters that the trigger can't hold, checked in a branch before the first step instead.
+        self.audience: list[dict[str, Any]] = []
+        # The steps, or the trigger, whose condition can't be checked and decides what a person gets later, so nobody
+        # may enter until it is set.
+        self.unfinished: set[str] = set()
 
     def note(self, level: NoteLevel, message: str, action: dict[str, Any] | None = None) -> None:
         self.notes.append(
@@ -112,6 +122,7 @@ class _Builder:
         roots = [action_id for action_id in graph_ids if action_id not in incoming]
 
         trigger = self._trigger()
+        self._audience_filter(trigger)
         posthog_actions: list[dict[str, Any]] = [
             {"id": TRIGGER_ID, "name": "Trigger", "description": "", "type": "trigger", "config": trigger}
         ]
@@ -122,11 +133,27 @@ class _Builder:
 
         edges = self._edges(roots)
         posthog_actions.extend(self.actions.values())
-        if any(edge["to"] == _EXIT_ID for edge in edges):
-            posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
+        posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
         pruned = _prune_unreachable(posthog_actions, edges)
         posthog_actions, edges = pruned.actions, pruned.edges
         kept_ids = {action["id"] for action in posthog_actions}
+        if self.unfinished & kept_ids:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                "The `Audience` step lets nobody in, because this workflow has conditions PostHog can't check. Set the "
+                "ones the other notes name, then remove its `false` condition.",
+            )
+            self.audience.append(_NOBODY)
+        if self.audience:
+            posthog_actions.insert(1, self._audience_step())
+            if _EXIT_ID not in kept_ids:
+                posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
+            edges = [
+                edge if edge["from"] != TRIGGER_ID else {**edge, "from": _AUDIENCE_ID, "type": "branch", "index": 0}
+                for edge in edges
+            ]
+            edges.append({"from": TRIGGER_ID, "to": _AUDIENCE_ID, "type": "continue"})
+            edges.append({"from": _AUDIENCE_ID, "to": _EXIT_ID, "type": "continue"})
 
         workflow: dict[str, Any] = {
             "name": (self.campaign.get("name") or "Imported from Customer.io")[:400],
@@ -163,12 +190,17 @@ class _Builder:
             name = str(self.campaign["event"])
             properties, skipped = conditions.translate_filter_tree(self.campaign.get("attribute_filters"), "event")
             for description in skipped:
-                self.note(NoteLevel.UNSUPPORTED, f"The trigger's event filter `{description}` was left out.")
+                self.note(
+                    NoteLevel.NEEDS_INPUT,
+                    f"The trigger's event filter `{description}` has no PostHog equivalent. No event starts the "
+                    "workflow until you replace the `false` condition on the trigger.",
+                )
+            if skipped:
+                properties.append(_NOBODY)
             event: dict[str, Any] = {"id": name, "name": name, "type": "events", "order": 0}
             if properties:
                 event["properties"] = properties
             trigger: dict[str, Any] = {"type": "event", "filters": {"events": [event]}}
-            self._audience_filter(trigger)
             return trigger
         if kind in ("seg_attr", "behavioral"):
             return self._segment_trigger()
@@ -198,6 +230,8 @@ class _Builder:
                 "cohort_id": self.options.segment_cohorts[segments[0]],
                 "transition": "left" if inverse else "entered",
             }
+        if len(segments) == 1 and not attributes and segments[0] in self.options.pending_segment_cohorts:
+            return _empty_trigger()
         described = [f"in segment {segment}" for segment in segments] + [
             conditions.describe(attribute) for attribute in attributes
         ]
@@ -210,18 +244,50 @@ class _Builder:
         return _empty_trigger()
 
     def _audience_filter(self, trigger: dict[str, Any]) -> None:
-        # `filters` on an event-triggered automation is segment membership the person must have to enter.
-        audience = conditions.decode(self.campaign.get("filters"))
-        if not audience:
+        # `filters` is what a person must match to enter, on top of the trigger.
+        encoded = self.campaign.get("filters")
+        audience = conditions.decode(encoded)
+        if audience is None:
+            if encoded:
+                self.note(
+                    NoteLevel.NEEDS_INPUT, "Who can enter in Customer.io could not be read. Set it before enabling."
+                )
+                self.unfinished.add(TRIGGER_ID)
             return
-        translated = conditions.translate_condition(audience, self.options.segment_cohorts)
-        if translated.properties:
-            trigger["filters"]["properties"] = list(translated.properties)
-        for description in translated.skipped:
+        translated = conditions.translate_condition(
+            audience, self.options.segment_cohorts, self.options.pending_segment_cohorts
+        )
+        properties = list(translated.properties)
+        skipped = [*translated.skipped, *(f"who did event {event['name']}" for event in translated.events)]
+        for description in skipped:
             self.note(
                 NoteLevel.NEEDS_INPUT,
-                f"Only people {description} can enter in Customer.io. Add a cohort filter to the trigger for it.",
+                f"Only people {description} can enter in Customer.io. Add that to the `Audience` step.",
             )
+        if skipped:
+            self.unfinished.add(TRIGGER_ID)
+        starts_on_event = trigger["type"] == "event" and bool(trigger["filters"]["events"])
+        if starts_on_event and not any(item.get("type") == "cohort" for item in properties):
+            if properties:
+                trigger["filters"]["properties"] = properties
+        else:
+            self.audience = properties
+            if properties and self.campaign.get("exit_on_trigger_or_filter_not_matched"):
+                self.note(
+                    NoteLevel.NEEDS_INPUT,
+                    "Customer.io also removes people who stop matching who can enter. The `Audience` step checks that "
+                    "only when they enter, so add the check before each message that needs it.",
+                )
+                self.unfinished.add(TRIGGER_ID)
+
+    def _audience_step(self) -> dict[str, Any]:
+        return {
+            "id": _AUDIENCE_ID,
+            "name": "Audience",
+            "description": "",
+            "type": "conditional_branch",
+            "config": {"conditions": [{"filters": {"properties": self.audience}, "name": "Can enter"}]},
+        }
 
     def _trigger_masking(self) -> dict[str, Any] | None:
         mode = self.campaign.get("restart_mode")
@@ -283,6 +349,8 @@ class _Builder:
         on_trigger = bool(self.campaign.get("exit_on_trigger_or_filter_not_matched")) and self.campaign.get("type") in (
             "seg_attr",
             "behavioral",
+            "transactional",
+            "form",
         )
         if on_conversion and on_trigger:
             return "exit_on_trigger_not_matched_or_conversion"
@@ -327,20 +395,12 @@ class _Builder:
         return f"{match.group(1)} {', '.join(labels)}"
 
     def _segment_label(self, segment_id: str) -> str:
-        segment = self.options.segments.get(segment_id)
-        return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
+        return segment_label(segment_id, self.options.segments.get(segment_id))
 
     def _static_segment_notes(self) -> None:
-        trees: list[Any] = [self.campaign.get("trigger"), self.campaign.get("global_exit_conditions")]
-        trees.append(conditions.decode(self.campaign.get("filters")))
-        for action in self.source_actions.values():
-            trees.append(conditions.decode(action.get("preconditions")))
-            trees.append(conditions.decode(action.get("conditions")))
-            trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
-        referenced = dict.fromkeys(segment for tree in trees for segment in _segment_references(tree))
-        for segment_id in referenced:
+        for segment_id in referenced_segments(self.campaign, list(self.source_actions.values())):
             segment = self.options.segments.get(segment_id)
-            if segment is None or segment.type not in _STATIC_SEGMENT_TYPES:
+            if segment is None or segment.type not in STATIC_SEGMENT_TYPES:
                 continue
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -413,18 +473,39 @@ class _Builder:
         return translated
 
     def _preconditions(self, source: dict[str, Any], action: dict[str, Any]) -> None:
-        precondition = conditions.decode(source.get("preconditions"))
-        if not precondition:
-            return
-        translated = conditions.translate_condition(precondition, self.options.segment_cohorts)
-        if translated.properties:
-            action["filters"] = {"properties": list(translated.properties)}
-        for description in translated.skipped:
+        encoded = source.get("preconditions")
+        # A step's own conditions can't hold a cohort, so no segment is translated here.
+        translated = conditions.translate_condition(conditions.decode(encoded) or [], {})
+        properties = list(translated.properties)
+        skipped = [*translated.skipped, *(f"event {event['name']}" for event in translated.events)]
+        if encoded and conditions.decode(encoded) is None:
+            skipped.append("a condition that could not be read")
+        # Skipping a message withholds it. Skipping any other step changes what people get later.
+        withholds = source.get("type") in ("email_action", "webhook_action")
+        for description in skipped:
             self.note(
-                NoteLevel.UNSUPPORTED,
-                f"Customer.io skips this step unless `{description}`. That check was left out.",
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io skips this step unless `{description}`, which a step here can't check. "
+                + (
+                    "The step is skipped for everyone until you replace its `false` condition."
+                    if withholds
+                    else "Set it before enabling."
+                ),
                 action,
             )
+        if skipped and not withholds:
+            self.unfinished.add(action["id"])
+        if withholds and source.get("sending_state") == "off":
+            self.note(
+                NoteLevel.APPROXIMATED,
+                "Customer.io has this message switched off. The step has a `false` condition so it doesn't send "
+                "here either. Remove the condition to send it.",
+                action,
+            )
+        if withholds and (skipped or source.get("sending_state") == "off"):
+            properties.append(_NOBODY)
+        if properties:
+            action["filters"] = {"properties": properties}
 
     def _template(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template_id = source.get("template_id")
@@ -735,21 +816,34 @@ class _Builder:
         for index, condition in enumerate(decoded):
             if condition is None:
                 self.note(
-                    NoteLevel.UNSUPPORTED, f"Wait condition {index + 1} could not be read and was left out.", base
+                    NoteLevel.NEEDS_INPUT,
+                    f"Wait condition {index + 1} could not be read. Set it before enabling.",
+                    base,
                 )
+                self.unfinished.add(base["id"])
                 continue
-            translated = conditions.translate_condition(condition, self.options.segment_cohorts)
+            # A wait can't check a cohort, so no segment is translated here.
+            translated = conditions.translate_condition(condition, {})
+            condition_properties = list(translated.properties)
             for description in translated.skipped:
-                self.note(NoteLevel.UNSUPPORTED, f"The wait for `{description}` was left out.", base)
+                self.note(
+                    NoteLevel.NEEDS_INPUT,
+                    f"The wait for `{description}` is something a wait here can't check. Set it before enabling.",
+                    base,
+                )
+            if translated.skipped:
+                self.unfinished.add(base["id"])
+            if translated.skipped and (translated.events or condition_properties):
+                condition_properties.append(_NOBODY)
             if translated.events:
                 # Properties next to a waited-for event filter that event, which PostHog puts on the event itself.
                 for event in translated.events:
-                    event["properties"] = [*event.get("properties", []), *translated.properties]
+                    event["properties"] = [*event.get("properties", []), *condition_properties]
                 events.extend({"name": event["name"], "filters": {"events": [event]}} for event in translated.events)
-            elif translated.properties:
+            elif condition_properties:
                 property_conditions += 1
                 if property_conditions == 1:
-                    properties = list(translated.properties)
+                    properties = condition_properties
         if property_conditions > 1:
             self.note(
                 NoteLevel.APPROXIMATED,
@@ -809,18 +903,22 @@ class _Builder:
         posthog_conditions: list[dict[str, Any]] = []
         for index, item in enumerate(encoded):
             decoded = conditions.decode(item)
-            translated = conditions.translate_condition(decoded or [], self.options.segment_cohorts)
+            translated = conditions.translate_condition(
+                decoded or [], self.options.segment_cohorts, self.options.pending_segment_cohorts
+            )
+            properties = list(translated.properties)
             if decoded is None or translated.skipped or translated.events:
+                properties.append(_NOBODY)
+                self.unfinished.add(base["id"])
                 parts = list(translated.skipped) + [f"event {event['name']}" for event in translated.events]
                 detail = f" `{'; '.join(parts)}`" if parts else ""
                 self.note(
                     NoteLevel.NEEDS_INPUT,
-                    f"Branch {index + 1}'s condition{detail} has no PostHog equivalent. Set it before enabling.",
+                    f"Branch {index + 1}'s condition{detail} has no PostHog equivalent. Replace its "
+                    "`false` condition before enabling.",
                     base,
                 )
-            posthog_conditions.append(
-                {"filters": {"properties": list(translated.properties)}, "name": f"Condition {index + 1}"}
-            )
+            posthog_conditions.append({"filters": {"properties": properties}, "name": f"Condition {index + 1}"})
         # Customer.io puts the "no match" path last. PostHog takes the continue edge when nothing matches.
         links = self.links.get(str(source["id"]), [])
         new_links: list[tuple[str, str, int | None]] = []
@@ -892,6 +990,47 @@ def translate_campaign(
     source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom | None = None
 ) -> TranslatedWorkflow:
     return _Builder(source, options, snippet_room or SnippetRoom()).build()
+
+
+def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of every Customer.io segment the automation's trigger, filters, exits and steps check, in order."""
+    trees: list[Any] = [campaign.get("trigger"), campaign.get("global_exit_conditions")]
+    trees.append(conditions.decode(campaign.get("filters")))
+    for action in actions:
+        trees.append(conditions.decode(action.get("preconditions")))
+        trees.append(conditions.decode(action.get("conditions")))
+        trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    return list(dict.fromkeys(segment for tree in trees for segment in _segment_references(tree)))
+
+
+def segments_checked_through_cohorts(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of the segments the translated workflow would check through a cohort, in order.
+
+    That is a trigger on one segment alone, and each branch or entry condition that names exactly one segment. Exits,
+    waits, a step's own conditions and multi-segment conditions never use a cohort, so a cohort made for them would go
+    unused.
+    """
+    found: list[str] = []
+    trigger = campaign.get("trigger")
+    trigger_segments = _segment_references(trigger)
+    if len(trigger_segments) == 1 and not _attribute_leaves(trigger):
+        found.extend(trigger_segments)
+    condition_lists: list[Any] = [conditions.decode(campaign.get("filters"))]
+    for action in actions:
+        condition_lists.append(conditions.decode(action.get("conditions")))
+        if action.get("type") != "conditional_wait_action":
+            condition_lists.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    for condition_list in condition_lists:
+        for condition in condition_list if isinstance(condition_list, list) else []:
+            if isinstance(condition, dict) and condition.get("type") in ("segments_negatable", "segments"):
+                segments = condition.get("segments") or []
+                if len(segments) == 1:
+                    found.append(str(segments[0]))
+    return list(dict.fromkeys(found))
+
+
+def segment_label(segment_id: str, segment: ImportSegment | None) -> str:
+    return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
 
 
 def _empty_trigger() -> dict[str, Any]:

@@ -52,7 +52,7 @@ BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
     "campaigns": BlueshiftEndpointConfig(
         name="campaigns",
         path="/api/v2/campaigns.json",
-        data_selector=None,
+        data_selector="results",
         primary_keys=["uuid"],
         partition_key="created_at",
         params={"startdate": CAMPAIGNS_START_DATE},
@@ -70,25 +70,25 @@ BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
     "email_templates": BlueshiftEndpointConfig(
         name="email_templates",
         path="/api/v1/email_templates.json",
-        data_selector="template",
+        data_selector="templates",
         primary_keys=["uuid"],
     ),
     "push_templates": BlueshiftEndpointConfig(
         name="push_templates",
         path="/api/v1/push_templates.json",
-        data_selector="template",
+        data_selector="results",
         primary_keys=["uuid"],
     ),
     "sms_templates": BlueshiftEndpointConfig(
         name="sms_templates",
         path="/api/v1/sms_templates.json",
-        data_selector=None,
+        data_selector="results",
         primary_keys=["uuid"],
     ),
     "segments": BlueshiftEndpointConfig(
         name="segments",
         path="/api/v1/segments/list",
-        data_selector="segments",
+        data_selector=None,
         primary_keys=["uuid"],
     ),
     "subscription_groups": BlueshiftEndpointConfig(

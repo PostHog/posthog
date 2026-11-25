@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
+from typing import Any
 
 import time_machine
 from unittest import mock
@@ -7,6 +9,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import get_kwargs_for_client
 from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
@@ -164,3 +167,42 @@ class TestBehavioralScanEstimate(SimpleTestCase):
 
         self.assertEqual(reads, expected_reads)
         self.assertEqual(estimate.peak_day_events_by_name["$feature_flag_called"], 70)
+
+
+@override_settings(
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True,
+    CLICKHOUSE_OFFLINE_CLUSTER_HOST="offline.example.com",
+    CLICKHOUSE_EVENTS_OFFLINE_HOST="events-offline.example.com",
+)
+class TestSizingReadsTheClusterTheSeederScans(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person", lambda: estimate_person_seed_topic_bytes(7, datetime(2026, 5, 1, tzinfo=UTC), 2), 1),
+            (
+                "events_and_flag_evaluations",
+                lambda: estimate_behavioral_scan_events(
+                    7,
+                    ["$pageview", "$feature_flag_called"],
+                    flag_calls_table=FlagCallsTable.FLAG_EVALUATIONS,
+                    max_events_per_day=50,
+                ),
+                2,
+            ),
+        ]
+    )
+    def test_a_project_on_the_new_events_table_is_sized_on_the_main_offline_cluster(
+        self, _name: str, estimate: Callable[[], object], query_count: int
+    ) -> None:
+        hosts: list[str | None] = []
+
+        def execute(query: str, params: dict, **kwargs: Any) -> list[tuple]:
+            client_kwargs = get_kwargs_for_client(
+                kwargs["workload"], team_id=kwargs["team_id"], readonly=kwargs.get("readonly", False)
+            )
+            hosts.append(client_kwargs.get("host"))
+            return [(0,)] if "FROM person" in query else []
+
+        with mock.patch("products.cohorts.backend.backfill.sizing.sync_execute", side_effect=execute):
+            estimate()
+
+        self.assertEqual(hosts, ["offline.example.com"] * query_count)

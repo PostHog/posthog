@@ -126,7 +126,10 @@
         height: 0.375rem;
         margin-inline: auto;
         margin-top: 1rem;
-        background-color: var(--muted);
+
+        /* --muted sits within a step of the drawer surface in both themes, so the handle all but vanished.
+           Mixing from the muted text tone keeps it quieter than text while still reading as an affordance. */
+        background-color: color-mix(in oklab, var(--muted-foreground) 25%, transparent);
         border-radius: 9999px;
     }
 
@@ -151,6 +154,33 @@
     .quill-drawer__content[data-swipe-direction='left'] .quill-drawer__header,
     .quill-drawer__content[data-swipe-direction='right'] .quill-drawer__header {
         text-align: start;
+    }
+
+    /*
+     * The drawer has no fixed height, only a max-height, so the body takes
+     * the space the header and footer leave and scrolls inside it.
+     */
+    .quill-drawer__body {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+        padding-inline: 1rem;
+    }
+
+    .quill-drawer__body:not([data-component='scroll-area']) {
+        overflow: auto;
+    }
+
+    /* Padding moves onto the viewport so the scrollbar sits flush with the body edge. */
+    .quill-drawer__body[data-component='scroll-area'] {
+        padding-inline: 0;
+    }
+
+    .quill-drawer__body[data-component='scroll-area'] > [data-slot='scroll-area-viewport'] {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-inline: 1rem;
     }
 
     .quill-drawer__title {

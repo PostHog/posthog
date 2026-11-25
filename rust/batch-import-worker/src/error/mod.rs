@@ -28,11 +28,15 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
 pub fn get_user_message(error: &anyhow::Error) -> String {
+    get_user_message_or(error, DEFAULT_USER_ERROR_MESSAGE)
+}
+
+pub fn get_user_message_or(error: &anyhow::Error, default: &str) -> String {
     // Get the shallowest UserError in the chain
     // To provide the user with all the error context they need, we concatenate the user errors together at call site
     match error.downcast_ref::<UserError>() {
         Some(user_error) => user_error.msg.clone(),
-        None => DEFAULT_USER_ERROR_MESSAGE.to_string(),
+        None => default.to_string(),
     }
 }
 

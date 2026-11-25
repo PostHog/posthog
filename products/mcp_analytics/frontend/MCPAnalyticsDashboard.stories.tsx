@@ -15,21 +15,21 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { expect, userEvent } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
-import { labMark } from './brandMarks'
+import { labMark } from './aiLabs'
 import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
-import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
-    ['2026-05-25', 320, 4100, 120, 1900, false],
-    ['2026-05-26', 310, 3950, 140, 2050, false],
-    ['2026-05-27', 298, 3800, 110, 1880, false],
-    ['2026-06-01', 340, 4300, 150, 2100, true],
-    ['2026-06-02', 355, 4500, 165, 2200, true],
-    ['2026-06-03', 372, 4720, 158, 2080, true],
-    ['2026-06-04', 360, 4600, 170, 2290, true],
-    ['2026-06-05', 388, 4900, 182, 2150, true],
-    ['2026-06-06', 401, 5100, 176, 2240, true],
-    ['2026-06-07', 415, 5300, 168, 2290, true],
+    ['2026-05-25', 320, 4100, 120, 1900, 251],
+    ['2026-05-26', 310, 3950, 140, 2050, 246],
+    ['2026-05-27', 298, 3800, 110, 1880, 239],
+    ['2026-06-01', 340, 4300, 150, 2100, 262],
+    ['2026-06-02', 355, 4500, 165, 2200, 271],
+    ['2026-06-03', 372, 4720, 158, 2080, 280],
+    ['2026-06-04', 360, 4600, 170, 2290, 294],
+    ['2026-06-05', 388, 4900, 182, 2150, 288],
+    ['2026-06-06', 401, 5100, 176, 2240, 301],
+    ['2026-06-07', 415, 5300, 168, 2290, 312],
 ]
 
 const TOOL_RESULTS = [
@@ -309,7 +309,7 @@ const CLUSTER_SNAPSHOT = {
         distance_threshold: 0.35,
         embedding_model: 'text-embedding-3-small',
         n_intents: 412,
-        n_clusters: 3,
+        n_clusters: 4,
     },
     clusters: [
         {
@@ -404,7 +404,48 @@ const CLUSTER_SNAPSHOT = {
             ],
             self_retries: [{ tool: 'read-data-schema', count: 4 }],
         },
+        {
+            // Below the five-session floor: listed and ranked, but left out of the scorecards.
+            id: 4,
+            label: 'Export a cohort to a CSV file',
+            intent_count: 3,
+            session_count: 3,
+            call_count: 40,
+            error_count: 6,
+            error_rate_pct: 15.0,
+            routing_entropy: 0.0,
+            tool_distribution: [{ tool: 'execute-sql', count: 40, pct: 100, errors: 6, error_rate_pct: 15.0 }],
+            sample_intents: ['Export the churned users cohort to CSV.'],
+            journey: null,
+            switches: [],
+            self_retries: [],
+        },
     ],
+    long_tail: {
+        intent_count: 37,
+        session_count: 41,
+        call_count: 260,
+        error_count: 9,
+        error_rate_pct: 3.5,
+        sample_intents: ['Rename the onboarding dashboard.'],
+    },
+    recurring: [
+        {
+            intent_text: 'Nightly: summarize yesterday’s signups and post to the growth channel.',
+            session_count: 30,
+            call_count: 240,
+            error_count: 0,
+            error_rate_pct: 0,
+        },
+        {
+            intent_text: 'Hourly health check of the ingestion lag insight.',
+            session_count: 24,
+            call_count: 96,
+            error_count: 12,
+            error_rate_pct: 12.5,
+        },
+    ],
+    intent_text_redacted: false,
     tools: [
         {
             tool: 'execute-sql',
@@ -771,7 +812,7 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
 const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
     kpis: KPI_RESULTS,
     periodTotals: [[1840, 1655, 2050, 2180]],
-    toolRows: TOOL_RESULTS,
+    toolRows: TOOL_RESULTS.map((row) => [...row, 'calls']),
     sessionRows: SESSION_RESULTS,
     harnessRows: HARNESS_RESULTS,
     modelRows: MODEL_BREAKDOWN_RESULTS,
@@ -964,16 +1005,9 @@ export const DashboardNarrow: Story = {
     parameters: { layout: 'padded' },
     render: () => (
         <div className="w-[520px]">
-            <MCPAnalyticsDashboardOverview />
+            <MCPAnalyticsLeaderboardHome />
         </div>
     ),
-}
-
-export const DashboardLeaderboardHome: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
-        testOptions: { viewportWidths: ['medium', 'wide'] },
-    },
 }
 
 export const DashboardWithMenuBar: Story = {
@@ -1110,6 +1144,24 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// Property access control hides $mcp_intent, so the API blanks every intent string.
+const REDACTED_CLUSTER_SNAPSHOT = {
+    ...CLUSTER_SNAPSHOT,
+    intent_text_redacted: true,
+    clusters: CLUSTER_SNAPSHOT.clusters.map((c) => ({ ...c, label: '', sample_intents: [] })),
+    recurring: CLUSTER_SNAPSHOT.recurring.map((r) => ({ ...r, intent_text: '' })),
+    long_tail: { ...CLUSTER_SNAPSHOT.long_tail, sample_intents: [] },
+}
+
+export const IntentClusteringRedacted: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        msw: { mocks: { get: { '/api/projects/:team_id/mcp_analytics/intent_clusters/': REDACTED_CLUSTER_SNAPSHOT } } },
+        testOptions: { waitForSelector: '[data-attr=mcp-cluster-row]' },
     },
 }
 

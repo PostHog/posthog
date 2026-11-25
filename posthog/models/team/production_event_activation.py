@@ -135,6 +135,7 @@ SERVER_SIDE_LIBS: Final[tuple[str, ...]] = (
     "posthog-dotnet",
     "posthog-elixir",
     "posthog-rs",
+    "posthog-rs-ffi",
 )
 
 # `$lib` values treated as mobile-SDK evidence. The mobile leg counts distinct

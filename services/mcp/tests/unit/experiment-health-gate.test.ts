@@ -1,0 +1,386 @@
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+
+import { ExperimentNotStartedError } from '@/lib/errors'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { getHealthHandler } from '@/tools/experiments/getHealth'
+import { getResultsHandler } from '@/tools/experiments/getResults'
+import { readConfigHealth } from '@/tools/experiments/health'
+import { GENERATED_TOOLS } from '@/tools/generated/experiments'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+vi.mock('@/lib/posthog/flags', () => ({ isFeatureFlagEnabled: vi.fn() }))
+
+// The configuration checks reach agents only where the flag shows the health panel in the app. Without the
+// gate, a customer's agent reports findings the customer cannot see; a failed read must not fail the tool.
+describe('experiment health gate', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    const SYNC_WARNINGS = [
+        {
+            type: 'warehouse_sync',
+            message: 'The plans table of the Example source failed to sync.',
+            schema_name: 'plans',
+            source_type: 'Postgres',
+            status: 'Failed',
+            table_name: 'example_plans',
+        },
+    ]
+
+    const exposures = {
+        kind: 'ExperimentExposureQuery',
+        timeseries: [],
+        total_exposures: {},
+        sample_ratio_mismatch: null,
+        bias_risk: { multiple_variant_percentage: 3.2 },
+        date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+        warnings: SYNC_WARNINGS,
+        cache_key: 'cache_2_abc',
+        query_scan: { duration_ms: 377, rows_read: 17137270 },
+        health_findings: [],
+        health_checks: [{ key: 'srm', name: 'Sample ratio mismatch', reason: null, status: 'passed' }],
+    }
+
+    const configHealth = {
+        findings: [
+            {
+                actions: ['add_primary_metric'],
+                check: 'no_metric',
+                code: 'no_metric',
+                detail: 'detail',
+                diagnostic_ref: null,
+                evidence: {},
+                reason: null,
+                severity: 'warning',
+                subcode: null,
+                title: 'title',
+            },
+        ],
+        checks: [
+            {
+                key: 'no_metric',
+                name: 'No metric',
+                description: 'description',
+                reason: null,
+                status: 'finding',
+                values: {},
+                rule: null,
+            },
+        ],
+        setup: null,
+    }
+
+    const buildContext = (getHealth: Mock, exposureRead: unknown, trackEvent: Mock, request: Mock = vi.fn()): Context =>
+        ({
+            api: {
+                request,
+                getProjectBaseUrl: () => 'https://us.posthog.com/project/42',
+                experiments: () => ({
+                    getMetricResults: vi.fn().mockResolvedValue({
+                        success: true,
+                        data: {
+                            experiment: { id: 7, name: 'Test', feature_flag_key: 'k', start_date: '2026-01-01' },
+                            primaryMetricEntries: [],
+                            secondaryMetricEntries: [],
+                            primaryMetricsResults: [],
+                            secondaryMetricsResults: [],
+                            exposures,
+                        },
+                    }),
+                    getExposures: vi.fn().mockResolvedValue(exposureRead),
+                    getHealth,
+                }),
+            },
+            stateManager: {
+                getProjectId: vi.fn().mockResolvedValue('42'),
+                getAnalyticsContext: vi.fn().mockResolvedValue(undefined),
+            },
+            getDistinctId: vi.fn().mockResolvedValue('user-1'),
+            trackEvent,
+        }) as unknown as Context
+
+    const readHealth = {
+        'experiment-results-get': async (context: Context) => {
+            const result = await getResultsHandler(context, { id: 7, refresh: false })
+            return { summary: result.health.summary, codes: result.health.findings.map((f) => f.code) }
+        },
+        'experiment-health-get': async (context: Context) => {
+            const result = await getHealthHandler(context, { id: 7 })
+            return { summary: result.summary, codes: result.findings.map((f) => f.code) }
+        },
+    }
+
+    const exposureOk = { success: true, data: { exposures } }
+
+    it.each(
+        (['experiment-results-get', 'experiment-health-get'] as const).flatMap((tool) => [
+            {
+                tool,
+                name: 'adds the configuration checks when the flag is on',
+                flag: (): Promise<boolean> => Promise.resolve(true),
+                healthRead: { success: true, data: configHealth },
+                readsHealth: true,
+                codes: ['no_metric'],
+                summary: 'Findings: 1 warning. Checks: 1 passed, 1 finding.',
+                outcome: 'read',
+            },
+            {
+                tool,
+                name: 'keeps the exposure checks only when the flag is off',
+                flag: (): Promise<boolean> => Promise.resolve(false),
+                healthRead: undefined,
+                readsHealth: false,
+                codes: [],
+                summary: 'Findings: none. Checks: 1 passed.',
+                outcome: 'flag_off',
+            },
+            {
+                tool,
+                name: 'says the configuration checks did not run when the health read fails',
+                flag: (): Promise<boolean> => Promise.resolve(true),
+                healthRead: { success: false, error: new Error('Internal server error') },
+                readsHealth: true,
+                codes: [],
+                summary: 'Findings: none. Checks: 1 passed. The configuration checks did not run.',
+                outcome: 'failed',
+            },
+            {
+                tool,
+                name: 'keeps the exposure checks only when the flag check throws',
+                flag: (): Promise<boolean> => Promise.reject(new Error('flags unavailable')),
+                healthRead: undefined,
+                readsHealth: false,
+                codes: [],
+                summary: 'Findings: none. Checks: 1 passed.',
+                outcome: 'flag_off',
+            },
+        ])
+    )('$tool $name', async ({ tool, flag, healthRead, readsHealth, codes, summary, outcome }) => {
+        vi.mocked(isFeatureFlagEnabled).mockImplementation(flag)
+        const getHealth = vi.fn().mockResolvedValue(healthRead)
+        const trackEvent = vi.fn().mockResolvedValue(undefined)
+
+        const result = await readHealth[tool](buildContext(getHealth, exposureOk, trackEvent))
+
+        expect(isFeatureFlagEnabled).toHaveBeenCalledWith('experiment-health-findings', 'user-1', undefined)
+        expect(getHealth).toHaveBeenCalledTimes(readsHealth ? 1 : 0)
+        expect(result).toEqual({ summary, codes })
+        expect(trackEvent).toHaveBeenCalledWith(
+            'mcp experiment health returned',
+            expect.objectContaining({
+                tool_name: tool,
+                experiment_id: 7,
+                health_finding_codes: codes,
+                configuration_checks_outcome: outcome,
+                exposure_checks_outcome: 'read',
+            })
+        )
+    })
+
+    const draftExposureRead = {
+        success: false,
+        error: new ExperimentNotStartedError('Experiment "Test" has not started yet.'),
+    }
+
+    it.each([
+        {
+            name: 'returns the configuration checks of a draft',
+            flag: true,
+            codes: ['no_metric'],
+            summary:
+                'Findings: 1 warning. Checks: 1 finding. The exposure checks did not run: the experiment has not started.',
+        },
+        {
+            name: 'answers for a draft without the flag',
+            flag: false,
+            codes: [],
+            summary:
+                'Findings: none. Checks: none ran. The exposure checks did not run: the experiment has not started.',
+        },
+    ])('experiment-health-get $name', async ({ flag, codes, summary }) => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
+        const getHealth = vi.fn().mockResolvedValue({ success: true, data: configHealth })
+
+        const result = await getHealthHandler(buildContext(getHealth, draftExposureRead, vi.fn()), { id: 7 })
+
+        expect(result.findings.map((f) => f.code)).toEqual(codes)
+        expect(result.summary).toBe(summary)
+        expect(result).not.toHaveProperty('exposures')
+    })
+
+    it('experiment-health-get fails when the exposure query fails and the flag is off', async () => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
+        const failedRead = { success: false, error: new Error('Internal server error') }
+
+        await expect(getHealthHandler(buildContext(vi.fn(), failedRead, vi.fn()), { id: 7 })).rejects.toThrow(
+            'Failed to get experiment health'
+        )
+    })
+
+    const never = (): Promise<never> => new Promise(() => {})
+
+    it.each([
+        {
+            name: 'counts a flag check that outlasts the deadline as off',
+            flag: never,
+            healthRead: never,
+            outcome: 'flag_off',
+            readsHealth: false,
+        },
+        {
+            name: 'stops waiting for a health read that ignores the deadline',
+            flag: (): Promise<boolean> => Promise.resolve(true),
+            healthRead: never,
+            outcome: 'timed_out',
+            readsHealth: true,
+        },
+    ])('$name', async ({ flag, healthRead, outcome, readsHealth }) => {
+        vi.mocked(isFeatureFlagEnabled).mockImplementation(flag)
+        const getHealth = vi.fn().mockImplementation(healthRead)
+
+        const read = await readConfigHealth(buildContext(getHealth, exposureOk, vi.fn()), '42', 7, 10)
+
+        expect(read).toEqual({ health: null, outcome })
+        expect(getHealth).toHaveBeenCalledTimes(readsHealth ? 1 : 0)
+    })
+
+    const notRun = 'Findings: none. Checks: none ran. The configuration checks did not run.'
+
+    it.each([
+        {
+            name: 'adds the findings of the draft, read before the launch',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
+            health: { summary: 'Findings: 1 warning. Checks: 1 finding.', codes: ['no_metric'] },
+            outcome: 'read',
+        },
+        {
+            name: 'leaves out a finding that the launch resolves, with its check',
+            flag: true,
+            healthRead: (): Promise<unknown> =>
+                Promise.resolve({
+                    success: true,
+                    data: {
+                        ...configHealth,
+                        findings: [
+                            ...configHealth.findings,
+                            {
+                                ...configHealth.findings[0],
+                                check: 'flag_state',
+                                code: 'flag_live_before_launch',
+                                severity: 'info',
+                            },
+                        ],
+                        checks: [...configHealth.checks, { ...configHealth.checks[0], key: 'flag_state' }],
+                    },
+                }),
+            health: { summary: 'Findings: 1 warning. Checks: 1 finding.', codes: ['no_metric'] },
+            outcome: 'read',
+        },
+        {
+            name: 'keeps the launch result when the health read returns a page instead of the health',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: '<html></html>' }),
+            health: { summary: 'Findings: none. Checks: none ran.', codes: [] },
+            outcome: 'read',
+        },
+        {
+            name: 'keeps the launch result as it is when a health list has the wrong type',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: { findings: {}, checks: [] } }),
+            health: undefined,
+            outcome: null,
+        },
+        {
+            name: 'adds no findings when the flag is off',
+            flag: false,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
+            health: undefined,
+            outcome: 'flag_off',
+        },
+        {
+            name: 'says the checks did not run when the health read fails',
+            flag: true,
+            healthRead: (): Promise<unknown> =>
+                Promise.resolve({ success: false, error: new Error('Internal server error') }),
+            health: { summary: notRun, codes: [] },
+            outcome: 'failed',
+        },
+        {
+            name: 'says the checks did not run when the health read outlasts the deadline',
+            flag: true,
+            healthRead: (deadline: AbortController): Promise<unknown> => {
+                deadline.abort()
+                return never()
+            },
+            health: { summary: notRun, codes: [] },
+            outcome: 'timed_out',
+        },
+    ])('experiment-launch $name', async ({ flag, healthRead, health, outcome }) => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
+        const deadline = new AbortController()
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+        // Like the server, the health read stops returning the draft's findings once the experiment is launched.
+        let launched = false
+        const request = vi.fn().mockImplementation(async () => {
+            launched = true
+            return { id: 7, name: 'Test', feature_flag_key: 'k', start_date: '2026-11-24T10:00:00Z' }
+        })
+        const getHealth = vi
+            .fn()
+            .mockImplementation(() =>
+                launched
+                    ? Promise.resolve({ success: true, data: { findings: [], checks: [], setup: null } })
+                    : healthRead(deadline)
+            )
+        const trackEvent = vi.fn().mockResolvedValue(undefined)
+        const tool = (GENERATED_TOOLS['experiment-launch'] as () => ToolBase<ZodObjectAny>)()
+
+        try {
+            const result = (await tool.handler(
+                buildContext(getHealth, exposureOk, trackEvent, request),
+                tool.schema.parse({ id: 7 })
+            )) as Record<string, any>
+
+            expect(result).toMatchObject({ id: 7, start_date: '2026-11-24T10:00:00Z' })
+            const preLaunch = result.pre_launch_health
+            expect(
+                preLaunch && { summary: preLaunch.summary, codes: preLaunch.findings.map((f: any) => f.code) }
+            ).toEqual(health)
+            expect(trackEvent.mock.calls).toEqual(
+                outcome === null
+                    ? []
+                    : [
+                          [
+                              'mcp experiment health returned',
+                              expect.objectContaining({
+                                  tool_name: 'experiment-launch',
+                                  experiment_id: 7,
+                                  health_finding_codes: health?.codes ?? [],
+                                  configuration_checks_outcome: outcome,
+                                  exposure_checks_outcome: 'not_started',
+                              }),
+                          ],
+                      ]
+            )
+        } finally {
+            timeout.mockRestore()
+        }
+    })
+
+    it('experiment-health-get returns only the documented exposure fields', async () => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
+
+        const result = await getHealthHandler(buildContext(vi.fn(), exposureOk, vi.fn()), { id: 7 })
+
+        expect(result.exposures).toEqual({
+            timeseries: [],
+            total_exposures: {},
+            sample_ratio_mismatch: null,
+            bias_risk: { multiple_variant_percentage: 3.2 },
+            date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+            warnings: SYNC_WARNINGS,
+        })
+    })
+})

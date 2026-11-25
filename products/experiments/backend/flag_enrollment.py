@@ -5,8 +5,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 
 QUERY_TIMEOUT_SECONDS = 10
 ENROLLED_FROM_EVENTS = """
@@ -31,7 +30,7 @@ GROUP BY flag_key
 def enrolled_people_by_flag(team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
     if not flag_keys:
         return {}
-    from_events = get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.EVENTS
+    from_events = not reads_flag_calls_from_flag_evaluations(team)
     result = execute_hogql_query(
         ENROLLED_FROM_EVENTS if from_events else ENROLLED_FROM_EVALUATIONS,
         team,

@@ -6,6 +6,9 @@ import { firstCheckCountdown, modelCardState } from './modelCardState'
 describe('modelCardState', () => {
     const liveRun: AutoresearchPipelineApi['live_training_run'] = {
         id: 'run-1',
+        task_id: null,
+        task_run_id: null,
+        task_url: null,
         iteration_budget: 8,
         experiment_count: 2,
         best_holdout_score: 0.72,

@@ -577,10 +577,10 @@ export interface LLMSkillCreateApi {
     readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
-     * Optional note describing what changed in this version. Set when the version is published.
-     * @nullable
+     * Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.
+     * @maxLength 400
      */
-    readonly version_description: string | null
+    version_description?: string
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -1258,7 +1258,7 @@ export type LlmSkillsResolveNameRetrieveParams = {
 
 export type LlmSkillsSearchRetrieveParams = {
     /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */

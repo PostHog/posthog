@@ -1,5 +1,6 @@
 """Canvas records: list, read, create, update, delete, and the home canvas."""
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -79,6 +80,16 @@ def _listing(
             return queryset.none()
         queryset = queryset.filter(created_by__uuid=created_by)
     return queryset
+
+
+def editable_canvas_ids(viewer: CanvasViewer, canvas_ids: Collection[str]) -> set[str]:
+    """The ids among `canvas_ids` the viewer may edit."""
+    if not canvas_ids:
+        return set()
+    return {
+        str(pk)
+        for pk in authorized_canvases(viewer, CanvasAccess.EDIT).filter(id__in=canvas_ids).values_list("id", flat=True)
+    }
 
 
 def list_canvases(

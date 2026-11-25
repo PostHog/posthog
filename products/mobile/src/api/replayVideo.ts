@@ -39,6 +39,9 @@ export interface ReplayVideoExportContext {
     session_recording_id?: string
     timestamp?: number
     duration?: number
+    /** A clip's range on the session clock. The renderer reads these instead of `timestamp` and `duration`. */
+    start_offset_s?: number
+    end_offset_s?: number
     width?: number
     height?: number
     filename?: string
@@ -213,29 +216,60 @@ export async function listReplayVideoExports(sessionId: string, signal?: AbortSi
         )
 }
 
+export async function listRecentReplayVideoExports(signal?: AbortSignal): Promise<ReplayVideoExport[]> {
+    const page = await apiJson<{ results?: unknown[] }>(projectPath('exports/'), {
+        query: { export_format: REPLAY_VIDEO_FORMAT, limit: 100 },
+        signal,
+    })
+    return (Array.isArray(page?.results) ? page.results : [])
+        .map(parseExport)
+        .filter(
+            (asset): asset is ReplayVideoExport =>
+                asset !== null &&
+                asset.export_format === REPLAY_VIDEO_FORMAT &&
+                typeof asset.export_context?.session_recording_id === 'string'
+        )
+}
+
+/** The capture viewport, which is also the video's size. The server clamps it to 400-3840 x 300-2160. */
+export interface ReplayVideoRender {
+    width: number
+    height: number
+    range?: { startSeconds: number; endSeconds: number }
+}
+
+const WHOLE_RECORDING_RENDER: ReplayVideoRender = { width: 1400, height: 600 }
+
 /**
- * `POST exports/` with the web player's whole-recording video body. Each call counts against the team's monthly
- * video export cap, so reuse an export from `pickReusableExport` first.
+ * `POST exports/` with the web player's video body: the whole recording, or a clip of it. Each call counts against the
+ * team's monthly video export cap, whatever its length, so reuse an export from `pickReusableExport` first.
  */
 export async function createReplayVideoExport(
     sessionId: string,
     durationSeconds: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    render: ReplayVideoRender = WHOLE_RECORDING_RENDER
 ): Promise<ReplayVideoExport> {
-    if (durationSeconds > MAX_REPLAY_VIDEO_SECONDS) {
+    const { range } = render
+    if (!range && durationSeconds > MAX_REPLAY_VIDEO_SECONDS) {
         throw new ReplayVideoError('too_long')
     }
+    const span = range
+        ? {
+              start_offset_s: Math.max(0, Math.floor(range.startSeconds)),
+              end_offset_s: Math.max(0, Math.ceil(range.endSeconds)),
+          }
+        : { timestamp: 0, duration: Math.max(0, Math.floor(durationSeconds)) }
     const created = await apiJson<unknown>(projectPath('exports/'), {
         method: 'POST',
         json: {
             export_format: REPLAY_VIDEO_FORMAT,
             export_context: {
                 session_recording_id: sessionId,
-                timestamp: 0,
-                width: 1400,
-                height: 600,
+                ...span,
+                width: Math.round(render.width),
+                height: Math.round(render.height),
                 filename: `replay-${sessionId}`,
-                duration: Math.max(0, Math.floor(durationSeconds)),
                 // The server's default too, sent so that every server version skips idle time.
                 skip_inactivity: true,
             },

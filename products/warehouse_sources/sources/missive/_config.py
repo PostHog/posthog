@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class MissiveSourceConfig(config.Config):
-    pass
+    api_token: str

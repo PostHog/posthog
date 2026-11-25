@@ -1,0 +1,1504 @@
+import re
+import time
+import uuid
+import random
+import typing
+import asyncio
+import datetime as dt
+import contextlib
+import collections
+import dataclasses
+from collections.abc import Iterator
+
+from django.conf import settings
+from django.db import transaction
+
+import aiohttp
+import pyarrow as pa
+import deltalake
+import pyarrow.parquet as pq
+from opentelemetry import trace
+from pyarrow.lib import concat_batches
+from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
+from temporalio import activity
+from temporalio.exceptions import ApplicationError
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ParsingError
+from posthog.hogql.functions.prompt_jev import PromptJevFinder
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.utils import alias_output_columns
+
+from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings.base_variables import TEST
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
+    ClickHouseQueryPlanningError,
+    ClickHouseQueryTimeoutError,
+    ClickHouseTooManySimultaneousQueriesError,
+    get_client as get_clickhouse_client,
+)
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger
+
+from products.data_modeling.backend.facade.api import (
+    DESCRIBE_QUERY_SETTINGS,
+    THERE_IS_NO_COLUMN_ERROR_CODE,
+    DescribedColumn,
+    IncrementalFilterError,
+    WritePlan,
+    clear_incremental_state,
+    describe_ast_settings,
+    duplicate_output_columns,
+    duplicate_output_columns_message,
+    get_incremental_state,
+    narrow_to_incremental_window,
+    parse_model_query,
+    print_describe_variant,
+    record_incremental_history,
+    rename_described_columns,
+    resolve_write_plan,
+    set_incremental_state,
+    wrap_with_incremental_guard,
+)
+from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.temporal.activities.incremental_write import (
+    DuplicateUniqueKeyError,
+    IncrementalWriteError,
+    SchemaDriftError,
+    UniqueKeyTracker,
+    assert_schema_matches,
+    max_of,
+    table_exists,
+    upsert_batch,
+    upsert_stats_fields,
+)
+from products.data_modeling.backend.temporal.activities.utils import (
+    bind_data_modeling_log_context,
+    strip_hostname_from_error,
+)
+from products.data_quality.backend.facade import api as data_quality_facade
+from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
+from products.endpoints.backend.facade.temporal import prepare_executable_query
+from products.warehouse_sources.backend.facade.hooks import saved_query_binding
+from products.warehouse_sources.backend.facade.pipelines import CDPProducer
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
+
+from . import arrow_batch_transforms
+
+LOGGER = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+MB_100_IN_BYTES = 100 * 1000 * 1000
+
+
+def _print_untouched(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+def _plan_prompt_jev(
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    context: HogQLContext,
+    resolver_factory: ResolverFactory,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Run the model's jev calls up front, so the query that materializes reads their results
+    from external tables registered on ``context``. The printer refuses a jev call it meets.
+
+    Planning types the query before any model call, so it resolves the view tree too and needs
+    the same cycle, depth and deadline bounds the printing pass gets."""
+    planned, tables = HogQLQueryExecutor(
+        query=query_node,
+        team=team,
+        context=context,
+        modifiers=context.modifiers,
+        limit_context=LimitContext.SAVED_QUERY,
+        resolver_factory=resolver_factory,
+    ).plan_prompt_jev()
+    for table in tables:
+        table.register(context)
+    return planned
+
+
+@tracer.start_as_current_span("materialize_view.describe")
+async def _describe_columns(
+    printed: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str],
+    external_tables: list[ClickHouseExternalTable],
+    retry_with_untouched_query: bool,
+    query_id: str,
+) -> list[DescribedColumn]:
+    """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
+    `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
+    try:
+        async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+            async with client.apost_query(
+                query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+                query_parameters=query_parameters,
+                query_id=query_id,
+                settings=query_settings,
+                external_tables=external_tables,
+            ) as ch_response:
+                table_describe_response = await ch_response.content.read()
+    except ClickHouseError as error:
+        if error.code != THERE_IS_NO_COLUMN_ERROR_CODE or not retry_with_untouched_query:
+            raise
+        raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
+    columns: list[DescribedColumn] = []
+    for line in table_describe_response.decode("utf-8").splitlines():
+        column_name, ch_type = line.strip().split("\t")
+        columns.append(DescribedColumn(name=column_name, ch_type=ch_type))
+    return columns
+
+
+def _reject_duplicate_output_columns(columns: list[DescribedColumn]) -> None:
+    duplicates = duplicate_output_columns(column.name for column in columns)
+    if duplicates:
+        raise DuplicateOutputColumnError(duplicates)
+
+
+CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
+DELTA_TABLE_RETENTION_HOURS = 24
+
+# An upstream Delta table's log can be mid-rewrite, so the default backoff exhausts every attempt
+# before the rewrite lands.
+DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
+DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
+
+# A saturated cluster refuses every model a spike reaches at once, so a refused query waits minutes,
+# with jitter so the refused models do not return together. Most timeouts hit one query on its own
+# and pass on a quick retry, so a timeout starts from seconds. Both delays grow with the number of
+# refusals and timeouts this worker saw recently, so during a spike the retries stop landing in it.
+# A connection that ClickHouse does not accept is a refusal too, so it takes the refusal delay. A
+# connection that drops during the query is usually a one-off, so it takes the timeout delay.
+TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY = dt.timedelta(minutes=2)
+QUERY_TIMEOUT_RETRY_BASE_DELAY = dt.timedelta(seconds=20)
+RETRY_PRESSURE_WINDOW = dt.timedelta(minutes=5)
+RETRY_PRESSURE_ERRORS_PER_STEP = 5
+RETRY_PRESSURE_MAX = 12
+MAX_ADAPTIVE_RETRY_DELAY = dt.timedelta(minutes=10)
+CLICKHOUSE_TYPE_QUOTED_PART = re.compile(r"'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`")
+CLICKHOUSE_TUPLE_FIELD_NAME = re.compile(r"(?<=[(,])\s*[A-Za-z_]\w*\s+(?=[A-Za-z_])")
+
+
+class _RecentCapacityErrors:
+    def __init__(self, window: dt.timedelta) -> None:
+        self._window_seconds = window.total_seconds()
+        self._seen_at: collections.deque[float] = collections.deque()
+
+    def record(self, now: float) -> int:
+        """Record one error and return how many came before it inside the window."""
+        while self._seen_at and self._seen_at[0] <= now - self._window_seconds:
+            self._seen_at.popleft()
+        earlier = len(self._seen_at)
+        self._seen_at.append(now)
+        return earlier
+
+    def clear(self) -> None:
+        self._seen_at.clear()
+
+
+_recent_capacity_errors = _RecentCapacityErrors(RETRY_PRESSURE_WINDOW)
+
+
+def _adaptive_retry_delay(base: dt.timedelta, attempt: int, recent_errors: int) -> dt.timedelta:
+    pressure = min(1 + recent_errors / RETRY_PRESSURE_ERRORS_PER_STEP, RETRY_PRESSURE_MAX)
+    delay = min(base * (2 ** (max(attempt, 1) - 1)) * pressure, MAX_ADAPTIVE_RETRY_DELAY)
+    return delay * random.uniform(0.5, 1.0)
+
+
+def _adaptive_retry_base_delay(error: Exception) -> dt.timedelta | None:
+    # ClientConnectorError subclasses ClientOSError, so it must match first.
+    if isinstance(error, ClickHouseTooManySimultaneousQueriesError | aiohttp.ClientConnectorError):
+        return TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY
+    if isinstance(error, ClickHouseQueryTimeoutError | aiohttp.ClientOSError | aiohttp.ServerDisconnectedError):
+        return QUERY_TIMEOUT_RETRY_BASE_DELAY
+    return None
+
+
+KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16, KillSwitchLevel.FULL: 8}
+
+# Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
+# keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
+INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
+
+# how often the producer/consumer wake from a blocking queue op to re-check the
+# stop flag
+QUEUE_POLL_SECONDS = 1.0
+
+# Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
+# process with a single event loop — all async activities share it, so this
+# module-level semaphore gates every activity on the same worker.
+MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
+_clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
+
+
+class EmptyHogQLResponseColumnsError(Exception):
+    def __init__(self):
+        super().__init__("After running a HogQL query, no columns were returned")
+
+
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
+
+
+class DuplicateOutputColumnError(NonReportableError):
+    """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
+    list from it, and the arrow transform looks it up on the batch. Neither can say which of two
+    same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
+
+    def __init__(self, duplicates: list[str]) -> None:
+        super().__init__(duplicate_output_columns_message(duplicates))
+        self.duplicates = duplicates
+
+
+def _is_s3_permission_denied(error: BaseException) -> bool:
+    """True for an S3 access-denied error on our own bucket, from either client this pipeline uses.
+
+    `s3fs`/aiobotocore (used by `CDPProducer._list_files_to_produce`) maps an AccessDenied response
+    onto the builtin `PermissionError`. pyarrow's `S3FileSystem` (used by `stage_chunk`'s parquet
+    write) doesn't set an errno for it, so the same AWS error surfaces as a plain `OSError` with the
+    AWS error code embedded in the message instead.
+    """
+    if isinstance(error, PermissionError):
+        return True
+    return isinstance(error, OSError) and "ACCESS_DENIED" in str(error)
+
+
+class _CDPRowSink:
+    """Stages the rows a run wrote so CDP destinations and workflows subscribed to the view can act
+    on them.
+
+    Best effort by design: the materialization is the product and the trigger is not, so a staging
+    failure never fails the run. A partial stage is worse than none, though — a subscriber would get
+    some of the run's rows and silently miss the rest — so the first failure discards everything
+    staged and the run produces nothing.
+    """
+
+    def __init__(self, producer: CDPProducer, logger: FilteringBoundLogger) -> None:
+        self._producer = producer
+        self._logger = logger
+        self._chunk = 0
+        self.enabled = False
+
+    async def prepare(self) -> None:
+        """Resolve the gate once, then clear anything a previous attempt of this activity staged."""
+        try:
+            self.enabled = await self._producer.should_run()
+            if self.enabled:
+                await self._producer.clear()
+        except Exception as e:
+            await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            if not is_transient_db_error(e):
+                capture_exception(e)
+            self.enabled = False
+
+    async def stage(self, batch: pa.RecordBatch) -> None:
+        if not self.enabled or batch.num_rows == 0:
+            return
+
+        try:
+            await self._producer.stage_chunk(self._chunk, batch)
+            self._chunk += 1
+        except Exception as e:
+            # A missing write grant on the cdp_producer/ prefix is the same anticipated
+            # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
+            # `except PermissionError` branch) — not a bug worth paging on.
+            if not _is_s3_permission_denied(e) and not isinstance(e, NonReportableError):
+                capture_exception(e)
+            await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
+            self.enabled = False
+            await self.discard()
+
+    async def discard(self) -> None:
+        try:
+            await self._producer.clear()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
+
+
+class InvalidNodeTypeException(Exception):
+    """Exception raised when attempting to materialize an invalid node type."""
+
+    pass
+
+
+@dataclasses.dataclass
+class MaterializeViewInputs:
+    team_id: int
+    dag_id: str
+    node_id: str
+    job_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "dag_id": self.dag_id,
+            "node_id": self.node_id,
+            "job_id": self.job_id,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class MaterializeViewResult:
+    node_id: str
+    node_name: str
+    row_count: int
+    table_uri: str
+    file_uris: list[str]
+    saved_query_id: str
+    quality_audit: QualityAuditMode = QUALITY_AUDIT_SKIP
+    # Whether this run upserted a window rather than rebuilding. Defaulted so old workflow
+    # histories decode without it.
+    incremental: bool = False
+    # Whether this run staged row projections for a person/group-target warehouse property, which is
+    # what the workflow gates the person-property child on. Defaulted to the skip value so an old
+    # history decodes without it and never fires that child during replay.
+    person_property_sync_enabled: bool = False
+    # Whether every row in a full rebuild reached person-property staging. Defaulted to False so
+    # old workflow histories cannot infer that removals are safe.
+    person_property_complete_table_read: bool = False
+    # Defaulted so workflow histories recorded before account staging do not start new children on replay.
+    account_property_sync_enabled: bool = False
+    delta_version: int | None = None
+    # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
+    # the producer job. Defaulted so old workflow histories decode without it.
+    should_trigger_cdp_producer: bool = False
+
+
+@frozen
+class _FullMaterializationResult:
+    row_count: int
+    file_uris: list[str]
+    person_property_complete_table_read: bool
+
+
+def _build_model_table_uri(team_id: int, saved_query_id_hex: str, storage_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{storage_name}"
+
+
+def get_aws_storage_options() -> dict[str, str]:
+    if settings.USE_LOCAL_SETUP:
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+    if settings.USE_LOCAL_SETUP or TEST:
+        return {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "AWS_ALLOW_HTTP": "true",
+        }
+
+    return {
+        **delta_proxy_storage_options(),
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+def _key_columns(plan: WritePlan) -> frozenset[str]:
+    if plan.config is None:
+        return frozenset()
+    return frozenset((plan.config.incremental_key, *plan.config.unique_key))
+
+
+async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
+    """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
+    is still queryable.
+    """
+    buf = pa.BufferOutputStream()
+    # write_table() on an empty table emits a 0-row row group, which ClickHouse rejects,
+    # so write only the schema with no row groups.
+    with pq.ParquetWriter(buf, schema):
+        pass
+    parquet_bytes = buf.getvalue().to_pybytes()
+    file_uri = f"{table_uri}/empty_{uuid.uuid4().hex}.parquet"
+    s3 = get_s3_client()
+
+    def _upload() -> None:
+        with s3.open(file_uri, "wb") as f:
+            f.write(parquet_bytes)
+
+    await asyncio.to_thread(_upload)
+    await logger.ainfo(f"Wrote empty parquet for zero-row materialization: uri={file_uri} bytes={len(parquet_bytes)}")
+    return file_uri
+
+
+@contextlib.contextmanager
+def _span_kept_out_of_context(name: str) -> Iterator[trace.Span]:
+    span = tracer.start_span(name)
+    try:
+        yield span
+    except Exception as error:
+        span.record_exception(error)
+        span.set_status(trace.Status(trace.StatusCode.ERROR, f"{type(error).__name__}: {error}"))
+        raise
+    finally:
+        span.end()
+
+
+async def hogql_table(
+    query: str,
+    team: Team,
+    logger: FilteringBoundLogger,
+    view_name: str | None = None,
+    window: "IncrementalWindow | None" = None,
+    progress: "_AttemptProgress | None" = None,
+):
+    """Execute a HogQL query and yield batches of results.
+
+    With a ``window``, the query is narrowed to rows at or after its lower bound before anything
+    else happens. Its guard goes on after DESCRIBE, once the columns carry the names ClickHouse
+    gives them, and before the arrow type-conversion wrapper below re-wraps the node, so the
+    guard's column reference still resolves against the user's own output.
+    """
+    if window is not None:
+        query_node = narrow_to_incremental_window(
+            parse_select(query), incremental_key=window.incremental_key, since=window.since
+        )
+    else:
+        query_node = parse_model_query(query)
+    if query_node is None:
+        raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
+
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    ast_settings = describe_ast_settings(settings)
+    kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
+    if kill_switch_level in KILL_SWITCH_MAX_THREADS:
+        settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
+
+    modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
+    context = HogQLContext(
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=modifiers,
+    )
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async_pool(Database.create_for)(
+        team=team,
+        modifiers=context.modifiers,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+    )
+
+    if PromptJevFinder.contains(query_node):
+        # A factory of its own: the deadline is wall clock, and the jev calls between the two
+        # passes would otherwise spend the printing pass's budget.
+        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(
+            query_node, team, context, bounded_resolver_factory_for_view(view_name)
+        )
+
+    factory = bounded_resolver_factory_for_view(view_name)
+    with tracer.start_as_current_span("materialize_view.prepare_describe_query"):
+        prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
+            query_node,
+            context=context,
+            dialect="clickhouse",
+            settings=settings,
+            stack=[],
+            resolver_factory=factory,
+        )
+    if prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
+    probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
+
+    arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
+        "Nullable(Nothing)": ("toNullableString", ()),
+        "FIXED_SIZE_BINARY": ("toString", ()),
+        "JSON": ("toString", ()),
+        "UUID": ("toString", ()),
+        "ENUM": ("toString", ()),
+        "IPv4": ("toString", ()),
+        "IPv6": ("toString", ()),
+        "Variant": ("toNullableString", ()),
+        "Dynamic": ("toNullableString", ()),
+    }
+
+    def _conversion_target(ch_type: str) -> str:
+        # Arrays are converted per element, so only the element's own type name can select a conversion.
+        # Matching the whole string would also hit names nested deeper, e.g. the `uuid` field of
+        # `Array(Tuple(uuid String))`, and wrongly stringify structures Arrow already supports.
+        if not ch_type.lower().startswith("array("):
+            return CLICKHOUSE_TUPLE_FIELD_NAME.sub("", CLICKHOUSE_TYPE_QUOTED_PART.sub("", ch_type))
+        element = ch_type[len("array(") : -1].strip()
+        while element.lower().startswith(("nullable(", "lowcardinality(")):
+            element = element[element.index("(") + 1 : -1].strip()
+        return element.split("(", 1)[0]
+
+    def _needs_conversion(ch_type: str) -> bool:
+        target = _conversion_target(ch_type).lower()
+        return any(uat.lower() in target for uat in arrow_type_conversion)
+
+    get_call_tuple = lambda ch_type: next(
+        iter(
+            [
+                call_tuple
+                for uat, call_tuple in arrow_type_conversion.items()
+                if uat.lower() in _conversion_target(ch_type).lower()
+            ]
+        )
+    )
+
+    try:
+        described_columns = rename_described_columns(
+            await _describe_columns(
+                probe.sql,
+                context.values,
+                {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
+                list(context.external_tables.values()),
+                retry_with_untouched_query=True,
+                query_id=await _start_query(progress, logger, "describing the query"),
+            ),
+            probe,
+        )
+    except ClickHouseQueryPlanningError as error:
+        # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
+        # aggregate function. The untouched query is the one that runs, so it always describes.
+        await logger.awarning(
+            "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
+        )
+        untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
+        described_columns = await _describe_columns(
+            untouched,
+            context.values,
+            ast_settings,
+            list(context.external_tables.values()),
+            retry_with_untouched_query=False,
+            query_id=await _start_query(progress, logger, "describing the query"),
+        )
+
+    _reject_duplicate_output_columns(described_columns)
+
+    query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
+    for column in described_columns:
+        if _needs_conversion(column.ch_type):
+            query_typings.append((column.name, column.ch_type, get_call_tuple(column.ch_type)))
+        else:
+            query_typings.append((column.name, column.ch_type, None))
+
+    has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    # The guard and the type wrapper both re-select the output by name through HogQL, which keeps one
+    # column per name. ClickHouse keeps a bare column's qualifier when another column takes its plain
+    # name, so it can name columns `a.event` and `event` where HogQL names both `event`. Each item
+    # carries its described name as its alias, so every column reaches the re-select.
+    if window is not None or has_type_to_convert:
+        alias_output_columns(query_node, [column.name for column in described_columns])
+    if window is not None:
+        query_node = wrap_with_incremental_guard(query_node, incremental_key=window.incremental_key, since=window.since)
+    if has_type_to_convert:
+        await logger.adebug("Query has fields that need converting")
+        # ClickHouse keeps a bare column's qualifier when another column takes its plain name, so it
+        # can name columns `a.event` and `event` where HogQL names both `event`. The wrapper reads the
+        # columns by their described names, so each item carries that name as its alias.
+        alias_output_columns(query_node, [column.name for column in described_columns])
+        select_fields: list[ast.Expr] = []
+        for column_name, ch_type, call_tuple in query_typings:
+            if call_tuple is not None:
+                if ch_type.lower().startswith("array("):
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
+                    )
+                    element_conversion = ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name="arrayMap", args=[element_conversion, ast.Field(chain=[column_name])]),
+                            alias=column_name,
+                        )
+                    )
+                else:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            alias=column_name,
+                        )
+                    )
+            else:
+                select_fields.append(ast.Field(chain=[column_name]))
+        query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
+
+    context.output_format = "ArrowStream"
+    settings.preferred_block_size_bytes = MB_100_IN_BYTES
+
+    # each prepare pass owns its deadline clock, so the DESCRIBE round trip above is not charged
+    # to view resolution
+    with tracer.start_as_current_span("materialize_view.prepare_arrow_query"):
+        arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
+            query_node,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+            settings=settings,
+            resolver_factory=bounded_resolver_factory_for_view(view_name),
+        )
+
+    if arrow_prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
+    arrow_printed = await database_sync_to_async_pool(print_prepared_ast)(
+        arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
+    )
+
+    # The query goes in a field rather than the message: only the message is copied into the
+    # log_entries row users can read, and the compiled query is the saved query's own SQL.
+    await logger.adebug("Running clickhouse query", query=arrow_printed)
+    query_id = await _start_query(progress, logger, "reading from ClickHouse")
+
+    async with (
+        _clickhouse_query_semaphore,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
+    ):
+        batches = []
+        batches_size = 0
+        yielded_results = False
+        arrow_schema: pa.Schema | None = None
+        ch_typings_pairs = [(column_name, column_type) for column_name, column_type, _ in query_typings]
+
+        def capture_arrow_schema(schema: pa.Schema) -> None:
+            nonlocal arrow_schema
+            arrow_schema = schema
+
+        with tags_context(**context.read_tags()), _span_kept_out_of_context("materialize_view.clickhouse_stream"):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+                query_id=query_id,
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
+
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (concat_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
+
+        if len(batches) > 0:
+            await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+            yield (concat_batches(batches), ch_typings_pairs)
+            yielded_results = True
+
+        if not yielded_results:
+            # zero-row result. yield a single empty batch carrying the query's schema so
+            # downstream can still write a delta table (and an empty queryable parquet)
+            # instead of leaving the model with no DataWarehouseTable at all.
+            await logger.adebug(
+                "Query returned zero batches; yielding empty batch with schema for queryable empty table"
+            )
+            if arrow_schema is None:
+                raise EmptyHogQLResponseColumnsError()
+            empty_batch = pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in arrow_schema], schema=arrow_schema
+            )
+            yield (empty_batch, ch_typings_pairs)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class IncrementalWindow:
+    incremental_key: str
+    since: typing.Any
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class MatviewInputObjects:
+    team: Team
+    node: Node
+    saved_query: DataWarehouseSavedQuery
+    job: DataModelingJob
+
+
+@database_sync_to_async_pool
+def _get_matview_input_objects(
+    inputs: MaterializeViewInputs,
+) -> MatviewInputObjects:
+    team = Team.objects.get(id=inputs.team_id)
+    node = Node.objects.prefetch_related("saved_query").get(
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+    )
+    if node.type == NodeType.TABLE:
+        raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
+    if node.saved_query is None:
+        raise InvalidNodeTypeException(f"Node {node.name} has no saved_query")
+    # we explicitly get the saved query to avoid sync_to_async issues later for things like folder_path
+    saved_query = (
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
+        .exclude(deleted=True)
+        .get(id=node.saved_query.id, team_id=inputs.team_id)
+    )
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        prepare_executable_query(saved_query)
+
+    job = DataModelingJob.objects.get(id=inputs.job_id, team_id=inputs.team_id)
+    return MatviewInputObjects(team=team, node=node, saved_query=saved_query, job=job)
+
+
+async def _build_person_property_sink(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger, *, incremental: bool
+) -> PersonPropertyRowSink | None:
+    """A sink for this view, or None when no warehouse property reads it.
+
+    The gate is one query behind ``should_run()``, so a view nobody maps pays that and nothing else.
+    A failure to resolve it must not fail the materialization, which is the run that matters.
+    """
+    sink = PersonPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+        is_incremental=incremental,
+    )
+    try:
+        return sink if await sink.should_run() else None
+    except Exception as e:
+        await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
+        if not is_transient_db_error(e):
+            capture_exception(e)
+        return None
+
+
+async def _account_property_sync_enabled(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger
+) -> bool:
+    sink = AccountPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+    )
+    try:
+        return await sink.should_run()
+    except Exception as error:
+        await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
+        if not is_transient_db_error(error):
+            capture_exception(error)
+        return False
+
+
+async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> bool:
+    """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
+    try:
+        await sink.clear()
+    except Exception as e:
+        await logger.awarning(f"Could not clear stale person-property staging: {e}")
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
+        return False
+    return True
+
+
+async def _stage_person_property_batch(
+    sink: PersonPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch, *, fatal: bool
+) -> bool:
+    """Stage one written batch's projected columns, if a warehouse property reads this view.
+
+    Staged from the transformed batch, so the values a person property gets are the ones the Delta
+    table gets.
+
+    ``fatal`` follows the write path. A full rebuild re-stages every row on its next run, so there a
+    staging failure only costs that run's updates and is swallowed (``fatal=False``). An incremental
+    run stages only its own window and then advances the watermark past it, so a swallowed failure
+    would move the watermark past rows that never reached staging, which no later incremental run
+    re-stages until they change again. The incremental path therefore raises (``fatal=True``) to fail
+    the run before the watermark is recorded — matching the import pipeline's sink contract — so
+    Temporal retries the whole window.
+    """
+    if sink is None:
+        return False
+    try:
+        await sink.stage_chunk(batch_index, pa.Table.from_batches([batch]))
+    except Exception as e:
+        await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
+        if fatal:
+            raise
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
+        return False
+    return True
+
+
+FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
+
+
+def _failed_update_reason(error: Exception) -> str:
+    """Why a rebuild is happening, short enough for ``DataModelingJob.full_refresh_reason``."""
+    limit = DataModelingJob._meta.get_field("full_refresh_reason").max_length
+    assert limit is not None
+    return f"{FAILED_UPDATE_REASON_PREFIX}{error}"[:limit]
+
+
+@database_sync_to_async_pool
+def _drop_watermark_and_say_why(saved_query: DataWarehouseSavedQuery, job: DataModelingJob, reason: str) -> None:
+    """Clear the watermark and record the reason together, so a retry cannot find one without it."""
+    with transaction.atomic():
+        clear_incremental_state(saved_query)
+        job.full_refresh_reason = reason
+        job.save()
+
+
+def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
+    """The reason this run rebuilt, keeping the one a failed attempt of the same job wrote."""
+    if plan.incremental:
+        return None
+
+    recorded = job.full_refresh_reason
+    if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
+        return recorded
+    # A failed rebuild clears the watermark, so its retry plans "first run". The reason the
+    # earlier attempt recorded is the real one.
+    if recorded is not None and plan.reason == "first run":
+        return recorded
+
+    return plan.reason
+
+
+@dataclasses.dataclass(frozen=False, slots=True)
+class _AttemptProgress:
+    """The attempt's current step, held in memory so that the line logged when the attempt ends
+    can say where it stopped. A timeout reaches the activity as a cancellation inside whatever
+    it was awaiting, so nothing else records the step."""
+
+    job_id: str
+    attempt: int
+    step: str = "preparing"
+    step_started_at: float = dataclasses.field(default_factory=time.monotonic)
+    batches: int = 0
+    rows: int = 0
+    queries: int = 0
+    query_id: str | None = None
+    batch_seconds: dict[str, float] = dataclasses.field(default_factory=dict)
+
+    def enter(self, step: str) -> None:
+        now = time.monotonic()
+        self.batch_seconds[self.step] = self.batch_seconds.get(self.step, 0.0) + now - self.step_started_at
+        self.step = step
+        self.step_started_at = now
+
+    def next_query_id(self) -> str:
+        self.queries += 1
+        self.query_id = f"{self.job_id}-a{self.attempt}-{self.queries}"
+        return self.query_id
+
+    def finish_batch(self, rows: int) -> str:
+        self.enter(self.step)
+        self.batches += 1
+        self.rows += rows
+        steps = ", ".join(f"{step} {seconds:.1f}s" for step, seconds in self.batch_seconds.items())
+        self.batch_seconds = {}
+        return f"Wrote batch {self.batches}: {rows:,} rows, {self.rows:,} in total ({steps})"
+
+    def where_it_stopped(self) -> str:
+        in_step = time.monotonic() - self.step_started_at
+        batch_word = "batch" if self.batches == 1 else "batches"
+        query = f", query_id={self.query_id}" if self.query_id else ""
+        return (
+            f"while {self.step} ({in_step:.0f}s in that step), "
+            f"after {self.batches} {batch_word} and {self.rows:,} rows{query}"
+        )
+
+
+def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextManager[trace.Span]:
+    return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
+
+
+async def _start_query(progress: _AttemptProgress | None, logger: FilteringBoundLogger, step: str) -> str:
+    if progress is None:
+        return str(uuid.uuid4())
+    progress.enter(step)
+    query_id = progress.next_query_id()
+    await logger.ainfo(f"Started ClickHouse query {query_id} ({step})")
+    return query_id
+
+
+async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
+    return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
+
+
+async def _materialize_fully(
+    objects: MatviewInputObjects,
+    plan: WritePlan,
+    hogql_query: str,
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None = None,
+    person_property_staging_cleared: bool = False,
+    *,
+    progress: _AttemptProgress,
+) -> _FullMaterializationResult:
+    """Rebuild the whole table from the query. The only path that creates a Delta table, and the
+    fallback for every case the incremental path cannot serve."""
+    # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
+    # The stored watermark and fingerprint still describe the last complete table, and the next
+    # plan would upsert onto the partial one. Clear them before the delete so that the next run
+    # rebuilds again. The end of a successful rebuild stores them again.
+    await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+
+    # delete existing table first to avoid schema conflicts
+    s3 = get_s3_client()
+    try:
+        # non-blocking delete returns control to the event loop so heartbeats continue
+        await asyncio.to_thread(s3.delete, table_uri, recursive=True)
+        await logger.adebug(f"Table recursively deleted: uri={table_uri}")
+    except FileNotFoundError:
+        await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
+
+    row_count = 0
+    delta_table: deltalake.DeltaTable | None = None
+    # cache the schema of the first batch so we can synthesize an empty parquet for
+    # zero-row results without going through delta-rs (whose Schema is arro3, not
+    # pyarrow).
+    pa_schema: pa.Schema | None = None
+    watermark: typing.Any = None
+    # The declared unique key is enforced while seeding too: a table born with null or duplicate
+    # keys would break every later upsert's contract, silently.
+    tracker = UniqueKeyTracker(plan.config.unique_key) if plan.config is not None else None
+    person_property_complete_table_read = person_property_sink is not None and person_property_staging_cleared
+
+    # write each batch as its own delta commit, imitating the data_imports pipeline
+    # (DeltaWriter.write): the first batch overwrites — creating the
+    # table from the exact arrow schema, which pins column case like `personId` — and
+    # later batches append with schema_mode="merge". this keeps peak memory at ~one
+    # batch (hogql_table yields ~100MB combined batches) and, because each write is a
+    # brief to_thread released between batches, never pins a worker thread for the whole
+    # read — which is what starved the shared executor that heartbeats/db/logging use.
+    batch_index = 0
+    key_columns = _key_columns(plan)
+    progress.enter("reading from ClickHouse")
+    try:
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, progress=progress):
+            progress.enter("converting the batch")
+            batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
+            batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
+            batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
+            batch = arrow_batch_transforms._transform_unsigned_integers(batch)
+            batch = arrow_batch_transforms._force_nullable(batch)
+            if tracker is not None:
+                await asyncio.to_thread(tracker.check, batch)
+            progress.enter("staging person properties")
+            staged = await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            person_property_complete_table_read = person_property_complete_table_read and staged
+            batch_index += 1
+            progress.enter("writing to Delta")
+            with _batch_span("materialize_view.write_batch", batch):
+                if delta_table is None:
+                    pa_schema = batch.schema
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=table_uri,
+                        data=batch,
+                        mode="overwrite",
+                        schema_mode="overwrite",
+                        storage_options=storage_options,
+                    )
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                else:
+                    await asyncio.to_thread(
+                        deltalake.write_deltalake,
+                        table_or_uri=delta_table,
+                        data=batch,
+                        mode="append",
+                        schema_mode="merge",
+                        storage_options=storage_options,
+                    )
+            # Staged only once the batch is committed: a run that announces rows it then fails to write
+            # cannot take the announcement back.
+            progress.enter("staging CDP rows")
+            await cdp_sink.stage(batch)
+            if plan.config is not None and plan.config.incremental_key in batch.schema.names:
+                watermark = max_of(batch, plan.config.incremental_key, watermark)
+            row_count = row_count + batch.num_rows
+            objects.job.rows_materialized = row_count
+            progress.enter("saving the job")
+            await database_sync_to_async_pool(objects.job.save)()
+            await logger.ainfo(progress.finish_batch(batch.num_rows))
+            progress.enter("reading from ClickHouse")
+    finally:
+        if tracker is not None:
+            tracker.close()
+
+    await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
+    file_uris: list[str] = []
+    if delta_table is not None:
+        await logger.ainfo("Compacting delta table")
+        progress.enter("compacting the Delta table")
+        await _compact(delta_table)
+        progress.enter("vacuuming the Delta table")
+        await _vacuum(delta_table, logger)
+        file_uris = delta_table.file_uris()
+        if not file_uris and row_count == 0 and pa_schema is not None:
+            # delta-rs writes no parquet for an empty batch. emit one so the
+            # queryable folder has a file with a schema attached that's queryable
+            progress.enter("writing an empty parquet file")
+            empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
+            file_uris = [empty_parquet_uri]
+
+    # Recording the watermark here is what lets the *next* run go incremental. A rebuild that
+    # can't produce one (no config, or the key missing from the output) simply leaves the query
+    # on the full-refresh path.
+    if plan.config is not None and plan.fingerprint is not None and watermark is not None:
+        progress.enter("saving the watermark")
+        await database_sync_to_async_pool(set_incremental_state)(
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="full_refresh",
+            table_uri=table_uri,
+        )
+    return _FullMaterializationResult(
+        row_count=row_count,
+        file_uris=file_uris,
+        person_property_complete_table_read=person_property_complete_table_read,
+    )
+
+
+async def _materialize_incrementally(
+    objects: MatviewInputObjects,
+    plan: WritePlan,
+    hogql_query: str,
+    table_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
+    person_property_sink: PersonPropertyRowSink | None = None,
+    *,
+    progress: _AttemptProgress,
+) -> tuple[int, list[str]]:
+    """Upsert only the rows at or after the watermark into the existing table.
+
+    The watermark is saved after the last upsert but before the queryable publish. That is only
+    safe because ``prepare_s3_files_for_querying`` re-copies the whole table's ``file_uris()`` on
+    every run: if the publish dies, the next run's publish still picks up these rows. Changing the
+    publish to copy incrementally would break that, so the two decisions are linked.
+    """
+    config = plan.config
+    assert config is not None  # resolve_write_plan only sets incremental with a config
+
+    delta_table = await _open_delta_table(table_uri, storage_options)
+    # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
+    # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
+    # consumes at runtime even though its stubs don't advertise it.
+    target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
+    window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
+
+    row_count = 0
+    watermark: typing.Any = None
+    tracker = UniqueKeyTracker(config.unique_key)
+    # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
+    # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
+    batch_index = 0
+    key_columns = _key_columns(plan)
+
+    progress.enter("reading from ClickHouse")
+    try:
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window, progress=progress):
+            progress.enter("converting the batch")
+            batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
+            batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
+            batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
+            batch = arrow_batch_transforms._transform_unsigned_integers(batch)
+            batch = arrow_batch_transforms._force_nullable(batch)
+
+            if batch.num_rows == 0:
+                # A quiet window is normal. Nothing to upsert, and no watermark to advance.
+                progress.enter("reading from ClickHouse")
+                continue
+
+            assert_schema_matches(batch, target_schema)
+            # Checked before the upsert so a duplicate split across batches fails the run instead
+            # of the later batch silently replacing the earlier one.
+            await asyncio.to_thread(tracker.check, batch)
+            progress.enter("staging person properties")
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
+            batch_index += 1
+
+            progress.enter("upserting into Delta")
+            with _batch_span("materialize_view.upsert_batch", batch):
+                stats = await asyncio.to_thread(
+                    upsert_batch,
+                    table_uri,
+                    storage_options,
+                    batch,
+                    config.unique_key,
+                    commit_metadata={"posthog_job_id": str(objects.job.id)},
+                )
+            progress.enter("staging CDP rows")
+            await cdp_sink.stage(batch)
+
+            watermark = max_of(batch, config.incremental_key, watermark)
+            row_count = row_count + batch.num_rows
+            objects.job.rows_materialized = row_count
+            progress.enter("saving the job")
+            await database_sync_to_async_pool(objects.job.save)()
+            await logger.ainfo(progress.finish_batch(batch.num_rows), **upsert_stats_fields(stats))
+            progress.enter("reading from ClickHouse")
+    except DuplicateUniqueKeyError:
+        # The watermark stays, because a rebuild would fail on the same repeat. The rows already
+        # upserted from earlier batches are safe to keep: the next run re-reads them from the
+        # same watermark and upserts them again.
+        raise
+    except (IncrementalWriteError, IncrementalFilterError) as err:
+        # Every other one of these means the table and the query have diverged in a way an upsert can't
+        # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
+        # would be wrong, so the failure costs a full refresh rather than silent corruption.
+        await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
+        if isinstance(err, SchemaDriftError):
+            await logger.awarning(f"Rebuilding after schema drift: {err}")
+        raise
+    finally:
+        tracker.close()
+
+    if watermark is not None:
+        progress.enter("saving the watermark")
+        await database_sync_to_async_pool(set_incremental_state)(
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="incremental",
+            table_uri=table_uri,
+        )
+
+    # Reopened because deltalite commits through its own handle, leaving this one pinned to the
+    # snapshot from before the upserts. Maintaining or listing files off the stale handle would
+    # publish the pre-run file set and lose everything this run wrote.
+    progress.enter("reopening the Delta table")
+    delta_table = await _open_delta_table(table_uri, storage_options)
+
+    file_uris = delta_table.file_uris()
+    if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
+        await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
+        progress.enter("compacting the Delta table")
+        await _compact(delta_table)
+    progress.enter("vacuuming the Delta table")
+    await _vacuum(delta_table, logger)
+
+    # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
+    # name parquet the publish can no longer copy.
+    return row_count, delta_table.file_uris()
+
+
+@tracer.start_as_current_span("materialize_view.compact")
+async def _compact(delta_table: deltalake.DeltaTable) -> None:
+    await asyncio.to_thread(delta_table.optimize.compact)
+
+
+@tracer.start_as_current_span("materialize_view.vacuum")
+async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> None:
+    """Full vacuum, not the delta-rs 1.x default of lite.
+
+    A killed upsert leaves parquet that was never committed, so it carries no tombstone, and lite
+    vacuum only reclaims tombstoned files. Those orphans would otherwise accumulate forever and
+    inflate every later publish copy and folder-size read.
+
+    The vacuum commits to the delta log, so it can lose a commit race with a concurrent writer. The
+    run's data and watermark are already committed when this runs, and the next run vacuums again,
+    so a conflict here only logs a warning. It must not fail the run and make Temporal redo all the
+    work.
+    """
+    await logger.ainfo("Vacuuming delta table")
+    try:
+        await asyncio.to_thread(
+            delta_table.vacuum,
+            retention_hours=DELTA_TABLE_RETENTION_HOURS,
+            enforce_retention_duration=False,
+            dry_run=False,
+            full=True,
+        )
+    except deltalake.exceptions.CommitFailedError as e:
+        await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ClearCDPStagingInputs:
+    team_id: int
+    saved_query_id: str
+    job_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "saved_query_id": self.saved_query_id,
+            "job_id": self.job_id,
+        }
+
+
+@activity.defn
+async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
+    """Drop the rows a run staged for CDP but never published.
+
+    The staging prefix is keyed on the job, so the next run's own clear never reaches this one's.
+    A run that ends without producing has to clean up after itself or the objects stay forever.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    producer = CDPProducer.for_view(
+        team_id=inputs.team_id,
+        saved_query_id=inputs.saved_query_id,
+        job_id=inputs.job_id,
+        logger=logger,
+    )
+    await producer.clear()
+
+
+def _watermark_table_uri(objects: MatviewInputObjects) -> str:
+    """The table location that the saved watermark describes."""
+    recorded = get_incremental_state(objects.saved_query).table_uri
+    if recorded is not None:
+        return recorded
+    # Progress saved without a location belongs to the path that followed the model's name.
+    return _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+
+
+@activity.defn
+async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
+    """Materialize a view by executing its query and writing to delta lake."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
+
+    objects = await _get_matview_input_objects(inputs)
+    bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
+    activity_span = trace.get_current_span()
+    activity_span.set_attributes({"team_id": inputs.team_id, "saved_query_id": str(objects.saved_query.id)})
+    await logger.ainfo(f"Starting materialization for node {objects.node.name}")
+    progress = _AttemptProgress(job_id=inputs.job_id, attempt=activity.info().attempt)
+
+    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
+    await logger.adebug(f"Delta table URI = {table_uri}")
+
+    storage_options = get_aws_storage_options()
+    plan = await database_sync_to_async_pool(resolve_write_plan)(inputs.team_id, objects.saved_query.id)
+    if plan.incremental and _watermark_table_uri(objects) != table_uri:
+        # The watermark describes rows in another table. An update from it would skip rows here.
+        plan = dataclasses.replace(plan, incremental=False, reason="table location changed")
+    if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
+        # deltalite can only open a table, never create one, so a missing table has to rebuild.
+        plan = dataclasses.replace(plan, incremental=False, reason="table missing")
+    await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
+
+    # Record this before writing any rows. A failed first seed still belongs in mode history.
+    if plan.config is not None:
+        await database_sync_to_async_pool(record_incremental_history)(objects.saved_query)
+
+    # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
+    # from an incremental run's (only the rows synced in its window).
+    objects.job.run_mode = (
+        DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
+    )
+    activity_span.set_attribute("incremental", plan.incremental)
+    objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
+    await database_sync_to_async_pool(objects.job.save)()
+
+    person_property_sink = await _build_person_property_sink(
+        objects, inputs.job_id, logger, incremental=plan.incremental
+    )
+    person_property_staging_cleared = False
+    if person_property_sink is not None:
+        # Cleared once at run start, like the import pipeline's sinks. The sink itself decides what to
+        # drop: a rebuild re-reads every row so a dead attempt's files are safe to remove, while an
+        # incremental retry resumes past its saved watermark and must keep them. Either way this is
+        # what sweeps long-abandoned sibling job prefixes.
+        person_property_staging_cleared = await _clear_person_property_staging(person_property_sink, logger)
+
+    cdp_sink = _CDPRowSink(
+        CDPProducer.for_view(
+            team_id=inputs.team_id,
+            saved_query_id=str(objects.saved_query.id),
+            job_id=str(objects.job.id),
+            logger=logger,
+        ),
+        logger,
+    )
+    await cdp_sink.prepare()
+
+    # Staged rows are only safe to leave in place once MaterializeViewResult is actually returned:
+    # that is the one signal the workflow's own cleanup keys off. Anything that leaves this block
+    # early - a write failure, a cancellation mid-write, or a cancellation during the logging,
+    # heartbeat teardown, or quality-audit lookup that follow it - must discard what was staged
+    # itself, because the workflow will never see a result to clean up after. CancelledError is a
+    # BaseException, not an Exception, so it has to be named explicitly to be caught here at all.
+    # cdp_sink.discard() only clears a non-empty prefix, so catching it at both this level and the
+    # inner write-loop level below is safe to double up on.
+    published = False
+    try:
+        async with Heartbeater():
+            hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
+
+            try:
+                person_property_complete_table_read = False
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                            progress=progress,
+                        )
+                    else:
+                        full_materialization = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                            person_property_staging_cleared,
+                            progress=progress,
+                        )
+                        row_count = full_materialization.row_count
+                        file_uris = full_materialization.file_uris
+                        person_property_complete_table_read = full_materialization.person_property_complete_table_read
+            except (Exception, asyncio.CancelledError):
+                # A retry stages from scratch and a terminal failure produces nothing, so whatever
+                # this attempt wrote is only ever waste.
+                await cdp_sink.discard()
+                raise
+
+            activity_span.set_attribute("rows_materialized", row_count)
+            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+        progress.enter("checking the data-quality audit mode")
+        quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+            inputs.team_id, str(objects.saved_query.id)
+        )
+        progress.enter("checking account-property sync")
+        account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        delta_version: int | None = None
+        if account_property_sync_enabled:
+            try:
+                progress.enter("reading the Delta version")
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
+            except Exception as error:
+                await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
+                capture_exception(error)
+                account_property_sync_enabled = False
+        result = MaterializeViewResult(
+            node_id=objects.node.id,
+            node_name=objects.node.name,
+            row_count=row_count,
+            table_uri=table_uri,
+            file_uris=file_uris,
+            saved_query_id=str(objects.saved_query.id),
+            quality_audit=quality_audit,
+            incremental=plan.incremental,
+            person_property_sync_enabled=person_property_sink is not None,
+            person_property_complete_table_read=person_property_complete_table_read,
+            account_property_sync_enabled=account_property_sync_enabled,
+            delta_version=delta_version,
+            should_trigger_cdp_producer=cdp_sink.enabled,
+        )
+        published = True
+        return result
+    except (ClickHouseError, aiohttp.ClientOSError, aiohttp.ServerDisconnectedError) as error:
+        if not published:
+            await cdp_sink.discard()
+        await _log_failed_attempt(logger, error, progress)
+        if DELTA_KERNEL_ERROR_MARKER in str(error):
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        base_delay = _adaptive_retry_base_delay(error)
+        if base_delay is not None:
+            recent_errors = _recent_capacity_errors.record(time.monotonic())
+            raise ApplicationError(
+                str(error),
+                type=type(error).__name__,
+                next_retry_delay=_adaptive_retry_delay(base_delay, activity.info().attempt, recent_errors),
+            ) from error
+        raise
+    except (Exception, asyncio.CancelledError) as error:
+        if not published:
+            await cdp_sink.discard()
+        await _log_failed_attempt(logger, error, progress)
+        raise
+
+
+async def _log_failed_attempt(logger: FilteringBoundLogger, error: BaseException, progress: _AttemptProgress) -> None:
+    """The run's log otherwise records only the final failure, so a retried attempt leaves no trace there."""
+    attempt = activity.info().attempt
+    where = progress.where_it_stopped()
+    if isinstance(error, asyncio.CancelledError):
+        await logger.awarning(f"Attempt {attempt} stopped {where}: cancelled by a timeout or by the workflow")
+        return
+    reason = strip_hostname_from_error(str(error)) or type(error).__name__
+    await logger.aerror(f"Attempt {attempt} failed {where}: {reason}")

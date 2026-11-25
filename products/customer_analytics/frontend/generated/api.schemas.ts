@@ -830,6 +830,28 @@ export interface CustomPropertyValueWriteApi {
     value: string | number | boolean | null
 }
 
+/**
+ * One value an account held for a custom property (read shape).
+ */
+export interface CustomPropertyValueHistoryEntryApi {
+    /** The value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When the account got this value. */
+    readonly set_at: string
+    /**
+     * ID of the user who set this value. Null when a sync or the system set it.
+     * @nullable
+     */
+    readonly set_by_id: number | null
+    /**
+     * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+     * @nullable
+     */
+    readonly replaced_at: string | null
+    /** Whether this is the account's value now. */
+    readonly is_current: boolean
+}
+
 export interface AccountNotebookApi {
     readonly id: string
     readonly short_id: string
@@ -1732,11 +1754,13 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -1744,6 +1768,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -1756,7 +1782,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -2087,6 +2113,29 @@ export interface AccountPersonsQueryRequestApi {
     /** Read cached results or calculate synchronously. */
     refresh?: AccountPersonsQueryRequestApiRefresh
     variables_override?: AccountPersonsQueryRequestApiVariablesOverride
+}
+
+export interface AccountPersonMembershipsRequestApi {
+    /**
+     * Loaded person IDs to enrich, up to 500.
+     * @minItems 1
+     * @maxItems 500
+     */
+    person_ids: string[]
+}
+
+export interface PersonAccountApi {
+    /** Accessible account ID. */
+    id: string
+    /** Account display name. */
+    name: string
+}
+
+export interface AccountPersonMembershipsApi {
+    /** Current person ID from the requested account. */
+    person_id: string
+    /** Accessible accounts this person belongs to. */
+    accounts: PersonAccountApi[]
 }
 
 /**
@@ -3274,6 +3323,18 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
+ * * `keep` - Keep the last synced values
+ * * `remove` - Remove mapped properties
+ */
+export type WarehousePersonPropertyMissingRowBehaviorEnumApi =
+    (typeof WarehousePersonPropertyMissingRowBehaviorEnumApi)[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnumApi]
+
+export const WarehousePersonPropertyMissingRowBehaviorEnumApi = {
+    Keep: 'keep',
+    Remove: 'remove',
+} as const
+
+/**
  * * `tracked` - tracked
  * * `ignored` - ignored
  */
@@ -3363,6 +3424,8 @@ export interface CustomPropertySyncRunApi {
     readonly existing: number
     /** Property updates written or produced to the ingestion pipeline. */
     readonly produced: number
+    /** People whose mapped properties were removed after they left the source table. */
+    readonly removed: number
     /** Changed rows skipped because no existing account, person, or group matched the key column value. */
     readonly skipped_missing_person: number
     /**
@@ -3404,6 +3467,11 @@ export interface CustomPropertySourceApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
@@ -3659,6 +3727,11 @@ export interface CustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3682,6 +3755,11 @@ export interface PatchedCustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3890,6 +3968,8 @@ export interface CustomerTaskApi {
     readonly can_edit: boolean
     /** Whether the current user can restore this task. */
     readonly can_restore: boolean
+    /** Tag names on the task, sorted alphabetically. */
+    readonly tags: readonly string[]
 }
 
 export interface CustomerTaskPageApi {
@@ -3942,6 +4022,12 @@ export interface CustomerTaskCreateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Tag names for the task, up to 100.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface CustomerTaskUpdateApi {
@@ -3967,6 +4053,12 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * Replacement task name.
      * @maxLength 400
@@ -4003,6 +4095,12 @@ export interface PatchedCustomerTaskUpdateApi {
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
     /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -4033,12 +4131,12 @@ export const CustomerTaskActivityTypeEnumApi = {
 /**
  * Value before the change.
  */
-export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 /**
  * Value after the change.
  */
-export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 export interface CustomerTaskChangeApi {
     /** Semantic task field that changed. */
@@ -4084,6 +4182,19 @@ export interface CustomerTaskActivityPageApi {
     readonly results: readonly CustomerTaskActivityApi[]
 }
 
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
 export interface CustomerTaskBulkPatchApi {
     /**
      * UUID of a visible account, or null to remove the account link.
@@ -4107,8 +4218,20 @@ export interface CustomerTaskBulkPatchApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Archive tasks when true, or restore them when false. */
     archived?: boolean
+    /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    tags_mode?: BulkUpdateTagsActionEnumApi
 }
 
 export interface CustomerTaskBulkUpdateApi {
@@ -5052,6 +5175,67 @@ export interface PinnedAccountPropertyApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `role` - Role
+ * * `project` - Project
+ */
+export type PinnedAccountPropertiesSourceKindEnumApi =
+    (typeof PinnedAccountPropertiesSourceKindEnumApi)[keyof typeof PinnedAccountPropertiesSourceKindEnumApi]
+
+export const PinnedAccountPropertiesSourceKindEnumApi = {
+    Personal: 'personal',
+    Role: 'role',
+    Project: 'project',
+} as const
+
+export interface PinnedAccountPropertiesRoleApi {
+    /** Organization role UUID. */
+    readonly id: string
+    /** Organization role name. */
+    readonly name: string
+}
+
+export interface PinnedAccountPropertiesSourceApi {
+    /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+     *
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project */
+    readonly kind: PinnedAccountPropertiesSourceKindEnumApi
+    /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+    readonly roles: readonly PinnedAccountPropertiesRoleApi[]
+}
+
+/**
+ * * `project` - Project
+ * * `role` - Role
+ */
+export type DefaultPinnedAccountPropertiesSourceKindEnumApi =
+    (typeof DefaultPinnedAccountPropertiesSourceKindEnumApi)[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnumApi]
+
+export const DefaultPinnedAccountPropertiesSourceKindEnumApi = {
+    Project: 'project',
+    Role: 'role',
+} as const
+
+export interface DefaultPinnedAccountPropertiesSourceApi {
+    /** Whether this default option is the project default or a role default.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    readonly kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /** Role this default belongs to when kind is role, or null for the project default. */
+    readonly role: PinnedAccountPropertiesRoleApi | null
+}
+
+export interface AvailableDefaultPinnedAccountPropertiesApi {
+    /** Which default this entry represents. */
+    readonly source: DefaultPinnedAccountPropertiesSourceApi
+    /** Ordered account properties saved for this default. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+/**
  * * `weekdays` - Weekdays
  * * `every_day` - Every day
  */
@@ -5089,10 +5273,27 @@ export interface AccountDetailTabsConfigApi {
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+    readonly pinned_properties_source: PinnedAccountPropertiesSourceApi
+    /** Project and role defaults the requesting user can reset their pinned properties to. */
+    readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountPropertiesApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
     /** Personal order, visibility, and default for account tabs. */
     readonly account_detail_tabs: AccountDetailTabsConfigApi
+}
+
+export interface FollowedDefaultPinnedPropertiesApi {
+    /** Follow the project default or the default of one of the requesting user's roles.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /**
+     * Role whose default to follow. Required when kind is role.
+     * @nullable
+     */
+    role_id?: string | null
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -5110,6 +5311,8 @@ export interface TaskDigestPreferencesUpdateApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+    followed_default?: FollowedDefaultPinnedPropertiesApi
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
     /** Complete personal account tab configuration. Omit to keep it unchanged. */
@@ -5269,6 +5472,17 @@ export type AccountsListParams = {
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string
+}
+
+export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string
 }
 
 export type AccountsNotebooksListParams = {
@@ -5608,6 +5822,12 @@ export type CustomerTasksListParams = {
      * @minLength 1
      */
     statuses?: string
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string
 }
 
 export type CustomerTasksListArchiveState =

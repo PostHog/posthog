@@ -70,7 +70,7 @@ class TestGetResource:
         assert params["order[updated_at]"] == "asc"
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-    @pytest.mark.parametrize("name", ["Tasks", "Events", "Pipelines", "Users", "Catalogs", "LeadTags"])
+    @pytest.mark.parametrize("name", ["Tasks", "Events", "Pipelines", "Users", "Catalogs", "LeadTags", "IncomingLeads"])
     def test_full_refresh_endpoints_never_bind_a_filter_even_when_asked(self, name: str) -> None:
         # Tasks and Events do expose a server-side timestamp filter but no ordering parameter for
         # it, so they must stay full refresh: an unordered incremental sync corrupts the watermark.
@@ -117,6 +117,32 @@ class TestKommoSourceTransport:
         assert result.raised is None
         assert result.params("page") == ["7"]
         assert [row["id"] for row in result.rows] == [9]
+
+    def test_incoming_leads_walk_pages_without_a_page_count_until_kommo_answers_204(self) -> None:
+        # The incoming leads envelope documents no `_page_count`, so only the 204 past the last
+        # page ends the walk.
+        def page(uids: list[str], number: int) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "_page": number,
+                    "_embedded": {
+                        "unsorted": [{"uid": uid, "category": "forms", "created_at": 1700000000} for uid in uids]
+                    },
+                }
+            )
+
+        result = self._driver().run(
+            "IncomingLeads",
+            [page(["a1", "a2"], 1), page(["b1"], 2), ScriptedResponse(status=204)],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v4/leads/unsorted"] * 3
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.params("order[created_at]") == ["asc", "asc", "asc"]
+        assert [row["uid"] for row in result.rows] == ["a1", "a2", "b1"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["uid"]
 
     @staticmethod
     def _catalogs_page(ids: list[int]) -> ScriptedResponse:

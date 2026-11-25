@@ -2,6 +2,7 @@ import re
 import json
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlparse
 
@@ -178,7 +179,12 @@ def _build_url(host: str | None, path: str, params: Optional[dict[str, Any]] = N
 
 
 def _list_params(endpoint: str, project: str | None) -> dict[str, Any]:
-    if endpoint not in ("applications", "deployment_history") or not project:
+    if not project:
+        return {}
+    if endpoint == "applicationsets":
+        # Filters on the project of the applications each set generates.
+        return {"projects": project}
+    if endpoint not in ("applications", "deployment_history"):
         return {}
     # The query param scoping the applications list is `projects` on current servers and
     # `project` on older ones; grpc-gateway ignores whichever it doesn't know, so send both.
@@ -247,6 +253,25 @@ def _normalize_project(item: dict[str, Any]) -> dict[str, Any]:
         "metadata": metadata,
         "spec": item.get("spec"),
         "status": item.get("status"),
+    }
+
+
+def _normalize_applicationset(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata") or {}
+    spec = item.get("spec") or {}
+    status = item.get("status") or {}
+    template_spec = (spec.get("template") or {}).get("spec") or {}
+    return {
+        "name": metadata.get("name"),
+        "namespace": metadata.get("namespace"),
+        "uid": metadata.get("uid"),
+        "created_at": metadata.get("creationTimestamp"),
+        "project": template_spec.get("project"),
+        "health_status": (status.get("health") or {}).get("status"),
+        "resources_count": status.get("resourcesCount"),
+        "metadata": metadata,
+        "spec": spec,
+        "status": status,
     }
 
 
@@ -352,6 +377,28 @@ def _normalize_revision_metadata(data: dict[str, Any], revision: str, source_ind
     }
 
 
+@dataclass(frozen=True)
+class _ChartRequest:
+    revision: str
+    source_index: int
+    history_id: int | None
+    repo_url: str
+    chart: str
+
+
+def _normalize_chart_details(data: dict[str, Any], request: _ChartRequest) -> dict[str, Any]:
+    return {
+        "repo_url": request.repo_url,
+        "chart": request.chart,
+        "revision": request.revision,
+        "source_index": request.source_index,
+        "history_id": request.history_id,
+        "description": data.get("description"),
+        "home": data.get("home"),
+        "maintainers": data.get("maintainers"),
+    }
+
+
 def _child_params(app: dict[str, Any], extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Scope a per-application request to the application it was walked from.
 
@@ -412,20 +459,64 @@ def _revision_requests(app: dict[str, Any]) -> list[tuple[str, int]]:
     return pairs
 
 
+def _chart_requests(app: dict[str, Any]) -> list[_ChartRequest]:
+    """Distinct Helm chart versions an application deployed, newest first.
+
+    The server resolves a chart revision against the application's current sources unless it
+    gets the history id, and a chart or repository can change between deployments, so each
+    request names the history entry it came from.
+    """
+    history = (app.get("status") or {}).get("history") or []
+    chart_requests: list[_ChartRequest] = []
+    seen: set[tuple[str, str, str]] = set()
+    for entry in reversed(history):
+        if not isinstance(entry, dict):
+            continue
+        sources = entry.get("sources") or []
+        revisions = entry.get("revisions") or []
+        if revisions:
+            candidates = [
+                (rev, index, sources[index] if index < len(sources) else {}) for index, rev in enumerate(revisions)
+            ]
+        else:
+            candidates = [(entry.get("revision"), 0, entry.get("source") or {})]
+        history_id = entry.get("id")
+        for revision, source_index, source in candidates:
+            if not revision or not isinstance(source, dict) or not source.get("chart"):
+                continue
+            key = (source.get("repoURL") or "", source["chart"], revision)
+            if key in seen:
+                continue
+            seen.add(key)
+            chart_requests.append(
+                _ChartRequest(
+                    revision=revision,
+                    source_index=source_index,
+                    history_id=history_id if isinstance(history_id, int) else None,
+                    repo_url=key[0],
+                    chart=key[1],
+                )
+            )
+            if len(chart_requests) >= MAX_REVISIONS_PER_APPLICATION:
+                return chart_requests
+    return chart_requests
+
+
 def _fetch_child(
     session: requests.Session,
     url: str,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-    app_label: str,
+    parent_label: str,
 ) -> Any:
-    """Fetch a per-application endpoint, returning ``None`` when the application is skipped.
+    """Fetch a per-parent endpoint, returning ``None`` when the parent is skipped.
 
     These endpoints fail for one application at a time in ways a retry cannot fix: the
     application was deleted during the walk, its spec does not compare so the server holds no
     cached state, or its revision is not a commit the repo server can resolve. Argo CD reports
-    those as a 404 or a 500, so one broken application must not fail the whole table. A rejected
-    token or a blocked host still fails the sync.
+    those as a 404 or a 500, so one broken application must not fail the whole table. A project
+    or repository fails the same way, for example a repository the repo server can't reach.
+    A rejected token or a blocked host still fails the sync.
     """
     try:
         return _fetch(session, url, headers, logger, attempts=MAX_CHILD_RETRIES)
@@ -433,11 +524,46 @@ def _fetch_child(
         status_code = e.response.status_code if e.response is not None else None
         if status_code in (401, 403):
             raise
-        logger.warning(f"Argo CD: skipping application {app_label} for this endpoint: {e}")
+        logger.warning(f"Argo CD: skipping {parent_label} for this endpoint: {e}")
         return None
     except (ArgocdRetryableError, requests.ReadTimeout, requests.ConnectionError) as e:
-        logger.warning(f"Argo CD: skipping application {app_label} for this endpoint: {e}")
+        logger.warning(f"Argo CD: skipping {parent_label} for this endpoint: {e}")
         return None
+
+
+def _project_event_rows(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    project: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    metadata = project.get("metadata") or {}
+    name = metadata.get("name") or ""
+    path = ARGOCD_ENDPOINTS["project_events"].path.replace("{name}", quote(name, safe=""))
+    data = _fetch_child(session, _build_url(host, path), headers, logger, f"project {name}")
+    for item in _items(data):
+        yield {"project_name": name, "project_uid": metadata.get("uid"), **_normalize_event(item)}
+
+
+def _repository_ref_rows(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    repository: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    repo = repository.get("repo") or ""
+    path = ARGOCD_ENDPOINTS["repository_refs"].path.replace("{repo}", quote(repo, safe=""))
+    # A project-scoped repository is only found when the request names its project.
+    params = {"appProject": repository["project"]} if repository.get("project") else None
+    data = _fetch_child(session, _build_url(host, path, params), headers, logger, f"repository {repo}")
+    if not isinstance(data, dict):
+        return
+    for ref_type, key in (("branch", "branches"), ("tag", "tags")):
+        for ref in data.get(key) or []:
+            if isinstance(ref, str) and ref:
+                yield {"repo": repo, "repo_project": repository.get("project"), "ref_type": ref_type, "name": ref}
 
 
 def _child_rows(
@@ -445,13 +571,34 @@ def _child_rows(
     host: str,
     headers: dict[str, str],
     endpoint: str,
-    app: dict[str, Any],
+    parent: dict[str, Any],
     logger: FilteringBoundLogger,
     deadline: float,
 ) -> Iterator[dict[str, Any]]:
+    if endpoint == "project_events":
+        yield from _project_event_rows(session, host, headers, parent, logger)
+        return
+    if endpoint == "repository_refs":
+        yield from _repository_ref_rows(session, host, headers, parent, logger)
+        return
+
+    app = parent
     identity = _application_identity(app)
-    app_label = f"{identity['application_namespace']}/{identity['application_name']}"
+    app_label = f"application {identity['application_namespace']}/{identity['application_name']}"
     path = ARGOCD_ENDPOINTS[endpoint].path
+
+    if endpoint == "chart_details":
+        for chart_request in _chart_requests(app):
+            if time.monotonic() > deadline:
+                return
+            extra: dict[str, Any] = {"sourceIndex": chart_request.source_index}
+            if chart_request.history_id is not None:
+                extra["versionId"] = chart_request.history_id
+            url = _child_url(host, path, app, revision=chart_request.revision, **extra)
+            data = _fetch_child(session, url, headers, logger, app_label)
+            if isinstance(data, dict):
+                yield {**identity, **_normalize_chart_details(data, chart_request)}
+        return
 
     if endpoint == "revision_metadata":
         for revision, source_index in _revision_requests(app):
@@ -484,6 +631,38 @@ def _child_rows(
             yield {**identity, **_normalize_resource_node(node, orphaned=True)}
 
 
+def _fan_out_parents(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    project: str | None,
+) -> list[dict[str, Any]]:
+    parent = ARGOCD_ENDPOINTS[endpoint].fan_out_parent
+    url = _build_url(host, ARGOCD_ENDPOINTS[parent].path, _list_params(parent, project))
+    parents = _items(_fetch(session, url, headers, logger))
+    if endpoint == "repository_refs":
+        # Only git repositories have refs. The same URL can be registered both globally and
+        # per project, and its refs are the same, so it is fetched once.
+        seen: set[str] = set()
+        git_repositories = []
+        for repository in parents:
+            repo = repository.get("repo")
+            if not repo or (repository.get("type") or "git") != "git" or repo in seen:
+                continue
+            seen.add(repo)
+            git_repositories.append(repository)
+        parents = git_repositories
+    if len(parents) > MAX_FAN_OUT_APPLICATIONS:
+        logger.warning(
+            f"Argo CD: {endpoint} walks at most {MAX_FAN_OUT_APPLICATIONS} {parent}, "
+            f"skipping {len(parents) - MAX_FAN_OUT_APPLICATIONS} of {len(parents)}"
+        )
+        parents = parents[:MAX_FAN_OUT_APPLICATIONS]
+    return parents
+
+
 def _fan_out_rows(
     session: requests.Session,
     host: str,
@@ -493,26 +672,19 @@ def _fan_out_rows(
     project: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
     headers = _get_headers(api_token)
-    apps_url = _build_url(host, ARGOCD_ENDPOINTS["applications"].path, _list_params("applications", project))
-    apps = _items(_fetch(session, apps_url, headers, logger))
-    if len(apps) > MAX_FAN_OUT_APPLICATIONS:
-        logger.warning(
-            f"Argo CD: {endpoint} walks at most {MAX_FAN_OUT_APPLICATIONS} applications, "
-            f"skipping {len(apps) - MAX_FAN_OUT_APPLICATIONS} of {len(apps)}"
-        )
-        apps = apps[:MAX_FAN_OUT_APPLICATIONS]
+    parents = _fan_out_parents(session, host, headers, endpoint, logger, project)
 
     rows_per_batch = _MANAGED_RESOURCE_ROWS_PER_BATCH if endpoint == "managed_resources" else _ROWS_PER_BATCH
     deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
     batch: list[dict[str, Any]] = []
-    for index, app in enumerate(apps):
+    for index, parent in enumerate(parents):
         if time.monotonic() > deadline:
             logger.warning(
-                f"Argo CD: {endpoint} reached its {MAX_FAN_OUT_SECONDS}s budget after {index} applications, "
-                f"skipping the remaining {len(apps) - index}"
+                f"Argo CD: {endpoint} reached its {MAX_FAN_OUT_SECONDS}s budget after {index} parents, "
+                f"skipping the remaining {len(parents) - index}"
             )
             break
-        for row in _child_rows(session, host, headers, endpoint, app, logger, deadline):
+        for row in _child_rows(session, host, headers, endpoint, parent, logger, deadline):
             batch.append(row)
             if len(batch) >= rows_per_batch:
                 yield batch
@@ -607,6 +779,8 @@ def get_rows(
         rows = [row for item in items for row in _history_rows(item)]
     elif endpoint == "projects":
         rows = [_normalize_project(item) for item in items]
+    elif endpoint == "applicationsets":
+        rows = [_normalize_applicationset(item) for item in items]
     elif endpoint == "repositories":
         rows = [_normalize_repository(item) for item in items]
     else:
@@ -649,10 +823,10 @@ def validate_credentials(
 
     endpoint = schema_name if schema_name in ARGOCD_ENDPOINTS else "applications"
     if ARGOCD_ENDPOINTS[endpoint].fan_out:
-        # A per-application endpoint needs an application name in its path. It is only reached
-        # by walking the applications list and needs the same `applications, get` permission,
-        # so probing that list is the scoped check.
-        endpoint = "applications"
+        # A per-parent endpoint needs a parent name in its path. It is only reached by walking
+        # the parent list and needs the same `get` permission, so probing that list is the
+        # scoped check.
+        endpoint = ARGOCD_ENDPOINTS[endpoint].fan_out_parent
     params = _list_params(endpoint, project)
     if endpoint in ("applications", "deployment_history"):
         # Filtering by a name that can't exist keeps the probe response tiny; servers that

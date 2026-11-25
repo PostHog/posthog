@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
@@ -8,14 +9,17 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { inboxActivationLogic } from '../../logics/inboxActivationLogic'
+import { getMobileInboxReturn } from '../../utils/mobileInboxReturn'
 import { ScoutSuggestionCard } from '../config/scouts/ScoutSuggestionCard'
 import { ScoutSuggestionCreateHost } from '../config/scouts/ScoutSuggestionCreateHost'
+import { MobileInboxReturn } from './MobileInboxReturn'
 
 interface InboxActivationPanelProps {
     hasReports?: boolean
 }
 
 export function InboxActivationPanel({ hasReports = false }: InboxActivationPanelProps): JSX.Element {
+    const { searchParams } = useValues(router)
     const { savedState, generalScout, suggestions, recommendationsReady, pollingExpired, currentTeamId } =
         useValues(inboxActivationLogic)
     // The first report is the main content while that state exists, as a progress card and then as a
@@ -36,7 +40,13 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="m-0 flex items-center gap-2 text-base">
                     <IconCheckCircle className="text-success" />
-                    Your setup is complete
+                    <span>
+                        {savedState?.completed_at &&
+                        searchParams.agent_setup === 'complete' &&
+                        !getMobileInboxReturn(currentTeamId)
+                            ? 'Setup complete. Continue in your agent.'
+                            : 'Your setup is complete'}
+                    </span>
                 </h3>
                 <LemonButton
                     type="secondary"
@@ -48,6 +58,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     {expanded ? 'Show less' : 'Explore what’s enabled'}
                 </LemonButton>
             </div>
+            <MobileInboxReturn />
             {expanded && (
                 <>
                     <p className="m-0 text-sm text-secondary">

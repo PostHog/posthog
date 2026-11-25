@@ -18,6 +18,7 @@ from products.logs.backend.platform_source_config import logs_source_config
 from common.hogvm.python.execute import execute_bytecode
 
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 10}
+ROLLING_CONDITION = {**CONDITION, "check_interval_minutes": 5, "evaluation_periods": 3}
 OCCURRED = datetime(2026, 10, 8, 18, 5, tzinfo=UTC)
 
 
@@ -172,7 +173,9 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         filters = {"serviceNames": ["api"], "severityLevels": ["error"]}
         breach = kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
         transition = replace(
-            _transition(kind, 11.0 if breach else None, filters), error_message=None if breach else "query timed out"
+            _transition(kind, 11.0 if breach else None, filters),
+            error_message=None if breach else "query timed out",
+            condition=ROLLING_CONDITION,
         )
 
         native = legacy_logs_webhook_body(
@@ -189,8 +192,9 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
             "window_minutes": 10,
             "service_names": ["api"],
             "severity_levels": ["error"],
+            # Three 10-minute windows, 5 minutes apart, cover 20 minutes of logs.
             "logs_url_params": build_logs_url_params(
-                filters, date_from=OCCURRED - timedelta(minutes=10), date_to=OCCURRED
+                filters, date_from=OCCURRED - timedelta(minutes=20), date_to=OCCURRED
             ),
             "triggered_at": OCCURRED.isoformat(),
             "consecutive_failures": 2,
@@ -228,6 +232,7 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         transition = replace(
             _transition(filters={"serviceNames": ["api"], "filterGroup": filter_group}),
             evaluation_key=f"slot:{OCCURRED.isoformat()}|window:{window_end.isoformat()}",
+            condition=ROLLING_CONDITION,
         )
 
         if link == "legacy_webhook_body":
@@ -241,7 +246,10 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
 
         query = parse_qs(urlsplit(url).query)
         date_range = json.loads(query["dateRange"][0])
-        assert date_range["date_to"] == window_end.isoformat()
+        assert date_range == {
+            "date_from": (window_end - timedelta(minutes=20)).isoformat(),
+            "date_to": window_end.isoformat(),
+        }
         assert json.loads(query["filterGroup"][0]) == filter_group
 
 
