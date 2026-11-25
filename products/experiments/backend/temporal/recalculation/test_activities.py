@@ -792,6 +792,7 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 1
         assert recalc.metric_errors["m1"]["error_type"] == "validation_error"
         assert recalc.metric_errors["m1"]["retriable"] is False
+        assert recalc.metric_errors["m1"]["calculation_key"] is None
 
     def test_bad_metric_type_fails_at_calculation(self):
         # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
@@ -932,6 +933,7 @@ class TestCalculateActivity(BaseTest):
         assert entry["error_type"] == expected_error_type
         assert entry["message"] == expected_message
         assert "AKIAFAKESECRET" not in entry["message"]
+        assert entry["calculation_key"] == _calculation_key(exp, "m1")
         next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
         assert (next_retry_at - timezone.now()).total_seconds() == expected_delay_seconds
 
@@ -969,6 +971,7 @@ class TestCalculateActivity(BaseTest):
         assert entry["error_type"] == expected_error_type
         assert entry["retriable"] is expected_retriable
         assert entry["exposures_path"] == "direct_scan"
+        assert entry["calculation_key"] == _calculation_key(exp, "m1")
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
@@ -1039,6 +1042,7 @@ class TestCalculateActivity(BaseTest):
             assert row.status == ExperimentMetricResult.Status.FAILED
             assert recalc.metric_errors["m1"]["error_type"] == "timeout"
             assert recalc.metric_errors["m1"]["retriable"] is True
+            assert recalc.metric_errors["m1"]["calculation_key"] == _calculation_key(exp, "m1")
             assert [c["event"] for c in captured] == ["experiment metric error"]
             assert captured[0]["properties"]["error_type"] == "timeout"
 
@@ -1356,14 +1360,16 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
         recalc.refresh_from_db()
-        assert list(recalc.metric_errors) == ([] if error is None else ["m1"])
+        assert {uuid: entry["calculation_key"] for uuid, entry in recalc.metric_errors.items()} == (
+            {} if error is None else {"m1": calculation_config.key_for_version(2)}
+        )
         results = get_run_results(recalc)
         assert [(r["status"], r["result"], r["configuration_status"]) for r in results] == [
             (ExperimentMetricResult.Status.COMPLETED, expected_result, expected_configuration)
         ]
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert row.fingerprint == keys[expected_key]
-        payload = build_job_payload(recalc, results=results)
+        payload = build_job_payload(recalc)
         assert (payload["completed_metrics"], payload["failed_metrics"]) == expected_counters
 
     def test_excluded_variants_change_recomputes(self):

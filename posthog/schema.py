@@ -35597,6 +35597,14 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    eventsLimit: conint(ge=1, le=10000) | None = Field(
+        default=None,
+        description=(
+            "Return only the earliest events of the trace by timestamp. The latency,"
+            " token and cost totals still cover every matching event. Leave unset to"
+            " return every event."
+        ),
+    )
     includeSentiment: bool | None = Field(
         default=None,
         description=("Include stored sentiment evaluation results for the trace and its generations."),
@@ -36678,6 +36686,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(

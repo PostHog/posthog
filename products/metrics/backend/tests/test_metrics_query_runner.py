@@ -182,6 +182,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 dateRange=DateRange(date_from=date_from) if date_from else None,
             ),
             team=self.team,
+            user=self.user,
         )
 
         with (
@@ -189,6 +190,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
                 return_value=flag_on,
             ),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=flag_on),
             patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
         ):
             if rejected:

@@ -12,14 +12,12 @@ import {
     type AccountContext,
     type AccountContextFact,
     type AccountContextSignal,
-    type AccountContextSummary,
     type FactConfidence,
     factFilterOptions,
     filterFacts,
     missingContextColumns,
     parseAccountContext,
     parseContextSource,
-    summarizeContext,
 } from './accountContextData'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -88,10 +86,11 @@ export interface accountContextLogicValues {
         sources: string[]
         topics: string[]
     }
+    recheckCount: number
     recheckOnly: boolean
+    signalCounts: Record<SignalState, number>
     signalState: SignalState
     sourceFilter: string | null
-    summary: AccountContextSummary | null
     topicFilter: string | null
     visibleFacts: AccountContextFact[]
     visibleSignals: AccountContextSignal[]
@@ -149,8 +148,9 @@ export interface accountContextLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         context: (contextResult: AccountContextResult | null) => AccountContext | null
-        summary: (context: AccountContext | null) => AccountContextSummary | null
         confidenceCounts: (context: AccountContext | null) => Record<FactConfidence, number>
+        recheckCount: (context: AccountContext | null) => number
+        signalCounts: (context: AccountContext | null) => Record<SignalState, number>
         filterOptions: (context: AccountContext | null) => {
             authors: string[]
             sources: string[]
@@ -235,16 +235,22 @@ export const accountContextLogic = kea<accountContextLogicType>([
             (contextResult: AccountContextResult | null): AccountContext | null =>
                 contextResult?.status === 'loaded' ? contextResult.context : null,
         ],
-        summary: [
-            (s) => [s.context],
-            (context: AccountContext | null): AccountContextSummary | null =>
-                context ? summarizeContext(context) : null,
-        ],
         confidenceCounts: [
             (s) => [s.context],
             (context: AccountContext | null): Record<FactConfidence, number> => ({
                 confirmed: context?.facts.filter((fact) => fact.confirmed).length ?? 0,
                 inferred: context?.facts.filter((fact) => !fact.confirmed).length ?? 0,
+            }),
+        ],
+        recheckCount: [
+            (s) => [s.context],
+            (context: AccountContext | null): number => context?.facts.filter((fact) => fact.needsRecheck).length ?? 0,
+        ],
+        signalCounts: [
+            (s) => [s.context],
+            (context: AccountContext | null): Record<SignalState, number> => ({
+                open: context?.signals.filter((signal) => signal.open).length ?? 0,
+                closed: context?.signals.filter((signal) => !signal.open).length ?? 0,
             }),
         ],
         filterOptions: [

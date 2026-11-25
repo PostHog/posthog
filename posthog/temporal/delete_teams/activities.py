@@ -1,3 +1,6 @@
+from django.db import OperationalError
+
+import psycopg
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
@@ -10,6 +13,10 @@ from posthog.temporal.delete_teams.types import (
     ProjectRecordInputs,
     TeamDataActivityInputs,
 )
+
+# The delete_team_records attempt from which a statement timeout fails the deletion. Earlier attempts retry it,
+# because lock contention can also push a statement past its timeout.
+STATEMENT_TIMEOUT_TERMINAL_ATTEMPT = 5
 
 
 def _resolve_deleted_by(user_id: int) -> str:
@@ -124,7 +131,10 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
         from posthog.models.team.util import delete_team_records
 
         try:
-            await database_sync_to_async_pool(delete_team_records)(inputs.team_ids)
+            # A cancel does not stop the worker thread, so the purges check for it between batches.
+            await database_sync_to_async_pool(delete_team_records)(
+                inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+            )
         except RecursionError:
             # The cascade delete materializes full rows for models with delete signals, which
             # decodes their JSON columns via json.loads. A pathologically deeply-nested JSON
@@ -137,6 +147,20 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
                 "row most likely holds a deeply-nested JSON value that json.loads cannot decode. "
                 "Repair that row before retrying.",
                 type="RecursionError",
+                non_retryable=True,
+            ) from None
+        except OperationalError as error:
+            cause = error.__cause__
+            is_statement_timeout = isinstance(cause, psycopg.errors.QueryCanceled) and "statement timeout" in str(cause)
+            if not is_statement_timeout or temporalio.activity.info().attempt < STATEMENT_TIMEOUT_TERMINAL_ATTEMPT:
+                raise
+            # The cascade runs under a statement timeout so that it cannot hold its locks for long. A timeout
+            # that persists past a few retries means slow data, not lock contention, and every further retry
+            # would hold the locks again. A lock timeout and an operator's pg_cancel_backend stay retryable.
+            raise ApplicationError(
+                f"A statement timed out deleting team records for {inputs.team_ids}. Add a batched purge for "
+                "the cascaded table that the statement deletes, then reset the workflow.",
+                type="StatementTimeout",
                 non_retryable=True,
             ) from None
 

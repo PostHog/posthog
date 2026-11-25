@@ -5,6 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 
+import { ListEmptyState } from './ListEmptyState'
+
 export type ListTableState = 'loading' | 'ready' | 'empty' | 'empty-filtered' | 'error'
 
 export interface ListTableProps<T extends Record<string, any>> {
@@ -43,6 +45,13 @@ export function ListTable<T extends Record<string, any>>({
         empty: emptyState,
         'empty-filtered': emptyFilteredState,
         error: errorState,
+        // The server leaves out rows it cannot show, so a page can hold none and still have pages around it.
+        ready: (
+            <ListEmptyState
+                title="Nothing to show on this page"
+                description="This page's rows couldn't be shown. Go to another page to see more."
+            />
+        ),
     }
 
     return (

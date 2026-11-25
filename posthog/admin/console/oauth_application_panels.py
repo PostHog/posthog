@@ -12,7 +12,7 @@ from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owne
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Link
-from posthog.api.oauth.provisioning_review import decide_partner, partner_provisioning_status
+from posthog.api.oauth.provisioning_review import PartnerDecisionRefused, decide_partner, partner_provisioning_status
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import (
     PROVISIONING_CAPABILITIES,
@@ -38,8 +38,8 @@ TIER_LABELS = {
     PartnerTier.JWKS_ATTESTED: "Authenticated client, attested organization",
 }
 SIGNING_REQUIRED_MESSAGE = (
-    "A provisioning partner that can create accounts or pays for its customers must sign its requests with a "
-    "private key. Make it a confidential client with a jwks_uri in Django admin first."
+    "A provisioning partner must sign its requests with a private key. "
+    "Make it a confidential client with a jwks_uri in Django admin first."
 )
 
 
@@ -84,6 +84,8 @@ STATUS_TONES: dict[PartnerProvisioningStatus, Tone | None] = {
     PartnerProvisioningStatus.NOT_A_PARTNER: None,
     PartnerProvisioningStatus.IN_REVIEW: Tone.INFO,
     PartnerProvisioningStatus.WAITING_FOR_STAFF: Tone.WARNING,
+    PartnerProvisioningStatus.CHANGES_REQUESTED: Tone.INFO,
+    PartnerProvisioningStatus.DECLINED: Tone.WARNING,
     PartnerProvisioningStatus.ON: Tone.SUCCESS,
     PartnerProvisioningStatus.OFF: Tone.WARNING,
     PartnerProvisioningStatus.BLOCKED: Tone.DESTRUCTIVE,
@@ -183,19 +185,43 @@ def _rate_limits_form_class() -> type[RateLimitsForm]:
     return type("RateLimitsForm", (RateLimitsForm,), {**fields, "field_order": (*fields, "reason")})
 
 
-def _decision_handler(*, accept: bool) -> OperationHandler:
-    def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
+class ChangesRequestedForm(DecisionForm):
+    partner_message = forms.CharField(
+        label="Message to the partner",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=(
+            "Shown to the admins of the partner's organization in PostHog and emailed to them. Say what to change or "
+            "what to tell you. They answer with a note, which brings the review back here."
+        ),
+    )
+
+
+DECISION_SUCCESS_MESSAGES = {
+    ProvisioningReviewStatus.ACCEPTED: "Provisioning is on for {name}.",
+    ProvisioningReviewStatus.DECLINED: (
+        "Declined {name} and signed out every connection it had. Its organization can ask for another review."
+    ),
+    ProvisioningReviewStatus.CHANGES_REQUESTED: "Asked {name} for changes. Its answer brings the review back here.",
+    ProvisioningReviewStatus.REJECTED: "Blocked {name} and signed out every connection it had.",
+}
+
+
+def _decision_handler(decision: ProvisioningReviewStatus) -> OperationHandler:
+    def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
         assert isinstance(obj, OAuthApplication) and form is not None
-        decide_partner(
-            obj,
-            accept=accept,
-            reason=f"Staff: {form.cleaned_data['reason']}",
-            partner_message=form.cleaned_data["partner_message"],
-        )
-        if accept:
-            messages.success(request, f"Provisioning is on for {obj.name}.")
-        else:
-            messages.success(request, f"Blocked {obj.name} and signed out every connection it had.")
+        try:
+            decide_partner(
+                obj,
+                decision=decision,
+                reason=f"Staff: {form.cleaned_data['reason']}",
+                partner_message=form.cleaned_data["partner_message"],
+                actor=str(getattr(request.user, "email", "")),
+            )
+        except PartnerDecisionRefused as refused:
+            messages.error(request, str(refused))
+            return HttpResponse(status=400)
+        messages.success(request, DECISION_SUCCESS_MESSAGES[decision].format(name=obj.name))
+        return None
 
     return decide
 
@@ -289,11 +315,11 @@ class OAuthApplicationOverviewPanel(Panel):
         ]
 
 
-DECISION_OPERATION_KEYS = ("accept", "block")
+DECISION_OPERATION_KEYS = ("accept", "request-changes", "decline", "block")
 
 
 def decision_operation_links(app: OAuthApplication) -> list[Link]:
-    """Links to the accept and block operations the app's page offers right now, the first one primary."""
+    """Links to the decisions the app's page offers right now, the first one primary."""
     panel = OAuthApplicationProvisioningPanel()
     decisions = [operation for operation in panel.operations(app) if operation.key in DECISION_OPERATION_KEYS]
     return [
@@ -316,7 +342,7 @@ class OAuthApplicationProvisioningPanel(Panel):
     title = "Provisioning partner"
     owner = GROWTH
     order = 20
-    operation_keys = frozenset({"accept", "block", "capabilities", "rate-limits"})
+    operation_keys = frozenset({*DECISION_OPERATION_KEYS, "capabilities", "rate-limits"})
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, OAuthApplication)
@@ -325,7 +351,12 @@ class OAuthApplicationProvisioningPanel(Panel):
             return [Fact(label="Provisioning", value="Not a partner")]
         facts = [_provisioning_fact(obj, review)]
         if partner_provisioning_status(obj, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
-            facts.append(Fact(label="Next step", value="Read the review, then accept or block the partner below."))
+            facts.append(
+                Fact(
+                    label="Next step",
+                    value="Read the review, then accept, ask for changes, decline or block the partner below.",
+                )
+            )
         if review is not None:
             status = ProvisioningReviewStatus(review.status)
             facts.append(
@@ -354,6 +385,8 @@ class OAuthApplicationProvisioningPanel(Panel):
         assert isinstance(obj, OAuthApplication)
         config = obj.provisioning
         operations = []
+        review = getattr(obj, "provisioning_review", None)
+        review_status = ProvisioningReviewStatus(review.status) if review is not None else None
         if obj.is_provisioning_partner and not (config.active and not config.disabled):
             description = f"Turns on provisioning for {obj.name}, so it can use the capabilities below."
             if config.disabled:
@@ -362,24 +395,63 @@ class OAuthApplicationProvisioningPanel(Panel):
                 Operation(
                     key="accept",
                     label="Accept partner",
-                    handler=_decision_handler(accept=True),
+                    handler=_decision_handler(ProvisioningReviewStatus.ACCEPTED),
                     form_class=DecisionForm,
                     description=description,
                 )
             )
+        # The partner reads these two decisions on its review and answers them there, so only an app with a review
+        # gets them.
+        if obj.is_provisioning_partner and review_status is not None:
+            # A blocked partner was told that nothing but staff lifts the block, so it isn't asked for changes.
+            if review_status != ProvisioningReviewStatus.CHANGES_REQUESTED and not config.disabled:
+                operations.append(
+                    Operation(
+                        key="request-changes",
+                        label="Ask for changes",
+                        handler=_decision_handler(ProvisioningReviewStatus.CHANGES_REQUESTED),
+                        form_class=ChangesRequestedForm,
+                        danger=config.active,
+                        undo_hint="Accept the partner here.",
+                        description=(
+                            f"Turns off provisioning for {obj.name} and asks its organization for changes or more "
+                            "information. Its organization admins answer from organization settings, which brings the "
+                            "review back to staff. Without a linked organization, nobody can answer."
+                        ),
+                    )
+                )
+            if review_status != ProvisioningReviewStatus.DECLINED:
+                description = (
+                    f"Turns off provisioning for {obj.name} and signs out every connection it has, without blocking "
+                    "it. Its organization admins can ask for another review from organization settings."
+                )
+                if config.disabled:
+                    description += " Lifts the block."
+                operations.append(
+                    Operation(
+                        key="decline",
+                        label="Decline partner",
+                        handler=_decision_handler(ProvisioningReviewStatus.DECLINED),
+                        form_class=DecisionForm,
+                        danger=True,
+                        undo_hint="Accept the partner here. Its users have to connect again.",
+                        description=description,
+                    )
+                )
         if obj.is_provisioning_partner and (config.active or not config.disabled):
             operations.append(
                 Operation(
                     key="block",
                     label="Block partner",
-                    handler=_decision_handler(accept=False),
+                    handler=_decision_handler(ProvisioningReviewStatus.REJECTED),
                     danger=True,
                     form_class=DecisionForm,
                     description=(
-                        f"Turns off provisioning for {obj.name} and signs out every connection it has. Registering "
-                        "again does not lift the block."
+                        f"Turns off provisioning for {obj.name} and signs out every connection it has. Neither "
+                        "registering again nor asking for another review lifts the block. Use it for abuse, and "
+                        "decline a partner that isn't ready."
                     ),
-                    undo_hint="Accept the partner here. Its users have to connect again.",
+                    undo_hint="Accept or decline the partner here. Its users have to connect again.",
                 )
             )
         operations.append(

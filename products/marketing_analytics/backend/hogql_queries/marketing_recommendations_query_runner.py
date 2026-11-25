@@ -33,6 +33,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -43,6 +45,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
+from products.marketing_analytics.backend.hogql_queries.access_control import MarketingAnalyticsAccessMixin
 from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import goal_sums_a_property
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -109,7 +112,6 @@ UNMATCHED_MIN_SHARE = 0.05
 POSTHOG_CONVERSIONS_FAILED_GAP = (
     "PostHog conversions could not be counted for this period, so CPAs use the conversions Google Ads reports."
 )
-# The id the conversion goal queries give a row that no campaign's cost matched.
 NO_CAMPAIGN_ID = "-"
 POSTHOG_CONVERSIONS_NOT_READY_GAP = (
     "PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. "
@@ -123,9 +125,7 @@ class PostHogConversions:
     by_campaign: dict[str, float] | None
     gap: MarketingAnalyticsRecommendationsDataGapKind | None = None
     gap_message: str | None = None
-    # utm_campaign values of Google Ads conversions that match no campaign, most conversions first.
     unmatched_campaigns: tuple[str, ...] = ()
-    # Why each marked goal that the other marked goals are counted without was skipped.
     skipped_goals: tuple[str, ...] = ()
     counted_goals: tuple[str, ...] = ()
 
@@ -143,7 +143,7 @@ class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
-    AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
 ):
     query: MarketingAnalyticsRecommendationsQuery
     response: MarketingAnalyticsRecommendationsQueryResponse
@@ -170,8 +170,60 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             database=self.hogql_database,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(select=[ast.Constant(value=1)])
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
+        # it as the saving user, so it has to name every warehouse table a run reads.
+        sources = self.sources
+        if self._recommendation_goals:
+            # PostHog conversions map onto the campaigns of every Google Ads source, not only the ones the query names.
+            sources = [*sources, *(source for source in self._project_sources() if source.sourceType == "GoogleAds")]
+        source_tables = [table for source in sources for field, table in source if field.endswith("Table")]
+        goal_tables = [
+            goal.get("table_name") for goal in self._recommendation_goals if goal.get("kind") == "DataWarehouseNode"
+        ]
+        tables = {
+            table
+            for table in [*source_tables, *goal_tables]
+            if isinstance(table, str)
+            and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
+        }
+        if not tables:
+            return ast.SelectQuery(select=[ast.Constant(value=1)])
+        return ast.SelectSetQuery.create_from_queries(
+            [self._access_probe(table) for table in sorted(tables)], "UNION ALL"
+        )
+
+    def _access_probe(self, table: str) -> ast.SelectQuery:
+        chain = list[str | int](table.split("."))
+        # A saved expression can add a warehouse field that reads another table, and only a selected field gets
+        # expanded, so the probe selects every scalar field of a warehouse table: the fields a run reads are among
+        # them. Other tables and table-valued fields stay out, because one that fails to compile would skip the check.
+        hogql_table = (
+            None if self.hogql_database.is_table_access_denied(table) else self.hogql_database.get_table(table)
+        )
+        fields = (
+            [name for name, field in hogql_table.fields.items() if isinstance(field, DatabaseField)]
+            if isinstance(hogql_table, S3Table)
+            else []
+        )
+        # Every query in a UNION returns the same columns, so each table's fields go into one array.
+        select: ast.Expr = (
+            ast.Call(
+                name="array",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=[*chain, name])]) for name in fields],
+            )
+            if fields
+            else ast.Constant(value=1)
+        )
+        return ast.SelectQuery(
+            select=[select], select_from=ast.JoinExpr(table=ast.Field(chain=chain)), limit=ast.Constant(value=0)
+        )
+
+    @cached_property
+    def sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        if self.query.sources is None:
+            return self._project_sources()
+        return list({source.model_dump_json(): source for source in self.query.sources}.values())
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -222,7 +274,6 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 ),
                 drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
                 limit=ROW_LIMIT,
-                # Only Google Ads costs can match these campaigns, so the other integrations would add scans for nothing.
                 integrationFilter=IntegrationFilter(integrationSourceIds=self._google_ads_source_ids or None),
             ),
             team=self.team,
@@ -244,8 +295,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         try:
             response = runner.calculate()
         except Exception as error:
-            # A goal can still break the query, such as a warehouse goal that lost a column, and that must not take
-            # down every recommendation.
+            # A broken goal, such as a warehouse goal that lost a column, must not take down every recommendation.
             capture_exception(error)
             return _posthog_conversions_failed()
         if response.hasMore:
@@ -318,7 +368,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
-        sources = self.query.sources if self.query.sources is not None else self._project_sources()
+        sources = self.sources
         if not sources:
             return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER, dataGaps=[])
         ads = [source for source in sources if source.sourceType == "GoogleAds"]
@@ -1014,8 +1064,7 @@ def _posthog_conversions_failed() -> PostHogConversions:
 
 
 def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]) -> tuple[str, ...]:
-    # An empty utm_campaign names nothing to map, and a few stray conversions should not stop judging every
-    # campaign without conversions.
+    # An empty utm_campaign names nothing to map, and a few stray conversions must not block every campaign.
     named = {campaign: conversions for campaign, conversions in unmatched.items() if campaign.strip()}
     total = sum(named.values())
     if total < UNMATCHED_MIN_SHARE * (matched_conversions + total):

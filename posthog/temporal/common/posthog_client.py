@@ -178,6 +178,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if isinstance(e, NonReportableError):
+                raise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
