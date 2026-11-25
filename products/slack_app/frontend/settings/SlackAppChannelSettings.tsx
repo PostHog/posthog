@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { urls } from 'scenes/urls'
 
+import { SlackAppChannelSettingsModal } from './SlackAppChannelSettingsModal'
 import { SlackAppChannelSettingsTable } from './SlackAppChannelSettingsTable'
 import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 export function SlackAppChannelSettings(): JSX.Element {
     const { selectedIntegration, channels, channelsLoading, integrationsLoading } = useValues(slackAppSettingsLogic)
-    const { addChannel } = useActions(slackAppSettingsLogic)
+    const { openChannelModal } = useActions(slackAppSettingsLogic)
 
     if (integrationsLoading && !selectedIntegration) {
         return <LemonSkeleton className="h-40" />
@@ -29,15 +30,16 @@ export function SlackAppChannelSettings(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="flex flex-col gap-1 w-80">
-                    <LemonLabel>Add a channel</LemonLabel>
-                    <SlackChannelPicker
-                        integration={selectedIntegration}
-                        value={undefined}
-                        onChange={(value) => value && addChannel(value.split('|')[0])}
-                    />
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => openChannelModal(null)}
+                    data-attr="slack-app-channel-settings-add"
+                >
+                    Add channel
+                </LemonButton>
                 <SlackAppInstallPicker />
             </div>
             {channelsLoading && channels === null ? (
@@ -45,6 +47,7 @@ export function SlackAppChannelSettings(): JSX.Element {
             ) : (
                 <SlackAppChannelSettingsTable integration={selectedIntegration} />
             )}
+            <SlackAppChannelSettingsModal integration={selectedIntegration} />
         </div>
     )
 }

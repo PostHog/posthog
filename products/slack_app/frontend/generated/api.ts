@@ -18,6 +18,7 @@ import type {
     SlackAppDefaultProjectApi,
     SlackAppJoinChannelsApi,
     SlackAppJoinChannelsResultApi,
+    SlackAppRepositoryOptionsApi,
     SlackAppSettingsApi,
     SlackAppWorkspaceSetupApi,
     SlackAppWorkspaceSetupRetrieveParams,
@@ -99,6 +100,24 @@ export const slackAppSettingsPersonalPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSlackAppPersonalSettingsUpdateApi),
+    })
+}
+
+export const getSlackAppSettingsRepositoriesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/slack_app_settings/${id}/repositories/`
+}
+
+/**
+ * @summary List the repositories this person can set as a channel's default repository
+ */
+export const slackAppSettingsRepositoriesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SlackAppRepositoryOptionsApi> => {
+    return apiMutator<SlackAppRepositoryOptionsApi>(getSlackAppSettingsRepositoriesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

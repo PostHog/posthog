@@ -45,6 +45,10 @@ function channelsDecorator(channels: Record<string, unknown>[]): ReturnType<type
             '/api/projects/:team_id/integrations/': INTEGRATIONS,
             '/api/projects/:team_id/slack_app_settings/:id/': SETTINGS,
             '/api/projects/:team_id/slack_app_settings/:id/channels/': { channels },
+            '/api/projects/:team_id/slack_app_settings/:id/repositories/': {
+                repositories: ['hedgebox/api', 'hedgebox/mobile', 'hedgebox/web'],
+                github_connected: true,
+            },
             '/api/environments/:team_id/integrations/:id/channels': {
                 channels: [
                     { id: 'C1', name: 'support', is_private: false, is_ext_shared: false, is_member: true },

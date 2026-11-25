@@ -122186,6 +122186,13 @@ export namespace Schemas {
       feature_tips_enabled: boolean;
     }
 
+    export interface SlackAppRepositoryOptions {
+      /** Repositories as owner/name from this person's own GitHub installs, sorted by name. */
+      repositories: string[];
+      /** Whether this person connected a personal GitHub account. False means repositories is empty. */
+      github_connected: boolean;
+    }
+
     export interface SlackAppWorkspaceSettings {
       /** The workspace's reaction choices. Null fields use PostHog's defaults. */
       reactions: SlackAppReactionChoices;

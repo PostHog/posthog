@@ -1,101 +1,95 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect } from 'react'
 
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconGithub } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
 import type { IntegrationType } from '~/types'
 
 import type { SlackAppChannelSettingsApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
+import { slackChannelLabel } from './slackChannelLabel'
 
-const INHERIT = 'inherit'
+const QUESTION_MODE_TAGS: Record<SlackUntaggedModeEnumApi, string> = {
+    auto: 'Answers questions',
+    ask: 'Asks before answering',
+    never: '@-mentions only',
+}
 
-const QUESTION_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi | typeof INHERIT; label: string }[] = [
-    { value: INHERIT, label: "Each person's setting" },
-    { value: 'auto', label: 'Answer automatically' },
-    { value: 'ask', label: 'Ask first' },
-    { value: 'never', label: 'Never' },
-]
+function ChannelSettingTags({ channel }: { channel: SlackAppChannelSettingsApi }): JSX.Element {
+    const { projectNames } = useValues(slackAppSettingsLogic)
 
-const CLEARED = { default_integration_id: null, default_repository: null, untagged_question_mode: null }
-
-function RepositoryInput({
-    value,
-    onSave,
-}: {
-    value: string | null
-    onSave: (repository: string | null) => void
-}): JSX.Element {
-    const [draft, setDraft] = useState(value ?? '')
-    const save = (): void => {
-        const repository = draft.trim() || null
-        if (repository !== value) {
-            onSave(repository)
-        }
-    }
     return (
-        <LemonInput
-            className="w-48"
-            size="small"
-            placeholder="owner/repo"
-            value={draft}
-            onChange={setDraft}
-            onBlur={save}
-            onPressEnter={save}
-            data-attr="slack-app-channel-settings-repository"
-        />
+        <div className="flex flex-wrap items-center gap-1">
+            {channel.default_integration_id !== null ? (
+                <LemonTag>{projectNames[channel.default_integration_id] ?? 'Unknown project'}</LemonTag>
+            ) : null}
+            {channel.default_repository ? (
+                <LemonTag icon={<IconGithub />}>{channel.default_repository}</LemonTag>
+            ) : null}
+            {channel.untagged_question_mode ? (
+                <LemonTag>{QUESTION_MODE_TAGS[channel.untagged_question_mode]}</LemonTag>
+            ) : null}
+        </div>
     )
 }
 
 export function SlackAppChannelSettingsTable({ integration }: { integration: IntegrationType }): JSX.Element {
-    const { settings, channelRows } = useValues(slackAppSettingsLogic)
-    const { saveChannel } = useActions(slackAppSettingsLogic)
-    const { slackChannels } = useValues(slackIntegrationLogic({ id: integration.id }))
+    const { channels } = useValues(slackAppSettingsLogic)
+    const { openChannelModal, removeChannel } = useActions(slackAppSettingsLogic)
+    const channelLogic = slackIntegrationLogic({ id: integration.id })
+    const { slackChannels, allSlackChannelsLoading, attemptedSlackChannelIds } = useValues(channelLogic)
+    const { loadAllSlackChannels, loadSlackChannelById } = useActions(channelLogic)
 
-    const projectOptions = [
-        { value: INHERIT, label: "Each person's default" },
-        ...(settings?.personal.project_options ?? []).map((option) => ({
-            value: String(option.integration_id),
-            label: option.project_name,
-        })),
-    ]
+    useEffect(() => {
+        if (!channelLogic.values.slackChannels.length && !channelLogic.values.allSlackChannelsLoading) {
+            loadAllSlackChannels()
+        }
+    }, [channelLogic, loadAllSlackChannels])
 
-    const save = (row: SlackAppChannelSettingsApi, change: Partial<SlackAppChannelSettingsApi>): void =>
-        saveChannel({
-            slackChannelId: row.slack_channel_id,
-            change: {
-                default_integration_id: row.default_integration_id,
-                default_repository: row.default_repository,
-                untagged_question_mode: row.untagged_question_mode,
-                ...change,
-            },
-        })
+    // A saved channel past the first page of the channel list needs its own lookup to show its name.
+    useEffect(() => {
+        if (allSlackChannelsLoading) {
+            return
+        }
+        for (const channel of channels ?? []) {
+            const id = channel.slack_channel_id
+            if (!attemptedSlackChannelIds[id] && !slackChannels.some((slackChannel) => slackChannel.id === id)) {
+                loadSlackChannelById(id)
+            }
+        }
+    }, [channels, slackChannels, allSlackChannelsLoading, attemptedSlackChannelIds, loadSlackChannelById])
 
     return (
         <LemonTable
-            dataSource={channelRows}
+            dataSource={channels ?? []}
             rowKey="slack_channel_id"
-            emptyState="No channel has its own settings yet. Add a channel to give it a default project, repository or question mode."
+            onRow={(channel) => ({ onClick: () => openChannelModal(channel), className: 'cursor-pointer' })}
+            emptyState="No channel has its own settings yet."
             columns={[
                 {
                     title: 'Channel',
                     key: 'channel',
-                    render: (_, row) => {
-                        const channel = slackChannels.find((c) => c.id === row.slack_channel_id)
+                    render: (_, channel) => {
+                        const slackChannel = slackChannels.find((c) => c.id === channel.slack_channel_id)
                         return (
                             <div className="py-1">
-                                <div className="flex items-center gap-1 font-semibold">
-                                    {channel?.is_private ? '🔒' : '#'}
-                                    {channel?.name ?? row.slack_channel_id}
-                                    {channel?.is_ext_shared ? <LemonTag size="small">Shared</LemonTag> : null}
+                                <div className="flex items-center gap-2 font-semibold">
+                                    {slackChannelLabel(slackChannel, channel.slack_channel_id)}
+                                    {slackChannel?.is_ext_shared ? (
+                                        <LemonTag size="small" type="muted">
+                                            Shared
+                                        </LemonTag>
+                                    ) : null}
                                 </div>
-                                {row.updated_by_name && row.updated_at ? (
+                                {channel.updated_by_name && channel.updated_at ? (
                                     <div className="text-secondary text-xs">
-                                        Changed by {row.updated_by_name} <TZLabel time={row.updated_at} />
+                                        Changed by {channel.updated_by_name} <TZLabel time={channel.updated_at} />
                                     </div>
                                 ) : null}
                             </div>
@@ -103,59 +97,39 @@ export function SlackAppChannelSettingsTable({ integration }: { integration: Int
                     },
                 },
                 {
-                    title: 'Default project',
-                    key: 'project',
-                    render: (_, row) => (
-                        <LemonSelect
-                            className="w-48"
-                            size="small"
-                            value={row.default_integration_id ? String(row.default_integration_id) : INHERIT}
-                            onChange={(value) =>
-                                save(row, { default_integration_id: value === INHERIT ? null : Number(value) })
-                            }
-                            options={projectOptions}
-                            data-attr="slack-app-channel-settings-project"
-                        />
-                    ),
+                    title: 'Settings',
+                    key: 'settings',
+                    render: (_, channel) => <ChannelSettingTags channel={channel} />,
                 },
                 {
-                    title: 'Default repository',
-                    key: 'repository',
-                    render: (_, row) => (
-                        <RepositoryInput
-                            value={row.default_repository}
-                            onSave={(repository) => save(row, { default_repository: repository })}
-                        />
-                    ),
-                },
-                {
-                    title: 'Questions without a tag',
-                    key: 'questions',
-                    render: (_, row) => (
-                        <LemonSelect
-                            className="w-48"
-                            size="small"
-                            value={row.untagged_question_mode ?? INHERIT}
-                            onChange={(value) =>
-                                save(row, { untagged_question_mode: value === INHERIT ? null : value })
-                            }
-                            options={QUESTION_MODE_OPTIONS}
-                            data-attr="slack-app-channel-settings-questions"
-                        />
-                    ),
-                },
-                {
-                    key: 'remove',
+                    key: 'actions',
                     width: 0,
-                    render: (_, row) => (
-                        <LemonButton
-                            size="small"
-                            icon={<IconTrash />}
-                            status="danger"
-                            tooltip="Remove this channel's settings"
-                            onClick={() => saveChannel({ slackChannelId: row.slack_channel_id, change: CLEARED })}
-                            data-attr="slack-app-channel-settings-remove"
-                        />
+                    render: (_, channel) => (
+                        <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() => openChannelModal(channel)}
+                                data-attr="slack-app-channel-settings-edit"
+                            >
+                                Edit
+                            </LemonButton>
+                            <More
+                                data-attr="slack-app-channel-settings-more"
+                                overlay={
+                                    <LemonMenuOverlay
+                                        items={[
+                                            {
+                                                label: 'Remove channel settings',
+                                                status: 'danger',
+                                                onClick: () => removeChannel(channel.slack_channel_id),
+                                                'data-attr': 'slack-app-channel-settings-remove',
+                                            },
+                                        ]}
+                                    />
+                                }
+                            />
+                        </div>
                     ),
                 },
             ]}

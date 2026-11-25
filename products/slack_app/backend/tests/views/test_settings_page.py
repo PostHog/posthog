@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -207,6 +208,33 @@ class TestSlackAppSettings(APIBaseTest):
 
         assert cleared.status_code == status.HTTP_200_OK
         assert not SlackChannelSettings.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand([("connected", True), ("not_connected", False)])
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_repository_options_come_from_the_persons_own_github(
+        self, _name: str, connected: bool, mock_github_class
+    ) -> None:
+        cache.clear()
+        if connected:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="gh-1",
+                config={},
+                sensitive_config={"access_token": "gh-token"},
+            )
+        mock_github_class.return_value.list_all_cached_repositories.return_value = [
+            {"full_name": "hedgebox/web"},
+            {"full_name": "Hedgebox/api"},
+        ]
+
+        response = self.client.get(self._url("repositories/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "repositories": ["Hedgebox/api", "hedgebox/web"] if connected else [],
+            "github_connected": connected,
+        }
 
     @parameterized.expand(
         [
