@@ -474,6 +474,8 @@ class QueryTags(BaseModel):
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
+    # The caller's W3C trace context, so a query_log row joins to the trace of the request that sent it.
+    traceparent: Optional[str] = None
     http_user_agent: Optional[str] = None
 
     # frontend UI context (from QueryLogTags)

@@ -9,7 +9,6 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
-    DASHBOARD_V2_WARMING_START_WINDOW,
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
     insights_to_keep_fresh,
@@ -243,13 +242,11 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_on", True, DASHBOARD_V2_WARMING_START_WINDOW),
-            ("flag_off", False, WARMING_START_WINDOW),
+            ("flags_on", True),
+            ("flags_off", False),
         ]
     )
-    def test_dashboard_v2_warms_only_tiles_read_since_their_last_compute(
-        self, _name: str, flag_on: bool, start_window: timedelta
-    ) -> None:
+    def test_warming_keeps_the_pre_dashboard_v2_policy_with_no_viewer(self, _name: str, flag_on: bool) -> None:
         dispatched_at = datetime.now(UTC)
         self.team1.extra_settings = {"insights_cache_warming": True}
         self.team1.save(update_fields=["extra_settings"])
@@ -288,21 +285,20 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
             patch("posthog.caching.utils.sync_execute", return_value=[]),
             patch(
                 "posthog.caching.warming.posthoganalytics.feature_enabled",
-                side_effect=lambda flag, *args, **kwargs: flag_on and flag == "dashboard-v2",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag in ("dashboard-v2", "dashboard-v2-users"),
             ),
             patch("posthog.caching.warming.warm_insight_cache_task.si") as warm_task,
             patch("posthog.caching.warming.chain") as warm_chain,
         ):
             schedule_warming_for_teams_task()
 
-        expected = ["never_computed_read", "read_after_compute"] if flag_on else list(tiles)
         self.assertCountEqual(
             [call.args for call in warm_task.call_args_list],
-            [(insight_ids[name], dashboard.pk) for name in expected],
+            [(insight_ids[name], dashboard.pk) for name in tiles],
         )
         self.assertEqual(
             warm_chain.return_value.apply_async.call_args.kwargs["eta"],
-            dispatched_at + deterministic_offset(str(self.team1.pk), start_window),
+            dispatched_at + deterministic_offset(str(self.team1.pk), WARMING_START_WINDOW),
         )
 
 

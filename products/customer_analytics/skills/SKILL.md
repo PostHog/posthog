@@ -133,7 +133,7 @@ Creating an enabled source starts a backfill straight away.
 ### 6. Confirm it worked
 
 Poll `custom-property-sources-runs-list`. Each run reports `rows_read`, `changed`, `existing`, `produced`,
-`skipped_missing_person`, and `error`. A healthy first run has `produced` close to `changed`. See
+`removed`, `skipped_missing_person`, and `error`. A healthy first run has `produced` close to `changed`. See
 [references/troubleshooting.md](references/troubleshooting.md) for reading these counts.
 
 ## Naming the properties
@@ -155,6 +155,9 @@ because renaming later means the old name keeps its stale values on every person
   table does not rewrite unchanged properties.
 - Rows whose key does not resolve to an existing person or group are dropped, and counted as
   `skipped_missing_person`. The feature never creates people.
+- Person sources can set `missing_row_behavior` to `remove`. After a complete table read, PostHog removes that
+  mapping's properties from people whose keys left the table. The default is `keep`, and partial, incremental,
+  and resumed reads never remove properties. Null column values remain skipped and do not remove properties.
 - Use `custom-property-sources-backfill` to refresh historical rows. It reads the whole table without
   re-running the import, and it coalesces if one is already running for that table.
 - Use `custom-property-sources-sync` only when the user wants fresh warehouse data. It runs a real, billable
@@ -162,7 +165,7 @@ because renaming later means the old name keeps its stale values on every person
 
 ## Turning a mapping off
 
-Nothing here removes properties from people or groups. Values already written stay.
+Disabling or deleting a mapping does not remove properties from people or groups. Values already written stay.
 
 | Action                                                            | Effect                                                                 |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |

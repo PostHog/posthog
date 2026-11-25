@@ -30,6 +30,7 @@ from products.experiments.backend.health.checks.change_wording import (
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     change_rows,
+    change_values,
     changes_to_check,
     delay_after_launch,
     exposed_when,
@@ -38,7 +39,7 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     not_checked_finding,
 )
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
@@ -57,6 +58,10 @@ _SETTING_NAMES = {
 
 def bucketing_changed_rows(ctx: HealthContext) -> CheckRows:
     return change_rows(ctx, BucketingChange)
+
+
+def bucketing_changed_values(ctx: HealthContext) -> CheckValues:
+    return change_values(ctx, BucketingChange)
 
 
 def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:

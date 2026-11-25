@@ -480,20 +480,122 @@ jobs:
                   store-key-prefix: pnpm-root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Check formatting with oxfmt
-              run: pnpm run format:frontend:check
+            # Read-only checks that read no other step's output. Run in sequence their
+            # walls add up, dominated by the repository-wide markdown scan. A `parallel:`
+            # block runs them as background steps and waits for the longest one at the end,
+            # so the shorter checks run concurrently with the markdown scan.
+            #
+            # No `turbo prepare` here: every tool below is a root devDependency and nothing
+            # reads a workspace package's build output, so there is no build output to wait
+            # for before the block starts.
+            #
+            # Every step here is a `run:` step. An action inside the block that writes
+            # `$GITHUB_PATH` or `$GITHUB_ENV` races its neighbours and crashes the runner.
+            # The three checks behind a path filter keep their step-level `if:` and read the same
+            # output from the environment as a fallback.
+            - parallel:
+                  - name: Check formatting with oxfmt
+                    run: pnpm run format:frontend:check
 
-            - name: Lint with Stylelint
-              run: pnpm run lint:css
+                  - name: Lint with Stylelint
+                    run: pnpm run lint:css
 
-            # Product colour tokens are named as plain strings from TypeScript manifests and
-            # empty-state configs, so nothing type-checks them. A reference to a token that no
-            # longer exists renders a whole surface colourless without failing anything else.
-            - name: Check product colour tokens all resolve
-              run: pnpm --filter=@posthog/frontend check-color-tokens
+                  # Product colour tokens are named as plain strings from TypeScript manifests and
+                  # empty-state configs, so nothing type-checks them. A reference to a token that no
+                  # longer exists renders a whole surface colourless without failing anything else.
+                  - name: Check product colour tokens all resolve
+                    run: pnpm --filter=@posthog/frontend check-color-tokens
 
-            - name: Lint with Oxlint
-              run: pnpm exec oxlint --quiet
+                  - name: Lint with Oxlint
+                    run: pnpm exec oxlint --quiet
+
+                  - name: Check markdown formatting with oxfmt
+                    if: needs.changes.outputs.markdown_format != 'false'
+                    env:
+                        # The `if:` above is what the pinned run plans assert. No workflow in this
+                        # repo has yet relied on a step-level `if:` inside a `parallel:` block, so
+                        # the same value is read again here and the check exits early if the
+                        # runner ignores it, which would cost a full oxfmt run and nothing else.
+                        RUN_MARKDOWN_FORMAT: ${{ needs.changes.outputs.markdown_format }}
+                    run: |
+                        [ "$RUN_MARKDOWN_FORMAT" != "false" ] || { echo "no markdown the formatter reads changed — skipping"; exit 0; }
+                        pnpm exec oxfmt --check "**/*.{md,mdx}"
+
+                  - name: Check YAML formatting with oxfmt
+                    if: needs.changes.outputs.yaml_format != 'false'
+                    env:
+                        RUN_YAML_FORMAT: ${{ needs.changes.outputs.yaml_format }}
+                    run: |
+                        [ "$RUN_YAML_FORMAT" != "false" ] || { echo "no yaml the formatter reads changed — skipping"; exit 0; }
+                        pnpm exec oxfmt --check "**/*.{yaml,yml}"
+
+                  - name: Lint markdown files
+                    if: needs.changes.outputs.markdown != 'false'
+                    env:
+                        # The `if:` above is what the pinned run plans assert. No workflow in this
+                        # repo has yet relied on a step-level `if:` inside a `parallel:` block, so
+                        # the same value is read again here and the check exits early if the
+                        # runner ignores it, which would cost a full markdownlint run and nothing else.
+                        RUN_MARKDOWN: ${{ needs.changes.outputs.markdown }}
+                        # The files this run matched in the `markdown` filter, in paths-filter's
+                        # `escape` list format: space separated, backslash escaped. Empty on a push
+                        # and on the hourly cron, where the filter step is skipped.
+                        MARKDOWN_CHANGED: ${{ needs.changes.outputs.markdown_files }}
+                        # A merge-queue run is a pull_request event on a `trunk-merge/` branch, and
+                        # it is the gate: it keeps the repo-wide scan the `markdown` output already
+                        # gives it.
+                        TRUNK_MERGE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
+                        # The pull request's own file count against the count the filter saw. They
+                        # disagree when the API capped the list (3000 rows) or a rename expanded one
+                        # path into two, and a partial list cannot be narrowed to.
+                        CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+                        FILTERED_FILES: ${{ needs.changes.outputs.all_files_count }}
+                    run: |
+                        [ "$RUN_MARKDOWN" != "false" ] || { echo "no markdown changed — skipping"; exit 0; }
+                        config=.config/.markdownlint-cli2.jsonc
+                        # A scan of every markdown file in the repository is 2018 files and about
+                        # 80s, and both grow with the repository while its findings can only come
+                        # from the files a diff changes: every markdownlint rule is per file, so a
+                        # lint result never depends on a file the diff left alone. A pull request
+                        # therefore lints the markdown it changes. Master's push run and the merge
+                        # queue still scan everything, which is where drift that no single diff
+                        # shows up in, and the merge gate itself, are covered.
+                        #
+                        # A diff that moves the lint configuration, or the ignore rules it reads,
+                        # changes the verdict for files it does not touch, so it keeps the full scan.
+                        # A toolchain file changes which markdownlint runs and is not handled here;
+                        # the repo-wide runs after it cover the version bump.
+                        narrow=true
+                        targets=()
+                        if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" != "$FILTERED_FILES" ]; then
+                            narrow=false
+                        fi
+                        if [ "$TRUNK_MERGE" = "true" ]; then
+                            narrow=false
+                        fi
+                        # xargs re-parses the escape format, one path per line, and the format
+                        # escapes a newline in a name as a backslash plus a literal newline. One in
+                        # the list would split a path in two before the check below sees it.
+                        if [[ "$MARKDOWN_CHANGED" == *$'\n'* ]]; then
+                            narrow=false
+                        fi
+                        while IFS= read -r path; do
+                            [ -n "$path" ] || continue
+                            case "$path" in
+                                # markdownlint-cli2 reads its arguments as globs. A name outside this
+                                # safe set would match a different file or none, so it falls back.
+                                *[!a-zA-Z0-9,._+:@%/-]*) narrow=false ;;
+                                *.md | *.mdx) targets+=("$path") ;;
+                                .markdownlint* | */.markdownlint* | .config/* | .gitignore | */.gitignore) narrow=false ;;
+                            esac
+                        done < <(printf '%s' "$MARKDOWN_CHANGED" | xargs -r -n 1 printf '%s\n')
+                        if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$narrow" = true ] && [ "${#targets[@]}" -gt 0 ]; then
+                            echo "Linting the ${#targets[@]} markdown file(s) this pull request changes"
+                            pnpm exec markdownlint-cli2 --config "$config" "${targets[@]}"
+                        else
+                            echo "Linting every markdown file"
+                            pnpm exec markdownlint-cli2 --config "$config" "**/*.{md,mdx}"
+                        fi
 
             # Oxlint has no cyclomatic complexity rule. Warn-only while the backlog
             # settles: findings annotate the diff and land in the shared CI report
@@ -523,76 +625,6 @@ jobs:
                       node .github/scripts/post-complexity-section.mjs typescript complexity-findings-ts.json
                   else
                       echo "Skipping the complexity report section: script or findings not on this branch"
-                  fi
-
-            - name: Check markdown formatting with oxfmt
-              if: needs.changes.outputs.markdown_format != 'false'
-              run: pnpm exec oxfmt --check "**/*.{md,mdx}"
-
-            - name: Check YAML formatting with oxfmt
-              if: needs.changes.outputs.yaml_format != 'false'
-              run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
-
-            - name: Lint markdown files
-              if: needs.changes.outputs.markdown != 'false'
-              env:
-                  # The files this run matched in the `markdown` filter, in paths-filter's
-                  # `escape` list format: space separated, backslash escaped. Empty on a push
-                  # and on the hourly cron, where the filter step is skipped.
-                  MARKDOWN_CHANGED: ${{ needs.changes.outputs.markdown_files }}
-                  # A merge-queue run is a pull_request event on a `trunk-merge/` branch, and
-                  # it is the gate: it keeps the repo-wide scan the `markdown` output already
-                  # gives it.
-                  TRUNK_MERGE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
-                  # The pull request's own file count against the count the filter saw. They
-                  # disagree when the API capped the list (3000 rows) or a rename expanded one
-                  # path into two, and a partial list cannot be narrowed to.
-                  CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
-                  FILTERED_FILES: ${{ needs.changes.outputs.all_files_count }}
-              run: |
-                  config=.config/.markdownlint-cli2.jsonc
-                  # A scan of every markdown file in the repository is 2018 files and about
-                  # 80s, and both grow with the repository while its findings can only come
-                  # from the files a diff changes: every markdownlint rule is per file, so a
-                  # lint result never depends on a file the diff left alone. A pull request
-                  # therefore lints the markdown it changes. Master's push run and the merge
-                  # queue still scan everything, which is where drift that no single diff
-                  # shows up in, and the merge gate itself, are covered.
-                  #
-                  # A diff that moves the lint configuration, or the ignore rules it reads,
-                  # changes the verdict for files it does not touch, so it keeps the full scan.
-                  # A toolchain file changes which markdownlint runs and is not handled here;
-                  # the repo-wide runs after it cover the version bump.
-                  narrow=true
-                  targets=()
-                  if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" != "$FILTERED_FILES" ]; then
-                      narrow=false
-                  fi
-                  if [ "$TRUNK_MERGE" = "true" ]; then
-                      narrow=false
-                  fi
-                  # xargs re-parses the escape format, one path per line, and the format
-                  # escapes a newline in a name as a backslash plus a literal newline. One in
-                  # the list would split a path in two before the check below sees it.
-                  if [[ "$MARKDOWN_CHANGED" == *$'\n'* ]]; then
-                      narrow=false
-                  fi
-                  while IFS= read -r path; do
-                      [ -n "$path" ] || continue
-                      case "$path" in
-                          # markdownlint-cli2 reads its arguments as globs. A name outside this
-                          # safe set would match a different file or none, so it falls back.
-                          *[!a-zA-Z0-9,._+:@%/-]*) narrow=false ;;
-                          *.md | *.mdx) targets+=("$path") ;;
-                          .markdownlint* | */.markdownlint* | .config/* | .gitignore | */.gitignore) narrow=false ;;
-                      esac
-                  done < <(printf '%s' "$MARKDOWN_CHANGED" | xargs -r -n 1 printf '%s\n')
-                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$narrow" = true ] && [ "${#targets[@]}" -gt 0 ]; then
-                      echo "Linting the ${#targets[@]} markdown file(s) this pull request changes"
-                      pnpm exec markdownlint-cli2 --config "$config" "${targets[@]}"
-                  else
-                      echo "Linting every markdown file"
-                      pnpm exec markdownlint-cli2 --config "$config" "**/*.{md,mdx}"
                   fi
 
     frontend-bundle-size:

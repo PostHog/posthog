@@ -16,7 +16,7 @@ and none for anything else. Liquid alone would loop over an object's key and val
 
 import re
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -101,6 +101,10 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Prints HTML unescaped, so it's only valid in page text.
+    raw: bool = False
+    # Prints the tag itself when the app passes no value.
+    stays_when_missing: bool = False
 
 
 TextSplitter = Callable[[str], Iterator["str | TextValue"]]
@@ -132,6 +136,9 @@ class HandlebarsToLiquid:
         dialect: Dialect,
         root_value: Callable[[str], str | None] = lambda _name: None,
         split_text: TextSplitter | None = None,
+        root_path: str = "variables",
+        variable_names: Collection[str] = (),
+        allows_raw: bool = True,
     ) -> None:
         self.is_html = is_html
         self._dialect = dialect
@@ -139,6 +146,11 @@ class HandlebarsToLiquid:
         self.converted: list[str] = []
         self._root_value = root_value
         self._split_text = split_text
+        self._root_path = root_path
+        # Stay under `variables` when `root_path` is something else.
+        self._variable_names = variable_names
+        self._allows_raw = allows_raw
+        self.read_root = False
         self._html = HtmlContext() if is_html else None
         self._loop_names: list[str] = []
         self._after_raw_html = False
@@ -148,7 +160,7 @@ class HandlebarsToLiquid:
         self._converted_root = ""
 
     def convert(self, nodes: tuple[object, ...]) -> str:
-        converted = self._nodes(nodes, (_Frame(this="variables"),))
+        converted = self._nodes(nodes, (_Frame(this=self._root_path),))
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
         if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
@@ -189,15 +201,25 @@ class HandlebarsToLiquid:
             if isinstance(piece, str):
                 self._feed(piece)
                 yield _literal_text(piece)
-            elif (piece.liquid or piece.value_path) and self._value_fits(raw=False, in_attribute=piece.in_attribute):
+            elif (piece.liquid or piece.value_path) and self._value_fits(
+                raw=piece.raw, in_attribute=piece.in_attribute
+            ):
+                yield self._attribute_safe(self._text_value(piece))
                 self._feed("x")
+                self._after_raw_html = self._after_raw_html or (piece.raw and self.is_html)
                 self.converted.append(piece.source)
-                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
-                yield self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
                 self._feed(piece.source)
                 yield _literal_text(piece.source)
+
+    def _text_value(self, piece: TextValue) -> str:
+        if piece.value_path is None:
+            return piece.liquid or ""
+        value = self._print(piece.value_path, piece.raw, may_be_a_list=not piece.raw)
+        if not piece.stays_when_missing:
+            return value
+        return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
 
     def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
         if self.is_html and _ENTITY.search(node.source):
@@ -206,6 +228,7 @@ class HandlebarsToLiquid:
         self._converted_root = ""
         if body.startswith("&"):
             body, raw = body[1:].strip(), True
+        raw = raw and self._allows_raw
         try:
             liquid, raw = self._output_liquid(body, raw, frames)
         except (_Unsupported, _Unconvertible):
@@ -523,8 +546,11 @@ class HandlebarsToLiquid:
             named = self._block_param(parts[0], frames)
             if named is not None:
                 base, parts = named, parts[1:]
-        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == "variables"):
+        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == self._root_path):
             raise _Unsupported
+        if base == self._root_path and parts[0] in self._variable_names:
+            base = "variables"
+        self.read_root = self.read_root or base == self._root_path
         return ".".join([base, *parts])
 
     def _block_param(self, name: str, frames: tuple[_Frame, ...]) -> str | None:

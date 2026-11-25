@@ -236,6 +236,7 @@ SuggestionsScoutRunReason = Literal[
     "published",
     "suggestion_resolved",
     "sends_matured",
+    "conversions_settled",
 ]
 
 
@@ -447,7 +448,6 @@ class EmailInfrastructureHealth:
     """How the email every project in this region sends through PostHog fared, rounded for display."""
 
     emails_sent_at_least: int
-    delivery_rate: float
     bounce_rate: float
     complaint_rate: float
 

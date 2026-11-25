@@ -43,6 +43,11 @@ class AccountViewVisibility(LabeledStrEnum):
     TEAM = "team", "Team"
 
 
+class WarehousePersonPropertyMissingRowBehavior(LabeledStrEnum):
+    KEEP = "keep", "Keep the last synced values"
+    REMOVE = "remove", "Remove mapped properties"
+
+
 class TaskDigestCadence(LabeledStrEnum):
     """How often a user's customer task digest email is sent."""
 
@@ -91,4 +96,5 @@ __all__ = [
     "OwnershipRoleState",
     "PinnedAccountPropertiesSourceKind",
     "TaskDigestCadence",
+    "WarehousePersonPropertyMissingRowBehavior",
 ]

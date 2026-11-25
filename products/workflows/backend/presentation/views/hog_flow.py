@@ -49,6 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metric_totals_by_source,
     fetch_app_metrics_trends,
 )
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -93,6 +94,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
@@ -3457,13 +3459,6 @@ class EmailInfrastructureHealthSerializer(serializers.Serializer):
             "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
         ),
     )
-    delivery_rate = serializers.FloatField(
-        read_only=True,
-        help_text=(
-            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
-            "to 0.001. Acceptance is not inbox placement."
-        ),
-    )
     bounce_rate = serializers.FloatField(
         read_only=True,
         help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
@@ -4584,6 +4579,10 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     """
     team = Team.objects.get(id=team_id)
     user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user_access_control.user
+    ):
+        raise exceptions.PermissionDenied(CDPPropertyAccessPermission.message)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
@@ -5882,6 +5881,8 @@ class HogFlowViewSet(
     AppMetricsMixin,
     viewsets.ModelViewSet,
 ):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",

@@ -43,6 +43,8 @@ from products.signals.backend.contracts import (
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
+    SCOPE_ID_MAX_LENGTH,
+    SCOPE_IDS_MAX_COUNT,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
     AlertScope,
@@ -738,6 +740,29 @@ class SourceFilterPreviewRequestSerializer(serializers.Serializer):
             "An empty expression lets every record through."
         ),
     )
+    scope_ids = serializers.ListField(
+        # Blank and padded ids pass this field, so `scope_ids_problem` judges them as it judges the saved config key.
+        # The size caps reject oversized input before DRF validates every element.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=SCOPE_ID_MAX_LENGTH),
+        max_length=SCOPE_IDS_MAX_COUNT,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, "
+            "these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved "
+            "allowlist, pass an empty list to read every team, or pass a list of non-empty ids "
+            f"(at most {SCOPE_IDS_MAX_COUNT}) to read only those. Sources without an allowlist ignore it."
+        ),
+    )
+
+    def validate_scope_ids(self, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        problem = scope_ids_problem(value)
+        if problem is not None:
+            raise serializers.ValidationError(problem)
+        # Stripped like the saved key, because the preview query matches ids exactly.
+        return [scope_id.strip() for scope_id in value]
 
 
 @extend_schema_field(
@@ -772,7 +797,32 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
     )
 
 
-class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+class FilterExpressionErrorSerializer(serializers.Serializer):
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, "
+            "`boolean_required` or `expression_limit`. Null when the expression is valid."
+        ),
+    )
+    error_start = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` where the invalid part starts. Null when the expression is "
+            "valid, or when the error has no position, for example an expression that is too long."
+        ),
+    )
+    error_end = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` just after the invalid part, so the part is "
+            "`expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example "
+            "an expression that ends too early. Null when `error_start` is null."
+        ),
+    )
+
+
+class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     status = serializers.ChoiceField(
         choices=SourceFilterPreviewStatus.choices,
         help_text=(
