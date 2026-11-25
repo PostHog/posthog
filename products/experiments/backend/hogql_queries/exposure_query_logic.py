@@ -5,7 +5,7 @@ from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
-import posthoganalytics
+from django.conf import settings
 
 from posthog.schema import (
     ActionsNode,
@@ -44,17 +44,9 @@ logger = logging.getLogger(__name__)
 # explicitly name `$feature_flag_called` too.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
 
-# The dedicated exposure event that replaces $feature_flag_called as the default,
-# gated per team by the flag below while it rolls out.
+# The dedicated exposure event that replaces $feature_flag_called as the default for experiments
+# that start at or after settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.
 EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
-EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
-
-# The start of $experiment_exposure ingestion. Experiments started before this timestamp ran
-# (at least partly) without $experiment_exposure, so they must keep counting exposures via
-# $feature_flag_called, and read the $experiment_exposure copy next to it
-# (exposure_event_name_filter). Only experiments whose start_date is at or after the cutoff can
-# rely on $experiment_exposure covering their whole exposure window.
-EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 # What an SDK puts on the $experiment_exposure event it sends when a feature flag rule assigns a variant.
 # A rule-linked experiment reads these and never $feature_flag_response: two variants can return one value.
@@ -62,37 +54,22 @@ RULE_ID_PROPERTY = "$feature_flag_rule_id"
 RULE_VARIANT_KEY_PROPERTY = "$feature_flag_variant_key"
 
 
-def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+def resolve_default_exposure_event(start_date: Optional[datetime]) -> str:
     """
     Returns the event to count exposures on when the experiment doesn't configure a custom one.
 
-    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
-    provided the team is flagged into the rollout. Everything else resolves to
-    $feature_flag_called, because older experiments predate the new event. The exposure filters
-    read $feature_flag_called together with its $experiment_exposure copy (see
-    exposure_event_name_filter).
+    Experiments started at or after settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure.
+    Everything else resolves to $feature_flag_called, because older experiments predate the new event and
+    a deployment without a cutoff may not copy flag calls into it. The exposure filters read
+    $feature_flag_called together with its $experiment_exposure copy (see exposure_event_name_filter).
     """
-    if start_date is None:
+    cutoff = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+    if start_date is None or cutoff is None:
         return DEFAULT_EXPOSURE_EVENT
     if start_date.tzinfo is None:
         # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
         start_date = start_date.replace(tzinfo=UTC)
-    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
-        return DEFAULT_EXPOSURE_EVENT
-    # only_evaluate_locally keeps this off the network, because it runs on the query hot path. An
-    # inconclusive or failed local evaluation falls back to the pre-rollout default.
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            EXPERIMENT_EXPOSURE_EVENT_FLAG,
-            str(team.id),
-            groups={"project": str(team.id)},
-            group_properties={"project": {"id": str(team.id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        return DEFAULT_EXPOSURE_EVENT
-    return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
+    return EXPERIMENT_EXPOSURE_EVENT if start_date >= cutoff else DEFAULT_EXPOSURE_EVENT
 
 
 def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
@@ -199,8 +176,8 @@ def resolve_flag_call_source_event(events_present: Collection[str]) -> str:
 
     `$experiment_exposure` is an ingestion-side copy of `$feature_flag_called`, so counting both
     double counts every multivariate call. Ingestion makes the copy only for the teams on its
-    duplication list, which is separate from EXPERIMENT_EXPOSURE_EVENT_FLAG, so what the team's
-    rows carry decides and the flag does not.
+    duplication list, which is separate from settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so what the
+    team's rows carry decides and the setting does not.
 
     This is not `resolve_default_exposure_event`: that one answers what a new experiment would
     count, which can differ from what the project's events carry.

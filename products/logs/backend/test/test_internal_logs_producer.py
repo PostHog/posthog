@@ -138,6 +138,21 @@ async def test_producer_counts_each_record_once_by_outcome(
         assert call.kwargs["headers"]["x-posthog-internal"].startswith("v1.hog_flow.")
 
 
+@pytest.mark.parametrize("level", ["error", "ERROR"])
+async def test_producer_reads_the_severity_number_from_a_level_in_any_case(level: str) -> None:
+    producer = _producer()
+
+    with aioresponses() as mocked:
+        mocked.post(URL, status=200)
+        producer.enqueue("hog_flow", [_entry(level=level)])
+        producer.flush()
+        await producer.drain(timeout_seconds=5)
+
+    [call] = [call for url_calls in mocked.requests.values() for call in url_calls]
+    [record] = json.loads(call.kwargs["data"])["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+    assert (record["severityText"], record["severityNumber"]) == ("ERROR", 17)
+
+
 async def test_producer_splits_large_batches_and_caps_requests_in_flight() -> None:
     producer = _producer(max_in_flight=1, max_buffered_bytes=16 * 1024 * 1024)
     in_flight_at_each_call: list[float | None] = []

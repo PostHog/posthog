@@ -2,8 +2,11 @@ use std::{collections::HashMap, fs, sync::Arc};
 
 use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
+use common_ingestion_response::{HEADER as ITEM_RESULTS_HEADER, VERSION as ITEM_RESULTS_VERSION};
+use common_redis::MockRedisClient;
 use common_types::error_tracking::FrameId;
 use cymbal::{
+    app_context::AppContext,
     core::code_variables::REDACTED,
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
@@ -16,6 +19,7 @@ use cymbal::{
         Stacktrace,
     },
 };
+use cymbal_proto::cymbal::resolution::v1::ErrorKind;
 use insta::assert_json_snapshot;
 use mockall::predicate;
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -227,6 +231,36 @@ impl TestHarness {
             },
         )
         .await
+    }
+
+    async fn post_body(
+        &self,
+        item_results: bool,
+        body: JsonValue,
+        configure: impl FnOnce(&mut ProcessingConfig),
+    ) -> (StatusCode, JsonValue) {
+        let (status, response) = utils::get_raw_response_with_config(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                let mut request = Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri("/process");
+                if item_results {
+                    request = request.header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION);
+                }
+                request
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+            configure,
+        )
+        .await;
+        // A rejected body is plain text, not JSON.
+        let response = serde_json::from_str(&response).unwrap_or(JsonValue::String(response));
+        (status, response)
     }
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
@@ -818,6 +852,207 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
         body.first_event().is_none(),
         "Suppressed event should not be present"
     );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_report_why_an_event_was_suppressed(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
+
+    let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
+    harness
+        .suppress_issue(created.take_properties().issue_id())
+        .await;
+
+    let (status, body) = harness.post_body(true, json!([input]), |_| {}).await;
+
+    assert!(status.is_success());
+    assert_eq!(
+        body,
+        json!({ "results": [{ "result": "drop", "reason": "suppressed" }] })
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let valid = make_event(vec![make_exception("Error", "boom")]);
+    let body = json!([{ "uuid": "not-an-event" }, valid]);
+
+    let (status, _) = harness.post_body(false, body.clone(), |_| {}).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let mut nested = make_event(vec![make_exception("Error", "boom")]);
+    nested.properties["nested"] = (0..200).fold(json!(1), |value, _| json!([value]));
+
+    for body in [body, json!([nested, valid])] {
+        let (status, response) = harness.post_body(true, body, |_| {}).await;
+
+        assert!(status.is_success(), "Expected success, got {status:?}");
+        let results = response["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["result"], json!("fail"));
+        assert_eq!(results[0]["error"]["code"], json!("invalid_input"));
+        assert_eq!(results[1]["result"], json!("ok"));
+        assert_eq!(results[1]["value"]["uuid"], json!(valid.uuid));
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_reject_a_request_with_more_events_than_the_limit(db: PgPool) {
+    let harness = TestHarness::new(db);
+
+    let (status, _) = harness
+        .post_body(true, json!([0, 0]), |config| {
+            config.process_max_events_per_request = 1
+        })
+        .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+    let (status, _) = harness.post_body(true, json!({}), |_| {}).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_carry_processing_errors_as_an_ingestion_warning(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event(vec![]);
+    input.properties["$cymbal_errors"] = json!(["sent by the caller"]);
+
+    let (status, response) = harness.post_body(true, json!([input]), |_| {}).await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    let result = &response["results"][0];
+    let errors = &result["value"]["properties"]["$cymbal_errors"];
+    assert!(
+        errors.as_array().is_some_and(
+            |errors| !errors.is_empty() && !errors.contains(&json!("sent by the caller"))
+        )
+    );
+    assert_eq!(
+        result["warnings"],
+        json!([{
+            "type": "error_tracking_exception_processing_errors",
+            "details": { "eventUuid": input.uuid, "errors": errors },
+            "key": input.uuid,
+        }])
+    );
+}
+
+fn use_resolution_stub(addr: std::net::SocketAddr) -> impl FnOnce(&mut ProcessingConfig) {
+    move |config| {
+        config.remote_resolution_host = "127.0.0.1".to_string();
+        config.remote_resolution_port = addr.port();
+        config.resolver.internal_api_secret = "test-secret".to_string();
+        config.remote_resolution_max_retries = 3;
+        config.remote_resolution_retry_backoff_ms = 25;
+        config.remote_resolution_retry_max_backoff_ms = 100;
+        config.remote_resolution_subscribe_tick_hint_ms = 25;
+        config.remote_resolution_dns_refresh_secs = 3600;
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Poison, "fail", "invalid_input").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn unresolved_event_asks_for_a_retry_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Overloaded, "retry", "resolution_unavailable").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_fail_the_whole_request_when_no_event_resolved(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::ErrorThenError {
+        first: ErrorKind::Poison,
+        rest: ErrorKind::Overloaded,
+    })
+    .await;
+
+    let (status, _) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+async fn assert_one_event_ends_alone(db: PgPool, kind: ErrorKind, result: &str, code: &str) {
+    let harness = TestHarness::new(db);
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+    let uuids = events.iter().map(|event| event.uuid).collect::<Vec<_>>();
+    let error_after_first = || common::ServerBehavior::ErrorAfterFirst { kind };
+
+    // A caller without item results retries the whole batch, so no issue may exist after the 500.
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
+    let (status, _) = harness
+        .post_body(false, json!(events), use_resolution_stub(addr))
+        .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let (issues,): (i64,) = sqlx::query_as("SELECT count(*) FROM posthog_errortrackingissue")
+        .fetch_one(&harness.db)
+        .await
+        .unwrap();
+    assert_eq!(issues, 0);
+
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
+    let (status, body) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
+        .await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    // The two items reach the stub in either order, so only the split is fixed.
+    let mut results = Vec::new();
+    for (slot, uuid) in body["results"].as_array().unwrap().iter().zip(&uuids) {
+        match slot["result"].as_str() {
+            Some("ok") => assert_eq!(slot["value"]["uuid"], json!(uuid)),
+            Some(other) if other == result => assert_eq!(slot["error"]["code"], json!(code)),
+            other => panic!("unexpected result {other:?}: {slot}"),
+        }
+        results.push(slot["result"].as_str().unwrap().to_string());
+    }
+    results.sort();
+    let mut expected = vec!["ok", result];
+    expected.sort();
+    assert_eq!(results, expected);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_fail_the_whole_request_on_a_dependency_failure(db: PgPool) {
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    use_resolution_stub(addr)(&mut config);
+    let app_ctx = AppContext::new(&config, db.clone(), Arc::new(MockRedisClient::new()))
+        .await
+        .unwrap();
+    let router = get_router(Arc::new(app_ctx));
+    let event = make_event(vec![make_exception("Error", "boom")]);
+
+    db.close().await;
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .header("content-type", "application/json")
+                .uri("/process")
+                .header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION)
+                .body(Body::from(serde_json::to_vec(&vec![&event]).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

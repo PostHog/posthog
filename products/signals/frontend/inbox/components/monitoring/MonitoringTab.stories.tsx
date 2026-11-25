@@ -6,9 +6,54 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import type { PRBrowserPageApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { MONITORING_MOCK_NOW, monitoringRows } from '../../__mocks__/monitoringMocks'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
 import { MonitoringTab } from './MonitoringTab'
+
+const prPage: PRBrowserPageApi = {
+    github_login: 'alex-dev',
+    has_integration: true,
+    results: [
+        {
+            url: 'https://github.com/example/app/pull/5120',
+            repository: 'example/app',
+            number: 5120,
+            title: 'feat(checkout): preload address autocomplete on shipping step',
+            state: 'open',
+            draft: false,
+            author: 'alex-dev',
+            created_at: '2026-11-18T11:30:00Z',
+            updated_at: '2026-11-18T14:10:00Z',
+            report: null,
+        },
+        {
+            url: 'https://github.com/example/app/pull/5114',
+            repository: 'example/app',
+            number: 5114,
+            title: 'fix(uploads): bound image decode concurrency per worker',
+            state: 'merged',
+            draft: false,
+            author: 'alex-dev',
+            created_at: '2026-11-16T09:15:00Z',
+            updated_at: '2026-11-16T16:45:00Z',
+            report: { id: monitoringRows[0].id, status: 'monitoring' },
+        },
+        {
+            url: 'https://github.com/example/app/pull/5108',
+            repository: 'example/app',
+            number: 5108,
+            title: 'fix(exports): stop the nightly export retrying finished files',
+            state: 'merged',
+            draft: false,
+            author: 'alex-dev',
+            created_at: '2026-11-14T15:00:00Z',
+            updated_at: '2026-11-14T22:20:00Z',
+            report: { id: monitoringRows[0].id, status: 'resolved' },
+        },
+    ],
+}
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Monitoring',
@@ -26,6 +71,7 @@ const meta: Meta = {
                     200,
                     { results: monitoringRows, count: monitoringRows.length, next: null, previous: null },
                 ],
+                '/api/projects/:id/signals/pull_requests': () => [200, prPage],
             },
         }),
     ],
@@ -61,6 +107,17 @@ export const TimelineWithOpenRows: Story = {
     render: () => (
         <div className="min-h-screen bg-primary">
             <WithOpenRows />
+        </div>
+    ),
+}
+
+export const TimelineWithPullRequestsPanel: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.SIGNALS_MONITOR_PR],
+    },
+    render: () => (
+        <div className="flex h-screen flex-col bg-primary">
+            <MonitoringTab />
         </div>
     ),
 }

@@ -167,7 +167,7 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
         context.team_id += 1
     elif case == "run":
         context.run_id = str(uuid4())
-    if case not in {"enabled", "team", "run"}:
+    if case not in {"enabled", "team", "run", "interactive"}:
         Path(path).unlink()
     with override_settings(
         DEBUG=case != "production",
@@ -196,10 +196,13 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
         "resumed",
         "snapshot",
         "interactive",
+        "interactive_maintained",
+        "interactive_maintained_flag_off",
         "restricted",
         "gvisor",
         "hogland",
         "handoff",
+        "handoff_interactive",
         "handoff_snapshot",
         "handoff_foreign_sandbox",
         "handoff_bounded",
@@ -230,7 +233,8 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             server_ca_file=tmp_path / "server.pem",
             client_ca_file=tmp_path / "client.pem",
             client_ca_key_file=tmp_path / "client-key.pem",
-            maintain_for_run=case.startswith("handoff") and case != "handoff_bounded",
+            maintain_for_run=(case.startswith("handoff") and case != "handoff_bounded")
+            or case.startswith("interactive_maintained"),
             renew_relay_certificate=True,
         ).model_dump_json()
     )
@@ -240,7 +244,7 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         context.state = {"sandbox_memory_gb": 1}
     elif case == "snapshot":
         context.state = {"same_run_resume": True, "snapshot_external_id": "snapshot-example"}
-    elif case == "interactive":
+    elif case.startswith("interactive"):
         context.state = {"mode": "interactive"}
     elif case == "restricted":
         context.allowed_domains = []
@@ -250,7 +254,9 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         context.sandbox_backend = "hogland"
     if case.startswith("handoff"):
         context.state = {"sandbox_id": "sb-current", "sandbox_backend": "modal"}
-        if case == "handoff_snapshot":
+        if case == "handoff_interactive":
+            context.state["mode"] = "interactive"
+        elif case == "handoff_snapshot":
             context.state.update(same_run_resume=True, snapshot_external_id="snapshot-example")
         elif case == "handoff_foreign_sandbox":
             context.state["sandbox_id"] = "sb-other"
@@ -273,7 +279,7 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
     ):
         config = _agent_egress_enrollment_config(
             context,
-            flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: case not in {"flag_off", "handoff_flag_off"}}),
+            flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: not case.endswith("flag_off")}),
             input=GetTaskProcessingContextInput(
                 run_id=context.run_id,
                 resumed_sandbox_id="sb-current" if case == "resumed" or case.startswith("handoff") else None,
@@ -281,7 +287,16 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             ),
         )
         assert (config is not None) is (
-            case in {"enabled", "implicit_provider", "empty_provider", "handoff", "handoff_snapshot"}
+            case
+            in {
+                "enabled",
+                "implicit_provider",
+                "empty_provider",
+                "interactive_maintained",
+                "handoff",
+                "handoff_interactive",
+                "handoff_snapshot",
+            }
         )
 
 
@@ -979,7 +994,9 @@ class TestGetTaskProcessingContextActivity:
             "outside_directory",
             "enrollment",
             "enrollment_maintained",
+            "enrollment_interactive",
             "enrollment_continued",
+            "enrollment_continued_interactive",
         ],
     )
     def test_get_task_processing_context_keeps_full_access_unrestricted(
@@ -1003,7 +1020,9 @@ class TestGetTaskProcessingContextActivity:
         )
         marker = "synthetic-observation-private-material"
         enrollment = configuration.startswith("enrollment")
-        continued = configuration == "enrollment_continued"
+        continued = configuration.startswith("enrollment_continued")
+        if configuration.endswith("interactive"):
+            TaskRun.update_state_atomic(task_run.id, updates={"mode": "interactive"})
         if continued:
             TaskRun.update_state_atomic(task_run.id, updates={"sandbox_id": "sb-current", "sandbox_backend": "modal"})
         if enrollment:

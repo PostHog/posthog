@@ -241,6 +241,28 @@ def owned_copies(
     return {cast(UUID, row.legacy_configuration_id): _configuration_view(row) for row in rows}
 
 
+def rows_with_counted_copies(
+    *,
+    team_id: int,
+    source_kind: str,
+    legacy_configuration_ids: Collection[UUID],
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> frozenset[UUID]:
+    """Which of these source rows have a copy the platform owns that `count_configurations` with the same
+    filters counts. Reads only the copies' row ids."""
+    if not legacy_configuration_ids:
+        return frozenset()
+    copies = _configurations_matching(
+        team_id=team_id,
+        source_kind=source_kind,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+        source_config_contains=None,
+    ).filter(owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__in=list(legacy_configuration_ids))
+    return frozenset(cast(UUID, legacy_id) for legacy_id in copies.values_list("legacy_configuration_id", flat=True))
+
+
 def native_configuration_matches(
     *,
     team_id: int,
@@ -486,33 +508,48 @@ def count_configurations(
     *,
     team_id: int,
     source_kind: str,
-    native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
     held_only: bool = False,
 ) -> int:
-    """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row, and with `held_only` also the copies the platform owns. With
+    """How many alerts of a kind a team has on the platform, whoever owns them. With `held_only`, only
+    the ones with no source row and the copies the platform owns. With
     `exclude_id`, the alert an edit is checked for is left out, by its platform id or a copy's source
     row id. With `source_config_contains`, only the ones whose `source_config` holds that object."""
-    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind
+    configurations = _configurations_matching(
+        team_id=team_id,
+        source_kind=source_kind,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
+        source_config_contains=source_config_contains,
     )
     if exclude_id is not None:
         configurations = configurations.exclude(Q(id=exclude_id) | Q(legacy_configuration_id=exclude_id))
-    if source_config_contains:
-        configurations = configurations.filter(source_config__contains=source_config_contains)
-    if native_only:
-        configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if held_only:
         configurations = configurations.filter(_HELD)
+    return configurations.count()
+
+
+def _configurations_matching(
+    *,
+    team_id: int,
+    source_kind: str,
+    enabled_only: bool,
+    check_interval_minutes: int | None,
+    source_config_contains: Mapping[str, Any] | None,
+) -> QuerySet[PlatformAlertConfiguration]:
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind
+    )
+    if source_config_contains:
+        configurations = configurations.filter(source_config__contains=source_config_contains)
     if enabled_only:
         configurations = configurations.filter(enabled=True)
     if check_interval_minutes is not None:
         configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
-    return configurations.count()
+    return configurations
 
 
 def get_configuration(

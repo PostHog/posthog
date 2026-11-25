@@ -1142,7 +1142,8 @@ function useTableFitsContainer(
             return
         }
         // Compare the table's own width with the viewport. This stays correct while the viewport clips
-        // instead of scrolls, so the result cannot flap between the two modes.
+        // instead of scrolls only because the sticky-header rule in LemonTable.scss gives the viewport
+        // `min-width: 0`. Without it the clipping viewport grows with the table and the check always passes.
         const update = (): void => setFits(table.offsetWidth <= viewport.clientWidth)
         const observer = new ResizeObserver(update)
         observer.observe(viewport)

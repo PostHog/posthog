@@ -6,12 +6,13 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
-import { OAuthAppDetails } from './OAuthAppDetails'
 import { PROVISIONING_STATUS_LABELS, PROVISIONING_STATUS_TAG_TYPES } from './oauthAppProvisioningStatus'
 import { oauthAppsLogic } from './oauthAppsLogic'
 import { QuillOAuthApps } from './QuillOAuthApps'
@@ -62,16 +63,13 @@ export function OAuthApps(): JSX.Element {
         <LemonTable
             dataSource={oauthApps}
             className="mt-4"
-            expandable={{
-                expandedRowRender: (app: OrganizationOAuthApplicationApi) => <OAuthAppDetails app={app} />,
-            }}
             columns={[
                 {
                     title: 'Application',
                     key: 'name',
                     render: (_, app: OrganizationOAuthApplicationApi) => (
-                        <div className="flex items-center gap-2">
-                            <span className="font-semibold">{decode(app.name ?? '')}</span>
+                        <div className="flex items-center gap-2" data-attr="oauth-app-open">
+                            <LemonTableLink to={urls.oauthApplication(app.id)} title={decode(app.name ?? '')} />
                             {app.is_verified && (
                                 <LemonTag type="success" size="small">
                                     Verified

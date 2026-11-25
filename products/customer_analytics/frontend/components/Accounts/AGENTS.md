@@ -118,7 +118,12 @@ The server selects the first valid hostname from:
 
 `website_domain` is a typed account property. `AccountProperties` normalizes it on write, and the account editor saves it through the existing account PATCH endpoint. `parse_company_domain` accepts URLs and bare hostnames while rejecting UUIDs, free text, and mailbox providers.
 
-`AccountsTableRow.logoDomain` carries the resolved hostname. The browser loads image bytes from `GET /api/projects/@current/accounts/icon/?domain=…&theme=…`. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours. Keep logo.dev behind this proxy so the browser does not send customer domains to a third party or require another CSP origin.
+`AccountsTableRow.logoDomain` carries the resolved hostname. `AccountLogo` tries each source in turn and falls back to the `Lettermark` after the last one fails:
+
+1. `${window.JS_URL}/favicons/<domain>`, the static CDN copy shared with web analytics. The hourly `cache_account_domain_favicons` Dagster job (`products/customer_analytics/dags/cache_account_favicons.py`) stores it for the domains that `list_logo_domains_across_teams` in `backend/logic/account_logo.py` returns. It reuses the web analytics favicon download and upload code.
+2. `GET /api/projects/<id>/accounts/icon/?domain=…&theme=…`, for a domain that the job has not cached yet. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours.
+
+Both sources are first-party, so the browser does not send customer domains to a third party or need another CSP origin. Keep logo.dev behind the proxy.
 
 The `tag_names` cell is editable in place: `TagsCell` and the account detail sidebar render the editable `ObjectTags` variant, which suggests project tags a page at a time from the server. The All tags filter is a `TagSelect`. Tag edits save through the account PATCH via `accountsLogic.updateAccountTags` — optimistic per-account override (`tagOverrides`, masking the stale fetched cell like `relationshipOverrides`), debounced full-list PATCH (`TAGS_SAVE_DEBOUNCE_MS`, since `ObjectTags` fires per added/removed tag), `savingTags` guard, revert + toast + captured exception on failure. Clicking a tag in the cell adds it to the tags filter, compounding with tags already filtered (`addTagToFilter` — dedupes, and reports through `reportFilterChange('tag')` like the filter control).
 

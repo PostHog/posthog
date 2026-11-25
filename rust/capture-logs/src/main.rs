@@ -11,6 +11,7 @@ use capture_logs::endpoints::prometheus;
 use capture_logs::endpoints::vercel;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
+use capture_logs::secret_key::{hash_secret_keys, hash_secret_keys_in_drop_list};
 use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
@@ -176,7 +177,9 @@ async fn main() {
         .expect("could not bind management port");
 
     let unknown_tokens = setup_unknown_tokens(&config);
-    let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
+    let token_dropper = TokenDropper::new(&hash_secret_keys_in_drop_list(
+        &config.drop_events_by_token.unwrap_or_default(),
+    ));
     let authorizer = Authorizer::new(Arc::new(token_dropper)).with_unknown_tokens(unknown_tokens);
     let logs_service = match Service::new(
         kafka_sink,
@@ -300,7 +303,8 @@ async fn main() {
     let http_router = http_router
         .merge(prometheus_router)
         .merge(firehose_router)
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::middleware::from_fn(hash_secret_keys));
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(
