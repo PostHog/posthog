@@ -147,9 +147,9 @@ function uncarriedLoadOf(control: JudgedRun, faulted: JudgedRun): string | undef
     if (control.units === undefined || faulted.units === undefined) {
         return 'the offered load of a run was not recorded'
     }
-    const [carried, offered] = [control.units.offeredUnits, faulted.units.offeredUnits]
-    return carried < offered
-        ? `the control offered ${carried} units and the faulted run ${offered}, so the control did not carry the faulted run's load`
+    const { offeredUnits, targetUnits } = control.units
+    return offeredUnits < targetUnits
+        ? `the control offered ${offeredUnits} of its ${targetUnits} units, so it may not have carried the faulted run's load`
         : undefined
 }
 

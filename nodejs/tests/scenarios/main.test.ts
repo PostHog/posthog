@@ -1,15 +1,17 @@
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
+import { parse, stringify } from 'yaml'
 
-import { load } from './cards'
+import { PROFILES_DIR, load, loadText } from './cards'
 import { Environment } from './environment/environment'
 import * as processes from './environment/processes'
 import * as stack from './environment/stack'
 import { main, runCards } from './main'
+import { controlOf } from './runner/pair'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 import { startFakeProjectApi } from './scorecard/fake-project-api'
@@ -17,14 +19,11 @@ import { STORE_URL } from './store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from './store/test-store'
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
-const DESTINATION_ERRORS = load(path.join(__dirname, 'cards', 'destination-errors.yaml'))
-const PAIRABLE = {
-    ...DESTINATION_ERRORS,
-    card: {
-        ...DESTINATION_ERRORS.card,
-        invariants: [...DESTINATION_ERRORS.card.invariants, { name: 'no_loss', params: {} }],
-    },
-}
+const DESTINATION_ERRORS = parse(readFileSync(path.join(__dirname, 'cards', 'destination-errors.yaml'), 'utf8'))
+const PAIRABLE = loadText('pairable', {
+    card: stringify({ ...DESTINATION_ERRORS, invariants: [...DESTINATION_ERRORS.invariants, { name: 'no_loss' }] }),
+    profile: readFileSync(path.join(PROFILES_DIR, `${DESTINATION_ERRORS.profile}.yaml`), 'utf8'),
+})
 
 const passed = (cardId: string): RunResult => ({
     runId: 'run-a',
@@ -288,7 +287,7 @@ describe('runCards', () => {
                 faulted: expect.objectContaining({ ...pair, pair_role: 'faulted', card_id: 'destination-errors' }),
             })
             expect(control.run_id).not.toEqual(faulted.run_id)
-            expect(control.card_hash).not.toEqual(faulted.card_hash)
+            expect([control.card_hash, faulted.card_hash]).toEqual([controlOf(PAIRABLE).cardHash, PAIRABLE.cardHash])
             expect(savedAtCapture).toEqual([2, 2])
         } finally {
             await api.close()
