@@ -32,6 +32,8 @@ QUOTA_READ_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 # A cluster client that times out drops its only seed node, so redis-py raises RedisClusterException, not the timeout.
 _QUOTA_READ_RETRY_ERRORS = (RedisClusterException, RedisConnectionError, RedisTimeoutError)
 _retry_after: dict[str, float] = {}
+# Reads keep their own cooldown so a slow read never stops the dual writes that keep the copy correct.
+_read_retry_after: dict[str, float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
     "billing_quota_migration_enabled",
@@ -58,32 +60,63 @@ QUOTA_COMPARE_LAST_SUCCESS = Gauge(
 QUOTA_COMPARE_FAILURES = Counter("billing_quota_compare_failures_total", "Failed quota Redis comparisons")
 
 
-def run_secondary_quota_operation[T](
-    operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str, maintenance: bool = False
-) -> T | None:
-    """Best-effort migration work must never fail a successful shared Redis write."""
+class SecondaryQuotaStoreUnavailable(Exception):
+    pass
+
+
+def _run_with_cooldown[T](
+    operation: str,
+    callback: Callable[[QuotaRedisClient], T],
+    *,
+    resource: str,
+    maintenance: bool,
+    retry_after: dict[str, float],
+) -> T:
     url = settings.QUOTA_LIMITING_REDIS_URL
     if not url:
-        return None
-    if monotonic() < _retry_after.get(url, 0):
+        raise SecondaryQuotaStoreUnavailable
+    if monotonic() < retry_after.get(url, 0):
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="cooldown").inc()
-        return None
+        raise SecondaryQuotaStoreUnavailable
     try:
         client = get_secondary_quota_redis_client(maintenance=maintenance)
         if client is None:
-            return None
+            raise SecondaryQuotaStoreUnavailable
         result = callback(client)
+    except SecondaryQuotaStoreUnavailable:
+        raise
     except Exception as error:
         # Include configuration/discovery failures: even an invalid optional URL must
         # leave shared Redis authoritative. A dead store costs one timeout per cooldown.
-        _retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
+        retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="failure").inc()
         logger.warning(
             "quota_secondary_operation_failed", operation=operation, resource=resource, error_type=type(error).__name__
         )
-        return None
+        raise SecondaryQuotaStoreUnavailable from error
     QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="success").inc()
     return result
+
+
+def run_secondary_quota_operation[T](
+    operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str, maintenance: bool = False
+) -> T | None:
+    """Best-effort migration work must never fail a successful shared Redis write."""
+    try:
+        return _run_with_cooldown(
+            operation, callback, resource=resource, maintenance=maintenance, retry_after=_retry_after
+        )
+    except SecondaryQuotaStoreUnavailable:
+        return None
+
+
+def quota_reads_use_secondary() -> bool:
+    return bool(settings.QUOTA_LIMITING_REDIS_URL) and settings.QUOTA_LIMITING_REDIS_READS_ENABLED
+
+
+def read_secondary_quota_store[T](operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str) -> T:
+    """Raises SecondaryQuotaStoreUnavailable and never reads shared Redis instead, so the caller decides the answer."""
+    return _run_with_cooldown(operation, callback, resource=resource, maintenance=False, retry_after=_read_retry_after)
 
 
 def _read_retries() -> Iterator[tuple[int, float]]:

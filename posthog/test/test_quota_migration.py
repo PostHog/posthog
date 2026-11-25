@@ -26,6 +26,7 @@ from posthog import quota_redis
 from posthog.quota_migration import (
     QUOTA_COMPARE_LAST_SUCCESS,
     QUOTA_COMPARE_MISMATCHES,
+    _read_retry_after,
     _retry_after,
     compare_quota_stores,
     reconcile_secondary_quota_sets,
@@ -37,10 +38,36 @@ from posthog.redis import get_client
 from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
     QuotaResource,
+    _last_copy_limited_team_attributes,
     add_limited_team_tokens,
+    get_fresh_team_limited_resources,
+    is_team_limited,
+    list_limited_team_attributes,
     reconcile_limited_team_tokens,
     remove_limited_team_tokens,
 )
+
+READERS = ["is_team_limited", "get_fresh_team_limited_resources", "list_limited_team_attributes"]
+
+
+def _is_limited(reader: str, token: str) -> bool:
+    resource, cache = QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    if reader == "is_team_limited":
+        return is_team_limited(token, resource, cache)
+    if reader == "get_fresh_team_limited_resources":
+        return get_fresh_team_limited_resources(token)[resource]
+    return token in list_limited_team_attributes(resource, cache, use_cache=False)
+
+
+def _reject_transactions(client: Redis) -> Callable[..., Pipeline]:
+    pipeline = client.pipeline
+
+    def cluster_pipeline(transaction: bool = True, shard_hint: str | None = None) -> Pipeline:
+        if transaction:
+            raise RedisClusterException("transactional pipelines are unsupported")
+        return pipeline(transaction=False, shard_hint=shard_hint)
+
+    return cluster_pipeline
 
 
 @override_settings(
@@ -56,6 +83,10 @@ class TestQuotaMigration(SimpleTestCase):
     def setUp(self) -> None:
         _retry_after.clear()
         self.addCleanup(_retry_after.clear)
+        _read_retry_after.clear()
+        self.addCleanup(_read_retry_after.clear)
+        _last_copy_limited_team_attributes.clear()
+        self.addCleanup(_last_copy_limited_team_attributes.clear)
         clear_quota_redis_clients()
         self.addCleanup(clear_quota_redis_clients)
         self.shared = get_client()
@@ -563,6 +594,104 @@ class TestQuotaMigration(SimpleTestCase):
                 }
             )
         assert logs == expected_logs
+
+    @parameterized.expand(
+        [
+            (f"{reader}_{case}", reader, reads_enabled, url, copy_answers)
+            for reader in READERS
+            for case, reads_enabled, url, copy_answers in [
+                ("switch_off", False, "redis://quota-secondary.test:6379/0", False),
+                ("switch_on", True, "redis://quota-secondary.test:6379/0", True),
+                ("switch_on_without_copy", True, None, False),
+            ]
+        ]
+    )
+    def test_reads_follow_the_switch(
+        self, _name: str, reader: str, reads_enabled: bool, url: str | None, copy_answers: bool
+    ) -> None:
+        self.shared.zadd(self.key, {"shared-only": 1900000000})
+        self.secondary.zadd(self.key, {"copy-only": 1900000000})
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=reads_enabled, QUOTA_LIMITING_REDIS_URL=url),
+            patch.object(self.secondary, "pipeline", side_effect=_reject_transactions(self.secondary)),
+        ):
+            limited = {token: _is_limited(reader, token) for token in ("shared-only", "copy-only")}
+        assert limited == {"shared-only": not copy_answers, "copy-only": copy_answers}
+
+    @parameterized.expand(
+        [
+            ("is_team_limited", "read_score", "@posthog/quota-limits/events"),
+            ("get_fresh_team_limited_resources", "read_score", "@posthog/quota-limits/"),
+            ("list_limited_team_attributes", "read_set", "@posthog/quota-limits/events"),
+        ]
+    )
+    def test_failed_copy_read_limits_nobody_and_leaves_writes_running(
+        self, reader: str, operation: str, resource: str
+    ) -> None:
+        for client in (self.shared, self.secondary):
+            client.zadd(self.key, {"limited": 1900000000})
+
+        def count(result: str) -> float:
+            labels = {"operation": operation, "result": result}
+            return REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+
+        before = {result: count(result) for result in ("failure", "cooldown")}
+        timeout = RedisTimeoutError("member=private-token")
+        shared_read = AssertionError("A copy read fell back to shared Redis")
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=True),
+            capture_logs() as logs,
+            patch("posthog.quota_migration.monotonic", return_value=100),
+            patch.object(self.secondary, "zscore", side_effect=timeout),
+            patch.object(self.secondary, "zrangebyscore", side_effect=timeout),
+            patch.object(self.secondary, "pipeline", side_effect=timeout),
+            patch.object(self.shared, "zscore", side_effect=shared_read),
+            patch.object(self.shared, "zrangebyscore", side_effect=shared_read),
+            patch.object(self.shared, "pipeline", side_effect=shared_read),
+        ):
+            assert [_is_limited(reader, "limited") for _ in range(2)] == [False, False]
+        assert logs == [
+            {
+                "event": "quota_secondary_operation_failed",
+                "operation": operation,
+                "resource": resource,
+                "error_type": "TimeoutError",
+                "log_level": "warning",
+            }
+        ]
+        assert {result: count(result) - before[result] for result in before} == {"failure": 1, "cooldown": 1}
+        assert _read_retry_after == {"redis://quota-secondary.test:6379/0": 130}
+        with patch("posthog.quota_migration.monotonic", return_value=100):
+            add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
+        assert self.secondary.zscore(self.key, "new") == 1900000100
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=True),
+            patch("posthog.quota_migration.monotonic", return_value=131),
+        ):
+            assert _is_limited(reader, "limited")
+
+    @parameterized.expand(
+        [
+            ("after_a_copy_read", True, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, ["limited"]),
+            ("after_a_copy_read_of_another_set", True, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY, []),
+            ("after_a_shared_read", False, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, []),
+            ("without_a_previous_read", True, None, []),
+        ]
+    )
+    def test_failed_copy_set_read_returns_the_last_copy_list(
+        self, _name: str, primed_from_copy: bool, primed_cache: QuotaLimitingCaches | None, expected: list[str]
+    ) -> None:
+        self.shared.zadd(self.key, {"shared": 1900000000})
+        self.secondary.zadd(self.key, {"limited": 1900000000})
+        self.secondary.zadd("@posthog/quota-limiting-suspended/events", {"suspended": 1900000000})
+        if primed_cache is not None:
+            with self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=primed_from_copy):
+                list_limited_team_attributes(self.resource, primed_cache, use_cache=False)
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=True),
+            patch.object(self.secondary, "zrangebyscore", side_effect=RedisTimeoutError("member=private-token")),
+        ):
+            assert list_limited_team_attributes(self.resource, self.cache, use_cache=False) == expected
 
     @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:

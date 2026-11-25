@@ -313,9 +313,13 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+            from ee.billing.quota_limiting import (
+                QuotaLimitingCaches,
+                QuotaResource,
+                list_shared_limited_team_attributes,
+            )
 
-            limited_tokens_recordings = list_limited_team_attributes(
+            limited_tokens_recordings = list_shared_limited_team_attributes(
                 QuotaResource.RECORDINGS,
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 use_cache=not bypass_recordings_quota_cache,

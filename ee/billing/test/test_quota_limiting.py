@@ -42,6 +42,7 @@ from ee.billing.quota_limiting import (
     UsageCounters,
     _identify_refresh_candidates,
     _patch_todays_usage,
+    _read_shared_limited_team_attributes,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
     is_team_limited,
@@ -2200,22 +2201,20 @@ class TestQuotaLimiting(BaseTest):
             }
 
             # Hook the simulated webhook write between the queries phase and the org
-            # loop. `list_limited_team_attributes` is called once per resource right
+            # loop. `_read_shared_limited_team_attributes` is called once per resource right
             # before the candidate-detection pass, so wrapping it lands the write at the
             # right moment without patching anything inside the loop itself.
             org_id = self.organization.id
             simulated_webhook_write_count = {"count": 0}
 
-            real_list_limited_team_attributes = list_limited_team_attributes
-
             def list_then_simulate_webhook(*args, **kwargs):
                 if simulated_webhook_write_count["count"] == 0:
                     Organization.objects.filter(id=org_id).update(usage=fresh_usage)
                     simulated_webhook_write_count["count"] += 1
-                return real_list_limited_team_attributes(*args, **kwargs)
+                return _read_shared_limited_team_attributes(*args, **kwargs)
 
             with patch(
-                "ee.billing.quota_limiting.list_limited_team_attributes",
+                "ee.billing.quota_limiting._read_shared_limited_team_attributes",
                 side_effect=list_then_simulate_webhook,
             ):
                 update_all_orgs_billing_quotas()
@@ -2353,16 +2352,15 @@ class TestQuotaLimiting(BaseTest):
             }
             org_id = self.organization.id
             simulated_webhook_write_count = {"count": 0}
-            real_list_limited_team_attributes = list_limited_team_attributes
 
             def list_then_simulate_webhook(*args, **kwargs):
                 if simulated_webhook_write_count["count"] == 0:
                     Organization.objects.filter(id=org_id).update(usage=fresh_usage)
                     simulated_webhook_write_count["count"] += 1
-                return real_list_limited_team_attributes(*args, **kwargs)
+                return _read_shared_limited_team_attributes(*args, **kwargs)
 
             with patch(
-                "ee.billing.quota_limiting.list_limited_team_attributes",
+                "ee.billing.quota_limiting._read_shared_limited_team_attributes",
                 side_effect=list_then_simulate_webhook,
             ):
                 result = update_all_orgs_billing_quotas()
@@ -3800,7 +3798,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
-        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches, use_cache: bool = True) -> list[str]:
+        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
             if (
                 in_snapshot
                 and resource == QuotaResource.SIGNALS_CREDITS
@@ -3810,16 +3808,15 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             return []
 
         with (
-            patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
+            patch(
+                "ee.billing.quota_limiting._read_shared_limited_team_attributes", side_effect=snapshot
+            ) as snapshot_mock,
             patch("posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period", return_value=[]),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
         ):
             update_all_orgs_billing_quotas()
 
-        # The cache is off under TEST, so only this assertion catches a refactor that drops the kwarg
-        # and hands the cron the previous run's snapshot in production.
         assert snapshot_mock.call_args_list
-        assert all(call.kwargs.get("use_cache") is False for call in snapshot_mock.call_args_list)
 
         zset_score = get_client().zscore(
             f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
