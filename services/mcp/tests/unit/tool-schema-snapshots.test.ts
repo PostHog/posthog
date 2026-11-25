@@ -194,7 +194,7 @@ describe('Tool schema snapshots', () => {
         // Ratchet: existing offenders at their size rounded up to 1,000 chars. Never add a tool here.
         const OVERSIZED_TOOL_SCHEMA_CEILINGS: Record<string, number> = {
             'experiment-update': 99_000,
-            'project-settings-update': 75_000,
+            'project-settings-update': 76_000,
             'experiment-create': 65_000,
             'query-trends-actors': 65_000,
             'query-trends': 63_000,

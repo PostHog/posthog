@@ -26173,6 +26173,8 @@ export namespace Schemas {
       content: string;
       /** Whether this comment body has more content. */
       content_truncated: boolean;
+      /** Byte offset where this body chunk starts. */
+      content_offset: number;
       /**
          * Byte offset for the next body chunk, or null when complete.
          * @nullable
@@ -124998,6 +125000,8 @@ export namespace Schemas {
       content: string;
       /** Whether this comment body has more content. */
       content_truncated: boolean;
+      /** Byte offset where this body chunk starts. */
+      content_offset: number;
       /**
          * Byte offset for the next body chunk, or null when complete.
          * @nullable
