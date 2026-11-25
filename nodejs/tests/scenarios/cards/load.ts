@@ -8,6 +8,7 @@ import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
@@ -119,6 +120,29 @@ function checkIntakeVerdict(card: Card): string[] {
     ]
 }
 
+const INTAKE_TOPIC_MOVES =
+    "convergence reads each intake group's whole lag, so an intake topic that changes between cards keeps the old topic's lag"
+const REFUSED_INTAKE_SETTINGS: Record<string, string> = {
+    CDP_INTAKE_DLQ_DRAIN:
+        'the reset never seeks the drain groups and convergence never reads them, so a drain replays the dead-letter topic outside the verdict',
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: INTAKE_TOPIC_MOVES,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: INTAKE_TOPIC_MOVES,
+}
+
+function checkIntakeProfile(profile: Profile): string[] {
+    return [
+        ...Object.keys(profile.settings)
+            .filter((name) => Object.hasOwn(REFUSED_INTAKE_SETTINGS, name))
+            .map((name) => `profile.settings.${name}: ${REFUSED_INTAKE_SETTINGS[name]}`),
+        ...Object.entries(profile.replicas)
+            .filter(([role, replicas]) => role.startsWith('cdp-intake-') && (replicas ?? 1) > 1)
+            .map(
+                ([role]) =>
+                    `profile.replicas.${role}: each intake topic has one partition, so a second replica sits idle; run one`
+            ),
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -164,6 +188,21 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
                   `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
               ]
     })
+}
+
+const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+
+function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
+    if ((profile.replicas['cdp-api'] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap(({ valve, target }, i) =>
+        ROLE_STOPPING_VALVES.includes(valve) && target === 'cdp-api'
+            ? [
+                  `valves.${i}.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+              ]
+            : []
+    )
 }
 
 const SES_SHARE = 0.5
@@ -281,6 +320,8 @@ function check(
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),

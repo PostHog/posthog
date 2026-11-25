@@ -106,8 +106,8 @@ TRACKING_KINDS = ("opens", "clicks", "engagement")
                     "clicks": {
                         "type": "boolean",
                         "description": "Whether the email's links go through a redirect that counts clicks. "
-                        "Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with "
-                        "`data-ph-no-track` keeps its own address.",
+                        "Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps "
+                        "its own address.",
                     },
                     "engagement": {
                         "type": "boolean",

@@ -2,7 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from django.db import transaction
+from django.db import connections, transaction
+from django.test.utils import CaptureQueriesContext
 
 from products.visual_review.backend.classifier import ToleratedKey
 from products.visual_review.backend.db import WRITER_DB
@@ -17,7 +18,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import baseline_approvals, baseline_resolution, ledger
+from products.visual_review.backend.logic import baseline_approvals, baseline_resolution, ledger, repos
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord, OverlayEntry
 from products.visual_review.backend.models import (
     BaselineApproval,
@@ -28,7 +29,14 @@ from products.visual_review.backend.models import (
     ToleratedHash,
 )
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, approve, make_record, seeded_repo
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    FakeGit,
+    approve,
+    make_record,
+    move_ledger,
+    seeded_repo,
+)
 
 APPROVED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
@@ -308,6 +316,123 @@ class TestRecordApprovals:
         assert not BaselineApproval.objects.filter(repo=repo).exists()
 
 
+def _made_on_the_run(repo: Repo, approval: BaselineApproval) -> Run:
+    run = _run(
+        repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=make_record(), purpose=RunPurpose.REVIEW, pr_number=8
+    )
+    Run.objects.filter(id=run.id).update(approved=True)
+    BaselineApproval.objects.filter(id=approval.id).update(source_run=run)
+    run.refresh_from_db()
+    return run
+
+
+def _made_on_the_run_and_quarantined(repo: Repo, approval: BaselineApproval) -> Run:
+    run = _made_on_the_run(repo, approval)
+    RunSnapshot.objects.filter(run=run).update(is_quarantined=True)
+    return run
+
+
+def _applied_as_overlay(repo: Repo, approval: BaselineApproval) -> Run:
+    overlay = {"Button": OverlayEntry(content_hash="b1", approval_id=approval.id, pr_number=7, ledger_hash="b0")}
+    record = make_record(overlay=overlay, candidate_approval_ids=(approval.id,))
+    return _run(repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8)
+
+
+def _candidate_the_overlay_dropped(repo: Repo, approval: BaselineApproval) -> Run:
+    record = make_record(candidate_approval_ids=(approval.id,))
+    return _run(repo, "p8a", {"Button": ("changed", "b1", "b0")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8)
+
+
+class TestIsStale:
+    @pytest.mark.parametrize(
+        ("content_hash", "ledger_base_hash", "effective_base_hash", "current_hash", "stale"),
+        [
+            pytest.param("b1", "b0", "b0", "b0", False, id="nothing_changed"),
+            pytest.param("b2", "b0", "b1", "b1", False, id="parent_landed_on_the_effective_base"),
+            pytest.param("b1", "b0", "b0", "b1", False, id="approved_picture_landed"),
+            pytest.param("b1", "b0", "b0", "b9", True, id="another_picture_landed"),
+            pytest.param("n1", "", "", "", False, id="new_story_still_absent"),
+            pytest.param("n1", "", "", "n9", True, id="new_story_added_by_someone_else"),
+            pytest.param("", "c0", "c0", "c9", True, id="approved_removal_of_a_story_that_changed"),
+            pytest.param("", "c0", "c0", "", False, id="approved_removal_landed"),
+        ],
+    )
+    def test_is_stale(self, content_hash, ledger_base_hash, effective_base_hash, current_hash, stale) -> None:
+        approval = BaselineApproval(
+            content_hash=content_hash, ledger_base_hash=ledger_base_hash, effective_base_hash=effective_base_hash
+        )
+
+        assert baseline_approvals.is_stale(approval, current_hash) is stale
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestStaleApprovals:
+    @pytest.mark.parametrize(
+        ("pr_number", "fields", "make_run", "stale"),
+        [
+            pytest.param(8, {}, _made_on_the_run, True, id="made_on_the_run"),
+            pytest.param(8, {}, _made_on_the_run_and_quarantined, False, id="quarantined"),
+            pytest.param(8, {"state": "superseded"}, _made_on_the_run, False, id="superseded"),
+            pytest.param(8, {"state": "promoted"}, _made_on_the_run, False, id="promoted"),
+            pytest.param(7, {}, _applied_as_overlay, True, id="applied_as_overlay"),
+            pytest.param(7, {}, _candidate_the_overlay_dropped, False, id="candidate_the_overlay_dropped"),
+        ],
+    )
+    def test_the_approvals_a_run_rests_on(self, repo, pr_number, fields, make_run, stale) -> None:
+        made = approve(repo, pr_number, "Button", "b1", **fields)
+        run = make_run(repo, made)
+        move_ledger(repo, "Button", "b9")
+
+        assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([made.id] if stale else [])
+
+    @pytest.mark.parametrize(
+        ("middle_state", "stale"),
+        [
+            pytest.param(BaselineApprovalState.OPEN, False, id="middle_layer_open"),
+            pytest.param(BaselineApprovalState.VOIDED, True, id="middle_layer_voided"),
+            pytest.param(BaselineApprovalState.SUPERSEDED, True, id="middle_layer_superseded"),
+        ],
+    )
+    def test_a_stack_layer_stays_fresh_only_while_the_layer_below_counts(self, repo, middle_state, stale) -> None:
+        middle = approve(repo, 7, "Button", "b1", effective_base_hash="g1", state=middle_state)
+        top = approve(repo, 8, "Button", "b2", effective_base_hash="b1")
+        overlay = {"Button": OverlayEntry(content_hash="b1", approval_id=middle.id, pr_number=7, ledger_hash="b0")}
+        record = make_record(overlay=overlay, candidate_approval_ids=(middle.id,))
+        run = _run(
+            repo, "p8a", {"Button": ("changed", "b2", "b1")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8
+        )
+        Run.objects.filter(id=run.id).update(approved=True)
+        BaselineApproval.objects.filter(id=top.id).update(source_run=run)
+        run.refresh_from_db()
+        # The bottom layer of the stack landed alone.
+        move_ledger(repo, "Button", "g1")
+
+        assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([top.id] if stale else [])
+
+    def test_nothing_is_stale_without_a_record(self, repo) -> None:
+        run = _made_on_the_run(repo, approve(repo, 8, "Button", "b1"))
+        move_ledger(repo, "Button", "b9")
+        Run.objects.filter(id=run.id).update(metadata={})
+        run.refresh_from_db()
+
+        assert baseline_approvals.stale_approvals(run) == []
+
+    def test_nothing_is_stale_without_a_ledger(self, team) -> None:
+        unseeded = repos.create_repo(team_id=team.id, repo_external_id=66100, repo_full_name="org/no-ledger")
+        # Against an empty ledger the approval's base b0 is gone, so only the missing cursor keeps it fresh.
+        run = _made_on_the_run(unseeded, approve(unseeded, 8, "Button", "b1"))
+
+        assert baseline_approvals.stale_approvals(run) == []
+
+    def test_a_run_without_approvals_or_overlay_reads_nothing(self, repo) -> None:
+        run = _run(repo, "p8a", {}, record=make_record(), purpose=RunPurpose.REVIEW, pr_number=8)
+
+        with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+            assert baseline_approvals.stale_approvals(run) == []
+
+        assert len(queries) == 0
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestCompareShadow:
     @pytest.mark.parametrize(
@@ -378,15 +503,18 @@ def _approval(identifier: str, content_hash: str, pr_number: int, *, base: str =
 
 class TestReduceOverlay:
     @pytest.mark.parametrize(
-        ("candidates", "entries", "conflicts", "applied"),
+        ("candidates", "parents", "entries", "conflicts", "applied"),
         [
-            pytest.param({"own": _approval("Button", "b1", 8)}, {"Button": "own"}, {}, ["own"], id="one_approval"),
-            pytest.param({"moved": _approval("Button", "b1", 8, base="older")}, {}, {}, [], id="base_moved"),
+            pytest.param(
+                {"own": _approval("Button", "b1", 8)}, None, {"Button": "own"}, {}, ["own"], id="one_approval"
+            ),
+            pytest.param({"moved": _approval("Button", "b1", 8, base="older")}, None, {}, {}, [], id="base_moved"),
             pytest.param(
                 {
                     "parent": _approval("Button", "b1", 7, approved_at=APPROVED_AT - timedelta(minutes=20)),
                     "child": _approval("Button", "b2", 8, effective_base_hash="b1"),
                 },
+                None,
                 {"Button": "child"},
                 {},
                 ["parent", "child"],
@@ -394,6 +522,7 @@ class TestReduceOverlay:
             ),
             pytest.param(
                 {"first": _approval("Card", "c1", 9, base="c0"), "second": _approval("Card", "c2", 7, base="c0")},
+                None,
                 {},
                 {"Card": (7, 9)},
                 ["first", "second"],
@@ -404,6 +533,7 @@ class TestReduceOverlay:
                     "older": _approval("Card", "c1", 7, base="c0", approved_at=APPROVED_AT - timedelta(minutes=5)),
                     "newer": _approval("Card", "c1", 9, base="c0"),
                 },
+                None,
                 {"Card": "newer"},
                 {},
                 ["older", "newer"],
@@ -414,17 +544,112 @@ class TestReduceOverlay:
                     "parent": _approval("Button", "b1", 7),
                     "revert": _approval("Button", "b0", 8, effective_base_hash="b1"),
                 },
+                None,
                 {},
                 {},
                 ["parent", "revert"],
                 id="a_cycle_applies_nothing",
             ),
+            pytest.param(
+                {
+                    "parent": _approval(
+                        "Button", "b1", 7, commit_sha="p7", approved_at=APPROVED_AT - timedelta(minutes=20)
+                    ),
+                    "child": _approval("Button", "b2", 8, commit_sha="c8", effective_base_hash="b1"),
+                },
+                {"c8": ("p7",), "p7": ("s0",)},
+                {"Button": "child"},
+                {},
+                ["parent", "child"],
+                id="stack_child_run_after_parent_approval_wins_with_a_commit_graph",
+            ),
+            pytest.param(
+                {
+                    "child": _approval(
+                        "Button", "b2", 8, commit_sha="c8", approved_at=APPROVED_AT - timedelta(minutes=20)
+                    ),
+                    "parent": _approval("Button", "b1", 7, commit_sha="p7"),
+                },
+                {"c8": ("p7",), "p7": ("s0",)},
+                {"Button": "child"},
+                {},
+                ["child", "parent"],
+                id="stack_child_run_and_approval_before_parent_approval_wins",
+            ),
+            pytest.param(
+                {
+                    "parent": _approval(
+                        "Button", "b1", 7, commit_sha="p7", approved_at=APPROVED_AT - timedelta(minutes=20)
+                    ),
+                    "child": _approval("Button", "b2", 8, commit_sha="c8"),
+                },
+                {"c8": ("p7",), "p7": ("s0",)},
+                {"Button": "child"},
+                {},
+                ["parent", "child"],
+                id="stack_child_run_before_parent_approval_approved_after_it_wins",
+            ),
+            pytest.param(
+                {
+                    "child": _approval(
+                        "Button", "b2", 8, commit_sha="c8", approved_at=APPROVED_AT - timedelta(minutes=20)
+                    ),
+                    "parent": _approval("Button", "b1", 7, commit_sha="p7"),
+                },
+                {},
+                {},
+                {"Button": (7, 8)},
+                ["child", "parent"],
+                id="stack_child_run_before_parent_approval_conflicts_when_the_commits_are_unknown",
+            ),
+            pytest.param(
+                {
+                    "first": _approval("Card", "c1", 9, base="c0", commit_sha="a9"),
+                    "second": _approval("Card", "c2", 7, base="c0", commit_sha="a7"),
+                },
+                {"a9": ("s0",), "a7": ("s0",)},
+                {},
+                {"Card": (7, 9)},
+                ["first", "second"],
+                id="two_unrelated_pull_requests_conflict_with_a_commit_graph",
+            ),
+            pytest.param(
+                {
+                    "middle": _approval("Button", "b1", 7, base="older", effective_base_hash="b0"),
+                    "top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1"),
+                },
+                None,
+                {"Button": "top"},
+                {},
+                ["middle", "top"],
+                id="stack_top_counts_through_the_open_middle_layer_after_the_bottom_landed",
+            ),
+            pytest.param(
+                {"top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1")},
+                None,
+                {},
+                {},
+                [],
+                id="stack_top_does_not_count_once_the_middle_layer_approval_is_gone",
+            ),
+            pytest.param(
+                {
+                    "middle": _approval("Button", "b1", 7, base="older", effective_base_hash="older"),
+                    "top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1"),
+                },
+                None,
+                {},
+                {},
+                [],
+                id="stack_top_does_not_count_through_a_middle_layer_whose_base_moved",
+            ),
         ],
     )
-    def test_reduce_overlay(self, candidates, entries, conflicts, applied) -> None:
+    def test_reduce_overlay(self, candidates, parents, entries, conflicts, applied) -> None:
         ledger_hashes = {"Button": "b0", "Card": "c0"}
+        commit_graph = None if parents is None else baseline_approvals.CommitGraph(parents=parents)
 
-        overlay = baseline_approvals.reduce_overlay(list(candidates.values()), ledger_hashes)
+        overlay = baseline_approvals.reduce_overlay(list(candidates.values()), ledger_hashes, commit_graph)
 
         assert overlay.entries == {
             identifier: OverlayEntry(

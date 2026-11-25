@@ -47,7 +47,7 @@ export function EmailColumnsFields({
     return (
         <>
             <EmailSectionTitle>Columns</EmailSectionTitle>
-            <EmailFieldRow label="Number">
+            <EmailFieldRow label="Number" group>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
@@ -61,7 +61,7 @@ export function EmailColumnsFields({
                 />
             </EmailFieldRow>
             {presets ? (
-                <EmailFieldRow label="Widths">
+                <EmailFieldRow label="Widths" group>
                     <LemonSegmentedButton
                         size="xsmall"
                         fullWidth
@@ -90,6 +90,7 @@ export function EmailColumnsFields({
                 attr="email-editor-columns-background"
             />
             <EmailSidesField
+                key={`padding-${pos}`}
                 label="Padding"
                 value={style.padding}
                 placeholder={NO_PADDING}
@@ -106,6 +107,7 @@ export function EmailColumnsFields({
                         attr="email-editor-column-background"
                     />
                     <EmailSidesField
+                        key={`column-padding-${columnPos}`}
                         label="Column padding"
                         value={columnStyle.padding}
                         placeholder={NO_PADDING}

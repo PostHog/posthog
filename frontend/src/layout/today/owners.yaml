@@ -9,3 +9,7 @@ rules:
           - '/taskPullRequests.ts'
           - '/taskPullRequests.test.ts'
       owners: team-surfaces
+    - match:
+          - '/todayPhoneTabsLogic.test.ts'
+          - '/todayHelpMenuRedirectLogic.test.ts'
+      owners: platform-ux

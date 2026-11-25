@@ -10,15 +10,19 @@ from posthog.models.team.util import (
     RETIRED_LOOP_TABLES,
     RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES,
     TeamPurgeStopped,
+    _delete_event_definitions_for_teams,
     _delete_event_properties_for_teams,
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
+    _delete_misc_small_tables_for_teams,
     _delete_retired_loops_for_teams,
     _delete_retired_warehouse_source_inputs_backups_for_teams,
 )
 
-from products.event_definitions.backend.models import EventProperty
+from products.event_definitions.backend.models import EventDefinition, EventProperty
+
+from ee.models.event_definition import EnterpriseEventDefinition
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
@@ -207,3 +211,38 @@ class TestDeleteEventPropertiesForTeams(BaseTest):
             _delete_event_properties_for_teams([self.team.id], should_stop=lambda: next(stops), batch_size=2)
 
         assert EventProperty.objects.filter(team_id=self.team.id).count() == 3
+
+
+@patch("posthog.models.team.util.time.sleep")
+class TestDeleteEventDefinitionsForTeams(BaseTest):
+    def _create_event_definitions(self, team: Team) -> None:
+        EventDefinition.objects.bulk_create(EventDefinition(team=team, name=f"event_{i}") for i in range(4))
+        EnterpriseEventDefinition.objects.create(team=team, name="enterprise_event", description="described")
+
+    @parameterized.expand([(1,), (2,), (10000,)])
+    def test_deletes_every_definition_of_the_team_and_no_other(self, _sleep: MagicMock, batch_size: int) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._create_event_definitions(self.team)
+        self._create_event_definitions(other_team)
+
+        _delete_event_definitions_for_teams([self.team.id], batch_size=batch_size)
+
+        assert not EventDefinition.objects.filter(team_id=self.team.id).exists()
+        assert EventDefinition.objects.filter(team_id=other_team.id).count() == 5
+        assert EnterpriseEventDefinition.objects.filter(team_id=other_team.id).count() == 1
+
+    def test_stop_ends_the_purge_between_batches(self, _sleep: MagicMock) -> None:
+        self._create_event_definitions(self.team)
+        stops = iter([False, True])
+
+        with self.assertRaises(TeamPurgeStopped):
+            _delete_event_definitions_for_teams([self.team.id], should_stop=lambda: next(stops), batch_size=2)
+
+        assert EventDefinition.objects.filter(team_id=self.team.id).count() == 3
+
+    def test_misc_small_tables_step_deletes_event_definitions(self, _sleep: MagicMock) -> None:
+        self._create_event_definitions(self.team)
+
+        _delete_misc_small_tables_for_teams([self.team.id])
+
+        assert not EventDefinition.objects.filter(team_id=self.team.id).exists()

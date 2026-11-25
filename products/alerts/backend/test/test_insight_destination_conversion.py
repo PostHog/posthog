@@ -15,8 +15,7 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.platform_cutover import cut_over_team
-from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
@@ -62,8 +61,8 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
             create_insight_alert(self.team, name=f"alert {index}", next_check_at=self.now + timedelta(minutes=3))
             for index in range(count)
         ]
-        cutovers = cut_over_team(self.team.id, now=self.now)
-        assert [cutover.skipped for cutover in cutovers] == [None] * count
+        for alert in alerts:
+            move_to_platform(alert, at=self.now)
         return [alert.id for alert in alerts]
 
     def _copy_id(self, alert_id: UUID) -> UUID:

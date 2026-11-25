@@ -30,6 +30,7 @@ def page(rows: list[dict[str, Any]]) -> ScriptedResponse:
         ("helpdesk_locales", "helpdesk/locales", "locale_id", {}),
         ("teams", "teams/list", "team_id", {}),
         ("inboxes", "inboxes/list", "inbox_id", {}),
+        ("campaign_templates", "campaigns/templates", "template_id", {}),
     ],
 )
 def test_path_pages_stop_at_short_or_empty_page_and_commit_before_next_request(
@@ -375,6 +376,20 @@ def test_messages_fail_when_timestamp_filter_does_not_advance(config: CrispSourc
             {"session_id": "session/one"},
             "conversation/session%2Fone/events",
             {"text": "Example event", "timestamp": 1000, "color": "blue", "data": {"plan": "example"}},
+            "session_id",
+        ),
+        (
+            "conversation_files",
+            "conversations",
+            {"session_id": "session/one"},
+            "conversation/session%2Fone/files",
+            {
+                "name": "example.pdf",
+                "type": "application/pdf",
+                "url": "https://example.com/files/example.pdf",
+                "fingerprint": 1001,
+                "timestamp": 1000,
+            },
             "session_id",
         ),
         (

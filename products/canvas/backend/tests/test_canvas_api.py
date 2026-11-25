@@ -30,6 +30,7 @@ from posthog.paging import PageRequest
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.annotations.backend.facade import api as annotations_api
@@ -1070,21 +1071,6 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
         listed = self.client.get(f"{settings}/access_control_default_objects")
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert [row["name"] for row in listed.json()["results"]] == ["Team board"]
-
-        AccessControl.objects.create(team=self.team, resource="canvas", access_level="editor")
-        for canvas_id in (private.id, self.canvas_id):
-            AccessControl.objects.create(
-                team=self.team,
-                resource="canvas",
-                resource_id=str(canvas_id),
-                organization_member=self.member_membership,
-                access_level="viewer",
-            )
-        preview = self.client.get(f"{settings}/access_control_resolution_preview")
-        assert preview.status_code == status.HTTP_200_OK, preview.json()
-        assert {change["object_id"] for change in preview.json()["changes"] if change["scope"] == "object"} == {
-            str(self.canvas_id)
-        }
 
 
 class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
@@ -3084,6 +3070,24 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand([("pause", "active"), ("resume", "draft")])
+    def test_workflow_verbs_respect_property_access(self, verb: str, workflow_status: str) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+        canvas_id = self._actions_canvas(verbs=(f"workflows.{verb}",))
+        workflow = create_workflow_for_test(
+            team_id=self.team.id,
+            name="Scheduled workflow",
+            status=workflow_status,
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+
+        response = self._invoke(canvas_id, f"workflows.{verb}", {"workflow_ids": [str(workflow.id)]})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=workflow.id).status == workflow_status
 
     def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
         canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))

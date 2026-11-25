@@ -54,6 +54,7 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
             "changed": 4,
             "existing": 3,
             "produced": 3,
+            "removed": 2,
             "skipped_missing_person": 1,
             "error": None,
         }
@@ -67,7 +68,14 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
 
         run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
         assert run.status == "completed"
-        assert (run.rows_read, run.changed, run.existing, run.produced, run.skipped_missing_person) == (10, 4, 3, 3, 1)
+        assert (run.rows_read, run.changed, run.existing, run.produced, run.removed, run.skipped_missing_person) == (
+            10,
+            4,
+            3,
+            3,
+            2,
+            1,
+        )
         assert run.trigger == "scheduled"
 
         self.source.refresh_from_db()

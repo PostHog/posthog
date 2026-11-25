@@ -39,6 +39,7 @@ CONVERSATION_PARAMS: dict[str, str | int] = {"per_page": 50, "include_empty": "1
 
 # The people date filter is on the creation date, so it cannot find updated profiles.
 # Campaign listing requires user-tier tokens, so website-token imports exclude campaigns.
+# Campaign templates allow the website tier.
 ENDPOINTS: dict[str, CrispEndpoint] = {
     "conversations": CrispEndpoint(
         name="conversations",
@@ -77,6 +78,23 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         path="website/{website_id}/conversation/{session_id}/events/1",
         # Events have no documented unique identifier and no date filter, so the table is full refresh only.
         primary_keys=(),
+        partition_key="timestamp",
+        fanout=DependentEndpointConfig(
+            parent_name="conversations",
+            resolve_param="session_id",
+            resolve_field="_path_id",
+            include_from_parent=["session_id"],
+            parent_field_renames={"session_id": "session_id"},
+            parent_params={**CONVERSATION_PARAMS, "order_date_created": "1"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        should_sync_default=False,
+    ),
+    "conversation_files": CrispEndpoint(
+        name="conversation_files",
+        path="website/{website_id}/conversation/{session_id}/files/1",
+        # One message can hold several attachments, so the fingerprint alone is not unique.
+        primary_keys=("session_id", "fingerprint", "url"),
         partition_key="timestamp",
         fanout=DependentEndpointConfig(
             parent_name="conversations",
@@ -130,6 +148,13 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         name="inboxes",
         path="website/{website_id}/inboxes/list/1",
         primary_keys=("inbox_id",),
+        should_sync_default=False,
+    ),
+    "campaign_templates": CrispEndpoint(
+        name="campaign_templates",
+        path="website/{website_id}/campaigns/templates/1",
+        primary_keys=("template_id",),
+        partition_key="created_at",
         should_sync_default=False,
     ),
     "visitors": CrispEndpoint(

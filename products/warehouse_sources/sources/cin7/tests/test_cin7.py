@@ -115,13 +115,19 @@ def test_incremental_filter_is_sent_only_with_a_watermark(
     assert result.requests[0].param(filter_param) == expected_filter
 
 
-@pytest.mark.parametrize("schema", ["products", "customers", "suppliers"])
-def test_contact_and_product_lists_include_deprecated_records(schema: str) -> None:
-    key = {"products": "Products", "customers": "CustomerList", "suppliers": "SupplierList"}[schema]
-
+@pytest.mark.parametrize(
+    ("schema", "key", "param"),
+    [
+        ("products", "Products", "IncludeDeprecated"),
+        ("customers", "CustomerList", "IncludeDeprecated"),
+        ("suppliers", "SupplierList", "IncludeDeprecated"),
+        ("customer_credits", "CustomerCredits", "ShowUsedCredits"),
+    ],
+)
+def test_lists_keep_deprecated_and_used_records(schema: str, key: str, param: str) -> None:
     result = _driver().run(schema, [_page(key, 1, 1)])
 
-    assert result.requests[0].param("IncludeDeprecated") == "true"
+    assert result.requests[0].param(param) == "true"
 
 
 @pytest.mark.parametrize(

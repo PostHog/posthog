@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 from urllib.parse import quote
 
 from products.warehouse_sources.sources.beehiiv.settings import (
@@ -18,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
@@ -53,6 +55,16 @@ def build_paginator(endpoint: str) -> BasePaginator:
     )
 
 
+def _list_endpoint_extra(endpoint: str) -> Endpoint:
+    return {
+        "data_selector": "data",
+        # Every beehiiv list response wraps rows in `data`; a body without it means the shape
+        # changed, and syncing 0 rows silently would look like an empty publication.
+        "data_selector_required": True,
+        "paginator": build_paginator(endpoint),
+    }
+
+
 def get_resource(endpoint: str, publication_id: str) -> EndpointResource:
     config = ENDPOINTS[endpoint]
 
@@ -61,11 +73,7 @@ def get_resource(endpoint: str, publication_id: str) -> EndpointResource:
     endpoint_config: Endpoint = {
         "path": resolve_path(config.path, publication_id),
         "params": params,
-        "data_selector": "data",
-        # Every beehiiv list response wraps rows in `data`; a body without it means the shape
-        # changed, and syncing 0 rows silently would look like an empty publication.
-        "data_selector_required": True,
-        "paginator": build_paginator(endpoint),
+        **_list_endpoint_extra(endpoint),
     }
 
     return {
@@ -95,6 +103,27 @@ def beehiiv_source(
         "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
+    if endpoint_config.fanout is not None:
+        # No resume hook: per-parent resume state lists every completed parent path and is
+        # rewritten after each child page, so it grows with the number of parents.
+        items: Iterable[Any] = cast(
+            Iterable[Any],
+            build_dependent_resource(
+                endpoint_configs=ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=endpoint_config.fanout,
+                client_config=client_config,
+                path_format_values={"publication_id": quote(publication_id, safe="")},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                parent_endpoint_extra=_list_endpoint_extra(endpoint_config.fanout.parent_name),
+                child_endpoint_extra=_list_endpoint_extra(endpoint),
+                child_params_extra=endpoint_config.params,
+            ),
+        )
+        return _source_response(endpoint, items)
+
     config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {"write_disposition": "replace"},
@@ -120,12 +149,17 @@ def beehiiv_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(endpoint, resource)
+
+
+def _source_response(endpoint: str, items: Iterable[Any]) -> SourceResponse:
+    endpoint_config = ENDPOINTS[endpoint]
     partitioned = endpoint_config.partition_key is not None
 
     return SourceResponse(
         name=endpoint_config.name,
-        items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        items=lambda: items,
+        primary_keys=endpoint_config.primary_keys,
         sort_mode=endpoint_config.sort_mode,
         partition_count=1 if partitioned else None,
         partition_size=1 if partitioned else None,

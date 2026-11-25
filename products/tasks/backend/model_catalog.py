@@ -165,6 +165,7 @@ _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
 _KIMI_K31_PRO_COST = ModelCost(2, 10)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
+_DEEPSEEK_V4_1_FLASH_COST = ModelCost(0.3, 1.2)
 _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
@@ -206,6 +207,14 @@ MODELS: tuple[CatalogModel, ...] = (
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
         cost=_DEEPSEEK_COST,
+        retired=True,
+    ),
+    CatalogModel(
+        "deepseek-ai/deepseek-v4.1-flash-1017",
+        CLAUDE,
+        _NO_EFFORT,
+        label="DeepSeek V4.1 Flash",
+        cost=_DEEPSEEK_V4_1_FLASH_COST,
     ),
     CatalogModel(
         "deepseek-ai/deepseek-v4.1-flash-1017-fast",
@@ -274,7 +283,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
     CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST),
-    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    # Only ReviewHog's arm-set trial and the first-report model experiment pin it. `retired` is the catalog's state for a model no picker offers
     # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
     CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),

@@ -202,7 +202,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         })
     })
 
-    it('calls backend relay on bad rating and feedback text separately', async () => {
+    it('calls backend relay on bad rating and its details separately', async () => {
         await expectLogic(logic, () => {
             logic.actions.submitAiReplyFeedback('msg-ai-1', 'bad')
         })
@@ -229,6 +229,19 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             message_id: 'msg-ai-1',
             rating: 'bad',
             feedback_text: 'Wrong answer',
+        })
+
+        submitAiFeedbackMock.mockClear()
+
+        logic.actions.submitAiReplyFeedback('msg-ai-1', 'bad', undefined, ['wrong_facts'])
+
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
+            message_id: 'msg-ai-1',
+            rating: 'bad',
+            reasons: ['wrong_facts'],
         })
     })
 

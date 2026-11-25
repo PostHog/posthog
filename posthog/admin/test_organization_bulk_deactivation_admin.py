@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
@@ -170,3 +171,42 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         assert response["Location"] == TOOL_URL
         self.organization.refresh_from_db()
         assert self.organization.is_active
+
+
+class TestDeactivateOrganizationOperation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Staff deactivate organizations they are not members of.
+        self.staff = User.objects.create(email="staff@example.com", is_staff=True)
+        self.client.force_login(self.staff)
+        self.url = f"/admin/console/organizations/{self.organization.pk}/overview/deactivate/"
+
+    @parameterized.expand([("active", True, 302, False), ("already_inactive", False, 404, False)])
+    def test_deactivates_an_active_organization_with_the_reason(
+        self, _name: str, active: bool, expected_status: int, expected_active: bool
+    ) -> None:
+        reason = Organization.DeactivationReason.TERMS_OF_SERVICE_VIOLATION_SECURITY.value
+        if not active:
+            Organization.objects.filter(id=self.organization.id).update(
+                is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
+            )
+
+        response = self.client.post(self.url, {"reason": reason, "custom_reason": ""})
+
+        assert response.status_code == expected_status
+        self.organization.refresh_from_db()
+        assert (self.organization.is_active, self.organization.is_not_active_reason) == (
+            expected_active,
+            reason if active else COMPLIANCE_REVIEW,
+        )
+        updates = ActivityLog.objects.filter(
+            scope="Organization", item_id=str(self.organization.id), activity="updated"
+        )
+        assert [
+            (
+                logged.user_id,
+                logged.is_system,
+                [(change["field"], change["after"]) for change in (logged.detail or {})["changes"]],
+            )
+            for logged in updates
+        ] == ([(None, False, [("is_active", False), ("is_not_active_reason", reason)])] if active else [])

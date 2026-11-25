@@ -33,6 +33,7 @@ from posthog.models.activity_logging.utils import (
     is_uncached_reverse_one_to_one,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
+from posthog.products import load_product_modules
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -228,10 +229,13 @@ class ActivityLog(UUIDTModel):
             # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
             # entry for a JSON structure that holds no scalar, so containment against an empty
             # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
+            # Direct updates avoid pending-list merges that make one insert, often a bulk insert,
+            # absorb the batched GIN maintenance of earlier writes.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
+                fastupdate=False,
             ),
             # User-specific filtered queries
             models.Index(
@@ -394,61 +398,9 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
-    # Any activity-log reader sees these rows, including readers denied the tables they name.
-    "DataWarehouseJoin": [
-        "source_table_name",
-        "source_table_key",
-        "joining_table_name",
-        "joining_table_key",
-        "field_name",
-        "configuration",
-    ],
-    "SignalTeamConfig": ["onboarding"],
-    "AccountView": ["name", "content", "text_content"],
-    "WarehouseSuggestion": ["dismissal_note"],
-    # Macro replies are support content; activity-log readers may lack ticket access.
-    "TicketMacro": ["body"],
-    "HogFunction": [
-        "inputs",
-        "mappings",
-        # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
-        # leak-adjacent at worst; record that they changed, never the values.
-        "encrypted_inputs",
-        "draft_encrypted_inputs",
-        # Full config snapshot including input values (auth headers, API keys on rows written before
-        # secret inputs were encrypted) — record that a draft was staged/published/discarded, never
-        # its contents. The per-version config audit lives in the revisions endpoints instead.
-        "draft",
-    ],
     "Integration": [
         "config",
         "sensitive_config",
-    ],
-    "BatchImport": [
-        "import_config",
-    ],
-    "Subscription": [
-        "target_value",
-    ],
-    "ExternalDataSource": [
-        "job_inputs",
-    ],
-    "HogFlow": [
-        # Full content snapshot including action inputs (auth headers, API keys) — record that a
-        # draft was staged/published/discarded, never its contents.
-        "draft",
-        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
-        # leak-adjacent at worst; record that they changed, never the values.
-        "encrypted_inputs",
-        "draft_encrypted_inputs",
-        # The action graph can carry secret function inputs (auth headers, API keys). New writes strip
-        # them into encrypted_inputs, but a legacy row's first write would diff its still-plaintext
-        # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
-        # the contents — the per-version content audit lives in the revisions feature instead.
-        "actions",
-        # Reverse FK into WorkflowProposal's fail-closed manager, and a suggestion filed or resolved
-        # is not a workflow edit.
-        "proposals",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -476,22 +428,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
-    # Observation notes are gated on observation access, which activity_log:read does not imply.
-    "ReplayObservation": ["content"],
-    # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
-    # readable through activity_log:read. Record that the rubrics changed, never their contents.
-    "SignalScoutConfig": ["rubrics"],
-    "SandboxEnvironment": ["environment_variables"],
-    "SandboxCustomImage": ["spec"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
-    "AlertConfiguration": {
-        "schedule_start_time": "schedule start time",
-    },
-    "HogFunction": {
-        "execution_order": "priority",
-    },
     "Organization": {
         "name": "organization name",
         "enforce_2fa": "two-factor authentication requirement",
@@ -503,50 +442,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "session_cookie_age": "session cookie age",
         "is_ai_data_processing_approved": "third-party AI services",
         "uses_most_specific_access_resolution": "most-specific access resolution",
-    },
-    "BatchExport": {
-        "paused": "enabled",
-    },
-    "ExternalDataSource": {
-        "job_inputs": "configuration",
-    },
-    "ExternalDataSchema": {
-        "should_sync": "enabled",
-        "live_query_enabled": "live queries",
-        "masked_columns": "masked columns",
-        "full_refresh_interval_days": "full refresh interval (days)",
-        "full_refresh_time_of_day": "full refresh time (UTC)",
-    },
-    "SignalScoutConfig": {
-        "run_interval_minutes": "run interval (minutes)",
-        "emit": "emit findings",
-        "pause_reason": "pause reason",
-        "managed_by": "managed by",
-        "auto_pause_exempt": "never pause for inactivity",
-        "write_scopes": "write access",
-        "report_actions": "report actions",
-        "max_report_actions_per_day": "report actions per day",
-        "lifecycle_locked": "owner-only pause, resume, and delete",
-        "allowed_mcp_tools": "allowed MCP tools",
-        "tool_preset": "tool preset",
-    },
-    # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
-    "SignalTeamConfig": {
-        "autostart_enabled": "PR generation",
-        "default_autostart_priority": "project PR threshold",
-        "default_slack_notification_channel": "team Slack channel",
-        "default_slack_notification_min_priority": "team Slack minimum priority",
-        "autostart_base_branches": "base branch overrides",
-        "issue_tracking_integration": "issue tracker",
-        "issue_tracking_config": "issue tracker target",
-        "default_open_pull_request_ready": "PRs open as",
-        "github_issue_writeback_enabled": "comment back on GitHub issues",
-        "pull_request_label_enabled": "label self-driving PRs",
-        "pull_request_label": "self-driving PR label",
-        "anomaly_scoring_enabled": "anomaly scoring",
-        "scout_instructions": "scout instructions",
-        "research_instructions": "research instructions",
-        "implementation_instructions": "implementation instructions",
     },
     "OrganizationIPRestrictions": {
         "ip_restrictions": "IP allowlist",
@@ -568,107 +463,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
 }
 
-# Machine-written. A test asserts this covers `ReplayScanner._MACHINE_OWNED_FIELDS`, a narrower set.
-replay_scanner_machine_fields = [
-    "scanner_version",
-    "origin",
-    "inline_key",
-    "primed_at",
-    "last_swept_at",
-    "last_seen_session_id",
-    "deep_swept_through",
-    "deep_seen_session_id",
-    "deep_attempted_at",
-    "sweep_read_bytes_by_hour",
-    "fast_read_bytes_by_hour",
-    "deep_read_bytes_by_hour",
-    "sweep_throttle_factor",
-    "last_found_candidates_at",
-    "sweep_paused_until",
-    "sweep_pause_reason",
-    "estimated_monthly_observations",
-    "estimated_at",
-    "estimate_attempted_at",
-    "filter_error",
-    "filter_error_at",
-    "prompt_question",
-    "prompt_question_source",
-    "prompt_valence",
-    "limit_notified_period_start",
-    "admission_budget_used",
-    "admission_budget_refreshed_at",
-    "admission_budget_period_start",
-    "admission_credits_since_refresh",
-    "updated_at",
-]
-
-# Rewritten on every check; an alert's firing history is read from its own event log instead.
-vision_alert_machine_fields = [
-    "state",
-    "consecutive_failures",
-    "last_checked_at",
-    "last_notified_at",
-    "next_check_at",
-    "first_enabled_at",
-    # The engine passes this alongside next_check_at on every suppressed check.
-    "updated_at",
-]
-
-# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
-platform_alert_runtime_fields = [
-    "next_check_at",
-    "snooze_until",
-    "consecutive_failures",
-    "check_status",
-    "owner",
-    "owner_changed_at",
-    "switched_off_at",
-    "updated_at",
-]
-
-sandbox_custom_image_machine_fields = [
-    "status",
-    "version",
-    "modal_image_name",
-    "base_image_reference",
-    "base_image_refresh_reference",
-    "scan_result",
-    "error",
-    "build_log",
-    "builder_task",
-]
-
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
-    # Written by the runner on every run, not by a person editing the check.
-    "DataQualityCheck": [
-        "last_run_at",
-        "last_status",
-        "subject_name",
-        "subject_status",
-        "failing_since",
-        "last_succeeded_at",
-        "updated_at",
-    ],
-    "AlertConfiguration": [
-        "last_checked_at",
-        "next_check_at",
-        "is_calculating",
-        "last_notified_at",
-        "last_error_at",
-    ],
-    "Dashboard": ["last_accessed_at"],
-    "ReplayScanner": replay_scanner_machine_fields,
-    "VisionAlertConfiguration": vision_alert_machine_fields,
-    "LogsAlertConfiguration": [
-        "next_check_at",
-        "last_notified_at",
-        "last_checked_at",
-        "consecutive_failures",
-        "state",
-    ],
-    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -683,27 +480,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "last_verification_retry",
     ],
-    "Subscription": [
-        "next_delivery_date",
-    ],
-    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
-    # site, so the save that only moves the active version must not add an `updated` row.
-    "StreamlitApp": ["active_version", "updated_at"],
-    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
-    # the pre-check fields on every scheduled pre-check, and the failure streak by the runner on
-    # every run outcome. When those are the only
-    # change, suppress the activity signal entirely so run bookkeeping never spams the audit
-    # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
-    "SignalScoutConfig": [
-        "last_run_at",
-        "consecutive_failure_count",
-        "last_precheck_at",
-        "last_precheck_outcome",
-        "last_precheck_row_count",
-    ],
-    # Inserts bump these on every use. They are not a settings edit.
-    "TicketMacro": ["usage_count", "last_used_at"],
-    "SandboxCustomImage": [*sandbox_custom_image_machine_fields, "updated_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -806,78 +582,10 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
-    "AccountView": ["version"],
-    # These fields copy warehouse data, and the activity log does not check warehouse access.
-    "RecommendationResolution": ["subject", "subject_hash", "customer_id", "campaign_id", "resolved_at"],
-    "TicketMacro": ["usage_count", "last_used_at"],
-    # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
-    "CrossProjectDashboard": ["tiles", "organization"],
-    # The reverse relations are listed because the diff reads each one in full; a scanner's
-    # observations run to millions of rows, and its alerts carry their own audit trail.
-    "ReplayScanner": [
-        *replay_scanner_machine_fields,
-        "observations",
-        "backfills",
-        "learned_rulesets",
-        "alerts",
-    ],
-    "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
-    # The reverse relations read through team-scoped managers, which fail a save outside a request.
-    "PlatformAlertConfiguration": [
-        *platform_alert_runtime_fields,
-        "alerts",
-        "threads",
-        "delivery_paths",
-        "delivery_holds",
-        "destinations",
-    ],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.
     "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
-    "StamphogRepoConfig": [
-        # Reverse relation to the repo's review history. The diff would read every pull request row
-        # on each settings toggle, and none of it is configuration.
-        "pull_requests",
-    ],
-    "StreamlitApp": [
-        # Reverse relations. Version uploads and activations log their own rows, and a version's
-        # str() includes the app name, so a rename would show a false versions change.
-        "versions",
-        "sandbox",
-    ],
-    "HogFlow": [
-        # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
-        # writes — bookkeeping, not a user edit, so keep it out of change diffs.
-        "action_redirects",
-    ],
-    "Metric": [
-        # Derived/throttled fields, not user-meaningful change diffs.
-        "last_run_at",
-        "source_insight_query_hash",
-        "referenced_table_names",
-        "embedding",
-        "embedding_model",
-        "embedding_text_hash",
-    ],
-    "DataQualityCheck": [
-        # Written by the runner, not by a person editing the check.
-        "last_run_at",
-        "last_status",
-        "subject_name",
-        "subject_status",
-        "failing_since",
-        "last_succeeded_at",
-        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
-        "metric",
-        "saved_query",
-        "table",
-    ],
-    "WarehouseSuggestion": [
-        "evidence",
-        "score_inputs",
-        "payload",
-    ],
     "OrganizationIPRestrictions": ["organization"],
     "OrganizationDomain": [
         "organization",
@@ -894,123 +602,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "scim_provisioned_users",
         "scim_request_logs",
     ],
-    "Subscription": [
-        # Scheduler-derived field; keep it out of user-facing change diffs even when another
-        # field changes in the same save (signal_exclusions only governs whether the signal fires).
-        "next_delivery_date",
-        # Context rows use a fail-closed team manager that has no scope during signal handling.
-        "contexts",
-        # FK to a connected Slack integration. The generic field-diff captures the related object,
-        # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
-        # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
-        "integration",
-    ],
-    "Cohort": [
-        "version",
-        "pending_version",
-        "count",
-        "is_calculating",
-        "last_calculation",
-        "last_error_at",
-        "errors_calculating",
-    ],
-    "HogFunction": [
-        # Compiled output of `hog`, which the diff records on its own. For site functions the
-        # transpiled JavaScript also inlines the input values that `field_with_masked_contents`
-        # hides, so a diff of it would put those values back into the log.
-        "bytecode",
-        "transpiled",
-        "icon_url",
-        # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
-        # and the per-version audit lives in the revisions endpoints.
-        "version",
-        "draft_updated_at",
-        "revisions",
-    ],
-    "Notebook": [
-        "text_content",
-        "widget_instances",
-        "widget_snapshots",
-    ],
-    "Experiment": [
-        "feature_flag",
-        "feature_flag_auto_archived",
-        "exposure_cohort",
-        "holdout",
-        "saved_metrics",
-        "experimenttosavedmetric_set",
-        # Optimistic-concurrency counter, not a user-meaningful change.
-        "version",
-        # Internal pointer to the flag-cleanup task, not a user-meaningful change.
-        "flag_cleanup_task_id",
-        # The copy of the rule that a launch stores for the analysis. It holds the rule's seed.
-        "feature_flag_rule_snapshot",
-    ],
-    "ExperimentSavedMetric": [
-        "experiments",
-        "experimenttosavedmetric_set",
-    ],
-    "ExperimentToSavedMetric": [
-        "experiment",
-        "saved_metric",
-    ],
     "ProjectSecretAPIKey": [
         "secure_value",
         # Gateway is team-scoped; resolving it for a diff would hit the fail-closed
         # manager. Binding changes are audited by the gateway management API instead.
         "gateway",
-    ],
-    "Person": [
-        "distinct_ids",
-        "name",
-        "is_identified",
-        "persondistinctid",
-        "cohort",
-        "cohortpeople",
-        "version",
-        "is_user",
-    ],
-    "Insight": [
-        "filters_hash",
-        "refreshing",
-        "dive_dashboard",
-        "type",
-        "funnel",
-        "layouts",
-        "color",
-        "order",
-        "result",
-        "dashboard",
-        "last_refresh",
-        "saved",
-        "is_sample",
-        "refresh_attempt",
-        "short_id",
-        "insightviewed",
-        "dashboardtile",
-        "explanations",
-    ],
-    "EventDefinition": [
-        "eventdefinition_ptr_id",
-        "_state",
-        "deprecated_tags",
-        "owner_id",
-        "query_usage_30_day",
-        "verified_at",
-        "verified_by",
-        "post_to_slack",
-    ],
-    "PropertyDefinition": [
-        "propertydefinition_ptr_id",
-        "_state",
-        "deprecated_tags",
-        "owner_id",
-        "query_usage_30_day",
-        "volume_30_day",
-        "verified_at",
-        "verified_by",
-        "post_to_slack",
-        "property_type_format",
     ],
     "Team": [
         "uuid",
@@ -1021,34 +617,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "secret_api_token_backup",
     ],
     "Project": ["id", "created_at"],
-    "DataWarehouseExpression": ["deleted_at"],
-    "DataWarehouseJoin": ["deleted_at"],
-    # The subject is the identity of a rule and never changes. The receiver names it in the
-    # context, so the diff does not load the role and the membership for both sides.
-    "AccessControl": ["organization_member", "role"],
-    "DataWarehouseSavedQuery": [
-        "name",
-        "columns",
-        "query_revision",
-        "status",
-        "external_tables",
-        "last_run_at",
-        "latest_error",
-        "deleted_name",
-        "table",
-        "managed_viewset",
-        "origin",
-        "expires_at",
-        "incremental_state",
-        "semantic_enrichment_hash",
-    ],
-    "Endpoint": [
-        "saved_query",
-        "current_version",
-    ],
-    "EndpointVersion": [
-        "saved_query",
-    ],
     "Organization": [
         "teams",
         "billing",
@@ -1065,24 +633,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "setup_section_2_completed",
         "plugins_access_level",
         "never_drop_data",
-    ],
-    "BatchExport": [
-        "latest_runs",
-        "last_updated_at",
-        "last_paused_at",
-        "batchexportrun_set",
-        "batchexportbackfill_set",
-    ],
-    "BatchImport": [
-        "lease_id",
-        "leased_until",
-        "status_message",
-        "state",
-        "secrets",
-        "lease_id",
-        "backoff_attempt",
-        "backoff_until",
-        "pending_commit",
     ],
     "Integration": [
         "sensitive_config",
@@ -1141,92 +691,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # ambient team scope at signal-handling time.
         "facet_settings",
     ],
-    "AlertConfiguration": [
-        "last_checked_at",
-        "next_check_at",
-        "is_calculating",
-        "last_notified_at",
-        "last_error_at",
-    ],
-    "Action": [
-        "bytecode",
-        "bytecode_error",
-        "is_calculating",
-        "last_calculated_at",
-        "embedding_last_synced_at",
-        "embedding_version",
-        "last_summarized_at",
-        "action_steps",
-        "events",
-        "plugin_configs",
-        "tagged_items",
-        "survey",
-    ],
-    "ExternalDataSource": [
-        "connection_id",
-        "destination_id",
-        "are_tables_created",
-        # Reverse relation to a fail-closed model: reading through it in `changes_between` raises
-        # TeamScopeError when a source is saved outside request scope, and it isn't source-config intent.
-        "custom_oauth2_integrations",
-        # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
-        "destination_links",
-        # The diff reads each reverse relation in full on both sides, after the save, so it never
-        # sees a real before-state. The view prefetches `schemas` without the deleted ones, so the
-        # two lists differ on every save and the entry stores every job and schema twice, which
-        # goes past the Kafka message limit for a source with a long sync history. Schemas log
-        # their own changes under the ExternalDataSchema scope, and jobs are sync runs, not user changes.
-        "jobs",
-        "schemas",
-    ],
-    "ExternalDataSchema": [
-        "status",
-        "sync_type_config",
-        "latest_error",
-        "last_synced_at",
-        # Reverse relation to a fail-closed model — same hazard as the source's `destination_links`.
-        # Every sync saves the schema from a Temporal activity, where diffing it would raise.
-        "destination_links",
-        # Pipeline-assigned, not user intent. Diffing it resolves the FK through
-        # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
-        # schema save (even ones that don't touch this field) — the extra queries have
-        # deadlocked with concurrent DDL in production.
-        "table",
-        # Written by the model on the stop-syncing transition to record whether PostHog halted
-        # the schema itself, so it is derived state and not user intent. Diffing it also puts a
-        # second change on the entry that turns syncing on or off, which makes the schema
-        # activity feed read "updated schema" in place of "enabled schema".
-        "auto_disabled_at",
-        # Derived from full_refresh_interval_days and moved by every full resync, so it is not user intent.
-        "next_full_refresh_at",
-    ],
-    "Evaluation": [
-        # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
-        "directory",
-        # Reverse relations — auto-managed by FK creates, not user intent.
-        "reports",
-        "backfills",
-    ],
-    "SignalScoutConfig": [
-        # Run bookkeeping, not user intent — keep it out of change detection even when it
-        # rides along with a real change (belt-and-suspenders with signal_exclusions above).
-        "last_run_at",
-        "consecutive_failure_count",
-        # Companion bookkeeping that rides along with every logged `status` change; the
-        # activity log entry itself already carries who and when.
-        "status_changed_at",
-        "status_changed_by",
-        # Reverse relations auto-managed by FK creates, not user-initiated config changes.
-        "runs",
-    ],
-    "SandboxCustomImage": sandbox_custom_image_machine_fields,
 }
 
 
-# A scope's tuning lives next to the model it configures, in a data-only module, so the team that
-# owns the model owns its tuning. The registry lists those modules; the registries above keep the
-# scopes whose model has no product owner. Merging here rather than in the registry keeps the
-# duplicate check in this reviewed file.
 _SCOPE_CONFIG_REGISTRIES: dict[str, dict[Any, Any]] = {
     "FIELD_EXCLUSIONS": field_exclusions,
     "FIELD_NAME_OVERRIDES": field_name_overrides,
@@ -1246,7 +713,11 @@ def _merge_scope_configs(registries: Mapping[str, dict[Any, Any]], modules: Iter
                 registry[scope] = value
 
 
-_merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, activity_log_config_registry.MODULES)
+_SCOPE_CONFIG_MODULES = (
+    *activity_log_config_registry.MODULES,
+    *load_product_modules("activity_log_config"),
+)
+_merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, _SCOPE_CONFIG_MODULES)
 
 
 def describe_change(m: Any) -> Union[str, dict]:

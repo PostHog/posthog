@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { useSceneContentReady } from 'scenes/useSceneContentReady'
 
@@ -61,6 +62,13 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
         forcedMode,
     })
     useSceneContentReady(activation !== 'awaiting-flags')
+    // Mark during render, not in layout effects, because the inner gate's layout effects run before
+    // this component's and would record `resolved` before `mounted`. markBootPhase keeps the first
+    // mark of each phase, so later renders change nothing.
+    markBootPhase('empty_state_gate_mounted')
+    if (activation !== 'awaiting-flags') {
+        markBootPhase('empty_state_gate_flags_ready')
+    }
     if (activation === 'off') {
         return <>{children}</>
     }
@@ -91,13 +99,6 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
 
     useSceneContentReady(gateRender !== 'loading')
 
-    if (gateRender === 'setup') {
-        return (
-            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
-                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
-            </ProductSceneFrame>
-        )
-    }
     if (gateRender === 'loading') {
         // One consistent loading treatment app-wide, the same scene-level spinner shown while
         // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
@@ -107,6 +108,14 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         return (
             <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
+    }
+    markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: gateRender })
+    if (gateRender === 'setup') {
+        return (
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
+                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
             </ProductSceneFrame>
         )
     }

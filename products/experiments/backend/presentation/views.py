@@ -74,31 +74,38 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.api import (
     get_experiment_health,
-    get_experiment_health_inputs,
     get_running_time_target,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
+    ExperimentVersionConflict,
     LegacyMigrationError,
     RunningTimeMode,
 )
-from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
+from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
+from products.experiments.backend.facade.legacy_migration import (
+    experiment_uses_legacy_metrics,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
+from products.experiments.backend.facade.warehouse_native_access import (
+    validate_warehouse_native_connection_access,
+    warehouse_native_connection_id,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
-    experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
@@ -119,7 +126,6 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
-    ExperimentHealthInputsSerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -154,7 +160,6 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
-    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -536,14 +541,18 @@ class EnterpriseExperimentsViewSet(
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
-        # and retry precisely; the default exception handler would flatten it to a plain string.
-        try:
-            return super().update(request, *args, **kwargs)
-        except ExperimentVersionConflict as err:
-            return Response(err.response_data(), status=err.status_code)
+        return super().update(request, *args, **kwargs)
 
     def handle_exception(self, exc: Exception) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely.
+        if isinstance(exc, ExperimentVersionConflict):
+            body: dict[str, Any] = {"detail": exc.detail, "current_version": exc.current_version}
+            if exc.conflicting_fields:
+                body["conflicting_fields"] = exc.conflicting_fields
+            if exc.conflicting_metric_uuids:
+                body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
+            return Response(body, status=409)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):
@@ -586,7 +595,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs", "in_session_exposure"):
+        if self.action in ("health", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -1128,6 +1137,8 @@ class EnterpriseExperimentsViewSet(
         every primary metric, because no user can count for those metrics until a window passes.
         """
         experiment: Experiment = self.get_object()
+        # The checks read the stored results and the exposure counts, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
@@ -1135,35 +1146,6 @@ class EnterpriseExperimentsViewSet(
             user=request.user if isinstance(request.user, User) else None,
         )
         return Response(ExperimentHealthSerializer(health).data)
-
-    @extend_schema(
-        request=None,
-        responses=ExperimentHealthInputsSerializer,
-    )
-    @action(
-        methods=["GET"],
-        detail=True,
-        required_scopes=["experiment:read"],
-        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
-    )
-    def health_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
-        the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
-        about the project from the setup context's providers (the team's experiment defaults and which SDKs call
-        flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
-        background and `exposures.status` says so.
-        """
-        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
-            raise PermissionDenied("Only staff users can read the health check inputs.")
-        experiment: Experiment = self.get_object()
-        inputs = get_experiment_health_inputs(
-            team_id=self.team_id,
-            experiment_id=experiment.id,
-            reader_access=self._health_reader_access(request, experiment),
-            user=cast(User, request.user),
-        )
-        return Response(ExperimentHealthInputsSerializer(inputs).data)
 
     def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
@@ -1348,7 +1330,7 @@ class EnterpriseExperimentsViewSet(
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -1395,7 +1377,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
-        if not experiment_has_legacy_metrics(experiment):
+        if not experiment_uses_legacy_metrics(team=self.team, experiment_id=experiment.id):
             raise ValidationError(
                 "This experiment already uses the new experiments engine, so there is nothing to migrate."
             )
@@ -1529,7 +1511,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Copying is not supported for experiments using legacy metrics."},
                 status=400,
@@ -1614,6 +1596,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         metric_uuid = request.query_params.get("metric_uuid")
 
         if not metric_uuid:
@@ -1638,6 +1621,7 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric is required")
 
         service = ExperimentService(team=self.team, user=request.user)
+        service.assert_user_may_run_warehouse_native_sources(experiment)
         result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
@@ -1707,6 +1691,7 @@ class EnterpriseExperimentsViewSet(
         )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
+        ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
         result = request_recalculation(experiment, cast(User, request.user), trigger)
         # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
         # the idempotent-reuse path without inspecting the HTTP status code.
@@ -1735,6 +1720,7 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         active = get_active_recalculation(experiment)
         active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
@@ -1783,6 +1769,7 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
@@ -1807,6 +1794,8 @@ class EnterpriseExperimentsViewSet(
         traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
         """
         experiment: Experiment = self.get_object()
+        # The target is sized from the stored result of the primary metric, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         target = get_running_time_target(
             team_id=self.team.id,
             experiment_id=experiment.id,
@@ -2196,6 +2185,15 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:
+    """A stored run holds totals read from the customer's warehouse. The reader needs the connection access
+    that the query endpoint asks for, or the run hands out what that endpoint refuses."""
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
 
 
 def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:

@@ -18,11 +18,20 @@ import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogHourglass, HedgehogPanic } from '../hoggies'
 
 function Heading(): JSX.Element {
-    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound } =
+    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound, sendingStopped } =
         useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const { recordsAdded } = useValues(emailDomainManualSetupLogic)
     const host = hostName ?? 'your DNS host'
+    if (sendingStopped) {
+        return (
+            <StepHeading
+                Hoggie={HedgehogPanic}
+                title="Sending stopped"
+                lead="Emails from this domain fail until its settings check out again. Make sure each setting below is in place, then check again."
+            />
+        )
+    }
     if (status?.status === 'failed') {
         return (
             <StepHeading
@@ -84,10 +93,10 @@ function SecondaryActions(): JSX.Element {
 }
 
 function Actions(): JSX.Element {
-    const { status, pollingStopped, allRecordsFound, rechecking, restartResultLoading } =
+    const { status, pollingStopped, sendingStopped, allRecordsFound, rechecking, restartResultLoading } =
         useValues(emailDomainStatusLogic)
     const { checkAgain, restartVerification } = useActions(emailDomainStatusLogic)
-    if (status?.status === 'failed') {
+    if (status?.status === 'failed' && !sendingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
                 <BigAction
@@ -103,10 +112,11 @@ function Actions(): JSX.Element {
             </div>
         )
     }
-    if (pollingStopped) {
+    // A check can adopt the provider's current settings, which polling never does, so a stopped sender gets it at once.
+    if (pollingStopped || sendingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
-                {!allRecordsFound && (
+                {pollingStopped && !allRecordsFound && (
                     <LemonBanner type="warning" className="w-full">
                         Still waiting on DNS. We stopped checking automatically, so check again once you have added the
                         missing settings.

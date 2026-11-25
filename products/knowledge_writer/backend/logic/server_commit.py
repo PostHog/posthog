@@ -57,7 +57,14 @@ def docs_branch_head(github: GitHubIntegration, docs_repository: str) -> str | N
     return oid
 
 
-def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, paths: frozenset[str]) -> BaseTree:
+def base_tree(
+    github: GitHubIntegration,
+    docs_repository: str,
+    base_sha: str,
+    paths: frozenset[str],
+    *,
+    max_text_bytes: int | None = None,
+) -> BaseTree:
     directories = sorted({directory for path in paths for directory in ancestor_directories(path)})
     texts_wanted = sorted(paths)
     expressions_by_alias: dict[str, str] = {
@@ -86,7 +93,7 @@ def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, pa
     return BaseTree(
         entries={path: listed.get(path) for path in every_path},
         texts={
-            path: blob_text(github, docs_repository, repository.get(f"t{index}"))
+            path: blob_text(github, docs_repository, repository.get(f"t{index}"), max_text_bytes)
             for index, path in enumerate(texts_wanted)
         },
     )
@@ -97,7 +104,7 @@ def base_tree_query(aliases: list[str]) -> str:
     selected = " ".join(
         f"{alias}: object(expression: ${alias}) {{ ... on Tree {{ entries {{ name mode oid }} }} }}"
         if alias.startswith("d")
-        else f"{alias}: object(expression: ${alias}) {{ ... on Blob {{ oid text isBinary isTruncated }} }}"
+        else f"{alias}: object(expression: ${alias}) {{ ... on Blob {{ oid byteSize text isBinary isTruncated }} }}"
         for alias in aliases
     )
     return f"query($owner: String!, $name: String!{declared}) {{ repository(owner: $owner, name: $name) {{ {selected} }} }}"
@@ -121,8 +128,12 @@ def base_tree_objects(github: GitHubIntegration, query: str, variables: dict[str
     return repository
 
 
-def blob_text(github: GitHubIntegration, docs_repository: str, blob: object) -> str | None:
+def blob_text(
+    github: GitHubIntegration, docs_repository: str, blob: object, max_text_bytes: int | None = None
+) -> str | None:
     if not isinstance(blob, dict) or blob.get("isBinary"):
+        return None
+    if max_text_bytes is not None and int(blob.get("byteSize") or 0) > max_text_bytes:
         return None
     if blob.get("isTruncated"):
         return full_blob_text(github, docs_repository, str(blob["oid"]))

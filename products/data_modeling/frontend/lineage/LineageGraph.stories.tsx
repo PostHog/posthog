@@ -509,6 +509,55 @@ export const SearchFocus: Story = {
     },
 }
 
+export const TypeFilterKeepsHubs: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': {
+                    count: HIDDEN_TYPES_NODES.length,
+                    results: HIDDEN_TYPES_NODES,
+                },
+                '/api/environments/:team_id/data_modeling_edges/': {
+                    count: HIDDEN_TYPES_EDGES.length,
+                    results: HIDDEN_TYPES_EDGES,
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('weekly_orders')
+        modelsLineageLogic.actions.setTypeFilter(['table', 'view', 'endpoint'])
+        await waitFor(
+            () => {
+                const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
+                const shownIds = [...(graph?.querySelectorAll('.react-flow__node') ?? [])].map(
+                    (node) => node.getAttribute('data-id') ?? ''
+                )
+                if (shownIds.includes('weekly_orders') || shownIds.includes('monthly_report')) {
+                    throw new Error('Hidden node types must leave the graph')
+                }
+                if (
+                    !graph?.querySelector(
+                        '.react-flow__node[data-id="enriched_orders"] [data-attr="lineage-collapsed-node"]'
+                    )
+                ) {
+                    throw new Error('A hidden node that joins many paths must stay as a collapsed hub')
+                }
+            },
+            { timeout: VIEWPORT_SETTLE_MS }
+        )
+    },
+}
+
+export const CatalogTypeFilterKeepsHubs: Story = {
+    ...TypeFilterKeepsHubs,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
+}
+
 export const CatalogDraggableNodes: Story = {
     ...DraggableNodes,
     render: () => <QuillModelsLineageTab />,

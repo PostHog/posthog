@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
+    request_manual_runs,
     resolve_destinations,
     resolve_sync_type,
     self_managed_table_ref,
@@ -528,6 +529,27 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
         if instance.sync_frequency_interval is None:
             raise ValidationError(NO_SYNC_FREQUENCY_ERROR)
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
+
+
+def _sync_now_for_shorter_cadence(instance: ExternalDataSchema) -> None:
+    """Start a sync after the user shortened the cadence, with the same guards as a manual sync.
+
+    The new cadence is already saved and scheduled, so a failed start, including a failed Temporal
+    connection, is logged and does not fail the request. The next scheduled run then syncs the table.
+
+    The status is not set to Running here. A run in failure backoff exits before it creates a job,
+    so only the job-creation activity knows that a sync started.
+    """
+    if manual_sync_refusal(instance.source) is not None or is_any_external_data_schema_paused(instance.team_id):
+        return
+    try:
+        trigger_external_data_workflow(instance)
+    except Exception as e:
+        logger.exception(
+            "Could not start a sync after the sync frequency got shorter",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
 
 
 def resync_schema(instance: ExternalDataSchema) -> Response:
@@ -1011,6 +1033,19 @@ class RowFilterColumnSerializer(serializers.Serializer):
     )
 
 
+LAST_CHECKED_AT_HELP_TEXT = (
+    "When the last successful sync of the source started, including runs that found no new rows. Use this, "
+    "not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every "
+    "run succeeds because the source has nothing new. Null until the first successful sync."
+)
+
+
+def last_checked_at_field() -> serializers.DateTimeField:
+    return serializers.DateTimeField(
+        source="last_check_started_at", read_only=True, allow_null=True, help_text=LAST_CHECKED_AT_HELP_TEXT
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -1120,6 +1155,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    last_checked_at = last_checked_at_field()
     webhook_not_registered = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
@@ -1256,6 +1292,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "live_query_enabled",
             "live_query_unavailable_reason",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "incremental",
             "status",
@@ -1299,6 +1336,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "status",
             "pending_self_managed_table",
@@ -2140,11 +2178,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ):
             sync_frequency = FLOOR_SYNC_FREQUENCY
 
+        sync_frequency_shortened = False
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
             if sync_frequency_interval != instance.sync_frequency_interval:
                 was_sync_frequency_updated = True
+                sync_frequency_shortened = (
+                    sync_frequency_interval is not None
+                    and instance.sync_frequency_interval is not None
+                    and sync_frequency_interval < instance.sync_frequency_interval
+                )
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
 
@@ -2423,6 +2467,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 self._run_temporal_side_effect(cancel_running_import)
                 import_cancelled = True
 
+        # A refresh, a mask rebuild, a CDC re-snapshot or an API version change in the same request already
+        # decides when the table syncs next, so a shorter cadence does not start a second sync.
+        sync_now_for_shorter_cadence = sync_frequency_shortened and not (
+            trigger_refresh
+            or masked_columns_changed
+            or api_version_changed
+            or (
+                is_cdc
+                and "cdc_table_mode" in data
+                and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            )
+        )
+
         if source.supports_scheduled_sync and (
             should_sync is not None
             or was_sync_frequency_updated
@@ -2481,10 +2538,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         sync_external_data_job_workflow(
                             updated_instance, create=False, should_sync=should_sync_value and not reset_pending
                         )
+                        # The re-issued schedule first fires at the next slot of the new cadence, so without
+                        # a trigger a user who shortens the cadence waits up to a full new interval.
+                        if sync_now_for_shorter_cadence and should_sync_value and not reset_pending:
+                            _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
+            request_manual_runs([updated_instance.id], updated_instance.team_id)
             self._run_temporal_side_effect(
                 lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
             )
@@ -2947,6 +3009,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField(
         read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
     )
+    last_checked_at = last_checked_at_field()
 
     class Meta:
         model = ExternalDataSchema
@@ -2958,6 +3021,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "status",
             "sync_type",
             "last_synced_at",
+            "last_checked_at",
             "sync_frequency",
             "latest_error",
             "table",
@@ -3026,6 +3090,7 @@ class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
     """
 
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    last_checked_at = last_checked_at_field()
     latest_error = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
@@ -3036,7 +3101,7 @@ class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSchema
-        fields = ["id", "name", "should_sync", "status", "last_synced_at", "latest_error"]
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "last_checked_at", "latest_error"]
         read_only_fields = fields
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -3069,6 +3134,7 @@ class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
             "sync_type",
             "status",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
         ]
         read_only_fields = fields
@@ -3093,8 +3159,8 @@ class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at "
-            "and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, "
+            "last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
         ),
     )
 
@@ -3167,6 +3233,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
@@ -3225,6 +3297,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return context
         if self._is_compact_list():
             # The compact row reads no columns, so it skips building the HogQL database.
+            return context
+        if self.action == "logs":
             return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
@@ -3387,6 +3461,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
+        request_manual_runs([instance.id], instance.team_id)
         try:
             _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:

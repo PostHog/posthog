@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
@@ -78,6 +79,29 @@ class TestProviderImportsAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
         start_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("restricted_automations", "restricted", "automations", 403),
+            ("granted_automations", "granted", "automations", 400),
+            ("restricted_suppressions", "restricted", "suppressions", 400),
+        ]
+    )
+    def test_importing_automations_follows_property_access(
+        self,
+        _mock_client_class: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        access: PropertyAccess,
+        step: str,
+        expected: int,
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        response = self.client.post(self._url(), {"provider": "resend", "steps": [step], "api_key": "re_key"})
+
+        assert response.status_code == expected, response.json()
+        start_workflow.assert_not_called()
+
     @parameterized.expand([("person_viewer", "viewer", 403), ("person_editor", "editor", 400)])
     def test_importing_contacts_needs_person_edit_access(
         self,
@@ -109,6 +133,27 @@ class TestProviderImportsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [step["key"] for step in response.json()[0]["steps"]] == ["contacts"]
+
+    def test_the_list_leaves_out_items_that_getting_the_run_returns(
+        self, _mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        items = [{"label": f"Template {i}", "status": "created", "url": None, "notes": ["Check it."]} for i in range(3)]
+        run = ProviderImportRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            provider="customerio",
+            steps=["suppressions"],
+            status="completed",
+            progress={"suppressions": {"status": "completed", "items": items, "items_omitted": 7}},
+        )
+
+        listed = self.client.get(self._url()).json()[0]["steps"][0]
+        detail = self.client.get(f"{self._url()}{run.id}/").json()["steps"][0]
+
+        assert (listed["items"], listed["items_omitted"]) == ([], 10)
+        assert ([item["label"] for item in detail["items"]], detail["items_omitted"]) == (
+            ["Template 0", "Template 1", "Template 2"],
+            7,
+        )
 
     @parameterized.expand(
         [
@@ -186,7 +231,7 @@ class TestProviderImportsAPI(APIBaseTest):
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
 class TestProviderImportFlag(APIBaseTest):
-    @parameterized.expand([("resend",), ("postmark",)])
+    @parameterized.expand([("resend",), ("postmark",), ("mailchimp",)])
     def test_a_flagged_provider_stays_hidden_and_refused_while_its_flag_is_off(
         self, _flag: MagicMock, provider: str
     ) -> None:
@@ -214,3 +259,22 @@ class TestProviderImportFlag(APIBaseTest):
         assert any("names on the email preferences page" in step for step in mailgun["next_steps"])
         assert response.status_code == 400
         assert "Mailgun region" in response.json()["detail"]
+
+    def test_mailgun_contacts_need_their_own_flag(self, flag: MagicMock) -> None:
+        flag.side_effect = lambda key, *_args, **_kwargs: key == "workflows-mailgun-import"
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+
+        [mailgun] = [row for row in self.client.get(f"{url}providers/").json() if row["key"] == "mailgun"]
+        response = self.client.post(
+            url,
+            {
+                "provider": "mailgun",
+                "steps": ["bounces", "complaints", "unsubscribes", "mailing_lists", "contacts"],
+                "settings": {"region": "us"},
+                "api_key": "key",
+            },
+        )
+
+        assert not {"contacts", "new_people"} & {step["key"] for step in mailgun["steps"]}
+        assert response.status_code == 400
+        assert "no step named contacts" in response.json()["detail"]
