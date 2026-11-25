@@ -4,9 +4,6 @@ import { getToolDefinitions } from '@/tools/toolDefinitions'
 
 // Read-only connections and client write gates trust `readOnlyHint`, so each read-only tool needing a write scope is reviewed here.
 const REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS: Record<string, string> = {
-    'external-data-schemas-destinations-retrieve':
-        'GET; the write scope belongs to the PATCH on the same action. It may create the default warehouse row, which every sync creates anyway',
-    'external-data-sources-destinations-retrieve': 'GET; the write scope belongs to the PATCH on the same action',
     'feature-flags-copy-dependencies-check': 'Previews a copy and saves nothing; scoped like the copy it previews',
     'file-download-batch-exports-count-rows-create': 'Counts rows only; the write scope guards query cost',
     'inbox-my-settings-get': 'GET; the view applies user:write to every method',

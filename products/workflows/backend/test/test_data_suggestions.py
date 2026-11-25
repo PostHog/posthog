@@ -1,12 +1,15 @@
 import uuid
 from typing import Any, get_args
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
 from parameterized import parameterized
 
+from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
 from products.messaging.backend.facade.api import EmailTemplateContent
@@ -598,3 +601,54 @@ class TestDataSuggestions(SimpleTestCase):
     def test_fallback_patterns_put_lifecycle_events_first(self, _name: str, event: str, first: bool) -> None:
         selected = select_prompt_events({"busy_usage": 5000, event: 10}, limit=2)
         assert (selected[0][0] == event) is first
+
+
+@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "direct-api-key"})
+class TestInvokeStructuredFailures(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "gateway credit refusal",
+                402,
+                "billing_error",
+                {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"},
+                False,
+            ),
+            ("provider billing block", 402, "billing_error", {}, True),
+            ("bad request", 400, "invalid_request_error", {}, True),
+        ]
+    )
+    def test_a_failed_call_reaches_error_tracking_unless_the_gateway_refused_it_for_credits(
+        self, _name: str, status: int, error_type: str, headers: dict[str, str], captured: bool
+    ) -> None:
+        hosts: list[str] = []
+
+        def respond(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+            hosts.append(request.url.host)
+            body = {"type": "error", "error": {"type": error_type, "message": "refused"}}
+            return httpx.Response(status, headers=headers, json=body, request=request)
+
+        with (
+            patch(
+                "ee.hogai.llm.resolve_ai_gateway_config",
+                return_value=AIGatewayConfig(url="https://ai-gateway.test/v1", api_key="phs_gateway"),
+            ),
+            patch.object(httpx.HTTPTransport, "handle_request", autospec=True, side_effect=respond),
+            patch("posthoganalytics.api_key", "phc_test"),
+            patch("posthoganalytics.capture_exception", return_value=None) as error_tracking,
+        ):
+            result = invoke_structured(
+                team=self.team,
+                user=self.user,
+                model="claude-sonnet-4-6",
+                effort="low",
+                feature="test",
+                schema=PlannedWorkflow,
+                system="",
+                human="",
+                excluded_values=frozenset(),
+            )
+
+        assert result is None
+        assert hosts[0] == "ai-gateway.test"
+        assert error_tracking.called is captured

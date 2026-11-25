@@ -43,8 +43,11 @@ _NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 CONTACT_COUNT_LABELS = (
     ("people", "Contacts sent to PostHog"),
     ("new_people", "New people"),
+    ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
+    ("repeats_merged", "Repeated addresses merged"),
+    ("invalid_skipped", "Invalid addresses skipped"),
 )
 
 
@@ -62,6 +65,8 @@ class ContactList:
     empty_note: str = "No contacts to import."
     # Lowercased addresses whose people stay out of the cohort, such as contacts who unsubscribed.
     non_members: frozenset[str] = frozenset()
+    repeats_merged: int = 0
+    invalid_skipped: int = 0
 
 
 def new_people_step(provider_label: str) -> ImportStepSpec:
@@ -70,10 +75,11 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
         label="New people from contacts",
         description=(
             f"Creates a person for each {provider_label} contact whose email matches no one in PostHog, with the "
-            "email as their ID. Needs Contacts selected too. Each new person counts as one event. If your app "
-            "identifies people by another ID, it should also set their email, or PostHog keeps two people for them."
+            "email as their ID. Needs Contacts selected too. If your app identifies people by another ID, it should "
+            "also set their email, or PostHog keeps two people for them."
         ),
         needs=("contacts",),
+        counts_as_events=True,
     )
 
 
@@ -90,10 +96,13 @@ class ContactCollector:
         self._spellings: dict[str, set[str]] = {}
         self._memberships = 0
         self._bytes = 0
+        self.repeats_merged = 0
+        self.invalid_skipped = 0
 
     def add(self, email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
         address = exact_email(email)
         if address is None:
+            self.invalid_skipped += 1
             return None
         self._memberships += 1
         if self._memberships > MAX_CONTACT_MEMBERSHIPS:
@@ -102,11 +111,13 @@ class ContactCollector:
         if row is None:
             row = self._rows[address.lower()] = {"email": address}
             self._bytes += _row_bytes(row)
-        elif address != row["email"]:
-            spellings = self._spellings.setdefault(address.lower(), {row["email"]})
-            if address not in spellings:
-                spellings.add(address)
-                self._bytes += len(address.encode())
+        else:
+            self.repeats_merged += 1
+            if address != row["email"]:
+                spellings = self._spellings.setdefault(address.lower(), {row["email"]})
+                if address not in spellings:
+                    spellings.add(address)
+                    self._bytes += len(address.encode())
         self._bytes += _add_properties(row, properties)
         if self._bytes > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
@@ -179,9 +190,16 @@ def save_contact_lists(
             error=f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}",
         )
     notes = _notes(everyone, result)
+    if merged := everyone.repeats_merged:
+        notes.append(
+            f"{_contacts(merged)} had the same email as another contact, ignoring capital letters and spaces, so "
+            f"{_they(merged)} merged with that contact."
+        )
+    if invalid := everyone.invalid_skipped:
+        notes.append(f"{_contacts(invalid)} had no valid email, so {_they(invalid)} skipped.")
     if result.people:
         notes.append(
-            f"{_contacts(result.people)} sent, {result.new_people:,} of them new people. This cohort and the ones "
+            f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
             "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
             "Anyone no longer on a list leaves its cohort."
         )
@@ -203,12 +221,13 @@ def save_contact_lists(
             list_notes.append(f"{_match_no_one(list_result.skipped_new_people)}, so they aren't here.")
         items.append(_item(contact_list, list_result, tuple(list_notes)))
     return SavedPage(
-        imported=result.people,
+        imported=0,
         counts={
-            "people": result.people,
-            "new_people": result.new_people,
+            "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
             "dropped": result.dropped,
+            "repeats_merged": everyone.repeats_merged,
+            "invalid_skipped": everyone.invalid_skipped,
         },
         items=tuple(items),
         people_imports=tuple(plan for plan in plans if plan is not None),
@@ -247,6 +266,10 @@ def _notes(contact_list: ContactList, result: ProviderContactsResult) -> list[st
 
 def _contacts(count: int) -> str:
     return f"{count:,} contact" if count == 1 else f"{count:,} contacts"
+
+
+def _they(count: int) -> str:
+    return "it was" if count == 1 else "they were"
 
 
 def _match_no_one(count: int) -> str:

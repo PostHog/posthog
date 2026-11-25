@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, OAuthRefreshToken
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
@@ -148,13 +148,16 @@ class TestOAuthApplicationConsole(BaseTest):
 
     def test_removing_a_partner_turns_provisioning_off(self) -> None:
         app = self._app(config=ProvisioningConfig(active=True))
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
 
         response = self._post(app, "provisioning/capabilities", {"reason": "No longer a partner"})
 
         assert response.status_code == 302, response.content
         app.refresh_from_db()
+        refresh_token.refresh_from_db()
         assert app.is_provisioning_partner is False
         assert app.provisioning.active is False
+        assert refresh_token.revoked is not None
 
     def test_a_partner_that_already_cannot_sign_stays_editable(self) -> None:
         app = self._app(config=ProvisioningConfig(can_create_accounts=True))

@@ -29,6 +29,7 @@ from products.workflows.backend.facade.contracts import (
     ContactsCohortFilled,
     ContactsCohortGone,
     ContactsImportAccessLost,
+    ContactsPartMissing,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -123,18 +124,21 @@ def stage_provider_contacts(
         )
 
     storage_prefix = f"{_STORAGE_FOLDER}/team-{team_id}/{import_key}"
+    existing = existing_distinct_ids(team_id, [person["distinct_id"] for person in people])
+    for person in people:
+        if person["distinct_id"] not in existing:
+            person["new"] = True
     chunks = 0
     for chunks, start in enumerate(range(0, len(people), CONTACT_CHUNK_SIZE), start=1):
         object_storage.write(
             _chunk_key(storage_prefix, chunks - 1), json.dumps(people[start : start + CONTACT_CHUNK_SIZE])
         )
-    existing = existing_distinct_ids(team_id, [person["distinct_id"] for person in people])
     return ProviderContactsResult(
         status="created" if people else "skipped",
         cohort_id=cohort.cohort_id,
         cohort_name=cohort.name,
         people=len(people),
-        new_people=sum(1 for person in people if person["distinct_id"] not in existing),
+        new_people=sum(1 for person in people if person.get("new")),
         skipped_new_people=skipped_new_people,
         dropped=dropped,
         person_emails=tuple(sorted(person_emails)),
@@ -201,7 +205,13 @@ def _check_creator(team_id: int, user_id: int | None) -> _Creator | ProviderCont
 
 
 def import_contact_chunk(
-    team_id: int, storage_prefix: str, chunk: int, *, send_events: bool, created_by_id: int | None
+    team_id: int,
+    storage_prefix: str,
+    chunk: int,
+    *,
+    send_events: bool,
+    created_by_id: int | None,
+    wait_for_people: bool = True,
 ) -> ContactChunkOutcome:
     """Send one stored part's events, then wait until ingestion has created its people.
 
@@ -209,16 +219,18 @@ def import_contact_chunk(
     """
     _require_creator(team_id, created_by_id)
     key = _chunk_key(storage_prefix, chunk)
-    people = read_people(key)
-    if send_events and people:
+    people = _read_chunk(key)
+    if send_events:
         _send(Team.objects.get(id=team_id), people, key)
     distinct_ids = [person["distinct_id"] for person in people]
     deadline = time.monotonic() + WAIT_FOR_PEOPLE_SECONDS
     delay = WAIT_FIRST_DELAY_SECONDS
     while True:
         found = existing_distinct_ids(team_id, distinct_ids)
-        if len(found) >= len(distinct_ids) or time.monotonic() >= deadline:
-            return ContactChunkOutcome(people=len(people), found=len(found))
+        if not wait_for_people or len(found) >= len(distinct_ids) or time.monotonic() >= deadline:
+            return ContactChunkOutcome(
+                people=len(people), found=len(found), new_people=sum(1 for person in people if person.get("new"))
+            )
         time.sleep(delay)
         delay = min(delay * 2, WAIT_MAX_DELAY_SECONDS)
 
@@ -243,7 +255,12 @@ def _send(team: Team, people: list[StagedPerson], key: str) -> None:
             object_storage.write(acknowledged_key, json.dumps(sorted(acknowledged)))
         events = [event for event in events if event["event_uuid"] in unacknowledged]
     if events:
-        raise ContactsCaptureFailed(f"Capture didn't acknowledge {len(events)} events.")
+        new = {event["event_uuid"] for event, person in zip(set_events(people, key), people) if person.get("new")}
+        raise ContactsCaptureFailed(
+            f"Capture didn't acknowledge {len(events)} events.",
+            acknowledged=len(acknowledged),
+            new_people=len(acknowledged & new),
+        )
 
 
 def fill_contacts_cohort(
@@ -266,7 +283,7 @@ def fill_contacts_cohort(
     members = [
         person["distinct_id"]
         for chunk in range(chunks)
-        for person in read_people(_chunk_key(storage_prefix, chunk))
+        for person in _read_chunk(_chunk_key(storage_prefix, chunk))
         if person.get("member", True)
     ]
     replaced = replace_static_cohort_members(team_id=team_id, cohort_id=cohort_id, distinct_ids=members)
@@ -296,6 +313,14 @@ def staged_contact_imports() -> set[tuple[int, str]]:
         if team.startswith("team-") and team[5:].isdigit() and import_run:
             found.add((int(team[5:]), import_run))
     return found
+
+
+def _read_chunk(key: str) -> list[StagedPerson]:
+    people = read_people(key)
+    # A stored part is never empty. Reading a missing one as no people would remove its people from their cohort.
+    if not people:
+        raise ContactsPartMissing("A stored part of this contact list is missing.")
+    return people
 
 
 def _chunk_key(storage_prefix: str, chunk: int) -> str:

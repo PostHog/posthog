@@ -15,8 +15,8 @@ from django.utils.text import slugify
 
 import structlog
 from rest_framework import exceptions
-from two_factor.utils import default_device
 
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.two_factor_session import has_passkeys
+from posthog.helpers.normal_login import normal_login_required_reason
 from posthog.integrations import CrossTeamFilter, IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -55,6 +55,8 @@ VercelItemType = Literal["flag", "experiment"]
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
+SSO_VERIFY_EMAIL_REASON = "vercel_sso"
+
 
 class VercelSSOError(Exception):
     pass
@@ -67,6 +69,14 @@ class RequiresExistingUserLogin(Exception):
         self.installation_id = installation_id
         self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
+
+
+class RequiresEmailVerification(Exception):
+    def __init__(self, user: User, installation_id: str, email_verified: bool | None):
+        self.user = user
+        self.installation_id = installation_id
+        self.email_verified = email_verified
+        super().__init__(f"User {user.pk} must verify their email first")
 
 
 class SSOLoginRefused(Exception):
@@ -360,7 +370,7 @@ class VercelIntegration:
                 organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
 
-            existing_user = User.objects.filter(email=config.account.contact.email).first()
+            existing_user = EmailLookupHandler.get_user_by_email(config.account.contact.email, is_active=None)
 
             if existing_user:
                 user = existing_user
@@ -983,10 +993,9 @@ class VercelIntegration:
             return "email_unverified"
         if not VercelIntegration._claims_prove_email(claims, user.email):
             return "email_mismatch"
-        if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
-            return "two_factor_required"
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
-            return "sso_enforced"
+        normal_login_reason = normal_login_required_reason(user)
+        if normal_login_reason is not None:
+            return normal_login_reason
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
             return "domain_blocked"
         return None
@@ -1000,9 +1009,21 @@ class VercelIntegration:
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
         if resource_id:
             VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
+
+        if user.is_email_verified is not True:
+            # Only a new account gets here, because the other branches require the claim to prove the email.
+            # This gate ignores the email-verification-disabled flag and an instance without email, which
+            # password login honors. The Vercel claim is the only proof of the address. A session for an
+            # unproven address lets an attacker pre-create the account, and a later social login by the
+            # real owner links to that account while the attacker's session stays live.
+            raise RequiresEmailVerification(
+                user, installation_id=claims.installation_id, email_verified=claims.user_email_verified
+            )
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return user
 
     @staticmethod
@@ -1135,6 +1156,30 @@ class VercelIntegration:
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
+    def _verify_email_redirect(blocked: RequiresEmailVerification, next_url: str) -> str:
+        email_sent = True
+        try:
+            email_verification_code_verifier.send_code(blocked.user)
+        except Exception:
+            # The login stays blocked when the send fails, because the verify-email page can send a new code.
+            email_sent = False
+
+        logger.info(
+            "Vercel SSO new user needs email verification",
+            installation_id=blocked.installation_id,
+            user_id=blocked.user.pk,
+            email_verified=blocked.email_verified,
+            email_sent=email_sent,
+            method="verify_email_flow",
+            integration="vercel",
+        )
+
+        params = {"reason": SSO_VERIFY_EMAIL_REASON, "next": next_url}
+        if not email_sent:
+            params["email_sent"] = "false"
+        return f"/verify_email/{blocked.user.uuid}?{urlencode(params)}"
+
+    @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
         claims: VercelClaims | None = None
         try:
@@ -1183,6 +1228,14 @@ class VercelIntegration:
                 integration="vercel",
             )
             return login_url
+        except RequiresEmailVerification as e:
+            next_url = VercelIntegration.determine_sso_redirect(
+                path=params.path,
+                url=params.url,
+                experimentation_item_id=params.experimentation_item_id,
+                user=e.user,
+            )
+            return VercelIntegration._verify_email_redirect(e, next_url)
         except SSOLoginRefused:
             return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:

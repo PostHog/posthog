@@ -6,8 +6,8 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-// A rule reads only the first exception of a new issue, so the preview counts the first exception of each issue first
-// seen in the window. An issue is as old as its oldest fingerprint, because a merge keeps each fingerprint's own
+// When an issue is created, a rule reads only its first exception, so the preview counts the first exception of each
+// issue first seen in the window. The preview does not count the issues that the daily sweep tags later. An issue is as old as its oldest fingerprint, because a merge keeps each fingerprint's own
 // first_seen. dateRange is one of '-7d', '-30d' and '-90d'.
 export function firstExceptionOfNewIssue(dateRange: string): string {
     const since = `now() - INTERVAL ${Number(dateRange.slice(1, -1))} DAY`

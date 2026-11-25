@@ -18,6 +18,32 @@ const card = {
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
 
+const overTheLimit = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 41, for: '15s' },
+        ],
+    },
+}
+
+const emailRamp = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 12, for: '15s' },
+        ],
+    },
+}
+
+const emailLoad = { targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }
+
+const sesSettings = { CDP_SES_RATE_LIMIT_CAPACITY: '500' }
+
 const TWICE_DECLARED_BARS = [
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
     { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
@@ -65,7 +91,7 @@ describe('load', () => {
         throw new Error('the card loaded')
     }
 
-    it.each<[string, object | string, object | string | undefined, string]>([
+    it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
         [
@@ -208,6 +234,12 @@ describe('load', () => {
             undefined,
             'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         ],
+        ...['role.kill', 'role.freeze'].map((valve): [string, object, object, string] => [
+            `${valve} on cdp-api while the profile runs more than one cdp-api`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target: 'cdp-api' }] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+            `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -303,12 +335,6 @@ describe('load', () => {
             'profile.settings.toString: not a setting the roles or the load producer read',
         ],
         [
-            'a second cdp-api, which no offer would reach',
-            card,
-            { ...profile, replicas: { 'cdp-api': 2 } },
-            'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
-        ],
-        [
             'a backlog whose state sizes shrink toward p99',
             card,
             {
@@ -377,8 +403,66 @@ describe('load', () => {
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
             'profile: Alias resolution is disabled',
         ],
+        [
+            "an event load whose top step passes 80% of one workflow's rate limit",
+            overTheLimit,
+            undefined,
+            'setup.teams: event_email sends 82 units a second to each team',
+        ],
+        [
+            'an event kind listed twice, which seeds two workflows that both match its events',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'event_email' }, { name: 'event_email' }],
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 21, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.traffic: event_email is listed 2 times; list each traffic kind once',
+        ],
+        [
+            "an email load whose top step passes half of the SES limiter's refill",
+            emailRamp,
+            { ...profile, settings: sesSettings, load: emailLoad },
+            'profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to 53 jobs a second at the 12x step, over 50, 50% of the SES limiter refill; raise it to 106 or more',
+        ],
+        [
+            'an SES limiter capacity under one batch for every email replica',
+            card,
+            {
+                ...profile,
+                settings: { ...sesSettings, CONSUMER_BATCH_SIZE: '100' },
+                replicas: { 'cdp-cyclotron-worker-email': 6 },
+                load: emailLoad,
+            },
+            'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 500 cannot hold one batch for every email replica (6) at once; raise it to 600 or more',
+        ],
+        [
+            'a load block without an email claim target on a card that sends email',
+            card,
+            {
+                ...profile,
+                settings: sesSettings,
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
+            'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+        ],
+        [
+            'a load block without an email claim target and an SES limiter capacity under one batch',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },
+            [
+                'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+                'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 50 cannot hold one batch for every email replica (1) at once; raise it to 500 or more',
+            ],
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
-        expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+        expect(problemsOf(content, profileContent)).toEqual([problem].flat().map((one) => expect.stringContaining(one)))
     })
 
     const devCard = {
@@ -545,6 +629,73 @@ describe('load', () => {
         ["settings for the runner's load producer", { KAFKA_PRODUCER_LINGER_MS: '100' }],
     ])('accepts %s', (_name, settings) => {
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
+    })
+
+    it.each<[string, object, object]>([
+        ['an event load spread over enough teams', { ...overTheLimit, setup: { teams: 2 } }, profile],
+        [
+            'an event load under a rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '1000' } },
+        ],
+        [
+            'an event load under a quoted rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '"1000"' } },
+        ],
+        [
+            'a transactional load, which no workflow rate limit slows',
+            {
+                ...overTheLimit,
+                drive: { ...overTheLimit.drive, traffic: [{ name: 'transactional_email' }] },
+                invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
+            },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+        ],
+        [
+            'an email load under half of a refill the profile raises',
+            emailRamp,
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '120' },
+                load: emailLoad,
+            },
+        ],
+        [
+            'an email load at exactly half of the refill',
+            {
+                ...emailRamp,
+                drive: {
+                    ...emailRamp.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 10, for: '15s' },
+                    ],
+                },
+            },
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '110' },
+                load: { targets: { claimsPerSecond: { email: 5 } }, tolerance: 0.1 },
+            },
+        ],
+        [
+            'a load block on a card that sends no email, which the SES limiter never slows',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'event_webhook' }] } },
+            {
+                ...profile,
+                traffic: { event_webhook: { ratePerSecond: 2 } },
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
+        ],
+        ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
+        [
+            'a kill valve on another role while the profile runs more than one cdp-api',
+            { ...card, valves: [emailWorkerKill] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+        ],
+    ])('loads %s', (_name, content, profileContent) => {
+        expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
 
     const settings = { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: '10000', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }

@@ -1768,6 +1768,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -3937,6 +3939,8 @@ export interface CustomerTaskApi {
     readonly can_edit: boolean
     /** Whether the current user can restore this task. */
     readonly can_restore: boolean
+    /** Tag names on the task, sorted alphabetically. */
+    readonly tags: readonly string[]
 }
 
 export interface CustomerTaskPageApi {
@@ -3989,6 +3993,12 @@ export interface CustomerTaskCreateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Tag names for the task, up to 100.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface CustomerTaskUpdateApi {
@@ -4014,6 +4024,12 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * Replacement task name.
      * @maxLength 400
@@ -4050,6 +4066,12 @@ export interface PatchedCustomerTaskUpdateApi {
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
     /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -4080,12 +4102,12 @@ export const CustomerTaskActivityTypeEnumApi = {
 /**
  * Value before the change.
  */
-export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 /**
  * Value after the change.
  */
-export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 export interface CustomerTaskChangeApi {
     /** Semantic task field that changed. */
@@ -4131,6 +4153,19 @@ export interface CustomerTaskActivityPageApi {
     readonly results: readonly CustomerTaskActivityApi[]
 }
 
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
 export interface CustomerTaskBulkPatchApi {
     /**
      * UUID of a visible account, or null to remove the account link.
@@ -4154,8 +4189,20 @@ export interface CustomerTaskBulkPatchApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Archive tasks when true, or restore them when false. */
     archived?: boolean
+    /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    tags_mode?: BulkUpdateTagsActionEnumApi
 }
 
 export interface CustomerTaskBulkUpdateApi {
@@ -5099,6 +5146,67 @@ export interface PinnedAccountPropertyApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `role` - Role
+ * * `project` - Project
+ */
+export type PinnedAccountPropertiesSourceKindEnumApi =
+    (typeof PinnedAccountPropertiesSourceKindEnumApi)[keyof typeof PinnedAccountPropertiesSourceKindEnumApi]
+
+export const PinnedAccountPropertiesSourceKindEnumApi = {
+    Personal: 'personal',
+    Role: 'role',
+    Project: 'project',
+} as const
+
+export interface PinnedAccountPropertiesRoleApi {
+    /** Organization role UUID. */
+    readonly id: string
+    /** Organization role name. */
+    readonly name: string
+}
+
+export interface PinnedAccountPropertiesSourceApi {
+    /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+     *
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project */
+    readonly kind: PinnedAccountPropertiesSourceKindEnumApi
+    /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+    readonly roles: readonly PinnedAccountPropertiesRoleApi[]
+}
+
+/**
+ * * `project` - Project
+ * * `role` - Role
+ */
+export type DefaultPinnedAccountPropertiesSourceKindEnumApi =
+    (typeof DefaultPinnedAccountPropertiesSourceKindEnumApi)[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnumApi]
+
+export const DefaultPinnedAccountPropertiesSourceKindEnumApi = {
+    Project: 'project',
+    Role: 'role',
+} as const
+
+export interface DefaultPinnedAccountPropertiesSourceApi {
+    /** Whether this default option is the project default or a role default.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    readonly kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /** Role this default belongs to when kind is role, or null for the project default. */
+    readonly role: PinnedAccountPropertiesRoleApi | null
+}
+
+export interface AvailableDefaultPinnedAccountPropertiesApi {
+    /** Which default this entry represents. */
+    readonly source: DefaultPinnedAccountPropertiesSourceApi
+    /** Ordered account properties saved for this default. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+/**
  * * `weekdays` - Weekdays
  * * `every_day` - Every day
  */
@@ -5136,10 +5244,27 @@ export interface AccountDetailTabsConfigApi {
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+    readonly pinned_properties_source: PinnedAccountPropertiesSourceApi
+    /** Project and role defaults the requesting user can reset their pinned properties to. */
+    readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountPropertiesApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
     /** Personal order, visibility, and default for account tabs. */
     readonly account_detail_tabs: AccountDetailTabsConfigApi
+}
+
+export interface FollowedDefaultPinnedPropertiesApi {
+    /** Follow the project default or the default of one of the requesting user's roles.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /**
+     * Role whose default to follow. Required when kind is role.
+     * @nullable
+     */
+    role_id?: string | null
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -5157,6 +5282,8 @@ export interface TaskDigestPreferencesUpdateApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+    followed_default?: FollowedDefaultPinnedPropertiesApi
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
     /** Complete personal account tab configuration. Omit to keep it unchanged. */
@@ -5666,6 +5793,12 @@ export type CustomerTasksListParams = {
      * @minLength 1
      */
     statuses?: string
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string
 }
 
 export type CustomerTasksListArchiveState =

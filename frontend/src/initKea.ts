@@ -111,6 +111,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRelease: 'products.notebooks.appBuilder.notebookAppViewerLogic',
+    refresh: 'products.notebooks.appBuilder.notebookAppViewerLogic',
     loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
@@ -124,6 +126,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
     loadImpact: 'products.workflows.frontend.Transactional.impact.emailImpactLogic', // The funnel card shows its own retry
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic', // The logic toasts its own load failure
     // The import window shows the refusal, and the run list keeps polling with its own retry
     startImport: 'products.workflows.providerImportLogic',
     loadImportRuns: 'products.workflows.providerImportLogic',
@@ -131,9 +134,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
-    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     // The AI visibility filter bar shows a retry in place of the topic filter
@@ -158,8 +158,11 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadDistributedTraceId: 'products.ai_observability.frontend.redesign.trace.traceDistributedTraceLogic', // The trace header shows no link when the read fails
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
+    loadMetrics: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home shows the error, or the range banner
+    loadDashboardId: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home hides the dashboard link
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
@@ -212,6 +215,8 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The workflow scene and the notebook node views that show the workflow render NotFound
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
+    loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
@@ -240,9 +245,9 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
 /*
-Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
-response to user input, such as a malformed CSV, so it is not reported as an exception.
-Every other failure on these actions still toasts and reports.
+Actions whose owning logic shows the server message of a validation 400, in a toast or inline. The
+400 is a response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions goes through the generic handling below.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
@@ -252,6 +257,9 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
     startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
+    // The evaluation preview shows why the server rejected the sampling, Hog code or judge setting
+    loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
+    testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
 }
 
 /*
@@ -279,9 +287,26 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateCurrentProject: 'scenes.projectLogic',
 }
 
+/*
+Loads whose owning logic renders a 403 of any code as an access-denied state and stops asking again.
+A 403 can arrive without the `permission_denied` code, for example with an empty body, so
+`shouldReportApiFailure` would still report it.
+*/
+const PIPELINE_OVERVIEW_LOGIC_PATH =
+    'products.warehouse_sources.frontend.scenes.PipelineOverviewScene.pipelineOverviewSceneLogic'
+const FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadJobStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRowsStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadHealthIssues: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRecentRuns: PIPELINE_OVERVIEW_LOGIC_PATH,
+}
+
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
     if (GITHUB_SETUP_ERROR_CODES.has(error?.code)) {
         return isOwnedByLogic(GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 403 && isOwnedByLogic(FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) {
+        return true
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }

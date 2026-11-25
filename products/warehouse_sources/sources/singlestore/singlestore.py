@@ -3,11 +3,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from jsonpath_ng import DatumInContext, JSONPath
+from requests import Response
 
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
+    Endpoint,
     IncrementalConfig,
+    JSONResponseCursorPaginator,
     Resource,
     RESTAPIConfig,
     RESTClient,
@@ -18,6 +21,7 @@ from products.warehouse_sources.sources.sdk import (
     validate_via_probe,
 )
 from products.warehouse_sources.sources.singlestore.settings import (
+    AUDIT_LOGS_ENDPOINT,
     BILLING_USAGE_AGGREGATE_BY,
     BILLING_USAGE_DEFAULT_LOOKBACK_DAYS,
     BILLING_USAGE_ENDPOINT,
@@ -27,7 +31,12 @@ from products.warehouse_sources.sources.singlestore.settings import (
     SinglestoreEndpointConfig,
 )
 
-SINGLESTORE_BASE_URL = "https://api.singlestore.com/v1"
+SINGLESTORE_API_ROOT = "https://api.singlestore.com"
+SINGLESTORE_BASE_URL = f"{SINGLESTORE_API_ROOT}/v1"
+
+# Lower bound for the first incremental `audit_logs` sync: the framework always sends `startDate`
+# once an incremental config is set, so a missing watermark needs an explicit "from the start".
+AUDIT_LOGS_EARLIEST_START = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
@@ -53,9 +62,9 @@ def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def _client_config(api_key: str) -> ClientConfig:
+def _client_config(api_key: str, api_version: str = "v1") -> ClientConfig:
     return {
-        "base_url": SINGLESTORE_BASE_URL,
+        "base_url": f"{SINGLESTORE_API_ROOT}/{api_version}",
         # Framework auth so the key is redacted from logs and raised error messages.
         "auth": {"type": "bearer", "token": api_key},
         "headers": {"Accept": "application/json"},
@@ -199,6 +208,62 @@ def _billing_usage_resource(
     )
 
 
+class _AuditLogsPaginator(JSONResponseCursorPaginator):
+    """`nextToken` body cursor that also stops on an empty page. The API documents the token as a
+    marker for "entries newer than this query", so it can still be present after the last page.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="nextToken", cursor_param="nextToken")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        previous_cursor = self._cursor_value
+        super().update_state(response, data)
+        if not data or self._cursor_value == previous_cursor:
+            self._has_next_page = False
+
+
+def _audit_logs_resource(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    endpoint: Endpoint = {
+        "path": SINGLESTORE_ENDPOINTS[AUDIT_LOGS_ENDPOINT].path,
+        "data_selector": "auditLogs",
+        "paginator": _AuditLogsPaginator(),
+    }
+    if should_use_incremental_field:
+        incremental: IncrementalConfig = {
+            "start_param": "startDate",
+            "cursor_path": "createdAt",
+            "initial_value": _format_billing_timestamp(AUDIT_LOGS_EARLIEST_START),
+            "convert": _format_billing_timestamp,
+        }
+        endpoint["incremental"] = incremental
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resources": [
+            {
+                "name": AUDIT_LOGS_ENDPOINT,
+                "table_format": "delta",
+                "write_disposition": (
+                    {"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace"
+                ),
+                "endpoint": endpoint,
+            }
+        ],
+    }
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value=(db_incremental_field_last_value if should_use_incremental_field else None),
+    )
+
+
 def singlestore_source(
     api_key: str,
     endpoint: str,
@@ -208,15 +273,20 @@ def singlestore_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SINGLESTORE_ENDPOINTS[endpoint]
+    client = _client_config(api_key, config.api_version)
 
     if endpoint == WORKSPACES_ENDPOINT:
         resource = _workspaces_resource(api_key)
     elif endpoint == BILLING_USAGE_ENDPOINT:
         resource = _billing_usage_resource(
-            _client_config(api_key), team_id, job_id, should_use_incremental_field, db_incremental_field_last_value
+            client, team_id, job_id, should_use_incremental_field, db_incremental_field_last_value
+        )
+    elif endpoint == AUDIT_LOGS_ENDPOINT:
+        resource = _audit_logs_resource(
+            client, team_id, job_id, should_use_incremental_field, db_incremental_field_last_value
         )
     else:
-        resource = _list_resource(config, _client_config(api_key), team_id, job_id)
+        resource = _list_resource(config, client, team_id, job_id)
 
     return SourceResponse(
         name=endpoint,
@@ -225,5 +295,6 @@ def singlestore_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # No `sort_mode`: billing_usage rows come in one group per metric, so `startTime` has no order.
+        # No `sort_mode`: billing_usage rows come in one group per metric, so `startTime` has no order,
+        # and the audit log order without `sortByDescending` is not documented.
     )

@@ -13,7 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.sources.travis_ci.settings import TRAVIS_CI_ENDPOINTS
+from products.warehouse_sources.sources.travis_ci.settings import TRAVIS_CI_ENDPOINTS, TravisCIEndpointConfig
 
 TRAVIS_CI_BASE_URL = "https://api.travis-ci.com"
 TRAVIS_CI_HOST = urlsplit(TRAVIS_CI_BASE_URL).netloc
@@ -163,7 +163,10 @@ def _iter_collection(
     shape the first request. ``start_path`` (a saved next href) replaces the first page when
     resuming.
     """
-    page_path = start_path if start_path is not None else f"{path}?{urlencode(params)}"
+    if start_path is not None:
+        page_path = start_path
+    else:
+        page_path = f"{path}?{urlencode(params)}" if params else path
     pages_fetched = 0
 
     while True:
@@ -202,8 +205,18 @@ def _list_repository_ids(session: requests.Session, headers: dict[str, str], log
     return repository_ids
 
 
+def _first_page_params(config: TravisCIEndpointConfig) -> dict[str, Any]:
+    if not config.paginated:
+        return dict(config.extra_params)
+    return {"limit": PAGE_SIZE, **config.extra_params}
+
+
+def _is_forbidden(error: requests.HTTPError) -> bool:
+    return error.response is not None and error.response.status_code == 403
+
+
 def _rows_for_page(
-    embedded_collection_key: str | None, repository_id: int, items: list[dict[str, Any]], watermark: int | None
+    config: TravisCIEndpointConfig, repository_id: int, items: list[dict[str, Any]], watermark: int | None
 ) -> tuple[list[dict[str, Any]], bool]:
     """Shape one fan-out page into rows, returning ``(rows, reached_watermark)``.
 
@@ -213,13 +226,15 @@ def _rows_for_page(
     rows: list[dict[str, Any]] = []
     reached_watermark = False
 
-    if embedded_collection_key is not None:
-        for build in items:
-            if watermark is not None and build["id"] <= watermark:
+    if config.embedded_collection_key is not None:
+        for parent in items:
+            if watermark is not None and parent["id"] <= watermark:
                 reached_watermark = True
                 break
-            for embedded in build.get(embedded_collection_key) or []:
-                rows.append({**_strip_meta(embedded), "build_id": build["id"], "repository_id": repository_id})
+            for embedded in parent.get(config.embedded_collection_key) or []:
+                rows.append(
+                    {**_strip_meta(embedded), config.parent_id_key: parent["id"], "repository_id": repository_id}
+                )
         return rows, reached_watermark
 
     for item in items:
@@ -257,7 +272,7 @@ def get_rows(
             headers,
             logger,
             config.path,
-            {"limit": PAGE_SIZE, **config.extra_params},
+            _first_page_params(config),
             config.collection_key,
             max_pages=MAX_REPO_PAGES,
             resource=endpoint,
@@ -289,27 +304,33 @@ def get_rows(
         start_path = resume_path
         resume_path = None  # only the resumed-into repo uses the saved path; the rest start fresh
 
-        for items, next_path in _iter_collection(
-            session,
-            headers,
-            logger,
-            config.path.format(repository_id=repository_id),
-            {"limit": PAGE_SIZE, **config.extra_params},
-            config.collection_key,
-            max_pages=MAX_PAGES_PER_REPO,
-            resource=f"{endpoint} of repository {repository_id}",
-            start_path=start_path,
-        ):
-            rows, reached_watermark = _rows_for_page(config.embedded_collection_key, repository_id, items, watermark)
-            if rows:
-                yield rows
-            if reached_watermark:
-                # Everything further back in this repo predates the watermark — already synced.
-                break
-            if next_path:
-                resumable_source_manager.save_state(
-                    TravisCIResumeConfig(next_path=next_path, repository_id=repository_id)
-                )
+        try:
+            for items, next_path in _iter_collection(
+                session,
+                headers,
+                logger,
+                config.path.format(repository_id=repository_id),
+                _first_page_params(config),
+                config.collection_key,
+                max_pages=MAX_PAGES_PER_REPO,
+                resource=f"{endpoint} of repository {repository_id}",
+                start_path=start_path,
+            ):
+                rows, reached_watermark = _rows_for_page(config, repository_id, items, watermark)
+                if rows:
+                    yield rows
+                if reached_watermark:
+                    # Everything further back in this repo predates the watermark — already synced.
+                    break
+                if next_path:
+                    resumable_source_manager.save_state(
+                        TravisCIResumeConfig(next_path=next_path, repository_id=repository_id)
+                    )
+        except requests.HTTPError as error:
+            if not (config.skip_forbidden_repositories and _is_forbidden(error)):
+                raise
+            logger.info(f"Travis CI: skipping {endpoint} of repository {repository_id}, access denied")
+            resumable_source_manager.safe_point()
 
         # Advance the bookmark to the next repo so a crash between repos resumes correctly. Its
         # first page path is built fresh when the loop reaches it.

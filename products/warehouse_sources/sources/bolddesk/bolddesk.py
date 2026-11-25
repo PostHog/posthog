@@ -91,7 +91,7 @@ def build_params(
 
     if config.incremental_filter == "q":
         from_value = json.dumps({"from": format_q_datetime(db_incremental_field_last_value)}, separators=(",", ":"))
-        params["Q"] = f"lastmodifiedon:{from_value}"
+        params["Q"] = f"{config.q_field}:{from_value}"
     else:
         params["updatedFromDate"] = _to_utc_datetime(db_incremental_field_last_value).isoformat(timespec="seconds")
     return params

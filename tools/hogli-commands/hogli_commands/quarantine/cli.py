@@ -45,7 +45,7 @@ def _load_for_writing(path: Path) -> core.LoadResult:
 @quarantine.command(name="add", help="Quarantine a test (replaces an existing entry with the same id).")
 @click.argument("selector_id", metavar="ID")
 @click.option("--reason", required=True, help="Why the test is quarantined.")
-@click.option("--owner", required=True, help="Team or person responsible, e.g. @team-product-analytics.")
+@click.option("--owner", required=True, help="Team or person responsible, e.g. @team-analytics.")
 @click.option("--issue", default="", help="Tracking issue URL.")
 @click.option(
     "--days",

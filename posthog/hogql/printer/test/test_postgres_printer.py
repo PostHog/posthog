@@ -1,15 +1,25 @@
 """Tests for printing HogQL to the Postgres dialect."""
 
+from collections.abc import Callable
 from typing import Optional, cast
 
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect, HogQLParserBackend, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
+from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1183,3 +1193,65 @@ class TestPostgresPrinter(BaseTest):
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
+
+
+_LIVE_FIELDS = {"id": IntegerDatabaseField(name="id", nullable=False), "email": StringDatabaseField(name="email")}
+_LIVE_TABLES: dict[HogQLDialect, Callable[[bool], DirectSQLTable]] = {
+    "postgres": lambda restricted: DirectPostgresTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        postgres_schema="public",
+        postgres_table_name="orders",
+        column_restricted=restricted,
+    ),
+    "mysql": lambda restricted: DirectMySQLTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        mysql_schema="shop",
+        mysql_table_name="orders",
+        column_restricted=restricted,
+    ),
+    "snowflake": lambda restricted: DirectSnowflakeTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        snowflake_schema="PUBLIC",
+        snowflake_table_name="ORDERS",
+        column_restricted=restricted,
+    ),
+    "duckdb": lambda restricted: DirectMotherDuckTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        motherduck_database="shop",
+        motherduck_schema="main",
+        motherduck_table_name="orders",
+        column_restricted=restricted,
+    ),
+}
+
+
+def _print_live(query: str, dialect: HogQLDialect, *, restricted: bool) -> str:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(TableNode(name="orders", table=_LIVE_TABLES[dialect](restricted)))
+    # A pinned events schema keeps printing off the instance setting, which this test has no database to read.
+    context = HogQLContext(
+        database=database,
+        enable_select_queries=True,
+        is_direct_query=True,
+        modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+    )
+    sql, _ = prepare_and_print_ast(parse_select(query), context, dialect)
+    return sql
+
+
+@pytest.mark.parametrize("dialect", list(_LIVE_TABLES))
+def test_column_restricted_live_table_prints_only_its_allowed_columns(dialect: HogQLDialect) -> None:
+    # An alias named after a hidden column must still bind to the projection, not the physical table.
+    sql = _print_live("SELECT email AS secret, secret AS leaked FROM orders", dialect, restricted=True)
+    unrestricted = _print_live("SELECT email FROM orders", dialect, restricted=False)
+
+    assert "(SELECT " in sql
+    assert "(SELECT " not in unrestricted

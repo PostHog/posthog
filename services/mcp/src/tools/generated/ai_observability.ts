@@ -3207,74 +3207,6 @@ const llmaSummarizationCreate = (): ToolBase<
     },
 })
 
-const LlmaTaggerListSchema = () => {
-    const TaggersListQueryParams = orvalSchemas.TaggersListQueryParams()
-    return TaggersListQueryParams
-}
-
-const llmaTaggerList = (): ToolBase<
-    ReturnType<typeof LlmaTaggerListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTaggerList>
-> => ({
-    name: 'llma-tagger-list',
-    schema: LlmaTaggerListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaTaggerListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaggerList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/`,
-            query: {
-                enabled: params.enabled,
-                id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
-                limit: params.limit,
-                migrated_to_evaluation_id: params.migrated_to_evaluation_id,
-                offset: params.offset,
-                order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
-                search: params.search,
-            },
-        })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/ai-evals/taggers/${item.id}`))
-                ),
-            },
-            '/ai-evals/taggers'
-        )
-    },
-})
-
-const LlmaTaggerTestHogSchema = () => {
-    const TaggersTestHogCreateBody = orvalSchemas.TaggersTestHogCreateBody()
-    return TaggersTestHogCreateBody
-}
-
-const llmaTaggerTestHog = (): ToolBase<ReturnType<typeof LlmaTaggerTestHogSchema>, Schemas.TestHogTaggerResponse> => ({
-    name: 'llma-tagger-test-hog',
-    schema: LlmaTaggerTestHogSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaTaggerTestHogSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source !== undefined) {
-            body['source'] = params.source
-        }
-        if (params.sample_count !== undefined) {
-            body['sample_count'] = params.sample_count
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        const result = await context.api.request<Schemas.TestHogTaggerResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/test_hog/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmaTraceReviewCreateSchema = () => {
     const LlmAnalyticsTraceReviewsCreateBody = orvalSchemas.LlmAnalyticsTraceReviewsCreateBody()
     return LlmAnalyticsTraceReviewsCreateBody
@@ -3850,8 +3782,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,
-    'llma-tagger-list': llmaTaggerList,
-    'llma-tagger-test-hog': llmaTaggerTestHog,
     'llma-trace-review-create': llmaTraceReviewCreate,
     'llma-trace-review-delete': llmaTraceReviewDelete,
     'llma-trace-review-get': llmaTraceReviewGet,

@@ -18,12 +18,12 @@ class TestCodacySource:
         # of silently reusing the preserved secret against a different organization.
         assert self.source.connection_host_fields == ["provider", "organization"]
 
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
+    def test_get_schemas_offers_incremental_only_for_the_audit_log(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=1)
         assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        # Codacy exposes no server-side updated-since filters, so advertising incremental or
-        # append modes would produce silently wrong (never-updating) tables.
-        assert all(schema.supports_incremental is False for schema in schemas)
+        # Only the audit log has a server-side time filter. Advertising incremental on any other
+        # table would produce silently wrong (never-updating) tables.
+        assert [schema.name for schema in schemas if schema.supports_incremental] == ["audit_logs"]
         assert all(schema.supports_append is False for schema in schemas)
 
     def test_get_documented_tables_lists_static_catalog(self) -> None:

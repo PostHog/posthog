@@ -63,10 +63,19 @@ def test_complete_collections_use_the_documented_method_and_preserve_attributes(
     }
 
 
-def test_audiences_walk_offsets_and_resume_after_the_last_written_page() -> None:
+@pytest.mark.parametrize(
+    ("schema_name", "body"),
+    [
+        ("Audiences", {"data": {"type": "AudienceSearch", "attributes": {}}}),
+        ("AudienceSegments", {"data": {"attributes": {}}}),
+    ],
+)
+def test_audience_searches_walk_offsets_and_resume_after_the_last_written_page(
+    schema_name: str, body: dict[str, Any]
+) -> None:
     first_page = [entity(str(i)) for i in range(100)]
     result = driver().run(
-        "Audiences",
+        schema_name,
         [
             token(),
             ScriptedResponse(json={"data": first_page, "meta": {"totalItems": 101}}),
@@ -77,26 +86,25 @@ def test_audiences_walk_offsets_and_resume_after_the_last_written_page() -> None
     assert [row["id"] for row in result.rows] == [str(i) for i in range(101)]
     assert result.params("offset")[1:] == ["0", "100"]
     assert result.committed_states == [CriteoResumeConfig(offset=100), CriteoResumeConfig(finished=True)]
-    assert all(
-        request.json() == {"data": {"type": "AudienceSearch", "attributes": {}}} for request in result.requests[1:]
-    )
+    assert all(request.method == "POST" and request.json() == body for request in result.requests[1:])
     resumed = driver().run(
-        "Audiences",
+        schema_name,
         [token(), ScriptedResponse(json={"data": [entity("100")], "meta": {"totalItems": 101}})],
         resume_state=result.committed_states[0],
     )
     assert resumed.raised is None
     assert resumed.params("offset")[1:] == ["100"]
     assert resumed.rows == [{"id": "100", "type": "example"}]
-    finished = driver().run("Audiences", [], resume_state=resumed.committed_states[-1])
+    finished = driver().run(schema_name, [], resume_state=resumed.committed_states[-1])
     assert finished.raised is None
     assert finished.requests == []
 
 
-def test_ads_fan_out_and_resume_without_repeating_completed_advertisers() -> None:
+@pytest.mark.parametrize(("schema_name", "child"), [("Ads", "ads"), ("Creatives", "creatives")])
+def test_advertiser_fan_out_resumes_without_repeating_completed_advertisers(schema_name: str, child: str) -> None:
     advertisers = ScriptedResponse(json={"data": [entity("10"), entity("20")]})
     result = driver().run(
-        "Ads",
+        schema_name,
         [
             token(),
             advertisers,
@@ -108,9 +116,9 @@ def test_ads_fan_out_and_resume_without_repeating_completed_advertisers() -> Non
     assert result.raised is None
     assert result.paths[1:] == [
         "/2026-07/advertisers/me",
-        "/2026-07/marketing-solutions/advertisers/10/ads",
-        "/2026-07/marketing-solutions/advertisers/10/ads",
-        "/2026-07/marketing-solutions/advertisers/20/ads",
+        f"/2026-07/marketing-solutions/advertisers/10/{child}",
+        f"/2026-07/marketing-solutions/advertisers/10/{child}",
+        f"/2026-07/marketing-solutions/advertisers/20/{child}",
     ]
     assert result.params("offset")[1:] == [None, "0", "50", "0"]
     assert {row["advertiserId"] for row in result.rows[:-1]} == {"10"}
@@ -119,11 +127,42 @@ def test_ads_fan_out_and_resume_without_repeating_completed_advertisers() -> Non
         state for state in result.committed_states if state.fanout_state and state.fanout_state.get("completed")
     )
     resumed = driver().run(
-        "Ads", [token(), advertisers, ScriptedResponse(json={"data": [entity("1")]})], resume_state=checkpoint
+        schema_name, [token(), advertisers, ScriptedResponse(json={"data": [entity("1")]})], resume_state=checkpoint
     )
     assert resumed.raised is None
-    assert resumed.paths[-1] == "/2026-07/marketing-solutions/advertisers/20/ads"
+    assert resumed.paths[-1] == f"/2026-07/marketing-solutions/advertisers/20/{child}"
     assert len(resumed.requests) == 3
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "resource", "expected"),
+    [
+        (
+            "AudienceSegments",
+            {"id": "7", "type": "AudienceSegment", "attributes": {"type": "Lookalike", "name": "Example"}},
+            {"id": "7", "type": "Lookalike", "name": "Example"},
+        ),
+        (
+            "AudienceSegments",
+            {"id": "8", "type": "AudienceSegment", "attributes": {"type": None}},
+            {"id": "8", "type": None},
+        ),
+        ("AudienceSegments", {"id": "9", "type": "AudienceSegment"}, {"id": "9", "type": "AudienceSegment"}),
+        (
+            "Audiences",
+            {"id": "7", "type": "Audience", "attributes": {"type": "Other", "name": "Example"}},
+            {"id": "7", "type": "Audience", "name": "Example"},
+        ),
+    ],
+)
+def test_segment_rows_keep_the_segment_type_over_the_resource_type(
+    schema_name: str, resource: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    result = driver().run(
+        schema_name, [token(), ScriptedResponse(json={"data": [resource], "meta": {"totalItems": 1}})]
+    )
+    assert result.raised is None
+    assert result.rows == [expected]
 
 
 @pytest.mark.parametrize(

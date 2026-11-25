@@ -65,6 +65,9 @@ export const AccountsEvents = {
     AutomationsLoaded: 'customer analytics account automations loaded',
     AutomationsLoadFailed: 'customer analytics account automations load failed',
     AutomationWorkflowOpened: 'customer analytics account automation workflow opened',
+    ContextViewed: 'customer analytics account context viewed',
+    ContextLoaded: 'customer analytics account context loaded',
+    ContextLoadFailed: 'customer analytics account context load failed',
     UsageIntervalChanged: 'customer analytics account usage interval changed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
@@ -142,3 +145,5 @@ export const AccountsEvents = {
 } as const
 
 export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts' | 'tag'
+
+export const CONTEXT_WRITE_DISABLED_REASON = 'Coming soon'
