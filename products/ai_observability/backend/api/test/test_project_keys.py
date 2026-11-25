@@ -58,7 +58,9 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             format="json",
         )
         assert review.status_code == 201, review.data
+        assert review.data["created_by"] is None
         assert review.data["reviewed_by"] is None
+        assert review.data["reviewed_by_project_key_id"] == writer["id"]
         audit = ActivityLog.objects.filter(
             team_id=self.team.id, scope="TraceReview", item_id=review.data["id"]
         ).order_by("created_at")
@@ -70,6 +72,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             f"{self.project_url}/ai_observability/traces/{encode_trace_id_segment(trace_id)}/review/"
         )
         assert rendered.status_code == 200, rendered.data
+        assert rendered.data["review"]["reviewedBy"] == f"Project key · {writer['id'][-8:]}"
         denied = self.client.delete(url)
         assert denied.status_code == 403
         assert "ai_observability:write" in denied.data["detail"]
@@ -186,6 +189,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         )
         assert edited.status_code == 200, edited.data
         assert edited.data["reviewed_by"] is None
+        assert edited.data["reviewed_by_project_key_id"] == key["id"]
         assert edited.data["scores"][0]["boolean_value"] is False
         log = logs.exclude(pk=removal.pk).get()
         assert log.credential_type == "project_secret_key"
@@ -197,6 +201,13 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             "reviewed_by": self.user.id,
             "pending_queue_item": str(requeued.pk),
         }
+
+        self.client.credentials()
+        self.client.force_login(self.user)
+        human_edit = self.client.patch(url, {"comment": "Reviewed again"}, format="json")
+        assert human_edit.status_code == 200, human_edit.data
+        assert human_edit.data["reviewed_by"]["id"] == self.user.id
+        assert human_edit.data["reviewed_by_project_key_id"] is None
 
     @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_dataset_history_identifies_the_writer_of_each_version(self, _flag: MagicMock) -> None:

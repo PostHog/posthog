@@ -34,6 +34,7 @@ from products.ai_observability.backend.presentation.project_keys import (
     AIObservabilityProjectKeyMixin,
     attribution_user,
     log_project_key_activity,
+    project_key_id,
 )
 from products.ai_observability.backend.score_definition_configs import (
     ScoreDefinitionConfigField,
@@ -118,8 +119,11 @@ class TraceReviewSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional comment or reasoning for the review.",
     )
-    created_by = UserBasicSerializer(read_only=True)
-    reviewed_by = UserBasicSerializer(read_only=True, help_text="User who last saved this review.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    reviewed_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who last saved this review.")
+    reviewed_by_project_key_id = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Public ID of the project key that last saved this review."
+    )
     scores = TraceReviewScoreSerializer(
         many=True,
         read_only=True,
@@ -141,6 +145,7 @@ class TraceReviewSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "reviewed_by",
+            "reviewed_by_project_key_id",
             "scores",
             "team",
         ]
@@ -413,6 +418,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 comment=validated_data.get("comment"),
                 created_by=review_user,
                 reviewed_by=review_user,
+                reviewed_by_project_key_id=project_key_id(request),
             )
         except IntegrityError as err:
             raise serializers.ValidationError({"trace_id": "An active review already exists for this trace."}) from err
@@ -467,7 +473,8 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             instance.comment = validated_data["comment"]
 
         instance.reviewed_by = review_user
-        instance.save(update_fields=["comment", "reviewed_by", "updated_at"])
+        instance.reviewed_by_project_key_id = project_key_id(request)
+        instance.save(update_fields=["comment", "reviewed_by", "reviewed_by_project_key_id", "updated_at"])
 
         if resolved_scores is not None:
             self._replace_scores(instance, resolved_scores)

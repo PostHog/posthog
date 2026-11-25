@@ -132,6 +132,12 @@ describe('<ProjectSecretAPIKeys />', () => {
         expect(logic.values.filteredScopes.find((row) => row.key === 'ai_observability')?.label).toBe(
             'AI observability'
         )
+        expect(logic.values.filteredScopes.find((row) => row.key === 'dataset')?.info).toBe(
+            'Datasets, their items, revisions, and retention.'
+        )
+        expect(logic.values.filteredScopes.find((row) => row.key === 'evaluation')?.info).toBe(
+            'Offline experiments, their items, and results.'
+        )
     })
 
     it('names the recipient preference row and says it cannot send email', () => {

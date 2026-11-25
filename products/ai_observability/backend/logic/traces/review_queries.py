@@ -58,8 +58,11 @@ def _load_reviews(team: Team, access: UserAccessControl | None, trace_ids: Seque
 
 def _human_review(review: TraceReview) -> HumanReview:
     reviewer = review.reviewed_by
+    name = reviewer_name(reviewer.first_name, reviewer.email, reviewer.distinct_id) if reviewer else None
+    if review.reviewed_by_project_key_id:
+        name = f"Project key · {review.reviewed_by_project_key_id[-8:]}"
     return HumanReview(
-        reviewed_by=reviewer_name(reviewer.first_name, reviewer.email, reviewer.distinct_id) if reviewer else None,
+        reviewed_by=name,
         reviewed_at=review.updated_at or review.created_at,
         comment=review.comment,
         scores=tuple(

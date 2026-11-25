@@ -1519,7 +1519,7 @@ export interface ResultSubmissionApi {
     item_id: string
     /** Exact UUID of an existing scorer version in this project. */
     scorer_version_id: string
-    /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+    /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and scorer read access (ai_observability:read for project keys, llm_analytics:read for personal keys and OAuth). For reported scorers, omit this flag or set false and supply the result. */
     calculate?: boolean
     /** Outcome of this scorer execution.
      *
@@ -6337,9 +6337,14 @@ export interface TraceReviewApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /** User who last saved this review. */
-    readonly reviewed_by: UserBasicApi
+    readonly reviewed_by: UserBasicApi | null
+    /**
+     * Public ID of the project key that last saved this review.
+     * @nullable
+     */
+    readonly reviewed_by_project_key_id: string | null
     /** Saved scorer values for this review. */
     readonly scores: readonly TraceReviewScoreApi[]
     readonly team: number
