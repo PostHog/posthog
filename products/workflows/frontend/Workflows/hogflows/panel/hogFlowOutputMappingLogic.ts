@@ -297,11 +297,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     return updated
                 },
                 setAgentField: (state, { index, name }) => {
-                    if (name && state.some((mapping, i) => i !== index && mapping.key === name)) {
+                    const path = name ? `output.${name}` : ''
+                    // A new field names its variable too; an existing one keeps the variable later steps read.
+                    const key = state[index].key || name
+                    if (name && state.some((m, i) => i !== index && (m.result_path === path || m.key === key))) {
                         return state
                     }
                     const updated = [...state]
-                    updated[index] = { ...updated[index], key: name, result_path: name ? `output.${name}` : '' }
+                    updated[index] = { ...updated[index], key, result_path: path }
                     return updated
                 },
                 addMapping: (state) => [...state, { key: '', result_path: '' }],
@@ -381,32 +384,13 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
 
         // A mapping can name a variable the workflow does not have yet. Creating it here keeps the
         // author on the step instead of sending them to the variables tab and back.
-        // `copyFrom` carries a renamed agent field's type and description over to its new variable.
-        const ensureVariable = (key: string, label: string, copyFrom?: string): void => {
+        const ensureVariable = (key: string, label: string): void => {
             const existingVars = values.workflow.variables ?? []
-            const source = copyFrom && copyFrom !== key ? existingVars.find((v) => v.key === copyFrom) : undefined
             if (existingVars.some((v) => v.key === key)) {
-                // Renaming onto an existing variable keeps the field's current type and description.
-                if (source) {
-                    workflowLogic(props).actions.setWorkflowInfo({
-                        variables: existingVars.map((v) =>
-                            v.key === key ? { ...v, type: source.type, description: source.description } : v
-                        ),
-                    })
-                }
                 return
             }
             workflowLogic(props).actions.setWorkflowInfo({
-                variables: [
-                    ...existingVars,
-                    {
-                        key,
-                        label,
-                        type: source?.type ?? ('string' as const),
-                        default: '',
-                        ...(source?.description ? { description: source.description } : {}),
-                    },
-                ],
+                variables: [...existingVars, { key, label, type: 'string' as const, default: '' }],
             })
         }
 
@@ -438,10 +422,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
                 persistMappings(values.mappings)
             },
-            setAgentField: ({ index, name }, _, __, previousState) => {
-                if (name) {
-                    const previousKey = selectors.mappings(previousState)[index]?.key
-                    ensureVariable(name, name, previousKey)
+            setAgentField: ({ index }, _, __, previousState) => {
+                const key = values.mappings[index]?.key
+                if (key && !selectors.mappings(previousState)[index]?.key) {
+                    ensureVariable(key, key)
                 }
                 persistMappings(values.mappings)
             },

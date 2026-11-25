@@ -27,7 +27,7 @@ function builtInLabel(resultPath: string): string {
     if (!resultPath) {
         return 'Whole result'
     }
-    return BUILT_IN_RESULTS.find((r) => r.result_path === resultPath)?.label ?? `result.${resultPath}`
+    return BUILT_IN_RESULTS.find((r) => r.result_path === resultPath)?.label ?? 'Run result'
 }
 
 function worstCaseBytes(fields: { name: string; type?: string }[]): number {
@@ -37,13 +37,23 @@ function worstCaseBytes(fields: { name: string; type?: string }[]): number {
     }, 2)
 }
 
-function AgentFieldNameInput({ name, onCommit }: { name: string; onCommit: (name: string) => void }): JSX.Element {
+function AgentFieldNameInput({
+    name,
+    variable,
+    onCommit,
+}: {
+    name: string
+    variable: string
+    onCommit: (name: string) => void
+}): JSX.Element {
     const [draft, setDraft] = useState(name)
     useEffect(() => setDraft(name), [name])
     const commit = (): void => {
         if (draft !== name) {
             onCommit(draft)
         }
+        // A refused name (one another field already uses) snaps back to the saved one.
+        setDraft(name)
     }
     return (
         <LemonInput
@@ -53,6 +63,11 @@ function AgentFieldNameInput({ name, onCommit }: { name: string; onCommit: (name
             onChange={(value) => setDraft(sanitizeAgentFieldName(value))}
             onBlur={commit}
             onPressEnter={commit}
+            suffix={
+                variable && variable !== name ? (
+                    <span className="text-xs text-secondary">{`saved to ${variable}`}</span>
+                ) : undefined
+            }
         />
     )
 }
@@ -60,8 +75,15 @@ function AgentFieldNameInput({ name, onCommit }: { name: string; onCommit: (name
 export function AiTaskReturns(): JSX.Element {
     const { logicProps, workflow } = useValues(workflowLogic)
     const { mappings } = useValues(hogFlowOutputMappingLogic(logicProps))
-    const { setAgentField, setVariableType, setVariableDescription, addMapping, removeMapping, applySuggestion } =
-        useActions(hogFlowOutputMappingLogic(logicProps))
+    const {
+        setAgentField,
+        setVariableType,
+        setVariableDescription,
+        addMapping,
+        removeMapping,
+        applySuggestion,
+        updateMappingResultPath,
+    } = useActions(hogFlowOutputMappingLogic(logicProps))
 
     const variableFor = (key: string): NonNullable<typeof workflow.variables>[number] | undefined =>
         workflow.variables?.find((v) => v.key === key)
@@ -99,11 +121,16 @@ export function AiTaskReturns(): JSX.Element {
                         )
                         if (!isAgentField) {
                             return [
-                                <span key={`name-${index}`} className="text-sm px-2">
-                                    {builtInLabel(mapping.result_path)}
-                                </span>,
+                                <LemonInput
+                                    key={`name-${index}`}
+                                    size="small"
+                                    prefix={<span>result.</span>}
+                                    value={mapping.result_path}
+                                    placeholder="Whole result"
+                                    onChange={(path) => updateMappingResultPath(index, path)}
+                                />,
                                 <span key={`type-${index}`} className="text-xs text-secondary px-2">
-                                    Built in
+                                    {builtInLabel(mapping.result_path)}
                                 </span>,
                                 <span key={`desc-${index}`} className="text-xs text-secondary px-2">
                                     Saved to <code>{`{variables.${mapping.key}}`}</code>
@@ -115,6 +142,7 @@ export function AiTaskReturns(): JSX.Element {
                             <AgentFieldNameInput
                                 key={`name-${index}`}
                                 name={fieldName ?? ''}
+                                variable={mapping.key}
                                 onCommit={(name) => setAgentField(index, name)}
                             />,
                             <LemonSelect
@@ -133,6 +161,7 @@ export function AiTaskReturns(): JSX.Element {
                                 size="small"
                                 value={variable?.description ?? ''}
                                 placeholder="Describe the value"
+                                maxLength={200}
                                 disabledReason={!fieldName ? 'Name the field first.' : undefined}
                                 onChange={(description) => setVariableDescription(mapping.key, description)}
                             />,
@@ -159,8 +188,8 @@ export function AiTaskReturns(): JSX.Element {
             </div>
             {agentFields.length > 0 && (
                 <span className="text-xs text-secondary">
-                    Each field is saved as a workflow variable with the same name, such as{' '}
-                    <code>{`{variables.${agentFields[0].fieldName}}`}</code>.
+                    Each field is saved as a workflow variable, such as{' '}
+                    <code>{`{variables.${agentFields[0].mapping.key}}`}</code>.
                 </span>
             )}
             {(overBudget || hasJsonField) && (

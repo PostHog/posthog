@@ -538,48 +538,51 @@ describe('hogFlowOutputMappingLogic', () => {
         })
 
         describe('setAgentField', () => {
-            it('renames an agent field and its variable, keeping the type and description', async () => {
-                const node = makeActionNode('action-rename')
-                wfLogic.actions.setWorkflowInfo({
-                    actions: [node.data],
-                    variables: [{ key: 'score', label: 'score', type: 'json', default: '', description: 'Tags' }],
-                })
-                editorLogic.actions.setSelectedNodeId('action-rename')
-                logic.actions.initMappings([{ key: 'score', result_path: 'output.score', spread: true }])
+            const selectStep = (id: string, variables: any[]): void => {
+                const node = makeActionNode(id)
+                wfLogic.actions.setWorkflowInfo({ actions: [node.data], variables })
+                editorLogic.actions.setSelectedNodeId(id)
+            }
+
+            it('names a new field and creates its variable', async () => {
+                selectStep('action-new-field', [])
+                logic.actions.initMappings([{ key: '', result_path: '' }])
 
                 logic.actions.setAgentField(0, 'tags')
 
-                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags', spread: true }])
-                expect(wfLogic.values.workflow.variables).toContainEqual({
-                    key: 'tags',
-                    label: 'tags',
-                    type: 'json',
-                    default: '',
-                    description: 'Tags',
-                })
+                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags' }])
+                expect(wfLogic.values.workflow.variables).toEqual([
+                    { key: 'tags', label: 'tags', type: 'string', default: '' },
+                ])
             })
 
-            it('renaming onto an existing variable gives it the field current type and description', async () => {
-                const node = makeActionNode('action-rename-back')
-                wfLogic.actions.setWorkflowInfo({
-                    actions: [node.data],
-                    variables: [
-                        { key: 'score', label: 'score', type: 'string', default: '' },
-                        { key: 'rating', label: 'rating', type: 'number', default: '', description: '1 to 5' },
-                    ],
-                })
-                editorLogic.actions.setSelectedNodeId('action-rename-back')
-                logic.actions.initMappings([{ key: 'rating', result_path: 'output.rating' }])
+            it('renames a field without moving it off the variable later steps read', async () => {
+                const variables = [{ key: 'score', label: 'score', type: 'number', default: '', description: '1-5' }]
+                selectStep('action-rename', variables)
+                logic.actions.initMappings([{ key: 'score', result_path: 'output.score', spread: true }])
 
-                logic.actions.setAgentField(0, 'score')
+                logic.actions.setAgentField(0, 'rating')
 
-                expect(wfLogic.values.workflow.variables).toContainEqual({
-                    key: 'score',
-                    label: 'score',
-                    type: 'number',
-                    default: '',
-                    description: '1 to 5',
-                })
+                expect(logic.values.mappings).toEqual([{ key: 'score', result_path: 'output.rating', spread: true }])
+                expect(wfLogic.values.workflow.variables).toEqual(variables)
+            })
+
+            it('refuses a name another field already uses and leaves every variable alone', async () => {
+                const variables = [
+                    { key: 'summary', label: 'summary', type: 'string', default: '' },
+                    { key: 'score', label: 'score', type: 'number', default: '' },
+                ]
+                selectStep('action-collision', variables)
+                const mappings = [
+                    { key: 'summary', result_path: 'output.summary' },
+                    { key: 'score', result_path: 'output.score' },
+                ]
+                logic.actions.initMappings(mappings)
+
+                logic.actions.setAgentField(1, 'summary')
+
+                expect(logic.values.mappings).toEqual(mappings)
+                expect(wfLogic.values.workflow.variables).toEqual(variables)
             })
         })
 
