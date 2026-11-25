@@ -1394,13 +1394,17 @@ class TestTransactionalEmail(APIBaseTest):
                 {"scheduled_at": "2026-11-20T08:00:00.500Z"},
                 (False, None, None),
             ),
-            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d", 1.0)),
+            (
+                "a_time_an_hour_ahead_when_asked",
+                {"scheduled_at": "2026-11-20T09:00:00.500Z"},
+                (True, "<1d", 3600.5 / 3600),
+            ),
             (
                 "a_time_three_and_a_half_days_ahead",
                 {"scheduled_at": "2026-11-23T20:00:00Z"},
                 (True, "<7d", 84.0),
             ),
-            ("a_time_ten_minutes_ahead", {"scheduled_at": "2026-11-20T08:10:00Z"}, (True, "<1h", 0.17)),
+            ("a_time_ten_minutes_ahead", {"scheduled_at": "2026-11-20T08:10:00Z"}, (True, "<1h", 10 / 60)),
         ]
     )
     def test_the_send_event_reports_what_cdp_api_did_with_the_time_asked_for(
@@ -1428,8 +1432,9 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("too_far_ahead", True, "2026-11-30T08:00:00Z", 240.0),
+            ("a_millisecond_over_seven_days", True, "2026-11-27T08:00:00.001Z", 604_800_001 / 3_600_000),
             ("while_scheduled_sends_are_off", False, "2026-11-21T14:00:00Z", 30.0),
-            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T08:00:00Z", None),
+            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T08:00:00Z", -24.0),
         ]
     )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)

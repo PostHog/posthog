@@ -1982,16 +1982,14 @@ def _scheduled_send_properties(
 
 
 def _refused_schedule_properties(request: Any) -> dict[str, Any]:
-    data = getattr(request, "validated_data", None)
-    scheduled_at = data.get("scheduled_at") if isinstance(data, Mapping) else None
+    scheduled_at = getattr(request, "validated_data", {}).get("scheduled_at")
     if scheduled_at is None:
         return {}
-    lead = scheduled_at - timezone.now()
-    return {"scheduled_lead_hours": _lead_hours(lead) if lead > timedelta(0) else None}
+    return {"scheduled_lead_hours": _lead_hours(scheduled_at - timezone.now())}
 
 
 def _lead_hours(lead: timedelta) -> float:
-    return round(lead / timedelta(hours=1), 2)
+    return lead / timedelta(hours=1)
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
