@@ -133,8 +133,46 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
     ),
+    "saved_query_ids": StringArrayDatabaseField(
+        name="saved_query_ids",
+        nullable=False,
+        description="Ids of the views a HogQL query read, also through another view. Empty for other queries, when it read none, and after about one month.",
+    ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
+
+
+def _log_comment_ids(table_name: str, key: str, denied_ids: set[str]) -> ast.Expr:
+    # The archive keeps log_comment for one month only, so older rows read as an empty array.
+    ids: ast.Expr = ast.Call(
+        name="JSONExtract",
+        args=[
+            ast.Field(chain=[table_name, "log_comment"]),
+            ast.Constant(value=key),
+            ast.Constant(value="Array(String)"),
+        ],
+    )
+    if not denied_ids:
+        return ids
+    # Hide the ids of objects this user cannot access, as the rest of HogQL hides the objects.
+    return ast.Call(
+        name="arrayFilter",
+        args=[
+            ast.Lambda(
+                args=["id"],
+                expr=ast.Not(
+                    expr=ast.Call(
+                        name="has",
+                        args=[
+                            ast.Array(exprs=[ast.Constant(value=i) for i in sorted(denied_ids)]),
+                            ast.Field(chain=["id"]),
+                        ],
+                    )
+                ),
+            ),
+            ids,
+        ],
+    )
 
 
 class QueryLogArchiveTable(LazyTable):
@@ -165,37 +203,11 @@ class QueryLogArchiveTable(LazyTable):
             elif name == "status":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "type"]))
             elif name == "warehouse_table_ids":
-                # The archive keeps log_comment for one month only, so older rows read as an empty array.
-                table_ids: ast.Expr = ast.Call(
-                    name="JSONExtract",
-                    args=[
-                        ast.Field(chain=[table_name, "log_comment"]),
-                        ast.Constant(value="warehouse_table_ids"),
-                        ast.Constant(value="Array(String)"),
-                    ],
-                )
-                # Hide the ids of tables this user cannot access, as the rest of HogQL hides the tables.
                 denied_ids = context.database._denied_warehouse_table_ids if context.database is not None else set()
-                if denied_ids:
-                    table_ids = ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            ast.Lambda(
-                                args=["table_id"],
-                                expr=ast.Not(
-                                    expr=ast.Call(
-                                        name="has",
-                                        args=[
-                                            ast.Array(exprs=[ast.Constant(value=i) for i in sorted(denied_ids)]),
-                                            ast.Field(chain=["table_id"]),
-                                        ],
-                                    )
-                                ),
-                            ),
-                            table_ids,
-                        ],
-                    )
-                return ast.Alias(alias=name, expr=table_ids)
+                return ast.Alias(alias=name, expr=_log_comment_ids(table_name, name, denied_ids))
+            elif name == "saved_query_ids":
+                denied_ids = context.database._denied_saved_query_ids if context.database is not None else set()
+                return ast.Alias(alias=name, expr=_log_comment_ids(table_name, name, denied_ids))
             elif name == "is_personal_api_key_request":
                 cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,

@@ -17,8 +17,8 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 
 ARCHIVED_LOG_COMMENTS = {
-    "reads_a_and_b": '{"product":"sql_editor","warehouse_table_ids":["table_a","table_b"]}',
-    "reads_c": '{"warehouse_table_ids":["table_c"]}',
+    "reads_a_and_b": '{"product":"sql_editor","warehouse_table_ids":["table_a","table_b"],"saved_query_ids":["view_a"]}',
+    "reads_c": '{"warehouse_table_ids":["table_c"],"saved_query_ids":["view_a","view_b"]}',
     "reads_no_table": '{"product":"sql_editor"}',
     "no_log_comment": "",
 }
@@ -73,9 +73,13 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             ("read_any_table", "notEmpty(warehouse_table_ids)", ["reads_a_and_b", "reads_c"]),
             ("read_no_table", "empty(warehouse_table_ids)", ["no_log_comment", "reads_no_table"]),
             ("first_id", "warehouse_table_ids[1] = 'table_c'", ["reads_c"]),
+            ("has_one_view_id", "has(saved_query_ids, 'view_b')", ["reads_c"]),
+            ("has_shared_view_id", "has(saved_query_ids, 'view_a')", ["reads_a_and_b", "reads_c"]),
+            ("has_unknown_view_id", "has(saved_query_ids, 'view_z')", []),
+            ("read_no_view", "empty(saved_query_ids)", ["no_log_comment", "reads_no_table"]),
         ]
     )
-    def test_filter_on_warehouse_table_ids(self, _name: str, condition: str, expected: list[str]):
+    def test_filter_on_read_ids(self, _name: str, condition: str, expected: list[str]):
         # Rows stay in the archive between cases, so each case tags its own rows.
         tag = uuid.uuid4().hex
         sync_execute(
@@ -96,7 +100,7 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
 
     @parameterized.expand([("raw_query_log",), ("query_log",)])
     def test_log_comment_is_not_selectable(self, table: str):
-        # log_comment keeps tags such as http_referer, so only the warehouse_table_ids extraction may read it.
+        # log_comment keeps tags such as http_referer, so only the read id extractions may read it.
         with self.assertRaisesRegex(QueryError, "log_comment"):
             execute_hogql_query(f"select log_comment from {table}", self.team)
 
