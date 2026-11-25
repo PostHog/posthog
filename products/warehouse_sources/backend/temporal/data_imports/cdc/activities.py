@@ -1668,16 +1668,16 @@ class CDCExtractActivity:
             schema,
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
             mutate=lambda config: close_buffer_write(config, wrote=wrote),
-            extra_model_fields={"last_checked_at": run_at} if not wrote and self._stands_down(schema) else None,
+            extra_model_fields={"last_checked_at": run_at} if not wrote and self._stands_down(schema, run_at) else None,
         )
 
-    def _stands_down(self, schema: ExternalDataSchema) -> bool:
+    def _stands_down(self, schema: ExternalDataSchema, now: dt.datetime) -> bool:
         """Whether this table's scheduled ticks stand down, so this run is the check that found nothing.
 
         Stamping `last_checked_at` then keeps the table off the stalled-schedule sweep between the
         consumer's periodic full runs.
         """
-        if not proven_quiet(schema):
+        if not proven_quiet(schema, now):
             return False
         if self._data_driven_load is None:
             assert self.source is not None

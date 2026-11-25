@@ -72,12 +72,11 @@ class AcquireV3LockActivityInputs:
 class AcquireV3LockActivityOutputs:
     acquired: bool
     token: str
-    # True when the run stood down because the schema's runs keep failing, rather than because
-    # another run holds the lock. The workflow skips either way, so this only separates the two in
-    # the logs and the metrics. Defaults False so a payload that predates the field reads as the
-    # lock miss its history recorded.
+    # True when the run stood down before the lock, rather than because another run holds it. The
+    # workflow skips either way, so this only separates the two in the logs and the metrics. Defaults
+    # False so a payload that predates the field reads as the lock miss its history recorded.
     deferred: bool = False
-    # Set on a deferred run that stood down for a reason other than its failure streak.
+    # Why a deferred run stood down. None means the schema's runs keep failing.
     stood_down_reason: str | None = None
 
 

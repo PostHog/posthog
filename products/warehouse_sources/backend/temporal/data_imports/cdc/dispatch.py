@@ -104,15 +104,37 @@ def data_driven_load_enabled(source: ExternalDataSource) -> bool:
     return is_source_flag_enabled(source, CDC_DATA_DRIVEN_LOAD_FLAG)
 
 
-def proven_quiet(schema: ExternalDataSchema) -> bool:
-    """Whether a scheduled tick of this table would stand down, judged from the schema row alone."""
+def _gate_applies(schema: ExternalDataSchema) -> bool:
+    """Whether a tick of this table may stand down at all, before the flag and the buffer are consulted.
+
+    Never for a snapshot, a reset, a sync someone asked for, or a table whose last run did not complete.
+    Those keep the behavior from before the gate, including a retry on every tick.
+    """
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
     from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
 
     return (
         serves_buffered_lane(schema)
         and schema.status == schema.Status.COMPLETED
-        and known_loaded(schema.sync_type_config)
+        and not schema.reset_pipeline
+        and not schema.manual_run_requested
+        and not schema.manual_sync_pending
+        and CDC_RESET_PENDING_KEY not in (schema.sync_type_config or {})
     )
+
+
+def _heartbeat_due(schema: ExternalDataSchema, now: dt.datetime) -> bool:
+    last_full_run = schema.last_full_run
+    return last_full_run is None or now - last_full_run >= CONSUMER_HEARTBEAT_INTERVAL
+
+
+def proven_quiet(schema: ExternalDataSchema, now: dt.datetime) -> bool:
+    """Whether a scheduled tick of this table would stand down, judged from the schema row alone.
+
+    A table whose full runs stopped arriving is not quiet: its consumer schedule may be gone, and the
+    stalled-schedule sweep has to see it.
+    """
+    return _gate_applies(schema) and known_loaded(schema.sync_type_config) and not _heartbeat_due(schema, now)
 
 
 def consumer_tick_stands_down(schema_id: Any, team_id: int, logger: Any) -> bool:
@@ -139,30 +161,15 @@ def consumer_tick_stands_down(schema_id: Any, team_id: int, logger: Any) -> bool
 def consumer_tick_decision(schema: ExternalDataSchema, now: dt.datetime) -> TickDecision | None:
     """What a scheduled consumer tick of a streaming CDC table does. None means the gate does not apply.
 
-    The gate never applies to a snapshot, a reset or a manual run, or to a table whose last run did
-    not complete. Those keep the behavior from before the gate, including a retry on every tick.
+    A tick that stands down after a job read records the generation it proved loaded on the schema.
     """
     from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-        read_completed_listing_proof,
-        serves_buffered_lane,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import read_completed_listing_proof
 
-    config = schema.sync_type_config or {}
-    if (
-        not serves_buffered_lane(schema)
-        or schema.status != schema.Status.COMPLETED
-        or schema.reset_pipeline
-        or schema.manual_run_requested
-        or CDC_RESET_PENDING_KEY in config
-        or not data_driven_load_enabled(schema.source)
-    ):
+    if not _gate_applies(schema) or not data_driven_load_enabled(schema.source):
         return None
 
-    last_full_run = schema.last_full_run
-    if last_full_run is None or now - last_full_run >= CONSUMER_HEARTBEAT_INTERVAL:
-        return TickDecision.HEARTBEAT
+    config = schema.sync_type_config or {}
 
     def proven_generation() -> int | None:
         proof = read_completed_listing_proof(schema)
@@ -170,8 +177,11 @@ def consumer_tick_decision(schema: ExternalDataSchema, now: dt.datetime) -> Tick
 
     if owes_load(config, proven_generation):
         return TickDecision.OWED
+    if _heartbeat_due(schema, now):
+        return TickDecision.HEARTBEAT
 
     if not known_loaded(config):
+        # Read before the lock. A write extraction counts after this read stays above what is recorded.
         generation = buffer_generation(config)
 
         def _record_loaded(fresh: dict[str, Any]) -> None:

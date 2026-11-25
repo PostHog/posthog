@@ -1993,13 +1993,14 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("table_whose_ticks_stand_down", [], True, True),
-            ("table_this_run_wrote", [_make_event(position="0/100")], True, False),
-            ("flag_off", [], False, False),
+            ("table_whose_ticks_stand_down", [], True, timedelta(hours=1), True),
+            ("table_this_run_wrote", [_make_event(position="0/100")], True, timedelta(hours=1), False),
+            ("flag_off", [], False, timedelta(hours=1), False),
+            ("table_whose_full_runs_stopped", [], True, timedelta(hours=7), False),
         ]
     )
     def test_a_quiet_table_is_marked_checked_while_its_ticks_stand_down(
-        self, _name: str, events: list[ChangeEvent], flag: bool, checked: bool
+        self, _name: str, events: list[ChangeEvent], flag: bool, since_full_run: timedelta, checked: bool
     ) -> None:
         # Its consumer only runs every few hours, so without this the stalled-schedule sweep flags it.
         source = _make_source()
@@ -2007,6 +2008,10 @@ class TestBufferedIngressCapture:
         schema.Status = ExternalDataSchema.Status
         schema.status = ExternalDataSchema.Status.COMPLETED
         schema.initial_sync_complete = True
+        schema.reset_pipeline = False
+        schema.manual_run_requested = False
+        schema.manual_sync_pending = False
+        schema.last_full_run = datetime.now(UTC) - since_full_run
         schema.last_checked_at = None
         schema.sync_type_config.update({BUFFER_GENERATION_KEY: 4, BUFFER_GENERATION_LOADED_KEY: 4})
 

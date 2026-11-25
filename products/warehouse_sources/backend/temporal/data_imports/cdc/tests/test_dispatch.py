@@ -6,7 +6,11 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    request_manual_runs,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
     BUFFER_GENERATION_KEY,
@@ -18,10 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch impor
     consumer_tick_stands_down,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import BUFFER_LISTED_AT_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    BUFFER_LISTED_AT_KEY,
+    ListingProof,
+    read_completed_listing_proof,
+)
 
+_MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 _FLAG = "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_source_flag_enabled"
-_NOW = dt.datetime(2026, 11, 25, 12, 0, tzinfo=dt.UTC)
+_NOW = dt.datetime.now(dt.UTC)
 
 
 class TestConsumerTickDecision(BaseTest):
@@ -80,6 +89,12 @@ class TestConsumerTickDecision(BaseTest):
                 TickDecision.HEARTBEAT,
             ),
             ("never_ran_a_full_tick", {"last_full_run_at": None}, None, TickDecision.HEARTBEAT),
+            (
+                "owed_with_the_heartbeat_due",
+                {BUFFER_WRITE_OPEN_KEY: True, "last_full_run_at": None},
+                None,
+                TickDecision.OWED,
+            ),
         ]
     )
     def test_a_streaming_table_runs_only_when_a_load_or_its_heartbeat_is_owed(
@@ -90,6 +105,30 @@ class TestConsumerTickDecision(BaseTest):
             self._completed_listing(schema, listed_generation)
 
         assert self._decide(schema) == expected
+
+    def test_a_write_counted_while_the_tick_reads_stays_owed(self) -> None:
+        schema = self._schema(config={BUFFER_GENERATION_KEY: 3})
+        self._completed_listing(schema, 3)
+
+        def counted_meanwhile(read_schema: ExternalDataSchema) -> ListingProof | None:
+            update_sync_type_config_keys(schema.id, self.team.id, updates={BUFFER_GENERATION_KEY: 4})
+            return read_completed_listing_proof(read_schema)
+
+        with patch(f"{_MANAGER}.read_completed_listing_proof", side_effect=counted_meanwhile):
+            assert self._decide(schema) == TickDecision.STOOD_DOWN
+
+        assert self._decide(schema) == TickDecision.OWED
+
+    def test_a_sync_someone_asked_for_runs_until_a_full_run_finishes(self) -> None:
+        schema = self._schema()
+
+        request_manual_runs([schema.id], self.team.id)
+        assert self._decide(schema) is None
+
+        update_sync_type_config_keys(
+            schema.id, self.team.id, updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()}
+        )
+        assert self._decide(schema) == TickDecision.STOOD_DOWN
 
     def test_a_proven_read_is_recorded_so_later_ticks_need_no_job_read(self) -> None:
         schema = self._schema(config={BUFFER_GENERATION_KEY: 3})
@@ -105,7 +144,6 @@ class TestConsumerTickDecision(BaseTest):
     @parameterized.expand(
         [
             ("reset_requested", {"config": {"reset_pipeline": True}}, True),
-            ("manual_sync_requested", {"config": {"failure_streak": {"manual_run_requested": True}}}, True),
             ("snapshotting", {"config": {"cdc_mode": "snapshot"}}, True),
             ("resnapshot_pending", {"config": {CDC_RESET_PENDING_KEY: {"generation": 1}}}, True),
             ("last_run_failed", {"status": ExternalDataSchema.Status.FAILED}, True),
