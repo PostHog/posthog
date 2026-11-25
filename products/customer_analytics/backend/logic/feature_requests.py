@@ -1236,9 +1236,16 @@ def create_feature_request_evidence(
     )
 
 
+@frozen
+class _EvidenceWrite:
+    evidence: FeatureRequestEvidence
+    feature_request: FeatureRequest
+    account: Account
+
+
 def _evidence_for_write(
     *, team_id: int, feature_request_id: UUID, evidence_id: UUID, expected_version: int, subject: Subject
-) -> tuple[FeatureRequestEvidence, FeatureRequest, FeatureRequestAccountLink] | None:
+) -> _EvidenceWrite | None:
     evidence = (
         FeatureRequestEvidence.objects.for_team(team_id)
         .select_related("account_link__account")
@@ -1257,7 +1264,7 @@ def _evidence_for_write(
     if result is None:
         return None
     feature_request, account_link = result
-    return evidence, feature_request, account_link
+    return _EvidenceWrite(evidence=evidence, feature_request=feature_request, account=account_link.account)
 
 
 def update_feature_request_evidence(
@@ -1278,20 +1285,20 @@ def update_feature_request_evidence(
         )
         if result is None:
             return None
-        evidence, feature_request, account_link = result
+        evidence = result.evidence
         validated_evidence = _validate_evidence(
             team_id=team_id,
             input=input,
             current_image_ids=tuple(evidence.image_ids),
         )
-        before = _evidence_snapshot(evidence, account=account_link.account)
+        before = _evidence_snapshot(evidence, account=result.account)
         evidence.summary = validated_evidence.summary
         evidence.customer_quote = validated_evidence.customer_quote
         evidence.source = validated_evidence.source
         evidence.source_url = validated_evidence.source_url
         evidence.requested_on = input.requested_on
         evidence.image_ids = list(validated_evidence.image_ids)
-        after = _evidence_snapshot(evidence, account=account_link.account)
+        after = _evidence_snapshot(evidence, account=result.account)
         if before != after:
             evidence.updated_by_id = actor_id
             evidence.save(
@@ -1307,7 +1314,7 @@ def update_feature_request_evidence(
                 ]
             )
             _record_evidence_change(
-                feature_request=feature_request,
+                feature_request=result.feature_request,
                 before=before,
                 after=after,
                 actor_id=actor_id,
@@ -1337,11 +1344,11 @@ def delete_feature_request_evidence(
         )
         if result is None:
             return None
-        evidence, feature_request, account_link = result
-        before = _evidence_snapshot(evidence, account=account_link.account)
+        evidence = result.evidence
+        before = _evidence_snapshot(evidence, account=result.account)
         evidence.delete()
         _record_evidence_change(
-            feature_request=feature_request,
+            feature_request=result.feature_request,
             before=before,
             after=None,
             actor_id=actor_id,
