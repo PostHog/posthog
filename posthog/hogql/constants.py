@@ -199,6 +199,10 @@ class HogQLQuerySettings(BaseModel):
 
 
 # Settings applied on top of all HogQL queries.
+# One node parsing the JSON of a large team's flag calls used 19 to 30 GiB. A small team's read uses under 1 GiB.
+FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES = 8 * 1024**3
+
+
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
