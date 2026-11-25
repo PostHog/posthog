@@ -9515,6 +9515,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         [
             ("sequence", "sequence", False, "unsupported_criteria"),
             ("action", "action", False, "action_criteria"),
+            ("action_with_a_string_id", "action_with_a_string_id", False, "action_criteria"),
             ("daily_cohort_reference", "daily_cohort_reference", False, "includes_non_realtime_cohort"),
             ("test_account_filter", "pageview", True, "test_account_filter"),
         ]
@@ -9543,6 +9544,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         elif criteria == "action":
             action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
             leaves = [{**pageview, "key": action.id, "event_type": "actions"}]
+        elif criteria == "action_with_a_string_id":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": str(action.id), "event_type": "actions"}]
         elif criteria == "daily_cohort_reference":
             daily = Cohort.objects.create(
                 team=self.team,
