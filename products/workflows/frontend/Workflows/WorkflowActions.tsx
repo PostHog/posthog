@@ -13,6 +13,7 @@ import { saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/em
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { confirmWorkflowStatusChange } from './confirmWorkflowStatusChange'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { QuillWorkflowSaveActions } from './QuillWorkflowSaveActions'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
@@ -34,6 +35,8 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
         showDraftActions,
         statusToggleDisabledReason,
         checkingSandboxSender,
+        workflowHasActionErrors,
+        originalWorkflow,
     } = useValues(workflowLogic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, publishDraft, discardDraft } =
         useActions(workflowLogic)
@@ -67,6 +70,23 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
         }
     }, [workflow?.status, displayStatus])
 
+    const toggleStatus = (): void => {
+        const status = workflow?.status === 'draft' ? 'active' : 'draft'
+        // An enable with step errors goes straight through, so saveWorkflowPartial can show which steps to fix.
+        if (status === 'active' && workflowHasActionErrors) {
+            saveWorkflowPartial({ status })
+            return
+        }
+        confirmWorkflowStatusChange({
+            workflowId: workflow.id,
+            status,
+            // Enabling resumes the stored live config, so the recap shows its trigger, not the staged draft's.
+            trigger: originalWorkflow?.trigger ?? workflow?.trigger,
+            surface: 'editor',
+            onConfirm: () => saveWorkflowPartial({ status }),
+        })
+    }
+
     return (
         <>
             {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
@@ -83,11 +103,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                 // Stays clickable when steps have errors: the attempt is what
                                 // reveals the per-field messages, and saveWorkflowPartial
                                 // guards the actual enable with a toast.
-                                onClick={() =>
-                                    saveWorkflowPartial({
-                                        status: workflow?.status === 'draft' ? 'active' : 'draft',
-                                    })
-                                }
+                                onClick={toggleStatus}
                                 loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
@@ -107,11 +123,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                 // Stays clickable when steps have errors: the attempt is what
                                 // reveals the per-field messages, and saveWorkflowPartial
                                 // guards the actual enable with a toast.
-                                onClick={() =>
-                                    saveWorkflowPartial({
-                                        status: workflow?.status === 'draft' ? 'active' : 'draft',
-                                    })
-                                }
+                                onClick={toggleStatus}
                                 size="small"
                                 loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
