@@ -32,13 +32,15 @@ class RenderRetryableError(RetryableHTTPError):
     pass
 
 
-# Render documents `Ratelimit-Reset` as the UTC epoch second at which the window resets, but its
-# own example shows a delay in seconds ("45"). A value this large can only be an epoch.
 _EPOCH_SECONDS_FLOOR = 1_000_000_000
 
 
 def _retry_after_seconds(response: requests.Response) -> float | None:
-    """The wait until Render's rate-limit window resets, capped at the longest wait we honor."""
+    """The wait until Render's rate-limit window resets, capped at the longest wait we honor.
+
+    Render documents `Ratelimit-Reset` as the UTC epoch second at which the window resets, but its own
+    example shows a delay in seconds ("45"). A value of `_EPOCH_SECONDS_FLOOR` or more can only be an epoch.
+    """
     wait = parse_retry_after(response)
     if wait is None:
         try:
@@ -136,8 +138,6 @@ def _fetch_page(
 ) -> list[dict[str, Any]]:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    # Render rate-limits per user (400/min for most GETs), so a fan-out over many parents can
-    # spend the budget. Wait until the window resets: a short backoff retries inside it.
     if is_retryable_status(response.status_code):
         raise RenderRetryableError(
             f"Render API error (retryable): status={response.status_code}, url={url}",

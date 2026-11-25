@@ -493,7 +493,6 @@ class TestFetchPage:
 
     @parameterized.expand(
         [
-            # Render's docs describe the header as an epoch second, but their example is a delay.
             ("delay_seconds", "45", 45.0),
             ("epoch_seconds", str(int(_FROZEN_NOW.timestamp()) + 30), 30.0),
         ]
