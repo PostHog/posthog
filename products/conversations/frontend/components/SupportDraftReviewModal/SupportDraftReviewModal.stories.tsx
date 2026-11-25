@@ -25,7 +25,6 @@ const DRAFT: PostHogSupportDraftApi = {
     expires_at: 0,
     any_plan: false,
     can_send: true,
-    review_url: '',
     next_step: '',
 }
 

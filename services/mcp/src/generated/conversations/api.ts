@@ -66,6 +66,7 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
             'teams_channel_message',
             'widget_api',
             'widget_embedded',
+            'widget_mcp',
         ])
         .optional()
         .describe('Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).'),

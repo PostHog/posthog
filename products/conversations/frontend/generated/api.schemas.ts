@@ -409,6 +409,7 @@ export const ChannelEnumApi = {
  * * `teams_bot_mention` - Teams bot mention
  * * `widget_embedded` - Widget
  * * `widget_api` - API
+ * * `widget_mcp` - MCP
  * * `github_issue` - GitHub issue
  */
 export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
@@ -421,6 +422,7 @@ export const ChannelDetailEnumApi = {
     TeamsBotMention: 'teams_bot_mention',
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
+    WidgetMcp: 'widget_mcp',
     GithubIssue: 'github_issue',
 } as const
 
@@ -1433,7 +1435,7 @@ export interface PostHogSupportDraftCreateApi {
 export interface PostHogSupportDraftApi {
     /** Draft id. */
     id: string
-    /** Ticket text exactly as the person will see it in the support form. */
+    /** Ticket text as drafted. A ticket sent from chat holds exactly this, then the note in ticket_context. */
     message: string
     /** Note filed under the ticket for support, saying an agent drafted it and why. */
     ticket_context: string
@@ -1443,8 +1445,6 @@ export interface PostHogSupportDraftApi {
     any_plan: boolean
     /** True when the person's plan lets them send this ticket. Offer to send it only when this is true. */
     can_send: boolean
-    /** Link the person opens in their browser to review, edit and send the ticket. */
-    review_url: string
     /** What to tell the person now. */
     next_step: string
 }
@@ -1462,8 +1462,8 @@ export interface PostHogSupportSentTicketApi {
      * @nullable
      */
     ticket_number: number | null
-    /** Page in PostHog where the person reads support's replies. */
-    tickets_url: string
+    /** Support panel in PostHog, where the person reads replies. */
+    support_panel_url: string
     /** What to tell the person now. */
     next_step: string
 }
@@ -1575,6 +1575,7 @@ export const ConversationsTicketsListChannelDetail = {
     TeamsChannelMessage: 'teams_channel_message',
     WidgetApi: 'widget_api',
     WidgetEmbedded: 'widget_embedded',
+    WidgetMcp: 'widget_mcp',
 } as const
 
 export type ConversationsTicketsListChannelSource =

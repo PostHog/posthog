@@ -19,7 +19,8 @@
                 "teams_bot_mention",
                 "teams_channel_message",
                 "widget_api",
-                "widget_embedded"
+                "widget_embedded",
+                "widget_mcp"
             ],
             "type": "string"
         },

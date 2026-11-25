@@ -111,7 +111,6 @@ export const myTicketsSceneLogic = kea<myTicketsSceneLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        // pinned: support_draft is the review_url parameter the draft API hands to agents
         [urls.myTickets()]: (_, searchParams) => {
             if (typeof searchParams.support_draft === 'string') {
                 actions.openSupportDraft(searchParams.support_draft)

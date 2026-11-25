@@ -899,7 +899,7 @@ export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so the agent sends it with the send endpoint.
  * @summary Draft a PostHog support ticket for the person to approve
  */
 export const posthogSupportDraftsCreate = async (
@@ -939,7 +939,7 @@ export const getPosthogSupportDraftsClaimCreateUrl = (projectId: string, draftId
 }
 
 /**
- * Called by the web app right before it sends the person's ticket. One browser session can claim a draft, and can claim it again to retry, so a review link opened elsewhere cannot file it twice. Browser sessions only.
+ * Called by the web app right before it sends the person's ticket. One browser session can claim a draft, and can claim it again to retry, so a second browser session cannot file it twice. Browser sessions only.
  * @summary Claim a draft for the person to send
  */
 export const posthogSupportDraftsClaimCreate = async (
@@ -958,7 +958,7 @@ export const getPosthogSupportDraftsSendCreateUrl = (projectId: string, draftId:
 }
 
 /**
- * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket, and a draft sent from the review link can't be sent here.
+ * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket, and a draft sent from the web app can't be sent here.
  * @summary Send a drafted ticket to PostHog support after the person approved it
  */
 export const posthogSupportDraftsSendCreate = async (

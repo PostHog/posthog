@@ -1594,22 +1594,47 @@ class TestWidgetIdentityVerification(BaseTest):
 
     # --- Send message ---
 
-    def test_send_message_creates_ticket_with_identity(self):
+    @parameterized.expand(
+        [
+            ("person", {}, "test_widget_token_iv", True, ChannelDetail.WIDGET_EMBEDDED),
+            ("agent", {"sent_by_agent": True}, "test_widget_token_iv", False, ChannelDetail.WIDGET_MCP),
+            ("agent_elsewhere", {"sent_by_agent": True}, "other_token", False, ChannelDetail.WIDGET_EMBEDDED),
+            ("agent_setting_unset", {"sent_by_agent": True}, "", False, ChannelDetail.WIDGET_EMBEDDED),
+        ]
+    )
+    def test_send_message_creates_ticket_with_identity(
+        self, _name, extra, support_widget_token, verified, channel_detail
+    ):
+        self.team.conversations_settings["widget_enabled"] = True
+        self.team.save()
+        self.enterContext(
+            override_settings(
+                SELF_CAPTURE=False,
+                POSTHOG_SUPPORT_WIDGET_HOST="https://support.example.com",
+                POSTHOG_SUPPORT_WIDGET_TOKEN=support_widget_token,
+            )
+        )
+        identity = {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash}
+
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-                "message": "Hello from identity mode",
-            },
+            {**identity, "message": "Hello from identity mode", **extra},
             **self._get_headers(),
         )
+        listed = self.client.get("/api/conversations/v1/widget/tickets", identity, **self._get_headers())
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
-        self.assertTrue(ticket.identity_verified)
+        self.assertIs(ticket.identity_verified, verified)
+        self.assertEqual(ticket.channel_detail, channel_detail)
+        self.assertEqual(listed.json()["count"], 1)
 
-    def test_anonymous_message_creates_unverified_ticket(self):
+    @parameterized.expand([("plain", {}), ("claiming_agent", {"sent_by_agent": True})])
+    @override_settings(
+        POSTHOG_SUPPORT_WIDGET_HOST="https://support.example.com", POSTHOG_SUPPORT_WIDGET_TOKEN="test_widget_token_iv"
+    )
+    def test_anonymous_message_creates_unverified_ticket(self, _name, extra):
         # A widget_session_id-only (no HMAC) request is not server-attested.
         response = self.client.post(
             "/api/conversations/v1/widget/message",
@@ -1617,12 +1642,14 @@ class TestWidgetIdentityVerification(BaseTest):
                 "widget_session_id": self.widget_session_id,
                 "distinct_id": self.distinct_id,
                 "message": "Anonymous hello",
+                **extra,
             },
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertFalse(ticket.identity_verified)
+        self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_API)
 
     def test_verified_message_promotes_anonymous_ticket(self):
         # An existing anonymous ticket becomes verified once an HMAC-verified

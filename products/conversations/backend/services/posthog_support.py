@@ -1,7 +1,7 @@
 """Drafts of tickets to PostHog's own support team, written by a person's agent for the person to approve.
 
-An agent stores a draft. The person then sends it from the web app's support form, or approves it in
-chat so the agent sends it. Either way, a draft becomes at most one ticket.
+An agent stores a draft. The person then approves it in chat so the agent sends it, or sends it from the
+web app's support form. Either way, a draft becomes at most one ticket.
 """
 
 from __future__ import annotations
@@ -31,9 +31,13 @@ from ee.billing.billing_manager import BillingManager
 
 DRAFT_TTL_SECONDS = 24 * 60 * 60
 # The claimant an agent's send uses. A browser session claims with its session key, which never has
-# this value, so the review link and the agent can never both hold a draft.
+# this value, so the web app and the agent can never both hold a draft.
 AGENT_CLAIMANT = "agent"
 MAX_SEND_ATTEMPTS = 4
+MAX_TICKETS_PER_TOPIC = 3
+TOPIC_WINDOW_SECONDS = 72 * 60 * 60
+# Redirects to the person's own region
+SUPPORT_PANEL_URL = "https://app.posthog.com/home#panel=support"
 NEW_ORGANIZATION_SUPPORT_MONTHS = 3
 SUPPORT_TRIAL_TARGETS = frozenset({"boost", "scale", "enterprise"})
 BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
@@ -173,7 +177,7 @@ def compose_ticket_message(
 ) -> str:
     """Lay the ticket out in the shape the writing-posthog-support-tickets skill teaches, so every
     agent-drafted ticket reads the same way to support."""
-    # Plain labels, not Markdown bold, because the person reviews the draft in a plain text box.
+    # Plain labels, not Markdown bold, because the web app's form shows the draft in a plain text box.
     sections = [
         ("Request", request),
         ("Details", details),
@@ -211,6 +215,7 @@ class SupportDraftStore:
     and one project, so a ticket always names the project it was drafted for."""
 
     def __init__(self, user_id: int, team_id: int) -> None:
+        self._user_id = user_id
         self._owner = f"{user_id}:{team_id}"
         self._cache = caches["posthog_support_drafts"]
 
@@ -267,7 +272,7 @@ class SupportDraftStore:
         )
 
     def release(self, draft_id: str, claimant: str) -> None:
-        """Give back a claim after a send that created no ticket, so the review link works again."""
+        """Give back a claim after a send that created no ticket, so the web app can send it."""
         if self._cache.get(self._claim_key(draft_id)) == claimant:
             self._cache.delete(self._claim_key(draft_id))
 
@@ -286,14 +291,27 @@ class SupportDraftStore:
     def cancel_send(self, draft_id: str) -> None:
         self._cache.delete(self._sending_key(draft_id))
 
-    def record_sent(self, draft_id: str, ticket: SentSupportTicket) -> None:
+    def record_sent(self, draft_id: str, topic: TicketTopic, ticket: SentSupportTicket) -> None:
         self._cache.set(self._sent_key(draft_id), asdict(ticket), DRAFT_TTL_SECONDS)
+        sent_at = [*self._recent_sends(topic), int(time.time())]
+        self._cache.set(self._topic_key(topic), sent_at, TOPIC_WINDOW_SECONDS)
+
+    def topic_limit_reached(self, topic: TicketTopic) -> bool:
+        return len(self._recent_sends(topic)) >= MAX_TICKETS_PER_TOPIC
+
+    def _recent_sends(self, topic: TicketTopic) -> list[int]:
+        oldest = time.time() - TOPIC_WINDOW_SECONDS
+        return [sent_at for sent_at in self._cache.get(self._topic_key(topic)) or [] if sent_at > oldest]
 
     def sent_ticket(self, draft_id: str) -> SentSupportTicket | None:
         stored = self._cache.get(self._sent_key(draft_id))
         if stored is None:
             return None
         return SentSupportTicket(ticket_id=stored["ticket_id"], ticket_number=stored.get("ticket_number"))
+
+    def _topic_key(self, topic: TicketTopic) -> str:
+        # Not per project, so switching projects does not reset the limit
+        return f"posthog_support_topic_sends:{self._user_id}:{topic.value}"
 
     def _attempts_key(self, draft_id: str) -> str:
         return f"posthog_support_draft_attempts:{self._owner}:{draft_id}"

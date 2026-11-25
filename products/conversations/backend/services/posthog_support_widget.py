@@ -17,6 +17,7 @@ from urllib3.exceptions import NewConnectionError
 
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import resolve_self_flags_team
 
@@ -65,6 +66,14 @@ def resolve_support_widget_target() -> SupportWidgetTarget:
         if team and team.conversations_enabled and token:
             return SupportWidgetTarget(host=settings.SITE_URL, token=token)
     raise SupportTicketNotSent("PostHog support is not set up on this instance.")
+
+
+def is_support_widget_team(team: Team) -> bool:
+    try:
+        target = resolve_support_widget_target()
+    except SupportTicketNotSent:
+        return False
+    return target.token == (team.conversations_settings or {}).get("widget_public_token")
 
 
 def _never_connected(error: requests.RequestException) -> bool:
@@ -122,6 +131,8 @@ class PostHogSupportWidgetClient:
         identity_hash = compute_identity_hash(user.distinct_id, secret)
         payload: dict[str, Any] = {
             "message": message,
+            # The signature proves the token's account, not that the person is there, so the ticket stays unverified.
+            "sent_by_agent": True,
             "identity_distinct_id": user.distinct_id,
             "identity_hash": identity_hash,
             # The widget rate-limits each widget session, or each IP when a request has no session id.

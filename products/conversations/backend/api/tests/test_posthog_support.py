@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,7 @@ from posthog.models.user import User
 from products.conversations.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
 from products.conversations.backend.services.identity import compute_identity_hash
 from products.conversations.backend.services.posthog_support import (
+    SUPPORT_PANEL_URL,
     TicketPermission,
     TicketTopic,
     check_ticket_permission,
@@ -86,7 +88,7 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert api_draft["ticket_context"].startswith("Drafted through the PostHog API,")
         assert "MCP session id" not in api_draft["ticket_context"]
 
-        assert draft["review_url"].endswith(f"/project/{self.team.id}/my-tickets?support_draft={draft['id']}")
+        assert "review_url" not in draft
         assert draft["message"] == (
             "Test events from staging in the live project\n\n---\n\n"
             "Request:\n\nOur staging build sent test events last week. Please delete the 3,817 events the query below returns."
@@ -138,6 +140,9 @@ class TestPostHogSupportAPI(APIBaseTest):
     def test_only_the_claiming_browser_session_can_send_a_draft(self) -> None:
         draft_id = self._create_draft()["id"]
         claim_url = f"{self.base}/drafts/{draft_id}/claim/"
+
+        opened = self.client.get(f"{self.base}/drafts/{draft_id}/")
+        assert "then reviewed and sent by the person" in opened.json()["ticket_context"]
 
         assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
@@ -194,8 +199,8 @@ class TestPostHogSupportSend(APIBaseTest):
 
         assert draft["can_send"] is True
         assert (sent.status_code, sent.json()["ticket_number"]) == (200, 42)
-        assert "log in to PostHog" in sent.json()["next_step"]
-        assert "support widget in the right-hand sidebar" in sent.json()["next_step"]
+        assert sent.json()["support_panel_url"] == SUPPORT_PANEL_URL
+        assert sent.json()["next_step"].startswith(f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}")
         assert retry.json()["ticket_id"] == TICKET_ID
         assert other.status_code == status.HTTP_404_NOT_FOUND
         assert len(calls) == 1
@@ -206,7 +211,8 @@ class TestPostHogSupportSend(APIBaseTest):
             self.user.distinct_id,
             compute_identity_hash(self.user.distinct_id, SIGNING_SECRET),
         )
-        assert body["message"].startswith(draft["message"])
+        assert body["sent_by_agent"] is True
+        assert body["message"] == f"{draft['message']}\n\n-----\n{draft['ticket_context']}"
         assert body["message"].endswith(
             f"then sent by the agent. PostHog did not verify the person's approval.\n"
             f"Topic: Deleting data for another reason.\n"
@@ -273,6 +279,58 @@ class TestPostHogSupportSend(APIBaseTest):
         assert all("may already be with PostHog support" in answer.json()["detail"] for answer in answers)
         assert calls == 1
 
+    def test_a_person_sends_at_most_three_tickets_on_one_topic_in_72_hours(self) -> None:
+        early_drafts = [self._create_draft() for _ in range(4)]
+        now = timezone.now()
+
+        with responses.RequestsMock() as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            sends = [self.client.post(f"{self.base}/drafts/{draft['id']}/send/") for draft in early_drafts]
+            calls = len(widget.calls)
+            replay = self.client.post(f"{self.base}/drafts/{early_drafts[0]['id']}/send/")
+
+        refused = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        in_other_project = self.client.post(
+            f"/api/projects/{other_project.id}/posthog_support/drafts/", DRAFT_BODY, format="json"
+        )
+        teammate = APIClient()
+        teammate.force_login(self._create_user("teammate@example.com"))
+        by_teammate = teammate.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+        other_topic = self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, "topic": "dpa"}, format="json")
+        with time_machine.travel(now + timedelta(hours=73), tick=False):
+            later = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+
+        assert [send.status_code for send in sends] == [200, 200, 200, 403]
+        assert calls == 3
+        assert "3 tickets on this topic" in sends[3].json()["detail"]
+        assert SUPPORT_PANEL_URL in sends[3].json()["detail"]
+        assert replay.status_code == status.HTTP_200_OK
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert "3 tickets on this topic" in refused.json()["detail"]
+        assert "3 tickets on this topic" in in_other_project.json()["detail"]
+        assert by_teammate.status_code == status.HTTP_201_CREATED
+        assert other_topic.status_code == status.HTTP_201_CREATED
+        assert later.status_code == status.HTTP_201_CREATED
+
+    def test_a_ticket_older_than_72_hours_no_longer_counts_toward_the_limit(self) -> None:
+        now = timezone.now()
+
+        with responses.RequestsMock() as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            for hours in (0, 40, 71):
+                with time_machine.travel(now + timedelta(hours=hours), tick=False):
+                    sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+                    assert sent.status_code == status.HTTP_200_OK
+
+        with time_machine.travel(now + timedelta(hours=71, minutes=30), tick=False):
+            third_day = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+        with time_machine.travel(now + timedelta(hours=73), tick=False):
+            fourth_day = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+
+        assert third_day.status_code == status.HTTP_403_FORBIDDEN
+        assert fourth_day.status_code == status.HTTP_201_CREATED
+
     def test_a_draft_belongs_to_the_project_it_was_made_in(self) -> None:
         draft = self._create_draft()
         other_project = Team.objects.create(organization=self.organization, name="Other project")
@@ -302,7 +360,7 @@ class TestPostHogSupportSend(APIBaseTest):
         assert calls == 4
         assert other.status_code == 424
 
-    def test_a_draft_on_an_unknown_plan_goes_to_the_web_app(self) -> None:
+    def test_a_draft_on_an_unknown_plan_goes_to_the_support_panel(self) -> None:
         self.organization.created_at = timezone.now() - timedelta(days=200)
         self.organization.save()
         services = "products.conversations.backend.services.posthog_support"
@@ -320,7 +378,7 @@ class TestPostHogSupportSend(APIBaseTest):
             calls = list(widget.calls)
 
         assert draft["can_send"] is False
-        assert draft["review_url"]
+        assert SUPPORT_PANEL_URL in draft["next_step"]
         assert response.status_code == 424
         assert calls == []
 

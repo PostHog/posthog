@@ -22,6 +22,7 @@ class ChannelDetail(models.TextChoices):
     # Widget sub-types
     WIDGET_EMBEDDED = "widget_embedded", "Widget"
     WIDGET_API = "widget_api", "API"
+    WIDGET_MCP = "widget_mcp", "MCP"
     # GitHub sub-types
     GITHUB_ISSUE = "github_issue", "GitHub issue"
 

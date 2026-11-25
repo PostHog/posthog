@@ -193,7 +193,6 @@ describe('myTicketsSceneLogic', () => {
                             message: 'Request: My funnel is empty',
                             ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
                             expires_at: 0,
-                            review_url: '',
                             next_step: '',
                         },
                     ]
@@ -259,7 +258,6 @@ describe('myTicketsSceneLogic', () => {
                     ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
                     expires_at: 0,
                     any_plan: true,
-                    review_url: '',
                     next_step: '',
                 },
             },

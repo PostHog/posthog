@@ -61,6 +61,7 @@ const channelDetailLabel: Record<TicketChannelDetail, string> = {
     teams_bot_mention: 'Teams bot mention',
     widget_embedded: 'Widget',
     widget_api: 'API',
+    widget_mcp: 'MCP',
     github_issue: 'GitHub issue',
 }
 

@@ -71,6 +71,7 @@ from products.conversations.backend.services.identity import (
     verify_identity_hash,
     widget_session_id_for_identity_hash,
 )
+from products.conversations.backend.services.posthog_support_widget import is_support_widget_team
 
 logger = logging.getLogger(__name__)
 
@@ -566,12 +567,14 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
+            sent_by_agent = verified_distinct_id is not None and serializer.validated_data["sent_by_agent"]
             conversations_settings = team.conversations_settings or {}
-            widget_channel_detail = (
-                ChannelDetail.WIDGET_EMBEDDED
-                if conversations_settings.get("widget_enabled")
-                else ChannelDetail.WIDGET_API
-            )
+            if sent_by_agent and is_support_widget_team(team):
+                widget_channel_detail = ChannelDetail.WIDGET_MCP
+            elif conversations_settings.get("widget_enabled"):
+                widget_channel_detail = ChannelDetail.WIDGET_EMBEDDED
+            else:
+                widget_channel_detail = ChannelDetail.WIDGET_API
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
@@ -583,7 +586,7 @@ class WidgetMessageView(APIView):
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
-                identity_verified=verified_distinct_id is not None,
+                identity_verified=verified_distinct_id is not None and not sent_by_agent,
             )
             set_cached_session_has_tickets(team.id, widget_session_id)
 
