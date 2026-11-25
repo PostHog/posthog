@@ -253,6 +253,7 @@ AI_EVENTS = DeletionTarget(
     optional=True,
     cluster_setting="CLICKHOUSE_AI_EVENTS_CLUSTER",
     node_role=NodeRole.AI_EVENTS,
+    accepts_person_id_rewrite=True,
     # Ingestion writes each row here and to events under the same uuid.
     queue_uuid_candidates=False,
     # Kafka produce time, which ingestion stamps; the table has no inserted_at.
@@ -277,11 +278,7 @@ SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
 # Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
 # it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
 # squash deletes the overrides that recorded the mapping right after applying them.
-#
-# sharded_ai_events stays out until the squash has run against the ai_events cluster. Its TTL drops a
-# row up to a month after the row's retention_days, which ingestion sets per team from 30 to 365. A
-# merge can strand a row there for that long.
-PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({AI_EVENTS_DATA_TABLE})
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
