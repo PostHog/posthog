@@ -292,7 +292,10 @@ def _spreadsheet_time_zone(worksheet: gspread.Worksheet) -> datetime.tzinfo:
         return datetime.UTC
     sign, hours, minutes = match.groups()
     offset = datetime.timedelta(hours=int(hours), minutes=int(minutes))
-    return datetime.timezone(-offset if sign == "-" else offset)
+    try:
+        return datetime.timezone(-offset if sign == "-" else offset)
+    except ValueError:
+        return datetime.UTC
 
 
 def _date_from_serial(serial: float, number_format_type: str) -> datetime.date | None:

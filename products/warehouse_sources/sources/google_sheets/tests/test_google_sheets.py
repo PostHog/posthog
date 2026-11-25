@@ -536,6 +536,13 @@ _SERIAL_2026_03_01 = 46082
             id="date_time_in_a_gmt_offset_time_zone",
         ),
         pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            "GMT+25:00",
+            [datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)],
+            id="date_time_in_an_out_of_range_gmt_offset_reads_as_utc",
+        ),
+        pytest.param(
             ["13-10", "TBD"],
             [("DATE", _SERIAL_2026_10_13), ("DATE", None)],
             "Etc/UTC",
