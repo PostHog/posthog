@@ -100,9 +100,8 @@ const PROVIDER_PREFIXES = ["anthropic/", "openai/", "google-vertex/"];
 const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
 
 /**
- * The Go AI gateway origin for a PostHog host, with no path. A custom cloud's
- * own gateway wins for its host, because a PostHog Cloud gateway cannot
- * authenticate a token that instance issued.
+ * Go AI gateway origin for a PostHog host. A custom cloud uses its own gateway,
+ * since PostHog Cloud's cannot authenticate that instance's tokens.
  */
 export function getAiGatewayUrl(posthogHost: string): string {
   const url = new URL(posthogHost);

@@ -372,10 +372,7 @@ export class GatewaySessionHandler {
     }
   }
 
-  /**
-   * Go serves `/v1/models` without auth, so the blocked route sends no bearer
-   * and no client header: a blocked credential has nothing worth forwarding.
-   */
+  /** Go serves `/v1/models` without auth, so a blocked credential is not forwarded. */
   private async listModelsUnauthenticated(
     target: SessionTarget,
     search: string,
