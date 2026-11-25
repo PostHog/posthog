@@ -130,7 +130,7 @@ logger = structlog.get_logger(__name__)
 
 IMPORT_STATE_KEY = "metrics_dashboard_import"
 SANDBOX_ENVIRONMENT_NAME = "METRICS_DASHBOARD_IMPORT"
-AGENT_MODEL = "claude-haiku-5-5"
+AGENT_MODEL = "claude-sonnet-5"
 AGENT_RUNTIME_ADAPTER = "claude"
 START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
