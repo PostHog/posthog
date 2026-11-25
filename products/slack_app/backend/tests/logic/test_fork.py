@@ -279,6 +279,11 @@ class TestForkThreadPayload(TestCase):
                 {"target": {"is_private": False, "is_pending_ext_shared": True}},
             ),
             ("target_private", {"target_channel": "C_TARGET"}, {"target": {"is_private": True}}),
+            (
+                "target_org_shared",
+                {"target_channel": "C_TARGET"},
+                {"target": {"is_private": False, "is_org_shared": True}},
+            ),
             ("target_unresolved", {"target_channel": "C_TARGET"}, {"target": {}}),
         ]
     )

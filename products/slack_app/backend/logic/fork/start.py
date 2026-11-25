@@ -336,12 +336,16 @@ def _destination_is_plain_public(slack: Any, channel: str) -> bool:
         return False
     if "is_private" not in conversation:
         return False
+    # `is_shared` and `is_org_shared` cover a channel shared with other workspaces of the
+    # same Enterprise Grid org, which the picker's filter does not exclude.
     return not (
         conversation.get("is_private")
         or conversation.get("is_im")
         or conversation.get("is_mpim")
         or conversation.get("is_ext_shared")
         or conversation.get("is_pending_ext_shared")
+        or conversation.get("is_shared")
+        or conversation.get("is_org_shared")
     )
 
 
