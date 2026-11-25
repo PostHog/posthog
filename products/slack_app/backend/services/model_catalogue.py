@@ -24,6 +24,7 @@ from products.tasks.backend.facade.model_catalogue import (
     find_model_choice,
     group_by_runtime,
     label_for,
+    model_line,
     normalize_model_id,
     product_model_choices,
     runtime_adapter_for,
@@ -33,12 +34,11 @@ from products.tasks.backend.facade.model_catalogue import (
 def available_model_choices() -> tuple[ModelChoice, ...]:
     """Every model a Slack-triggered run may use.
 
-    Read from the catalog rather than the gateway. Slack asks only what the catalog
-    answers — whether a mention names a real model, which runtime drives it, and what
-    efforts it takes — so the list no longer depends on a network call that can come
-    back empty and leave a mention with nothing to match against.
+    Read from the cached gateway listing. Slack asks whether a mention names a real model,
+    which runtime drives it, and what efforts it takes, and the gateway is called only when
+    nothing is cached.
 
-    Wider than what the App Home picker offers: a mention naming a retired model still
+    Wider than what the App Home picker offers: a mention naming an older version still
     resolves to it, because a person who asks for one by name is not choosing from a list.
     """
     return product_model_choices("slack_app", offered_only=False)
@@ -72,6 +72,7 @@ __all__ = [
     "find_model_choice",
     "group_by_runtime",
     "label_for",
+    "model_line",
     "normalize_model_id",
     "runtime_adapter_for",
 ]
