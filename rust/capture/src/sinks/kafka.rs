@@ -12,7 +12,7 @@ use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::pipeline::{self, Address};
-use crate::producers::ProducerHandle;
+use crate::producers::{ProducerHandle, ProducerName, PRODUCER_HEALTHY};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
@@ -37,11 +37,12 @@ pub struct KafkaContext {
     /// whose health must not gate the pod — it still produces and emits
     /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
+    name: ProducerName,
 }
 
 impl KafkaContext {
-    pub(crate) fn new(liveness: Option<lifecycle::Handle>) -> Self {
-        Self { liveness }
+    pub(crate) fn new(name: ProducerName, liveness: Option<lifecycle::Handle>) -> Self {
+        Self { liveness, name }
     }
 }
 
@@ -81,6 +82,11 @@ impl rdkafka::ClientContext for KafkaContext {
                 liveness.report_healthy();
             }
         }
+        gauge!(PRODUCER_HEALTHY, "producer" => self.name.as_str()).set(if brokers_up {
+            1.0
+        } else {
+            0.0
+        });
 
         let total_brokers = stats.brokers.len();
         let up_brokers = stats

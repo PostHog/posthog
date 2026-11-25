@@ -3,6 +3,7 @@ use futures::channel::oneshot::Canceled;
 use metrics::{counter, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
+use rdkafka::util::Timeout;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -32,6 +33,12 @@ pub trait KafkaProducer: Send + Sync {
 
     /// Flush pending messages
     fn flush(&self) -> Result<(), KafkaError>;
+
+    /// Blocks until a broker answers or `timeout` passes.
+    fn check_connection(&self, timeout: Duration) -> anyhow::Result<()>;
+
+    /// Blocks like `check_connection`. A topic without partitions fails.
+    fn check_topic_exists(&self, topic: &str, timeout: Duration) -> anyhow::Result<()>;
 }
 
 /// Future that wraps rdkafka's DeliveryFuture and converts the result to CaptureError.
@@ -179,6 +186,33 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
     fn flush(&self) -> Result<(), KafkaError> {
         self.producer.flush(Duration::new(30, 0))
     }
+
+    fn check_connection(&self, timeout: Duration) -> anyhow::Result<()> {
+        self.producer
+            .client()
+            .fetch_metadata(None, Timeout::After(timeout))?;
+        Ok(())
+    }
+
+    fn check_topic_exists(&self, topic: &str, timeout: Duration) -> anyhow::Result<()> {
+        let metadata = self
+            .producer
+            .client()
+            .fetch_metadata(Some(topic), Timeout::After(timeout))?;
+        let found = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| anyhow::anyhow!("topic {topic:?} not found in broker metadata"))?;
+        if let Some(err) = found.error() {
+            anyhow::bail!("topic {topic:?}: {}", RDKafkaErrorCode::from(err));
+        }
+        anyhow::ensure!(
+            !found.partitions().is_empty(),
+            "topic {topic:?} has no partitions"
+        );
+        Ok(())
+    }
 }
 
 /// Mock Kafka producer for testing - captures all sent records.
@@ -196,6 +230,7 @@ pub struct MockKafkaProducer {
     fail_at_index: Option<usize>,
     fail_ack_at_index: Option<usize>,
     call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    missing_topics: std::sync::Arc<std::collections::HashSet<String>>,
 }
 
 impl MockKafkaProducer {
@@ -219,6 +254,11 @@ impl MockKafkaProducer {
             fail_ack_at_index: Some(idx),
             ..Self::default()
         }
+    }
+
+    pub fn with_missing_topics<'a>(mut self, topics: impl IntoIterator<Item = &'a str>) -> Self {
+        self.missing_topics = std::sync::Arc::new(topics.into_iter().map(String::from).collect());
+        self
     }
 
     /// Get all records that were sent
@@ -250,6 +290,18 @@ impl KafkaProducer for MockKafkaProducer {
     }
 
     fn flush(&self) -> Result<(), KafkaError> {
+        Ok(())
+    }
+
+    fn check_connection(&self, _timeout: Duration) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn check_topic_exists(&self, topic: &str, _timeout: Duration) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.missing_topics.contains(topic),
+            "topic {topic:?} not found in broker metadata"
+        );
         Ok(())
     }
 }
