@@ -21,12 +21,13 @@ from posthog.cloud_utils import is_cloud
 from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
-from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.models.proxy_record import CloudflareActivationState, is_valid_proxy_domain
 from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
     BLOCKED_HOSTNAME_STATUSES,
@@ -52,6 +53,7 @@ from posthog.temporal.proxy_service.common import (
 from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
 
 LOGGER = get_logger(__name__)
+PROXY_MONITORING_SUSPENDED = "ProxyMonitoringSuspended"
 
 # Timeout (seconds) for every network call in the live-proxy probe - the POST and the raw-socket
 # cert fetch. The domain is attacker-controllable, so an unbounded call lets a malicious domain
@@ -135,14 +137,25 @@ class CheckActivityInput:
         }
 
 
+async def _get_proxy_to_monitor(proxy_record_id: uuid.UUID) -> ProxyRecord:
+    record = await get_record(proxy_record_id)
+    if record is None:
+        raise RecordDeletedException("proxy record no longer exists")
+    if record.cloudflare_activation_state != CloudflareActivationState.IDLE or (
+        is_cloudflare_proxy(record) and record.organization.is_active is False
+    ):
+        raise NonReportableApplicationError(
+            "Proxy monitoring is suspended", type=PROXY_MONITORING_SUSPENDED, non_retryable=True
+        )
+    return record
+
+
 @activity.defn
 async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
-    proxy_record = await get_record(inputs.proxy_record_id)
-    if not proxy_record:
-        raise RecordDeletedException("proxy record no longer exists")
+    proxy_record = await _get_proxy_to_monitor(inputs.proxy_record_id)
 
     bind_contextvars(organization_id=proxy_record.organization_id)
     logger = LOGGER.bind()
@@ -221,9 +234,7 @@ def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
 @activity.defn
 async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityOutput:
     """Activity that checks the certificate status for the proxy"""
-    proxy_record = await get_record(inputs.proxy_record_id)
-    if not proxy_record:
-        raise RecordDeletedException("proxy record no longer exists")
+    proxy_record = await _get_proxy_to_monitor(inputs.proxy_record_id)
 
     bind_contextvars(organization_id=proxy_record.organization_id)
     logger = LOGGER.bind()
@@ -335,9 +346,7 @@ async def _check_legacy_certificate_status(proxy_record, logger) -> CheckActivit
 @activity.defn
 async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput:
     """Activity that checks the certificate status for the proxy"""
-    proxy_record = await get_record(inputs.proxy_record_id)
-    if not proxy_record:
-        raise RecordDeletedException("proxy record no longer exists")
+    proxy_record = await _get_proxy_to_monitor(inputs.proxy_record_id)
 
     bind_contextvars(organization_id=proxy_record.organization_id)
     logger = LOGGER.bind()
@@ -551,6 +560,10 @@ class CleanupMonitorJobInputs:
 async def cleanup_monitor_job(inputs: CleanupMonitorJobInputs):
     from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
 
+    # A delete request can still fail to start its workflow and leave the proxy live.
+    if await ProxyRecord.objects.filter(pk=inputs.proxy_record_id).aexists():
+        return
+
     bind_contextvars(organization_id=inputs.organization_id)
     logger = LOGGER.bind()
     logger.info(
@@ -721,6 +734,8 @@ Issues have been detected with the proxy
                 ),
             )
         except ActivityError as e:
+            if isinstance(e.cause, ApplicationError) and e.cause.type == PROXY_MONITORING_SUSPENDED:
+                return
             if (
                 hasattr(e, "cause")
                 and e.cause

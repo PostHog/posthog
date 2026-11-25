@@ -12,6 +12,7 @@ import dns.resolver
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.models import Organization, ProxyRecord
 from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 from posthog.temporal.proxy_service.cloudflare import CLOUDFLARE_API_TIMEOUT_S
 from posthog.temporal.proxy_service.create import WaitForDNSRecordsInputs, wait_for_dns_records
@@ -38,12 +39,12 @@ DNS_FAILURES = [
 
 
 def _record(target_cname="x.cf-prod-us-proxy.proxyhog.com."):
-    r = MagicMock()
-    r.domain = "p.example.com"
-    r.target_cname = target_cname
-    r.organization_id = "org"
-    r.id = RECORD_ID
-    return r
+    return ProxyRecord(
+        id=RECORD_ID,
+        domain="p.example.com",
+        target_cname=target_cname,
+        organization=Organization(is_active=True),
+    )
 
 
 # Only reached when the loop is blocked, so it bounds a deadlock instead of timing the loop.
