@@ -910,6 +910,20 @@ describe('PushNotificationService', () => {
             expect(sentTokens()).toEqual(['run-person-token'])
         })
 
+        it('reaches no device of a named person from a transactional email run', async () => {
+            personsManager.getCyclotronPerson.mockResolvedValue(
+                namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
+            )
+            mockTrackedFetch.mockResolvedValue(ok())
+            const invocation = invocationNaming('named-user')
+            invocation.state.globals.event.event = '$transactional_email'
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(sentTokens()).toEqual([])
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
+        })
+
         it('skips with a warning naming the input when it matches no person', async () => {
             // Falling back to the run person here would notify someone the step did not name.
             const result = await service.executeSendPushNotification(invocationNaming('nobody'))

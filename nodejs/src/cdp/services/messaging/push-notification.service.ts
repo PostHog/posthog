@@ -24,6 +24,7 @@ import {
     pushRecipientOtherThanRunPerson,
     runDistinctIdMatching,
 } from '../../utils/push-subscription-utils'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { TRANSACTIONAL_PUSH_EVENT } from '../hogflows/transactional-push'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PersonsManagerService } from '../managers/persons-manager.service'
@@ -654,7 +655,9 @@ export class PushNotificationService {
         if (!named) {
             return null
         }
-        return { distinctId, personId: named.id, properties: named.properties, isRunPerson: false }
+        // An email key must not reach a device, and its caller can pick the named person through the variables.
+        const properties = event.event === TRANSACTIONAL_EMAIL_EVENT ? {} : named.properties
+        return { distinctId, personId: named.id, properties, isRunPerson: false }
     }
 
     private async executeFcm(
