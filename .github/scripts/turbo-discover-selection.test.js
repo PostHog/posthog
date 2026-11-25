@@ -736,34 +736,64 @@ test('a change to a shared file directly under products/ runs every product and 
     }
 })
 
-// A watched module that is a symlink runs its target, wherever the target lives. The targets sit
+// A watched module runs every path it resolves through, wherever that lives. The paths sit
 // outside products/, where no other rule reaches the product.
-// Each case: the link chain from products/canvas/backend/linked.py, the changed file, and whether the diff deletes it.
-for (const [label, chain, changed, deleted] of [
-    ['a changed target', ['../../../shared/impl.py'], 'shared/impl.py', false],
+// Each case: the files and symlinks the tree holds, the watched module, the changed path, and
+// whether the diff deletes it.
+const LINKED = 'products/canvas/backend/linked.py'
+for (const { label, files = ['shared/impl.py'], links, watchedFile = LINKED, changed, deleted = false } of [
+    { label: 'a changed target', links: [[LINKED, '../../../shared/impl.py']], changed: 'shared/impl.py' },
     // A deleted target leaves the link dangling, so the link must still name it.
-    ['a deleted target', ['../../../shared/impl.py'], 'shared/impl.py', true],
-    ['the deleted end of a two-hop chain', ['../../../shared/alias.py', 'impl.py'], 'shared/impl.py', true],
+    { label: 'a deleted target', links: [[LINKED, '../../../shared/impl.py']], changed: 'shared/impl.py', deleted: true },
+    {
+        label: 'the deleted end of a two-hop chain',
+        links: [[LINKED, '../../../shared/alias.py'], ['shared/alias.py', 'impl.py']],
+        changed: 'shared/impl.py',
+        deleted: true,
+    },
     // Retargeting the middle link changes what the chain runs, while realpath names only the end.
-    ['a changed middle link', ['../../../shared/alias.py', 'impl.py'], 'shared/alias.py', false],
+    {
+        label: 'a changed middle link',
+        links: [[LINKED, '../../../shared/alias.py'], ['shared/alias.py', 'impl.py']],
+        changed: 'shared/alias.py',
+    },
+    // The changed path is the directory symlink above the hop, not the hop itself.
+    {
+        label: 'a retargeted directory link on the way',
+        links: [[LINKED, '../../../alias_dir/impl.py'], ['alias_dir', 'shared']],
+        changed: 'alias_dir',
+    },
+    {
+        label: 'a changed file behind a directory link on the way',
+        links: [[LINKED, '../../../alias_dir/impl.py'], ['alias_dir', 'shared']],
+        changed: 'shared/impl.py',
+    },
+    // The watched module is a regular file; only a directory on its path is a symlink.
+    {
+        label: 'a changed file under a symlinked product directory',
+        links: [['products/canvas/backend/sub', '../../../shared']],
+        watchedFile: 'products/canvas/backend/sub/impl.py',
+        changed: 'shared/impl.py',
+    },
 ]) {
-    test(`${label} of a symlinked watched file runs Django`, () => {
+    test(`${label} of a watched module runs Django`, () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
-        fs.mkdirSync(path.join(root, 'products/canvas/backend'), { recursive: true })
-        fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
-        fs.writeFileSync(path.join(root, 'shared/impl.py'), '')
-        fs.symlinkSync(chain[0], path.join(root, 'products/canvas/backend/linked.py'))
-        if (chain.length > 1) {
-            fs.symlinkSync(chain[1], path.join(root, 'shared/alias.py'))
+        for (const file of files) {
+            fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+            fs.writeFileSync(path.join(root, file), '')
+        }
+        for (const [link, text] of links) {
+            fs.mkdirSync(path.join(root, path.dirname(link)), { recursive: true })
+            fs.symlinkSync(text, path.join(root, link))
         }
         execFileSync('git', ['init', '-q'], { cwd: root })
         execFileSync('git', ['add', '.'], { cwd: root })
         if (deleted) {
             fs.rmSync(path.join(root, changed))
         }
-        const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
+        const fileMap = { [watchedFile]: ['posthog/api/canvas.py'] }
         const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
-        // The selector loads hoglint's answer only for a diff that reaches a product, so the link must reach it.
+        // The selector loads hoglint's answer only for a diff that reaches a product, so the change must reach it.
         assert.deepEqual(productsReachedByFiles([changed], ALL_PRODUCTS, root), ['canvas'])
         const previous = process.cwd()
         process.chdir(root)

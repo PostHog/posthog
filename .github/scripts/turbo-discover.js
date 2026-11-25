@@ -592,15 +592,26 @@ function pythonFilesUnder(repoRoot, dir) {
     return found
 }
 
-// The repo paths a symlinked file runs through, hop by hop, or [] for a regular or missing file.
-// Every hop counts: a change to an intermediate link retargets the chain, and a deleted last hop
-// leaves the chain dangling, where realpath fails. The hops resolve by text against each link's
-// directory, so a dangling chain still names its deleted file.
+// The other repo paths a file runs through: each hop of a symlink chain, the real location of the
+// file and of each hop (a symlinked directory on the way names a path that is not the file's own),
+// and the real path the chain ends at. Every one counts: a change to an intermediate link
+// retargets the chain, and a deleted last hop leaves the chain dangling, where realpath fails.
+// The hops resolve by text against each link's directory, so a dangling chain still names its
+// deleted file. A regular file outside any symlinked directory has none.
 const MAX_SYMLINK_HOPS = 40
 
-function symlinkChain(file, repoRoot) {
-    const hops = []
+function linkedPaths(file, repoRoot) {
+    const realRoot = fs.realpathSync(repoRoot)
+    const paths = []
+    const addRealLocation = (full) => {
+        try {
+            paths.push(path.relative(realRoot, path.join(fs.realpathSync(path.dirname(full)), path.basename(full))))
+        } catch {
+            // A deleted directory has no real location; its text path is already in the list.
+        }
+    }
     let current = path.join(repoRoot, file)
+    addRealLocation(current)
     for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
         let isLink
         try {
@@ -612,17 +623,21 @@ function symlinkChain(file, repoRoot) {
             break
         }
         current = path.resolve(path.dirname(current), fs.readlinkSync(current))
-        hops.push(path.relative(repoRoot, current))
+        paths.push(path.relative(repoRoot, current))
+        addRealLocation(current)
     }
-    // A hop through a symlinked directory names a path that is not the file's own, so add the real one.
-    if (hops.length > 0) {
-        try {
-            hops.push(path.relative(fs.realpathSync(repoRoot), fs.realpathSync(current)))
-        } catch {
-            // The chain dangles: its last hop is the deleted file.
-        }
+    try {
+        paths.push(path.relative(realRoot, fs.realpathSync(current)))
+    } catch {
+        // The chain dangles: its last hop is the deleted file.
     }
-    return [...new Set(hops)]
+    return [...new Set(paths)].filter((linked) => linked !== file)
+}
+
+// Whether a changed path touches a path a file runs through: the path itself, a file under it,
+// or a directory above it (a retargeted or deleted directory symlink).
+function touchesPath(changed, runPath) {
+    return changed === runPath || changed.startsWith(`${runPath}/`) || runPath.startsWith(`${changed}/`)
 }
 
 // Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
@@ -706,11 +721,11 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
         }
         closed.set(product, reached)
     }
-    // A watched file that is a symlink runs its target, so every hop of its chain is watched too.
+    // A watched file runs every path it resolves through, so those are watched too.
     for (const files of closed.values()) {
         for (const file of [...files]) {
-            for (const target of symlinkChain(file, repoRoot)) {
-                files.add(target)
+            for (const linked of linkedPaths(file, repoRoot)) {
+                files.add(linked)
             }
         }
     }
@@ -910,8 +925,8 @@ function linksToChangedFiles(changedFiles, repoRoot) {
             continue
         }
         const link = entry.slice(entry.indexOf('\t') + 1)
-        const chain = symlinkChain(link, repoRoot)
-        if (chain.some((target) => changedFiles.some((file) => file === target || file.startsWith(`${target}/`)))) {
+        const linked = linkedPaths(link, repoRoot)
+        if (linked.some((runPath) => changedFiles.some((file) => touchesPath(file, runPath)))) {
             links.push(link)
         }
     }
@@ -932,7 +947,10 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
             const files = watched.get(productToModule(product)) ?? new Set()
             return changedFiles.some(
                 (file) =>
-                    files.has(file) || (file.startsWith(prefix) && (deletedFiles.has(file) || isProductDataFile(file)))
+                    files.has(file) ||
+                    (file.startsWith(prefix) && (deletedFiles.has(file) || isProductDataFile(file))) ||
+                    // A changed directory symlink sits above the watched paths it redirects.
+                    [...files].some((runPath) => runPath.startsWith(`${file}/`))
             )
         })
         .sort()
