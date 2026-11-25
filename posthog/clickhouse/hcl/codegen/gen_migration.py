@@ -77,7 +77,7 @@ ROLE_ORDER = [
 NON_TARGET_ROLES = {
     "batch_exports": "dump-baselined; no NodeRole member",
     "all": "the local-single dev node; mirrors what migrations produce",
-    "ingestion_apm": "modeled for drift detection; no NodeRole member, so migrations cannot address it",
+    "apm": "modeled for drift detection; no NodeRole member, so migrations cannot address it",
 }
 
 # Envs that mirror what the migrations produce rather than declaring intent, so they

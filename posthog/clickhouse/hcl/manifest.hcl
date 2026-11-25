@@ -50,7 +50,7 @@ role "logs" {
 # ingest. Development runs the legacy APM ingest chain too. The production logs
 # nodes still run that legacy chain. The metrics4 ingest chain runs only on the
 # ingestion-metrics nodes, which write to the metrics cluster.
-role "ingestion_apm" {
+role "apm" {
   env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
   env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
