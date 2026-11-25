@@ -36,8 +36,11 @@ export const buildWorkflowTaskOutputFields = (
         // A variable of another type, or none, still gets asked for: text is what any of them can hold.
         fields[field] =
             variable?.type && FIELD_TYPES.has(variable.type) ? (variable.type as WorkflowTaskOutputFieldType) : 'string'
+        // Two mappings can read the same field: the last one sets the type, so it sets the description too.
         if (variable?.description) {
             descriptions[field] = variable.description
+        } else {
+            delete descriptions[field]
         }
     }
 
