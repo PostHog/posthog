@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import React from 'react'
 
-import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
+import { IconExpand45, IconFeatures, IconGithub, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
@@ -338,6 +338,17 @@ export function SidePanelSupport(): JSX.Element {
                                     targetBlank
                                 >
                                     Request a feature
+                                </LemonButton>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://github.com/PostHog/posthog/issues/new/choose"
+                                    icon={<IconGithub />}
+                                    targetBlank
+                                >
+                                    Report a bug
                                 </LemonButton>
                             </li>
                         </ul>
