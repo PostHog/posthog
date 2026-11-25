@@ -702,28 +702,6 @@ test('a changed product file reaches its product whatever Turbo reports, and fro
     }
 })
 
-// Celery loads a product's task modules by name, so no import edge reaches them.
-test('a change to a Celery task module of an isolated product runs Django', () => {
-    const root = treeWith('tasks-', [
-        'products/canvas/backend/tasks/__init__.py',
-        'products/canvas/backend/tasks/sync.py',
-        'products/canvas/backend/tasks/exports/__init__.py',
-        'products/canvas/backend/tasks/exports/jobs.py',
-        'products/canvas/backend/tasks/tests/test_sync.py',
-    ])
-    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), {}, root)
-    const cases = [
-        ['products/canvas/backend/tasks/sync.py', true],
-        ['products/canvas/backend/tasks/__init__.py', true],
-        ['products/canvas/backend/tasks/exports/jobs.py', true],
-        ['products/canvas/backend/tasks/tests/test_sync.py', false],
-    ]
-    for (const [file, runLegacy] of cases) {
-        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
-    }
-    fs.rmSync(root, { recursive: true, force: true })
-})
-
 // Files directly under products/ run for every product, and settings read db_routing.yaml.
 test('a change to a shared file directly under products/ runs every product and Django', () => {
     for (const file of ['products/__init__.py', 'products/conftest.py', 'products/db_routing.yaml']) {

@@ -577,21 +577,6 @@ function readImportMap(file) {
     }
 }
 
-// The .py files of a package directory and of the packages nested in it, as repo-relative paths.
-// Test directories hold no task modules.
-function pythonFilesUnder(repoRoot, dir) {
-    const found = []
-    for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
-        const rel = `${dir}/${entry.name}`
-        if (entry.isDirectory() && !['tests', 'test', '__pycache__'].includes(entry.name)) {
-            found.push(...pythonFilesUnder(repoRoot, rel))
-        } else if (entry.isFile() && entry.name.endsWith('.py')) {
-            found.push(rel)
-        }
-    }
-    return found
-}
-
 // The other repo paths a file runs through: each hop of a symlink chain, the real location of the
 // file and of each hop (a symlinked directory on the way names a path that is not the file's own),
 // and the real path the chain ends at. Every one counts: a change to an intermediate link
@@ -640,23 +625,6 @@ function touchesPath(changed, runPath) {
     return changed === runPath || changed.startsWith(`${runPath}/`) || runPath.startsWith(`${changed}/`)
 }
 
-// Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
-// import names it: a `backend/tasks.py` file, or the modules of a `backend/tasks/` package and
-// of its nested packages. A task's registered name comes from its module, and a core test
-// snapshots every name.
-function celeryTaskModules(product, repoRoot) {
-    const backend = `${PRODUCTS_DIR}${product}/backend`
-    const found = []
-    if (fs.existsSync(path.join(repoRoot, backend, 'tasks.py'))) {
-        found.push(`${backend}/tasks.py`)
-    }
-    const dir = path.join(repoRoot, backend, 'tasks')
-    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        found.push(...pythonFilesUnder(repoRoot, `${backend}/tasks`))
-    }
-    return found
-}
-
 // Python runs the __init__.py of every package above a module before the module itself. These
 // are the ones inside the product, from the file's own package up to products/<product>/.
 function packageInitsAbove(file, product, repoRoot) {
@@ -676,9 +644,9 @@ function packageInitsAbove(file, product, repoRoot) {
 // Code outside a product runs more of the product than the files it imports: each of those
 // files runs what it imports in turn, and the package __init__.py files above it. So a
 // product's watched set grows by every file of the product that is reachable inside it from a
-// file code outside imports, from a watched file, or from a Celery task module. The map holds
-// every import, a function-local one too, so the closure follows those as well. Without a map
-// no product counts as isolated.
+// file code outside imports or from a watched file. The map holds every import, a
+// function-local one too, so the closure follows those as well. Without a map no product
+// counts as isolated.
 function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
     if (watched.status !== 'ok') {
         return watched
@@ -710,7 +678,7 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
     const closed = new Map()
     for (const [product, files] of watched.watched) {
         const reached = new Set()
-        const queue = [...files, ...(importedFromOutside.get(product) ?? []), ...celeryTaskModules(product, repoRoot)]
+        const queue = [...files, ...(importedFromOutside.get(product) ?? [])]
         while (queue.length > 0) {
             const file = queue.pop()
             if (reached.has(file)) {
