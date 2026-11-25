@@ -39,9 +39,13 @@ export function IOSection({ title, value, highlightQuery = null }: IOSectionProp
                 {isEmpty ? (
                     <span className="text-secondary text-sm">Nothing captured.</span>
                 ) : isContainer && format === 'json' ? (
-                    <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
+                    <pre className="ph-no-capture m-0 whitespace-pre-wrap break-words text-xs">
+                        {toDisplayText(value)}
+                    </pre>
                 ) : (
-                    <JsonValue value={value} highlightQuery={highlightQuery} />
+                    <div className="ph-no-capture">
+                        <JsonValue value={value} highlightQuery={highlightQuery} />
+                    </div>
                 )}
             </ShowMore>
         </section>

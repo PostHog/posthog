@@ -40,7 +40,8 @@ from products.stamphog.backend.facade.enums import (
     RoutingStatus,
 )
 from products.stamphog.backend.logic.attestation_checks import AttestationCheck, attestation_check
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.posthog_app_client import PostHogAppGitHubClient, posthog_app_bot_login
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
@@ -436,17 +437,44 @@ def _comment_body(decision: RoutingDecision, repository: str, *, pinned_only: bo
     return neutralize_active_markdown(scrub_credentials(body))
 
 
-def finish_comment(client: StamphogGitHubClient, pr_obj: PullRequest, record: dict[str, Any]) -> None:
+def _write_routing_comment(
+    client: StamphogGitHubClient, writer: PostHogAppGitHubClient, repository: str, pr_number: int, body: str | None
+) -> None:
+    """Post, update or, when ``body`` is None, delete the routing comment as the PostHog App.
+
+    Older routings posted the comment as stamphog, and an App can edit or delete only its own
+    comments. So stamphog deletes its comment, and the PostHog App posts a new one.
+    """
+    stamphog_login = expected_app_bot_login()
+    existing = writer.find_marked_comment(
+        repository, pr_number, marker=ROUTING_COMMENT_MARKER, bot_logins=(posthog_app_bot_login(), stamphog_login)
+    )
+    if existing is not None and stamphog_login and existing["user"]["login"].lower() == stamphog_login.lower():
+        client.delete_comment(repository, pr_number, existing["id"])
+        existing = None
+    if body is None:
+        if existing is not None:
+            writer.delete_comment(repository, pr_number, existing["id"])
+        return
+    if existing is None:
+        writer.create_marked_comment(repository, pr_number, body, marker=ROUTING_COMMENT_MARKER)
+        return
+    writer.update_marked_comment(repository, pr_number, existing["id"], body, marker=ROUTING_COMMENT_MARKER)
+
+
+def finish_comment(
+    client: StamphogGitHubClient, writer: PostHogAppGitHubClient, pr_obj: PullRequest, record: dict[str, Any]
+) -> None:
     """Write or remove the routing comment, then mark the record done."""
     repository = pr_obj.repo_config.repository
     body = record.get("pending_comment")
     posted = False
     if isinstance(body, str) and body:
-        client.upsert_sticky_comment(repository, pr_obj.pr_number, body, marker=ROUTING_COMMENT_MARKER)
+        _write_routing_comment(client, writer, repository, pr_obj.pr_number, body)
         posted = True
     elif record.get(COMMENT_POSTED):
         # Nobody is cut now, so a comment from an earlier routing names cuts that no longer hold.
-        client.delete_sticky_comment(repository, pr_obj.pr_number, marker=ROUTING_COMMENT_MARKER)
+        _write_routing_comment(client, writer, repository, pr_obj.pr_number, None)
     done = {key: value for key, value in record.items() if key != "pending_comment"}
     # The run log already holds the file lists, and a large pull request would carry them on its row for good.
     done["candidates"] = [
@@ -612,11 +640,12 @@ def _record_run(pr_obj: PullRequest, record: dict[str, Any]) -> None:
 
 
 def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan: dict[str, Any]) -> None:
-    """Make the GitHub writes of a saved plan, then finish the comment."""
+    """Make the GitHub writes of a saved plan as the PostHog App, then finish the comment."""
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
-    labels_refused = bool(plan["labels"]) and not client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
-    refused = client.request_reviewers(
+    writer = PostHogAppGitHubClient.for_repository(repo_config.team_id, repository)
+    labels_refused = bool(plan["labels"]) and not writer.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
+    refused = writer.request_reviewers(
         repository, pr_obj.pr_number, users=plan["requested_users"], teams=plan["requested_teams"]
     )
     if labels_refused:
@@ -639,14 +668,15 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
         return
     _record_run(pr_obj, requested)
     _capture(repo_config, requested)
-    finish_comment(client, pr_obj, requested)
+    finish_comment(client, writer, pr_obj, requested)
 
 
 def resume_own_claim(client: StamphogGitHubClient, pr_obj: PullRequest, record: dict[str, Any]) -> bool:
     """Continue an own claim from its last saved step. False when the claim saved no plan yet."""
     if record.get("status") == STATUS_REQUESTED:
         # The requests went out: finish the comment, request nobody again.
-        finish_comment(client, pr_obj, record)
+        writer = PostHogAppGitHubClient.for_repository(pr_obj.repo_config.team_id, pr_obj.repo_config.repository)
+        finish_comment(client, writer, pr_obj, record)
         return True
     if record.get("planned_at"):
         # The plan is saved, so the retry makes its GitHub writes without a second model call.

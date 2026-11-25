@@ -402,6 +402,67 @@ class TestFullRefresh:
 
         assert _read(client) == [(1, "a"), (2, "b")]
 
+    async def test_a_column_that_is_null_in_an_earlier_batch_publishes_as_the_later_batchs_real_type(
+        self,
+    ) -> None:
+        # Regression: BigQuery autodetects a column's type from whichever chunk first loads it,
+        # and an all-null column comes out as STRING. Loading it anyway in the batch that
+        # creates the staging table used to lock in STRING for the column's whole life, so a
+        # later batch's real integer published as the string "42" instead of the integer 42.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "note": [None]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "note": [42]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["note"] == "INTEGER"
+        assert sorted((row["id"], row["note"]) for row in table.rows) == [(1, None), (2, 42)]
+
+    async def test_a_whole_number_followed_by_a_fraction_widens_the_staging_column(self) -> None:
+        # Regression: a column an earlier batch sends only as whole numbers fixes the staging
+        # table's column as INTEGER, and a later batch's fractional value failed the whole load
+        # job outright. The staging table belongs to this run alone, so BigQuery can widen its
+        # column instead of losing precision or failing.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "rate": [1]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["rate"] == "FLOAT"
+        assert sorted((row["id"], row["rate"]) for row in table.rows) == [(1, 1), (2, 0.5)]
+
+    async def test_a_value_that_cannot_convert_between_batches_is_a_configuration_error_naming_the_table(
+        self,
+    ) -> None:
+        # Regression: the staging table is rebuilt every run and takes its types from whichever
+        # batch arrives first, so reusing the merge and append paths' wording ("change the
+        # column type in BigQuery") sent the customer to a fix that cannot work here — the next
+        # run rebuilds the same staging table from the same clashing batches. The message also
+        # has to name which table is affected: one destination's `latest_error` serves every
+        # table it syncs.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "active": [True]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="active") as excinfo:
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)
+
+        assert "BigQuery" not in str(excinfo.value)
+        assert ctx.table_name in str(excinfo.value)
+        # Regression: `abort_destinations` skips `abort_run` for a configuration error, on the
+        # contract that it is raised before anything is staged. This one fires after the first
+        # batch already loaded real rows into the staging table, so without deleting it here the
+        # table would never be cleaned up and would sit in the customer's dataset forever.
+        with pytest.raises(NotFound):
+            client.get_table(f"proj.dataset.{staging_table_name(ctx)}")
+
 
 @pytest.mark.asyncio
 class TestIncremental:

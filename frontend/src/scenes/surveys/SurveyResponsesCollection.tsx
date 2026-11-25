@@ -32,7 +32,7 @@ export function SurveyResponsesCollection(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-1">
             <LemonField.Pure
-                info="Storing the response for any question requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now"
+                info="Storing the response for any question requires at least posthog-js 1.240.0, posthog-react-native 4.75.0, posthog-ios 3.79.0, posthog-android 3.70.0, or posthog_flutter 5.48.0."
                 label={<h3 className="mb-0">Response collection</h3>}
             >
                 <LemonRadio

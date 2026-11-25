@@ -15,7 +15,7 @@ import { AccessControlLevel, Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
-import { experimentMetricsLogic } from './experimentMetricsLogic'
+import { experimentMetricsLogic, resultsQueryToLoaded } from './experimentMetricsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -999,6 +999,45 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('triggerRecalculation', () => {
+        it.each([
+            ['fails', 429, { detail: 'Metrics were recalculated less than 5 minutes ago.' }],
+            ['returns a finished run', 201, completedRecalculation],
+        ])('stops without an error when the create %s after the logic unmounts', async (_, status, body) => {
+            let createStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                createStarted = resolve
+            })
+            let releaseCreate: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                releaseCreate = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async () => {
+                        createStarted()
+                        await held
+                        return [status, body]
+                    },
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+
+            const triggered = logic.asyncActions.triggerRecalculation('manual')
+            await started
+            logic.unmount()
+            logic = undefined as unknown as typeof logic
+            releaseCreate()
+
+            await expect(triggered).resolves.toBeUndefined()
+        })
+
         it('does not create a recalculation for a draft experiment', async () => {
             const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
             const createMock = jest.fn(() => [201, pendingRecalculation])
@@ -1533,6 +1572,27 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculationProgress).toEqual({ completed: 0, total: 0 })
             expect(logic.values.lastRefresh).toBeNull()
+        })
+    })
+
+    describe('resultsQueryToLoaded', () => {
+        it.each([
+            ['the fetch of the latest run fails', false],
+            ['a first run is created after a failed fetch', true],
+        ])('resolves when %s', async (_, createsRun) => {
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [500, {}] },
+            })
+            mountLogic()
+            if (createsRun) {
+                await expectLogic(logic).toDispatchActions(['setRecalculationLoading']).toFinishAllListeners()
+                logic.actions.triggerRecalculation('manual')
+            }
+            expect(logic.values.resultsQueryToLoading).toBe(true)
+
+            await resultsQueryToLoaded(logic)
+
+            expect(logic.values.resultsQueryToLoading).toBe(false)
         })
     })
 

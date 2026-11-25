@@ -61,6 +61,10 @@ export function createApp(opts: AppOptions): Hono {
     })
 
     app.post('/v1/secrets/resolve', async (c) => {
+        // Read before the verifier awaits, in the same tick as it reads the keys. A reload swaps
+        // the keys and the secrets in one tick, so a request verified with a key that a reload
+        // revoked never gets the values that reload brought.
+        const mounted = opts.secrets()
         let identity
         try {
             identity = await opts.verifier.verify(bearerToken(c.req.header('Authorization')))
@@ -77,7 +81,6 @@ export function createApp(opts: AppOptions): Hono {
         // terminal, so answering that way during a cold start would turn an unavailable
         // service into what looks like a deleted secret. A failed re-read keeps the
         // secrets already held and never lands here.
-        const mounted = opts.secrets()
         if (!mounted) {
             logger.error('resolve:no_secrets_held', { deployment: identity.deployment })
             return c.json({ error: 'Secret store unavailable' }, 503)

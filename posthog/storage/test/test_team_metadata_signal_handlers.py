@@ -208,10 +208,12 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
-class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
+class TestFlagPolicyRequestListCacheRefresh(BaseTest):
     @parameterized.expand(
         [
             ("create_with_entries", None, {"blocked_hosts": ["example.com"]}),
+            ("create_with_allowed_hosts", None, {"allowed_hosts": ["example.com"]}),
+            ("create_with_allowed_ips", None, {"allowed_ips": ["203.0.113.7"]}),
             ("set_on_existing_row", {}, {"blocked_hosts": ["example.com"], "blocked_ips": ["203.0.113.7"]}),
             (
                 "clear_on_existing_row",
@@ -220,7 +222,7 @@ class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
             ),
         ]
     )
-    def test_blocklist_save_refreshes_team_metadata_cache(
+    def test_request_list_save_refreshes_team_metadata_cache(
         self, _name: str, existing: dict[str, list[str]] | None, saved: dict[str, list[str]]
     ) -> None:
         config = None if existing is None else TeamFeatureFlagPolicyConfig.objects.create(team=self.team, **existing)
@@ -243,7 +245,7 @@ class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
 
         mock_task.delay.assert_not_called()
 
-    def test_flag_policy_save_with_update_fields_outside_blocklist_does_not_refresh(self) -> None:
+    def test_flag_policy_save_with_update_fields_outside_request_lists_does_not_refresh(self) -> None:
         config = TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=["example.com"])
 
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:

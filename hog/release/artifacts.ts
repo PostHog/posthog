@@ -1,4 +1,5 @@
 import type { Artifact, Manifest } from '../src/updates/manifest'
+import type { Notice } from '../src/updates/notices'
 import { GITHUB_REPOSITORY, RELEASES_URL } from '../src/updates/release-urls'
 import { npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 
@@ -18,7 +19,7 @@ export function buildManifest(
     version: string,
     artifacts: Record<string, Artifact>,
     dates: { publishedAt: Date; buildDate: Date },
-    minimumVersion?: string
+    options: { minimumVersion?: string; notices?: Notice[] } = {}
 ): Manifest {
     return {
         schema: 1,
@@ -27,7 +28,8 @@ export function buildManifest(
         tag: releaseTag(version),
         publishedAt: dates.publishedAt.toISOString(),
         buildDate: dates.buildDate.toISOString(),
-        ...(minimumVersion ? { minimumVersion } : {}),
+        ...(options.minimumVersion ? { minimumVersion: options.minimumVersion } : {}),
+        ...(options.notices?.length ? { notices: options.notices } : {}),
         baseUrl: baseUrl(version),
         mirrorUrl: mirrorUrl(version),
         artifacts,

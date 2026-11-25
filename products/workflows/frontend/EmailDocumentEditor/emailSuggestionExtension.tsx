@@ -2,7 +2,7 @@ import { Extension, Editor, Range } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
@@ -31,7 +31,13 @@ const EmailSuggestionList = forwardRef<MenuRef, MenuProps>(function EmailSuggest
 ): JSX.Element {
     const [index, setIndex] = useState(0)
 
+    const listRef = useRef<HTMLDivElement>(null)
+
     useEffect(() => setIndex(0), [items])
+
+    useEffect(() => {
+        listRef.current?.children[index]?.scrollIntoView?.({ block: 'nearest' })
+    }, [index, items])
 
     useImperativeHandle(ref, () => ({
         onKeyDown: (event) => {
@@ -59,7 +65,11 @@ const EmailSuggestionList = forwardRef<MenuRef, MenuProps>(function EmailSuggest
             fallbackPlacements={['top-start']}
             referenceElement={decorationNode as HTMLElement}
             overlay={
-                <div className="flex flex-col max-h-72 overflow-y-auto w-80 p-1" data-attr="email-editor-suggestions">
+                <div
+                    ref={listRef}
+                    className="flex flex-col max-h-72 overflow-y-auto w-80 p-1"
+                    data-attr="email-editor-suggestions"
+                >
                     {items.length ? (
                         items.map((item, itemIndex) => (
                             <LemonButton

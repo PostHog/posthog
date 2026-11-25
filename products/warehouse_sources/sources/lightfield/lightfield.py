@@ -1,6 +1,8 @@
 from collections.abc import Callable, Iterable, Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import quote
+
+from requests import Response
 
 from products.warehouse_sources.sources.lightfield.settings import (
     CUSTOM_OBJECTS_ENDPOINT,
@@ -10,9 +12,11 @@ from products.warehouse_sources.sources.lightfield.settings import (
     STANDARD_DEFINITION_RESOURCES,
     LightfieldDefinitionResource,
     LightfieldEndpointConfig,
+    LightfieldFanOutConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
+    Endpoint,
     OffsetPaginator,
     RESTAPIConfig,
     RESTClient,
@@ -41,6 +45,25 @@ def _client(api_key: str, api_version: str) -> RESTClient:
         headers=_version_headers(api_version),
         auth=BearerTokenAuth(token=api_key),
     )
+
+
+class LightfieldTotalCountPaginator(OffsetPaginator):
+    """Pages until `offset` reaches `totalCount`, through short and empty pages."""
+
+    def __init__(self) -> None:
+        super().__init__(limit=LIGHTFIELD_PAGE_SIZE, total_path="totalCount", stop_after_empty_page=False)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            total = response.json().get("totalCount")
+        except (ValueError, AttributeError):
+            total = None
+        if not isinstance(total, int) or isinstance(total, bool):
+            # Without a total, a short page is the only end signal left.
+            super().update_state(response, data)
+            return
+        self.offset += self.limit
+        self._has_next_page = self.offset < total
 
 
 def _object_path(object_type: str) -> str:
@@ -96,6 +119,42 @@ def _definition_rows(client: RESTClient, definitions_key: str) -> Iterator[list[
         ]
 
 
+def _object_type_slug(record: dict[str, Any]) -> str | None:
+    value = ((record.get("fields") or {}).get("$objectType") or {}).get("value")
+    return str(value).removeprefix("$") if value else None
+
+
+def _parent_ids(client: RESTClient, fan_out: LightfieldFanOutConfig) -> list[str]:
+    # Read every parent id first: offset pages shift when a parent is created during a long fan-out.
+    return [
+        str(record["id"])
+        for page in client.paginate(
+            path=fan_out.parent_path, paginator=LightfieldTotalCountPaginator(), data_selector="data"
+        )
+        for record in page
+        if record.get("id")
+        and (fan_out.parent_object_type is None or _object_type_slug(record) == fan_out.parent_object_type)
+    ]
+
+
+def _fan_out_rows(client: RESTClient, path: str, fan_out: LightfieldFanOutConfig) -> Iterator[list[dict[str, Any]]]:
+    # A parent deleted after the parent listing returns 404.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+    for parent_id in _parent_ids(client, fan_out):
+        pages = 0
+        for page in client.paginate(
+            path=path.format(id=quote(parent_id, safe="")),
+            paginator=LightfieldTotalCountPaginator(),
+            data_selector="data",
+            hooks=hooks,
+        ):
+            pages += 1
+            yield [{**row, fan_out.parent_key: parent_id} for row in page]
+        if pages == 0:
+            # Yield one item per request: the pipeline checks for a worker shutdown on each item.
+            yield []
+
+
 def _source_response(endpoint_config: LightfieldEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
     partition_key = endpoint_config.partition_key
     return SourceResponse(
@@ -123,10 +182,19 @@ def lightfield_source(
         client = _client(api_key, api_version)
         return _source_response(endpoint_config, lambda: _custom_object_records(client))
 
+    fan_out = endpoint_config.fan_out
+    if fan_out is not None:
+        client = _client(api_key, api_version)
+        return _source_response(endpoint_config, lambda: _fan_out_rows(client, endpoint_config.path, fan_out))
+
     if endpoint in DEFINITION_ENDPOINTS:
         client = _client(api_key, api_version)
         definitions_key = DEFINITION_ENDPOINTS[endpoint]
         return _source_response(endpoint_config, lambda: _definition_rows(client, definitions_key))
+
+    resource_endpoint: Endpoint = {"path": endpoint_config.path, "data_selector": "data"}
+    if endpoint_config.page_to_total_count:
+        resource_endpoint["paginator"] = LightfieldTotalCountPaginator()
 
     config: RESTAPIConfig = {
         "client": {
@@ -148,10 +216,7 @@ def lightfield_source(
                 "name": endpoint_config.name,
                 "table_name": endpoint_config.name,
                 "write_disposition": "replace",
-                "endpoint": {
-                    "path": endpoint_config.path,
-                    "data_selector": "data",
-                },
+                "endpoint": resource_endpoint,
                 "table_format": "delta",
             }
         ],

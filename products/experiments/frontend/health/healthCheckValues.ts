@@ -229,6 +229,12 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
                 ? null
                 : `${formatCount(waitingMetrics)} of ${formatCount(primaryMetrics)}`
         ),
+        // With the metrics that wait, the line above already shows the primary metric count.
+        reading(
+            'Primary metrics',
+            primaryMetrics === null || waitingMetrics !== null ? null : formatCount(primaryMetrics)
+        ),
+        numberReading('Secondary metrics', values, 'secondary_metric_count', formatCount),
         calculatedMetricsReading(values),
         numberReading('Metrics whose calculation failed', values, 'failed_metric_count', formatCount),
         invalidMetricsReading(values),
@@ -245,9 +251,14 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         textReading('Baseline variant', values, 'baseline_variant'),
         numberReading('Other running experiments on this flag', values, 'other_running_experiment_count', formatCount),
         numberReading('Other draft experiments on this flag', values, 'other_draft_experiment_count', formatCount),
+        timeReading('Flag history since', values, 'history_since_at', true),
+        numberReading('Changes found', values, 'change_count', formatCount),
+        booleanReading('Flag calls recorded', values?.flag_called, 'Yes', 'No'),
         timeReading('Last flag call', values, 'flag_last_called_at'),
         textReading('Exposure event', values, 'event'),
         receivedReading(values),
+        numberReading('Cohorts in the exposure criteria', values, 'cohort_count', formatCount),
+        numberReading('Dynamic cohorts', values, 'dynamic_cohort_count', formatCount),
         numberReading('Running for', values, 'since_start_hours', formatHours),
         dailyCalculationReading(values),
         reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),

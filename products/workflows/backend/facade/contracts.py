@@ -236,6 +236,7 @@ SuggestionsScoutRunReason = Literal[
     "published",
     "suggestion_resolved",
     "sends_matured",
+    "conversions_settled",
 ]
 
 
@@ -296,6 +297,8 @@ class AudienceSize:
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
     # Set when a sending rate limit can raise this audience's limit. None when no rate can.
     rate_limited: RateLimitedAudienceAllowance | None = None
+    # Keys of the project's test account filters the audience leaves out because they only apply to events.
+    skipped_test_account_filters: list[str] = field(default_factory=list)
 
 
 @frozen
@@ -364,6 +367,10 @@ class ContactsImportAccessLost(Exception):
 
 class ContactsCohortGone(Exception):
     """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
 
 
 class ContactsCleanupFailed(Exception):
@@ -443,7 +450,6 @@ class EmailInfrastructureHealth:
     """How the email every project in this region sends through PostHog fared, rounded for display."""
 
     emails_sent_at_least: int
-    delivery_rate: float
     bounce_rate: float
     complaint_rate: float
 
