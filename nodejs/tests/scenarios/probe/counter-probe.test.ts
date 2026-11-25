@@ -11,6 +11,13 @@ const CLICKHOUSE = {
 
 type Row = { team: number; source?: string; metric: string; count: number; at: string }
 
+async function run(statement: string, database = 'default'): Promise<void> {
+    const response = await internalFetch(`${CLICKHOUSE.url}/?database=${database}`, { method: 'POST', body: statement })
+    if (response.status !== 200) {
+        throw new Error(`${statement} failed with ${response.status}: ${await response.text()}`)
+    }
+}
+
 async function insert(rows: Row[]): Promise<void> {
     const body = rows
         .map(({ team, source = 'hog_flow', metric, count, at }) =>
@@ -62,7 +69,27 @@ describe('counter probe', () => {
         expect(counted).toEqual({ email_sent: 6, email_delivered: 0, email_failed: 4 })
     })
 
-    it('counts the materialized views that feed app_metrics2 from Kafka', async () => {
-        expect(await createCounterProbe(CLICKHOUSE).consumers()).toBe(1)
+    it.each<[string, string[], number]>([
+        ['one view writes Kafka rows into app_metrics2', ['writable_app_metrics2'], 1],
+        ['two views write Kafka rows into app_metrics2', ['writable_app_metrics2', 'writable_app_metrics2'], 2],
+        ['a second view writes Kafka rows elsewhere', ['writable_app_metrics2', 'elsewhere'], 1],
+    ])('counts the materialized views that feed app_metrics2 from Kafka when %s', async (_story, targets, expected) => {
+        const database = `counter_probe_${randomInt(1e9, 2e9)}`
+        try {
+            await run(`CREATE DATABASE ${database}`)
+            for (const table of ['kafka_app_metrics2', 'writable_app_metrics2', 'elsewhere']) {
+                await run(`CREATE TABLE ${table} (count Int64) ENGINE = Null`, database)
+            }
+            for (const [i, target] of targets.entries()) {
+                await run(
+                    `CREATE MATERIALIZED VIEW view_${i} TO ${target} AS SELECT count FROM kafka_app_metrics2`,
+                    database
+                )
+            }
+
+            expect(await createCounterProbe({ ...CLICKHOUSE, database }).consumers()).toBe(expected)
+        } finally {
+            await run(`DROP DATABASE IF EXISTS ${database}`)
+        }
     })
 })

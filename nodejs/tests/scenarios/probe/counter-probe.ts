@@ -39,6 +39,7 @@ const CONSUMERS = `
     WHERE database = {database:String}
       AND engine = 'MaterializedView'
       AND position(create_table_query, concat(' FROM ', {database:String}, '.kafka_app_metrics2')) > 0
+      AND position(create_table_query, concat(' TO ', {database:String}, '.writable_app_metrics2 ')) > 0
     FORMAT JSONEachRow`
 
 export function createCounterProbe({ url, database }: ClickHouseAddress): CounterProbe {
