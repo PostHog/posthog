@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers
+from posthog.schema import HogQLQuery, HogQLQueryModifiers, RevenueAnalyticsEventItem
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -73,6 +73,10 @@ class TestSavedQueryTagging(APIBaseTest):
             table=table,
             is_materialized=True,
         )
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
+        self.team.revenue_analytics_config.save()
 
     def warehouse_table(self, name: str, credentials: DataWarehouseCredential) -> DataWarehouseTable:
         return DataWarehouseTable.objects.create(
@@ -157,6 +161,14 @@ class TestSavedQueryTagging(APIBaseTest):
             ),
             ("events_only", "SELECT event FROM events", [], [], []),
             ("union_view", "SELECT id FROM all_ids", ["all_ids"], ["orders_raw", "customers_raw"], ["all_ids"]),
+            # A managed revenue view uses the event name in its id, so it is not a saved query to tag.
+            (
+                "managed_revenue_view",
+                "SELECT count() FROM revenue_analytics.events.purchase.charge_events_revenue_view",
+                [],
+                [],
+                [],
+            ),
             ("no_saved_query", "SELECT 1", [], [], []),
         ]
     )
