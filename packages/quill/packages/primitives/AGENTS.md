@@ -1471,6 +1471,8 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 | Menu items (Dropdown/Context/Menubar) | 0.875rem (size-3.5) |
 | TabsTrigger                           | 0.75rem (size-3)    |
 
+Whether a labelled Button or menu item takes a leading icon, a trailing icon, a trailing `…` or nothing is a fixed decision order, shown in the `Examples/Icon rules` story: reveals options or navigates → trailing icon; familiar symbol → leading icon; one of a group of actions → leading icon on every action in the group; needs more input before it runs → `…` and no icon; otherwise the label alone. A trailing icon and `…` never go together, and a confirm-only destructive action takes no `…`.
+
 **Don't add `size-*` classes to icons inside primitives.** The `:not([class*='size-'])` guard means an explicit `size-*` class is treated as a deliberate override and the component's sizing steps aside — so reserve it for the rare case where you genuinely need a different size. Color also inherits (`currentColor`), so don't set icon colors either; variants tint their icons themselves.
 
 ---
