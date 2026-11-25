@@ -269,11 +269,11 @@ def _proposable_keys(select: ast.SelectQuery) -> Optional[_ProposableKeys]:
     if grouped_names is not None:
         unique_key = tuple(sorted(set(grouped_names)))
         return _ProposableKeys(unique_key=unique_key, time_key_candidates=unique_key)
-    event_id = _event_id_output(select) if _is_plain_event_projection(select) else None
-    if event_id is None:
+    event_ids = _event_id_outputs(select) if _is_plain_event_projection(select) else set()
+    if not event_ids:
         return None
     return _ProposableKeys(
-        unique_key=(event_id,), time_key_candidates=tuple(sorted(_output_names(select) - {event_id}))
+        unique_key=(min(event_ids),), time_key_candidates=tuple(sorted(_output_names(select) - event_ids))
     )
 
 
