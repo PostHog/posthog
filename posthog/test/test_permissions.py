@@ -1598,9 +1598,11 @@ class TestActiveOrganizationPermission(SimpleTestCase):
             ("project_secret_api_key", "_project_secret_key_auth"),
             ("id_jag", "_id_jag_auth"),
             ("export_renderer", "_export_renderer_auth"),
+            ("session", "_session_auth"),
+            ("jwt", "_jwt_auth"),
         ]
     )
-    def test_every_token_credential_is_blocked_for_a_deactivated_organization(self, _name, auth_factory):
+    def test_every_credential_is_blocked_for_a_deactivated_organization(self, _name, auth_factory):
         self._deactivate()
         request = self._request(getattr(self, auth_factory)())
 
@@ -1609,28 +1611,16 @@ class TestActiveOrganizationPermission(SimpleTestCase):
 
         self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
 
-    @parameterized.expand(
-        [
-            ("session", SessionAuthentication),
-            ("jwt", JwtAuthentication),
-            ("none", None),
-        ]
-    )
-    def test_non_token_credentials_still_reach_a_deactivated_organization(self, _name, authenticator_class):
-        self._deactivate()
-        authenticator = authenticator_class() if authenticator_class else None
+    def _session_auth(self):
+        return SessionAuthentication()
 
-        self.assertTrue(self.permission.has_permission(self._request(authenticator), self._view()))
+    def _jwt_auth(self):
+        return JwtAuthentication()
 
-    def test_null_is_active_is_treated_as_deactivated(self):
-        self.organization.is_active = None
+    @parameterized.expand([(True,), (None,)])
+    def test_organization_without_explicit_deactivation_admits_a_token(self, is_active):
+        self.organization.is_active = is_active
 
-        with self.assertRaises(PermissionDenied) as denial:
-            self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view())
-
-        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
-
-    def test_active_organization_admits_a_token(self):
         self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view()))
 
     def test_pending_deletion_is_blocked_even_while_active(self):
@@ -1641,11 +1631,12 @@ class TestActiveOrganizationPermission(SimpleTestCase):
 
         self.assertEqual(self._denial_code(denial.exception), "organization_pending_deletion")
 
-    def test_billing_stays_reachable_so_a_customer_can_pay(self):
+    @parameterized.expand([("_personal_api_key_auth",), ("_session_auth",)])
+    def test_billing_stays_reachable_so_a_customer_can_pay(self, auth_factory):
         self._deactivate(reason="Access revoked due to unpaid balance.")
         view = self._view(scope_object="billing")
 
-        self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), view))
+        self.assertTrue(self.permission.has_permission(self._request(getattr(self, auth_factory)()), view))
 
     def test_deactivation_reason_is_surfaced_to_the_caller(self):
         self._deactivate(reason="Access revoked due to unpaid balance.")
@@ -1663,11 +1654,12 @@ class TestActiveOrganizationPermission(SimpleTestCase):
 
         self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), view))
 
-    def test_object_level_check_covers_root_viewsets(self):
+    @parameterized.expand([("_personal_api_key_auth",), ("_session_auth",)])
+    def test_object_level_check_covers_root_viewsets(self, auth_factory):
         self._deactivate()
         view = self._view()
         view.parent_query_kwargs = []
-        request = self._request(self._personal_api_key_auth())
+        request = self._request(getattr(self, auth_factory)())
 
         self.assertTrue(self.permission.has_permission(request, view))
         with self.assertRaises(PermissionDenied):
