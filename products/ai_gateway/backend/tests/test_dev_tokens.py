@@ -649,7 +649,10 @@ class TestDevTokens(_DevGatewaySettings):
 
         # Runs on_commit callbacks at once, as autocommit does outside a transaction.
         with (
-            patch("products.ai_gateway.backend.receivers.transaction.on_commit", lambda func, robust=False: func()),
+            patch(
+                "products.ai_gateway.backend.receivers.transaction.on_commit",
+                lambda func, using=None, robust=False: func(),
+            ),
             patch("products.ai_gateway.backend.tasks.tasks.revoke_dev_tokens_for_ineligible_owner.delay", record),
         ):
             self.user.is_active = False

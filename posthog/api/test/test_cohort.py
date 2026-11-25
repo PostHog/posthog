@@ -225,7 +225,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         assert cohort1.is_calculating is True
         assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
@@ -334,7 +334,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             ("team_serving", RealtimeCohortLevel.SERVING, True, "serving"),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cohort_created_reports_realtime_classification(
@@ -391,7 +391,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual((reported["realtime_enabled"], reported["realtime_level"]), (expected_enabled, expected_level))
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
@@ -2179,7 +2179,7 @@ user456
             "No cohort should be left in calculating state after error",
         )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_static_cohort_to_dynamic_cohort(
@@ -2905,7 +2905,7 @@ email@example.org,
         self.assertIn(leaf_cohort.id, result_ids)
         self.assertIn(parent_cohort.id, result_ids)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
@@ -3330,7 +3330,7 @@ email@example.org,
         expected = [uuid_by_label[label] for label in ["b", "d", "a", "c"]]  # created_at DESC
         self.assertEqual(paged_ids, expected)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -3453,7 +3453,7 @@ email@example.org,
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -3603,7 +3603,7 @@ email@example.org,
             ),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_saving_a_reference_to_a_missing_or_deleted_cohort_is_rejected(
@@ -3798,7 +3798,7 @@ email@example.org,
         self.assertFalse(Cohort.objects.get(pk=cohort_id).is_calculating)
         return cohort_id
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
         cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
@@ -3807,7 +3807,7 @@ email@example.org,
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(2, len(response.json()["results"]))
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     def test_calculating_with_new_cohort_event_filters(self, patch_capture, patch_on_commit):
         _create_person(
@@ -4069,7 +4069,7 @@ email@example.org,
             query_get_response.json()["errors_calculating"], 1
         )  # Should be because selecting from groups is not allowed
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture, patch_on_commit):
         # regression test: Removing `value` was silently failing
@@ -4716,7 +4716,7 @@ email@example.org,
             response.json().items(),
         )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
         cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
 
@@ -5832,7 +5832,7 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture, patch_on_commit):
         # Valid usage: operator and operator_value present
@@ -6399,7 +6399,7 @@ email@example.org,
         assert response.status_code == 200
         assert response.json()["success"] is True
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("products.cohorts.backend.models.dependencies._on_cohort_changed")
     @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
     def test_cohort_update_recalculated_after_caching(
@@ -6438,7 +6438,7 @@ email@example.org,
             ],
         )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -8265,7 +8265,7 @@ class TestCalculateCohortCommand(APIBaseTest):
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
-    with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+    with patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func()):
         return client.post(
             f"/api/projects/{team_id}/cohorts",
             {"name": name, "groups": json.dumps(groups)},

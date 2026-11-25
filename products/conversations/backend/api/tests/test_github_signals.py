@@ -11,7 +11,7 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
 
 
-def immediate_on_commit(func):
+def immediate_on_commit(func, using=None, robust=False):
     func()
 
 

@@ -736,7 +736,10 @@ class TestLLMPromptAPI(APIBaseTest):
         self.create_prompt_version(name="archive-prompt", version=1, is_latest=False, prompt="v1")
         self.create_prompt_version(name="archive-prompt", version=2, is_latest=True, prompt="v2")
 
-        with patch("posthog.api.services.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback()):
+        with patch(
+            "posthog.api.services.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback, using=None, robust=False: callback(),
+        ):
             first_latest = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/archive-prompt/")
             first_version = self.client.get(
                 f"/api/environments/{self.team.id}/llm_prompts/name/archive-prompt/?version=1"
@@ -766,7 +769,10 @@ class TestLLMPromptAPI(APIBaseTest):
             )
 
         with (
-            patch("posthog.api.services.llm_prompt.transaction.on_commit", side_effect=lambda callback: callback()),
+            patch(
+                "posthog.api.services.llm_prompt.transaction.on_commit",
+                side_effect=lambda callback, using=None, robust=False: callback(),
+            ),
             patch("posthog.api.services.llm_prompt.invalidate_prompt_latest_cache") as mock_invalidate_latest,
             patch("posthog.api.services.llm_prompt.invalidate_prompt_version_caches") as mock_invalidate_versions,
             patch("posthog.tasks.llm_prompt_cache.invalidate_archived_prompt_versions_cache_task.delay") as mock_delay,

@@ -151,7 +151,7 @@ class TestCreateExperimentTool(APIBaseTest):
         experiment = await Experiment.objects.select_related("feature_flag").aget(name="New Experiment", team=self.team)
         assert experiment.feature_flag.key == "existing-flag"
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     async def test_create_experiment_reports_posthog_ai_source(self, mock_report_user_action, _mock_on_commit):
         await self._create_multivariate_flag(key="tracked-experiment-flag")
@@ -194,7 +194,7 @@ class TestCreateExperimentTool(APIBaseTest):
             ("not_a_string", ["experiment_wizard_guide"], None),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     async def test_create_experiment_records_only_known_ai_entry_points(
         self,

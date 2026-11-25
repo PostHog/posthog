@@ -54,7 +54,7 @@ class TestCohortDependencies(BaseTest):
 
     @fixture(autouse=True)
     def mock_transaction(self):
-        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func()):
             yield
 
     def test_cohort_dependency_created(self) -> None:
@@ -646,7 +646,7 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
 
     @fixture(autouse=True)
     def mock_transaction(self):
-        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func()):
             yield
 
     def test_excludes_behavioral_and_transitive_referrers_but_not_leaves(self) -> None:

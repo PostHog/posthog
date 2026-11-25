@@ -445,7 +445,7 @@ class TestSlackDelivery(BaseTest):
 
         with patch(
             "products.conversations.backend.services.delivery.transaction.on_commit",
-            side_effect=lambda fn: fn(),
+            side_effect=lambda fn, using=None, robust=False: fn(),
         ):
             result = redrive_failed_delivery_part(str(part.id), wake=wake)
 
@@ -475,7 +475,7 @@ class TestSlackDelivery(BaseTest):
 
         with patch(
             "products.conversations.backend.services.delivery.transaction.on_commit",
-            side_effect=lambda fn: fn(),
+            side_effect=lambda fn, using=None, robust=False: fn(),
         ):
             assert redrive_failed_delivery_part(str(part.id), wake=MagicMock()) is not None
 
