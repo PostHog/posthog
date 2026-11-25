@@ -54,6 +54,7 @@ import {
     captureScoutConfigChanged,
     captureScoutToolsSaveResult,
     ScoutChatType,
+    ScoutDeleteEntryPoint,
     ScoutFleetSyncOutcome,
     ScoutSurface,
 } from '../inboxAnalytics'
@@ -428,9 +429,11 @@ export interface scoutFleetLogicValues {
 export interface scoutFleetLogicActions {
     deleteScout: (
         configId: string,
-        surface?: ScoutSurface
+        surface?: ScoutSurface,
+        entryPoint?: ScoutDeleteEntryPoint | null
     ) => {
         configId: string
+        entryPoint: ScoutDeleteEntryPoint | null
         surface: ScoutSurface
     }
     deleteScoutFinished: (configId: string) => {
@@ -771,7 +774,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             configId,
             updates,
         }),
-        deleteScout: (configId: string, surface: ScoutSurface = 'fleet_list') => ({ configId, surface }),
+        deleteScout: (
+            configId: string,
+            surface: ScoutSurface = 'fleet_list',
+            entryPoint: ScoutDeleteEntryPoint | null = null
+        ) => ({ configId, surface, entryPoint }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
@@ -1716,7 +1723,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
             }
         },
-        deleteScout: async ({ configId, surface }) => {
+        deleteScout: async ({ configId, surface, entryPoint }) => {
             // The reducer above already flags this id, but that value is reactive (for the button)
             // and can't tell a fresh submit from a duplicate. The cache Set is the non-reactive guard:
             // a second submit while the first is in flight bails before issuing another request.
@@ -1772,7 +1779,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: true },
+                        extra: { scout_origin: config.scout_origin, success: true, entry_point: entryPoint },
                     })
                     lemonToast.success(`Deleted ${displayName}`)
                     // The scout's own page (and any finding deep link under it) has nothing left to show
@@ -1787,7 +1794,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: false },
+                        extra: { scout_origin: config.scout_origin, success: false, entry_point: entryPoint },
                     })
                     lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
                     // A partial failure (skill archived but config delete failed) could desync the list
