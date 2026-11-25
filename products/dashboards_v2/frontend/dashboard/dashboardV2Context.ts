@@ -1,10 +1,11 @@
 import { createContext, useContext } from 'react'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
-import type { TileAction } from '../tiles/tileAction'
 import type { WidgetDefinition } from '../widgets/widgetDefinition'
 import type { DashboardEdit, View } from './dashboardEdits'
+import type { ImageFormat } from './dashboardImage'
 import type { Dashboard, GridTab, SizeOf, Widget } from './dashboardTypes'
+import type { MenuAction } from './menuAction'
 
 /**
  * What a host passes to `DashboardV2View`. The host owns the state and the rules behind it (history, access, saving,
@@ -26,9 +27,11 @@ export interface DashboardV2Controller {
     onActiveTabChange: (tabId: string) => void
     /**
      * Receives the full right-click action list of a content tile or a section, after the widget type's own changes, and
-     * returns the list to show. Lets a page hide, disable or add actions by `TileAction.key`, such as `remove`.
+     * returns the list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
      */
-    tileActions?: (actions: TileAction[], tile: { id: string; widget: Widget }) => TileAction[]
+    tileActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+    /** Like `tileActions`, for the dashboard menu. */
+    dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /** Left out, the dashboard shows no undo or redo. */
     history?: { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void }
 }
@@ -43,6 +46,8 @@ export interface DashboardV2State extends Omit<DashboardV2Controller, 'activeTab
     activeTab: GridTab
     sizeOf: SizeOf
     can: (action: DashboardV2Action) => boolean
+    downloadImage: (format: ImageFormat) => void
+    downloadingImage: boolean
 }
 
 export const DashboardV2StateContext = createContext<DashboardV2State | null>(null)

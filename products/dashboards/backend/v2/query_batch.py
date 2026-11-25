@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
+from dataclasses import replace
 from datetime import UTC, datetime, tzinfo
 from functools import partial
 from queue import Empty, Queue
@@ -48,15 +49,24 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.query_cache.results import decoded_size, prefetched_size
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
-from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchTargetFormat,
+    ResultFormat,
+)
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
+from products.dashboards.backend.v2.frames import frames_for
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
     assert_can_read_logs,
@@ -68,6 +78,7 @@ from products.dashboards.backend.v2.telemetry import (
 logger = structlog.get_logger(__name__)
 
 MAX_QUERIES_PER_BATCH = 500
+HOGQL_TARGET_ROW_LIMIT = 10_000
 WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
@@ -244,11 +255,15 @@ _EXPERIMENT_KINDS = frozenset(
     }
 )
 _UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
-_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
+_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode", "BIVisualizationNode"})
+_NEW_ENGINE_MODIFIERS = {"useNewEventsSchema": True, "useMaterializedViews": True}
 _QUERY_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 _EXPOSED_ERRORS = (
     ExposedHogQLError,
     ExposedCHQueryError,
+    # A timeout reads as /query's 504, not as a failure the panel cannot explain.
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ResolutionError,
     UserAccessControlError,
     TelemetryTargetError,
@@ -316,11 +331,16 @@ def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
         )
     if target.language == QueryBatchLanguage.HOGQL:
         return ResolvedQuery(
-            query={
-                "kind": "HogQLQuery",
-                "query": target.query,
-                "filters": {"dateRange": {"date_from": date_from, "date_to": date_to}},
-            },
+            query=_with_engine(
+                {
+                    "kind": "HogQLQuery",
+                    "query": target.query,
+                    "filters": {"dateRange": {"date_from": date_from, "date_to": date_to}},
+                    # The rows a chart can draw. `hasMore` still marks the line truncated past it.
+                    "limit": HOGQL_TARGET_ROW_LIMIT,
+                },
+                target.engine,
+            ),
             filters=None,
             variables=item.variables,
         )
@@ -328,9 +348,13 @@ def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
         parsed = json.loads(target.query)
     except json.JSONDecodeError:
         parsed = None
+    if isinstance(parsed, dict) and isinstance(parsed.get("kind"), str):
+        parsed = {"query": parsed}
     if not isinstance(parsed, dict) or not isinstance(parsed.get("query"), dict) or "kind" not in parsed["query"]:
-        raise InvalidTarget('An insight target is JSON: {"query": {"kind": ...}, "filters"?, "variables"?}.')
-    query: dict[str, Any] = parsed["query"]
+        raise InvalidTarget(
+            'A query target is a query node, or JSON {"query": {"kind": ...}, "filters"?, "variables"?}.'
+        )
+    query: dict[str, Any] = _with_engine(parsed["query"], target.engine)
     source = query.get("source")
     kinds = {query["kind"], source.get("kind") if isinstance(source, dict) else None}
     if blocked := kinds & _UNBATCHABLE_KINDS:
@@ -358,6 +382,15 @@ def _with_interval(query: dict[str, Any], interval: str) -> dict[str, Any]:
     return {**query, "interval": interval} if query.get("kind") in _INTERVAL_KINDS else query
 
 
+def _with_engine(query: dict[str, Any], engine: Optional[QueryBatchEngine]) -> dict[str, Any]:
+    if engine != QueryBatchEngine.NEW:
+        return query
+    if query.get("kind") in _WRAPPER_KINDS and isinstance(query.get("source"), dict):
+        return {**query, "source": _with_engine(query["source"], engine)}
+    modifiers = query.get("modifiers")
+    return {**query, "modifiers": {**(modifiers if isinstance(modifiers, dict) else {}), **_NEW_ENGINE_MODIFIERS}}
+
+
 def _query_id_part(value: Optional[str]) -> str:
     # The id is read back from query_log and split on `-`, so each part keeps to one safe token.
     return _QUERY_ID_UNSAFE.sub("_", value)[:64] if value else "none"
@@ -368,6 +401,68 @@ def query_id_for(prefix: str, item: QueryBatchInput) -> str:
     return f"{prefix}-{_query_id_part(item.tile)}-{_query_id_part(item.target.ref_id)}-{uuid4().hex[:8]}"
 
 
+def _line_head(item: QueryBatchInput) -> bytes:
+    """The fields every line of `item` starts with after `i`, as JSON members without braces."""
+    head: dict[str, Any] = {"refId": item.target.ref_id}
+    if item.target.legend is not None:
+        head["legend"] = item.target.legend
+    if item.target.format is not None:
+        head["format"] = item.target.format.value
+    return SafeJSONRenderer().render(head)[1:-1]
+
+
+@frozen
+class _LineShape:
+    """How one input's result is written: as the runner returned it, or as frames, with the query text that ran."""
+
+    language: QueryBatchLanguage
+    query: dict[str, Any]
+    canonical: str
+    legend: Optional[str]
+    target_format: Optional[QueryBatchTargetFormat]
+    frames: bool
+
+
+def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) -> str:
+    """The query text the runner ran: the HogQL, PromQL or LogQL, or a query target as sorted JSON, with the filters
+    and variables it ran with, so sending it back as a target runs the same query. Relative dates stay relative, so
+    the text is the same on every reload."""
+    language = item.target.language
+    if language in (QueryBatchLanguage.PROMQL, QueryBatchLanguage.LOGQL) or resolved is None:
+        return item.target.query
+    if language == QueryBatchLanguage.HOGQL:
+        return str(resolved.query.get("query", item.target.query))
+    target: dict[str, Any] = {"query": resolved.query, "filters": resolved.filters}
+    if resolved.variables:
+        target["variables"] = resolved.variables
+    return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
+    return _LineShape(
+        language=item.target.language,
+        query=resolved.query if resolved is not None else {},
+        canonical=canonical_query(item, resolved),
+        legend=item.target.legend,
+        target_format=item.target.format,
+        frames=result_format == ResultFormat.FRAMES,
+    )
+
+
+def _provenance(result: dict[str, Any], *, source: str, ms: float) -> dict[str, Any]:
+    """`mode` is `raw` unless the metrics runner read every bucket from precomputed metrics. The runner's own mode is
+    kept as `precompute`."""
+    provenance: dict[str, Any] = {"mode": "raw", "timeline": [{"source": source, "ms": round(ms, 1)}]}
+    runner = result.get("provenance")
+    if isinstance(runner, dict):
+        provenance.update({key: value for key, value in runner.items() if key != "mode" and value is not None})
+        if runner.get("mode") is not None:
+            provenance["precompute"] = runner["mode"]
+            if runner["mode"] == "precomputed":
+                provenance["mode"] = "derived"
+    return provenance
+
+
 def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     # The limit `/query` gives the same query, so a computed miss gets the same timeout there and here.
     if is_async_query(query) or is_insight_actors_query(query) or is_insight_actors_options_query(query):
@@ -375,38 +470,73 @@ def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     return None
 
 
-def _is_stale(response: object) -> bool:
+def _is_stale(response: object, planned: PlannedQuery) -> bool:
     # The rule the dashboard client applies to decide which tiles to refresh.
     target_age = getattr(response, "cache_target_age", None)
+    runner = planned.query_runner
+    last_refresh = getattr(response, "last_refresh", None)
+    if (
+        isinstance(runner, HogQLQueryRunner)
+        and runner.range_freshness_interval is not None
+        and isinstance(last_refresh, datetime)
+    ):
+        target_age = runner.range_target_age(last_refresh)
     return not isinstance(target_age, datetime) or target_age <= now()
 
 
-def _result_line(index: int, response: Any, *, hit: bool, stale: bool) -> dict[str, Any]:
+def _result_line(
+    index: int, response: Any, *, hit: bool, stale: bool, shape: _LineShape, ms: float = 0.0
+) -> dict[str, Any]:
     result = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
     if result.get("error"):
         return {"i": index, "error": str(result["error"])}
+    body: dict[str, Any] = {}
+    frames = None
+    if shape.frames:
+        try:
+            frames = frames_for(
+                shape.language, shape.query, result, legend=shape.legend, target_format=shape.target_format
+            )
+        except Exception as e:
+            # A result the converter cannot read is still an answer, so it goes back as the runner returned it.
+            logger.warning("dashboard_v2_query_batch_frames_failed", exc_info=True)
+            capture_exception(e)
+        body["format"] = (ResultFormat.FRAMES if frames is not None else ResultFormat.RESULT).value
+    if frames is not None:
+        body["frames"] = frames
+        # Freshness and access-control warnings qualify the frames as they do the runner's result.
+        if result.get("warnings"):
+            body["warnings"] = result["warnings"]
+    else:
+        body["result"] = result
+    from_cache = hit or result.get("is_cached") is True
     line: dict[str, Any] = {
         "i": index,
         "result": {
-            "result": result,
+            **body,
+            "canonical": shape.canonical,
             "cache": {
                 "key": result.get("cache_key"),
                 "fetchedAt": result.get("last_refresh"),
                 "stale": stale,
                 "hit": hit,
             },
+            "provenance": _provenance(result, source="cache" if from_cache else "engine", ms=ms),
         },
     }
-    if result.get("provenance") is not None:
-        line["result"]["provenance"] = result["provenance"]
+    if result.get("hasMore") is True:
+        line["truncated"] = True
     return line
 
 
-def _miss_line(index: int, cache_key: Optional[str]) -> dict[str, Any]:
-    return {
-        "i": index,
-        "result": {"result": None, "cache": {"key": cache_key, "fetchedAt": None, "stale": False, "hit": False}},
+def _miss_line(index: int, cache_key: Optional[str], shape: Optional[_LineShape] = None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "result": None,
+        "cache": {"key": cache_key, "fetchedAt": None, "stale": False, "hit": False},
     }
+    if shape is not None:
+        result["canonical"] = shape.canonical
+    return {"i": index, "result": result}
 
 
 @frozen
@@ -418,15 +548,36 @@ class _ServedKey:
     swr: bool
     cache_only: bool
     query: str
+    # The body carries the query text the panel sent, which differs between a PromQL target and its resolved node.
+    canonical: str
+    # Frames are named by the legend and pivoted by the format, so panels that differ in either render apart. A raw
+    # result ignores both, so those panels still share it.
+    legend: Optional[str]
+    target_format: Optional[QueryBatchTargetFormat]
 
 
-def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
+def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape) -> _ServedKey:
     return _ServedKey(
         cache_key=planned.cache_key,
         swr=item.swr,
         cache_only=item.cache_only,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+        canonical=shape.canonical,
+        legend=shape.legend if shape.frames else None,
+        target_format=shape.target_format if shape.frames else None,
     )
+
+
+def _entry_key(key: _ServedKey) -> _ServedKey:
+    """The key without presentation. Whether a stale entry runs fresh depends on the entry, not on how it is drawn."""
+    return replace(key, legend=None, target_format=None)
+
+
+def _shared_body(served: dict[_ServedKey, bytes], key: _ServedKey) -> Optional[bytes]:
+    body = served.get(key)
+    if body is None and served.get(_entry_key(key)) == _RUN_FRESH:
+        return _RUN_FRESH
+    return body
 
 
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
@@ -454,7 +605,10 @@ def _refresh_all(
     try:
         for query_id, query in queries:
             try:
-                with tags_context(team_id=team.pk, client_query_id=query_id, traceparent=traceparent):
+                with (
+                    tags_context(team_id=team.pk, client_query_id=query_id, traceparent=traceparent),
+                    range_based_freshness(),
+                ):
                     process_query_dict(
                         team,
                         query.query,
@@ -549,12 +703,16 @@ class QueryBatch:
         dashboard_id: Optional[int],
         client_query_id: str,
         traceparent: Optional[str] = None,
+        result_format: ResultFormat = ResultFormat.RESULT,
     ) -> None:
         self._team = team
+        self._result_format = result_format
+        self._shapes: dict[int, _LineShape] = {}
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
+        self._heads = [_line_head(item) for item in inputs]
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
@@ -612,6 +770,8 @@ class QueryBatch:
                 resolved[index] = resolve_query(item, tz=self._team.timezone_info)
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
+                continue
+            self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
         if logql:
             try:
@@ -623,16 +783,17 @@ class QueryBatch:
 
         def plan(index: int) -> PlannedQuery | None:
             query = resolved[index]
-            return plan_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                user=self._user,
-                user_access_control=user_access_control,
-                allow_raw_results=False,
-            )
+            with range_based_freshness():
+                return plan_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    user=self._user,
+                    user_access_control=user_access_control,
+                    allow_raw_results=False,
+                )
 
         to_run: list[int] = []
         to_refresh: list[int] = []
@@ -651,15 +812,23 @@ class QueryBatch:
                 continue
             self._read_chunk(inputs, resolved, chunk, plan, to_run, to_refresh, served)
 
-        self._to_refresh = [
-            (query_id_for(self._client_query_id, inputs[index]), resolved[index]) for index in to_refresh
-        ]
+        # Panels that repeat a query with another legend or format refresh it once.
+        refreshes: dict[str, tuple[str, ResolvedQuery]] = {}
+        for index in to_refresh:
+            query = resolved[index]
+            identity = json.dumps([query.query, query.filters, query.variables], sort_keys=True, default=str)
+            if identity not in refreshes:
+                refreshes[identity] = (query_id_for(self._client_query_id, inputs[index]), query)
+        self._to_refresh = list(refreshes.values())
         for index in to_run:
             query_id = query_id_for(self._client_query_id, inputs[index])
             self._jobs.append((index, query_id, resolved[index]))
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
             self._jobs.append((index, query_id_for(self._client_query_id, inputs[index]), inputs[index]))
+        # A shape holds the panel's query and its text, so only the panels still to run keep one.
+        running = {index for index, _query_id, _query in self._jobs}
+        self._shapes = {index: shape for index, shape in self._shapes.items() if index in running}
 
     def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
         """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
@@ -667,8 +836,9 @@ class QueryBatch:
         for index, item in enumerate(inputs):
             if item.target.language != QueryBatchLanguage.LOGQL:
                 continue
+            self._shapes[index] = _line_shape(item, None, self._result_format)
             if item.cache_only:
-                self._add_ready(_miss_line(index, None))
+                self._add_ready(_miss_line(index, None, self._shapes[index]))
             else:
                 to_run.append(index)
         return to_run
@@ -689,7 +859,12 @@ class QueryBatch:
             # A panel repeating an entry an earlier chunk served is left unplanned, so its blob is not fetched again.
             planned = plan(index)
             if planned is not None:
-                body = served.get(_served_key(planned, inputs[index]))
+                if self._shapes[index].frames:
+                    # The planned runner holds the query with the target's filters applied, an interval override
+                    # among them, so frames read the query that ran without building a second runner. A duplicate
+                    # that runs fresh skips the loop below, so the shape takes the query here.
+                    self._shapes[index] = replace(self._shapes[index], query=planned.query_runner.query.model_dump())
+                body = _shared_body(served, _served_key(planned, inputs[index], self._shapes[index]))
                 if body is not None:
                     duplicates[index] = body
                     return None
@@ -707,7 +882,7 @@ class QueryBatch:
                 planned = planned_queries.get(index)
                 if planned is None:
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, None))
+                        self._add_ready(_miss_line(index, None, self._shapes[index]))
                     else:
                         # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
                         to_run.append(index)
@@ -715,17 +890,21 @@ class QueryBatch:
                 if planned.query_runner.requires_fresh_calculation():
                     # Never served from the cache, cache-only or not, as `/query` never serves it.
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, planned.cache_key))
+                        self._add_ready(_miss_line(index, planned.cache_key, self._shapes[index]))
                     else:
                         to_run.append(index)
                     continue
-                same_entry = _served_key(planned, item)
-                if same_entry in served:
-                    if served[same_entry] == _RUN_FRESH:
+                same_entry = _served_key(planned, item, self._shapes[index])
+                shared = _shared_body(served, same_entry)
+                if shared is not None:
+                    if shared == _RUN_FRESH:
                         to_run.append(index)
                     else:
-                        self._add_shared(index, served[same_entry])
+                        self._add_shared(index, shared)
                     continue
+                started = monotonic()
+                # Frames can be far smaller than the entry they came from, so the read budget counts the entry.
+                stored_bytes = prefetched_size(planned.cache_key)
                 try:
                     response = run_planned_query(
                         planned,
@@ -739,22 +918,35 @@ class QueryBatch:
                 except Exception as e:
                     self._add_ready(_error_line(index, e, team=self._team))
                     continue
+                # Read on its own when the batched read failed, so only the lookup itself knows what it decoded.
+                stored_bytes = max(stored_bytes, decoded_size(planned.cache_key))
                 if isinstance(response, CacheMissResponse):
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, planned.cache_key))
+                        self._add_ready(_miss_line(index, planned.cache_key, self._shapes[index]))
                     else:
                         to_run.append(index)
                     continue
-                stale = _is_stale(response)
+                stale = _is_stale(response, planned)
                 if stale and not (item.swr or item.cache_only):
                     # Read and parsed already, so it counts against the read budget. Repeats run without a refetch.
-                    self._read_bytes += len(_render_body(_result_line(index, response, hit=True, stale=stale)))
-                    served[same_entry] = _RUN_FRESH
+                    self._read_bytes += stored_bytes or len(
+                        _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
+                    )
+                    served[same_entry] = served[_entry_key(same_entry)] = _RUN_FRESH
                     to_run.append(index)
                     continue
-                body = _render_body(_result_line(index, response, hit=True, stale=stale))
+                line = _result_line(
+                    index,
+                    response,
+                    hit=True,
+                    stale=stale,
+                    shape=self._shapes[index],
+                    ms=(monotonic() - started) * 1000,
+                )
+                body = _render_body(line)
+                del line
                 del response
-                self._read_bytes += len(body)
+                self._read_bytes += max(len(body), stored_bytes)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
                     # Shared like a served body, so panels repeating this entry are not fetched and rendered again.
                     served[same_entry] = self._add_ready({"i": index, "error": _TOO_LARGE})
@@ -787,7 +979,7 @@ class QueryBatch:
                 self._drop_ready()
             index, body = self.ready[position]
             position += 1
-            yield b'{"i":%d,' % index + body[1:] + b"\n"
+            yield self._frame(index, body)
 
     def _drop_ready(self) -> None:
         self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
@@ -893,27 +1085,32 @@ class QueryBatch:
             _release_refreshes(self._shares, len(queries))
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
-        if self._cancelled:
+        shape = self._shapes.pop(index, None)
+        if self._cancelled or shape is None:
             return {"i": index, "error": _FAILED}
+        started = monotonic()
         try:
-            response = process_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                user=self._user,
-                query_id=query_id,
-                dashboard_id=self._dashboard_id,
-            )
+            with range_based_freshness():
+                response = process_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    user=self._user,
+                    query_id=query_id,
+                    dashboard_id=self._dashboard_id,
+                )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(index, response, hit=False, stale=False)
+        return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
-        if self._cancelled:
+        shape = self._shapes.pop(index, None)
+        if self._cancelled or shape is None:
             return {"i": index, "error": _FAILED}
+        started = monotonic()
         try:
             response = run_logql(
                 team=self._team,
@@ -927,7 +1124,7 @@ class QueryBatch:
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(index, response, hit=False, stale=False)
+        return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():
@@ -1026,6 +1223,7 @@ class QueryBatch:
             self._closed = True
             self._cancelled = True
             self._logql_cancelled.set()
+            self._shapes.clear()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
@@ -1076,9 +1274,13 @@ class QueryBatch:
             with self._lock:
                 active = tuple(self._active)
 
-    @staticmethod
-    def _encode(line: dict[str, Any]) -> bytes:
-        return SafeJSONRenderer().render(line) + b"\n"
+    def _frame(self, index: int, body: bytes) -> bytes:
+        # `body` is a line's JSON without `i`, which may be shared with other panels, so each panel's own fields are
+        # spliced in front of it here.
+        return b'{"i":%d,' % index + self._heads[index] + b"," + body[1:] + b"\n"
+
+    def _encode(self, line: dict[str, Any]) -> bytes:
+        return self._frame(line["i"], _render_body(line))
 
     def _timed_out_lines(self, pending: set[int]) -> Iterator[bytes]:
         for index in sorted(pending):

@@ -1716,7 +1716,7 @@ describe('EmailService', () => {
                 case: 'keeps the defaults',
                 sensitive: true,
                 tracking: { captureEngagement: true },
-                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                links: ['https://example.com/a', 'https://example.com/b'],
                 pixel: true,
             },
             {
@@ -1857,7 +1857,7 @@ describe('EmailService', () => {
         it.each<{
             case: string
             sensitive: boolean
-            step?: { template_uuid?: string; template_key?: string }
+            step?: { template_uuid?: string; template_key?: string; click_tracking_enabled?: boolean }
             send: { sensitive?: boolean; tracking?: { opens?: false; clicks?: boolean } } | undefined
             links: string[]
             opens: boolean
@@ -1891,7 +1891,7 @@ describe('EmailService', () => {
                 case: 'a sensitive code send that keeps the defaults',
                 sensitive: true,
                 send: {},
-                links: clicksTracked,
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1917,7 +1917,7 @@ describe('EmailService', () => {
                 sensitive: true,
                 step: { template_uuid: 'template-1' },
                 send: { sensitive: false },
-                links: clicksTracked,
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1925,7 +1925,16 @@ describe('EmailService', () => {
                 case: "a code send marked sensitive on a template's workflow that isn't sensitive",
                 sensitive: false,
                 send: { sensitive: true },
-                links: clicksTracked,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked sensitive on a non-sensitive template with clicks enabled',
+                sensitive: false,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: { sensitive: true },
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -1962,10 +1971,55 @@ describe('EmailService', () => {
                 subject: true,
             },
             {
+                case: 'a non-sensitive template send that turns clicks off',
+                sensitive: false,
+                step: { template_uuid: 'template-1', click_tracking_enabled: false },
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: true,
+            },
+            {
                 case: 'a sensitive template send',
                 sensitive: true,
                 send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive template send that turns clicks on',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: undefined,
                 links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive template send that explicitly turns clicks off',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: false },
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send on a sensitive template with clicks enabled that keeps defaults',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: {},
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send on a sensitive template with clicks enabled that turns clicks off',
+                sensitive: true,
+                step: { template_uuid: 'template-1', click_tracking_enabled: true },
+                send: { tracking: { clicks: false } },
+                links: untracked,
                 opens: true,
                 subject: false,
             },
@@ -2015,7 +2069,6 @@ describe('EmailService', () => {
                     await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
                 expect(delivered).toEqual(links)
-                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
                 expect(
                     result.capturedPostHogEvents
@@ -2038,6 +2091,25 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        it('keeps the trailing slash on an unquoted href when a sensitive send opts links out of click tracking', async () => {
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                sensitive: true,
+                template_uuid: 'template-1',
+            }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body><a ses:tags="campaign:reset" href=https://example.com/reset/token/>Reset</a></body>',
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(fakeSes.deliveries).toHaveLength(1)
+            expect(fakeSes.deliveries[0].html).toContain('href=https://example.com/reset/token/')
+            expect(fakeSes.deliveries[0].html).not.toContain(`${sesEndpoint}/L0/`)
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -4310,6 +4382,7 @@ describe('EmailService', () => {
                 allowlisted: boolean
                 isTest: boolean
                 sensitive: boolean
+                clickTrackingEnabled?: boolean
                 send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
                 href: string
@@ -4364,6 +4437,24 @@ describe('EmailService', () => {
                     href: STALE_HREF,
                 },
                 {
+                    case: 'leaves the links of a sensitive email that opts in to click tracking',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    clickTrackingEnabled: true,
+                    href: STALE_HREF,
+                },
+                {
+                    case: 'leaves the links of a template that turns click tracking off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    clickTrackingEnabled: false,
+                    href: STALE_HREF,
+                },
+                {
                     case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
                     trackingEnabled: true,
                     allowlisted: true,
@@ -4392,7 +4483,16 @@ describe('EmailService', () => {
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
+                async ({
+                    trackingEnabled,
+                    allowlisted,
+                    isTest,
+                    sensitive,
+                    clickTrackingEnabled,
+                    send,
+                    teamOptedOut,
+                    href,
+                }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -4407,7 +4507,11 @@ describe('EmailService', () => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
-                    invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.hogFunction.metadata = {
+                        tracking_enabled: trackingEnabled,
+                        sensitive,
+                        ...(clickTrackingEnabled !== undefined ? { click_tracking_enabled: clickTrackingEnabled } : {}),
+                    }
                     invocation.state.send = send && {
                         ...send,
                         tracking: { captureEngagement: true, ...send.tracking },

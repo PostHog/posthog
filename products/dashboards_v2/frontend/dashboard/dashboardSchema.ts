@@ -64,6 +64,10 @@ export const contentWidgetPartsSchema = z.strictObject({
     footer: z.boolean().optional(),
 })
 
+export const contentWidgetAppearanceSchema = z.strictObject({
+    background: z.boolean().optional(),
+})
+
 /**
  * The fields every content tile has. Everything specific to the widget type, such as a chart's query, sits in
  * `config`, which is checked against the type's own `configSchema`.
@@ -76,6 +80,7 @@ export const contentWidgetSchema = z.strictObject({
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
     parts: contentWidgetPartsSchema.optional(),
+    appearance: contentWidgetAppearanceSchema.optional(),
     config: z.unknown(),
 })
 

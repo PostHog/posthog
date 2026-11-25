@@ -201,6 +201,7 @@ class AcceptOptions:
     lookback_seconds: int | None = None
     keep_materialized: bool | None = None
     delete_view: bool | None = None
+    mark_deprecated: bool | None = None
 
 
 @frozen

@@ -87,7 +87,7 @@ export function buildGatewayEnv(
   });
   if (target.isAiGateway && !gatewayToken) {
     logger.warn(
-      `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
+      `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway at LLM_GATEWAY_URL`,
     );
     target = resolveGatewayTarget({
       product,
@@ -264,7 +264,7 @@ export function buildPiProviderRoute(
   }
   if (target.isAiGateway) {
     logger.warn(
-      `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
+      `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway at LLM_GATEWAY_URL`,
     );
   }
   return {

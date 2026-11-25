@@ -3,7 +3,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { type CloudRegion, isModalModelId } from "@posthog/agent-contracts";
 import { buildPosthogProjectHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -126,7 +126,7 @@ function supportsVision(
 export function gatewayBaseUrlForApi(
   api: string,
   region: CloudRegion,
-  baseUrl = getLlmGatewayUrl(region),
+  baseUrl = getGatewayBaseUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
   if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
@@ -349,6 +349,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: false,
   },
   {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
     id: "zai-org/glm-5.3",
     owned_by: "baseten",
     context_window: 1048576,
@@ -423,7 +429,7 @@ export async function resolveModelConfigs(
   }
 
   const models = await fetchPosthogGatewayModels(
-    baseUrl ?? getLlmGatewayUrl(region),
+    baseUrl ?? getGatewayBaseUrl(region),
     apiKey,
     projectId,
   );

@@ -165,6 +165,22 @@ def returns_log_lines(logql: str) -> bool:
     return bool(logql.strip()) and _METRIC_LOGQL.search(_without_strings(logql)) is None
 
 
+def _drop_line_past_limit(results: Any) -> bool:
+    """Removes the oldest line when Loki returned more than `LOG_LINE_LIMIT`. Loki reads newest first, so the oldest
+    line is the one past the limit. Returns whether there was one."""
+    streams = results.get("result") if isinstance(results, dict) else None
+    if not isinstance(streams, list):
+        return False
+    values = [
+        stream["values"] for stream in streams if isinstance(stream, dict) and isinstance(stream.get("values"), list)
+    ]
+    if sum(len(lines) for lines in values) <= LOG_LINE_LIMIT:
+        return False
+    oldest = min((lines for lines in values if lines), key=lambda lines: min(int(line[0]) for line in lines))
+    oldest.remove(min(oldest, key=lambda line: int(line[0])))
+    return True
+
+
 def _align(moment: datetime, step: int) -> datetime:
     return datetime.fromtimestamp(math.floor(moment.timestamp() / step) * step, tz=UTC)
 
@@ -307,7 +323,8 @@ def run_logql(
     window = time_range(date_from, date_to, tz=team.timezone_info)
     start, end = window.start, window.end
     step = pick_step(end - start, max_data_points=max_data_points, min_interval=min_interval, is_promql=False).seconds
-    if not returns_log_lines(logql):
+    log_lines = returns_log_lines(logql)
+    if not log_lines:
         # Series are evaluated at multiples of the step, so every refresh lands on the same timestamps.
         start, end = _align(start, step), _align(end, step)
     data = {
@@ -315,11 +332,14 @@ def run_logql(
         "start": str(start.timestamp()),
         "end": str(end.timestamp()),
         "step": str(step),
-        "limit": str(LOG_LINE_LIMIT),
+        # One line past the limit, so a result that stops at the limit can be told apart from one that ends there.
+        "limit": str(LOG_LINE_LIMIT + 1 if log_lines else LOG_LINE_LIMIT),
     }
     results = _query_range(team, data, budget, cancelled)
+    has_more = log_lines and _drop_line_past_limit(results)
     return {
         "results": results,
+        "hasMore": has_more,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "step": step,
