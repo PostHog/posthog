@@ -57,6 +57,7 @@ from .process_task.activities import (
 )
 from .process_task.activities.agent_egress import (
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     prepare_agent_egress,
     probe_agent_egress,
     renew_agent_egress,
@@ -91,6 +92,7 @@ WORKFLOWS = [
 
 ACTIVITIES: list[ActivityDefinition] = [
     prepare_agent_egress,
+    initialize_agent_egress_git_grant,
     renew_agent_egress,
     probe_agent_egress,
     cleanup_agent_egress,

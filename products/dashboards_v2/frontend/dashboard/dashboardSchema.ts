@@ -75,10 +75,12 @@ export const contentWidgetPartsSchema = z.strictObject({
     footer: z.boolean().optional(),
 })
 
-/** How a tile looks. A setting that is missing is on. A section has no background to hide. */
+/** How a tile looks. A setting that is missing is on. A section has no background to change. */
 export const tileAppearanceSchema = z.strictObject({
     background: z.boolean().optional(),
     border: z.boolean().optional(),
+    /** Any CSS color. The tile mixes it into its background as a tint. */
+    backgroundColor: z.string().min(1).optional(),
 })
 
 /**
