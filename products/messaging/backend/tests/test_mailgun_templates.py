@@ -51,6 +51,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "<style>p{}</style><p>{{x}}</p>",
                 f"<style>p{{}}</style><p>{ESCAPED_X}</p>",
             ),
+            (
+                "in_the_title_and_after_a_script",
+                "handlebars",
+                "<title>{{x}}</title><script>a</script><p>{{x}}</p>",
+                f"<title>{ESCAPED_X}</title><script>a</script><p>{ESCAPED_X}</p>",
+            ),
             ("after_a_stray_less_than", "handlebars", "a<3 {{x}}", f"a<3 {ESCAPED_X}"),
             ("brace_before_a_value", "handlebars", "{ {{x}}", f"{{ {ESCAPED_X}"),
             ("liquid_in_text", "handlebars", "{% if a %}{{x}}", '{{ "{%" }} if a %}' + ESCAPED_X),
@@ -77,7 +83,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
             ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
-            ("after_any_script", "<script>x</script><p>{{x}}</p>", "{{x}}"),
+            ("after_a_script_in_an_svg", """<svg><script><a title="</script>" onclick="f('{{x}}')">""", "{{x}}"),
+            (
+                "a_closing_tag_with_a_long_s_in_a_script",
+                """<script>var a="</\u017fcript>"; f({{x}})</script>""",
+                "{{x}}",
+            ),
+            ("after_a_title_in_an_svg", """<svg><title/></svg><a onclick="f('{{x}}')">""", "{{x}}"),
+            ("raw_in_the_title", "<title>{{{x}}}</title>", "{{{x}}}"),
+            ("after_the_start_of_a_closing_title", "<title></titl{{x}}></title>", "{{x}}"),
+            ("a_loop_that_opens_a_comment_in_a_script", "<script><!{{#each a}}-{{/each}}</script>", "{{#each a}}"),
             ("script", "<script>var x = {{x}};</script>", "{{x}}"),
             ("style", "<style>p { color: {{x}} }</style>", "{{x}}"),
             ("html_comment", "<!-- {{x}} -->", "{{x}}"),
@@ -106,7 +121,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),
             ("go_plain_attribute", "go", '<a title="{{.x}}">'),
             ("go_size_property", "go", "<p>{{.Order.size}}</p>"),
-            ("go_after_any_script", "go", "<script>x</script><p>{{.x}}</p>"),
+            ("go_after_a_comment_in_a_script", "go", "<script><!--</script><p>{{.x}}</p>"),
         ]
     )
     def test_a_go_template_or_invalid_handlebars_stays_as_text(self, _name: str, engine: str, source: str) -> None:
