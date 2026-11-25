@@ -77,10 +77,11 @@ def log_endpoint_execution(
     level: str,
     message: str,
 ) -> None:
-    """Emit a user-facing endpoint execution log entry to the `log_entries` table.
+    """Emit a user-facing endpoint execution log entry to `log_entries` (via Kafka) and to the logs product.
 
-    Best-effort: a produce failure must never break or slow down an endpoint run, so failures are
-    swallowed (debug-logged). We don't flush — `produce()` polls non-blocking.
+    Best-effort: a failed write must never break or slow down an endpoint run, so each write swallows
+    its own failure (debug-logged) and does not stop the other. We don't flush — `produce()` polls
+    non-blocking, and `send_internal_log` does not wait for the network.
     """
     now = datetime.now(tz=UTC)
     try:
