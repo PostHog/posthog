@@ -12,6 +12,9 @@ MAX_TOP_PAGE_ROWS = 1000
 MAX_RANK_TRACKER_ROWS = 10000
 # History rows cost API units and plans cap how far back history goes, so a first sync reads a bounded window.
 HISTORY_DAYS = 180
+# Mentions history keeps one date cursor for every report and platform series, so each sync re-reads
+# this window to pick up days that one platform published after the others.
+BRAND_RADAR_HISTORY_LOOKBACK_DAYS = 30
 # Link intersect requests accept at most 20 competitors.
 MAX_COMPETITORS = 20
 MAX_WEB_PAGE_ROWS = 1000

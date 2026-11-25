@@ -625,7 +625,7 @@ BRAND_RADAR_PLATFORMS = ["chatgpt", "google_ai_overviews", "google_ai_mode", "ge
 
 @pytest.mark.parametrize(
     ("last_value", "expected_date_from"),
-    [(None, "2026-04-16"), ("2026-09-01", "2026-09-01")],
+    [(None, "2026-04-16"), ("2026-09-01", "2026-08-02")],
 )
 @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
 def test_brand_radar_mentions_history_reads_each_platform_of_each_report(

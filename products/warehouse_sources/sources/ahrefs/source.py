@@ -131,6 +131,7 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
                 "Link intersect tables compare the target with the project's competitors in Ahrefs. "
                 "Brand Radar web pages and mentions history come from the Brand Radar reports linked to the project. "
                 "Mentions history reads each AI platform in your plan, at 50 units or more per platform and report. "
+                "A report linked or a platform added after the first sync gets its earlier days on a full resync. "
                 "The top domains table is free and has 1 million rows."
             ),
             fields=cast(

@@ -8,6 +8,7 @@ from requests import Request, Response
 from products.warehouse_sources.sources.ahrefs.settings import (
     API_BASE_URL,
     BRAND_RADAR_DATA_SOURCES,
+    BRAND_RADAR_HISTORY_LOOKBACK_DAYS,
     CREDENTIAL_ERRORS,
     ENDPOINTS,
     HISTORY_DAYS,
@@ -196,7 +197,10 @@ def _endpoint_requests(
         if not reports:
             logger.info("ahrefs_no_brand_radar_reports", endpoint=endpoint, project_id=project_id)
         date_from = _history_start(
-            should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            datetime.now(UTC).date(),
+            lookback_days=BRAND_RADAR_HISTORY_LOOKBACK_DAYS,
         )
         for report in reports:
             report_id = str(report["report_id"])
@@ -251,9 +255,9 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _history_start(should_use_incremental_field: bool, last_value: Any, today: date) -> str:
+def _history_start(should_use_incremental_field: bool, last_value: Any, today: date, lookback_days: int = 0) -> str:
     if should_use_incremental_field and last_value:
-        return _as_date(last_value).isoformat()
+        return (_as_date(last_value) - timedelta(days=lookback_days)).isoformat()
     return (today - timedelta(days=HISTORY_DAYS)).isoformat()
 
 
