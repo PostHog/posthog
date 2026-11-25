@@ -27,7 +27,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     last_checked_at: null,
     last_error_message: null,
     state_timeline: [],
-    destination_types: [],
+    destination_types: ['slack', 'pagerduty'],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
@@ -69,6 +69,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000002',
     name: 'Daily signup volume below 10',
     enabled: false,
+    destination_types: [],
     source_kind: 'insight',
     source_config: {
         insight_id: 42,
@@ -91,6 +92,7 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 100',
     legacy_configuration_id: null,
     owner: 'platform',
+    destination_types: ['slack', 'teams', 'pagerduty', 'email'],
     labels: { team: 'checkout', severity: 'page' },
     annotations: {
         runbook_url: 'https://example.com/runbooks/checkout-errors',
@@ -141,9 +143,19 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
 const SOURCE_KIND_OVERRIDES: Partial<PlatformAlertConfigurationApi>[] = [
     { name: 'Stripe sync failing', source_kind: 'warehouse_source', check_interval_minutes: 120 },
     { name: 'S3 export failing', source_kind: 'warehouse_destination', recurrence_unit: 'week' },
-    { name: 'p95 latency above 500 ms', source_kind: 'metrics', recurrence_unit: 'month' },
+    {
+        name: 'p95 latency above 500 ms',
+        source_kind: 'metrics',
+        recurrence_unit: 'month',
+        snooze_until: '2026-10-07T09:00:00Z',
+    },
     { name: 'Checkout spans erroring', source_kind: 'traces', check_interval_minutes: 15 },
-    { name: 'New issues in checkout', source_kind: 'error_tracking', check_interval_minutes: 60 },
+    {
+        name: 'New issues in checkout',
+        source_kind: 'error_tracking',
+        check_interval_minutes: 60,
+        destination_types: [],
+    },
 ]
 
 const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_OVERRIDES.map((overrides, index) => ({
@@ -153,6 +165,14 @@ const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_
     legacy_configuration_id: null,
     alerts: [],
     ...overrides,
+}))
+
+const FILLER_CONFIGURATIONS: PlatformAlertConfigurationApi[] = Array.from({ length: 47 }, (_, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-${String(700 + index).padStart(12, '0')}`,
+    name: `Service ${index + 1} errors above 100`,
+    legacy_configuration_id: null,
+    alerts: [],
 }))
 
 const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
@@ -292,6 +312,58 @@ export const ListTypeTooltipOpen: Story = {
         const type = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'Warehouse destination' })
         await userEvent.hover(type)
         await within(document.body).findByText('Warehouse destination')
+    },
+}
+
+export const ListDestinationTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(CONFIGURATION.name)
+        const destination = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'PagerDuty' })
+        await userEvent.hover(destination)
+        await within(document.body).findByText('PagerDuty')
+    },
+}
+
+export const ListMuteTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
+        const marker = within(name.closest('tr') as HTMLElement).getByRole('img', { name: /^1\sgroup snoozed$/ })
+        await userEvent.hover(marker)
+        await within(document.body).findByText('1 group snoozed. Their notifications are on hold.')
+    },
+}
+
+export const ListGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+    },
+}
+
+export const ListPaginatedGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 51,
+                    next: 'http://localhost/api/projects/1/platform_alerts/?limit=50&offset=50',
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, GROUPED_CONFIGURATION, ...FILLER_CONFIGURATIONS],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+        await within(canvasElement).findByText('1-50 of 51 alerts')
     },
 }
 

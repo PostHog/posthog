@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use common_ingestion_response::codes;
+
 use crate::{
     app_context::AppContext,
-    error::{EventError, UnhandledError},
-    metric_consts::HTTP_EXCEPTION_PIPELINE,
+    error::{contain_failure, EventError, UnhandledError},
+    metric_consts::{HTTP_EXCEPTION_PIPELINE, POST_PROCESSING_STAGE},
     stages::pipeline::{create_pre_post_processing, ExceptionEventPipeline, HandledError},
     types::{
         batch::Batch,
-        event::{AnyEvent, PropertiesContainer},
+        event::{AnyEvent, ProcessOutcome, PropertiesContainer},
         exception_event::{ExceptionEvent, Finalized},
         stage::{Stage, StageResult},
     },
@@ -15,17 +17,21 @@ use crate::{
 
 pub struct HttpEventPipeline {
     app_context: Arc<AppContext>,
+    isolate_event_failures: bool,
 }
 
 impl HttpEventPipeline {
-    pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { app_context }
+    pub fn new(app_context: Arc<AppContext>, isolate_event_failures: bool) -> Self {
+        Self {
+            app_context,
+            isolate_event_failures,
+        }
     }
 }
 
 impl Stage for HttpEventPipeline {
     type Input = AnyEvent;
-    type Output = Option<AnyEvent>;
+    type Output = ProcessOutcome;
 
     fn name(&self) -> &'static str {
         HTTP_EXCEPTION_PIPELINE
@@ -55,7 +61,10 @@ impl Stage for HttpEventPipeline {
         batch
             .apply_stage(preprocess)
             .await?
-            .apply_stage(ExceptionEventPipeline::new(self.app_context.clone()))
+            .apply_stage(ExceptionEventPipeline::new(
+                self.app_context.clone(),
+                self.isolate_event_failures,
+            ))
             .await?
             .apply_stage(postprocess)
             .await
@@ -65,22 +74,36 @@ impl Stage for HttpEventPipeline {
 fn handle_result(
     mut original: AnyEvent,
     processed: Result<ExceptionEvent<Finalized>, HandledError>,
-) -> Result<Option<AnyEvent>, UnhandledError> {
-    let item: Option<AnyEvent> = match processed {
-        Ok(props) => {
-            original.set_properties(props.into_clickhouse_properties())?;
-            Some(original)
+) -> Result<ProcessOutcome, UnhandledError> {
+    let attached = match processed {
+        Ok(props) => original.set_properties(props.into_clickhouse_properties()),
+        Err(EventError::Suppressed(_)) => return Ok(ProcessOutcome::Dropped("suppressed")),
+        Err(EventError::SuppressedByRule(_)) => {
+            return Ok(ProcessOutcome::Dropped("suppressed_by_rule"))
         }
-        Err(err) => match err {
-            EventError::Suppressed(_)
-            | EventError::SuppressedByRule(_)
-            | EventError::RateLimitedPerIssue(_)
-            | EventError::RateLimitedProject(_) => None,
-            err => {
-                original.attach_error(err.to_string())?;
-                Some(original)
-            }
-        },
+        Err(EventError::RateLimitedPerIssue(_)) => {
+            return Ok(ProcessOutcome::Dropped("rate_limited_per_issue"))
+        }
+        Err(EventError::RateLimitedProject(_)) => {
+            return Ok(ProcessOutcome::Dropped("rate_limited_project"))
+        }
+        Err(EventError::ProcessingFailed {
+            code,
+            message,
+            retriable,
+        }) => return Ok(ProcessOutcome::unprocessed(code, message, retriable)),
+        Err(err) => original.attach_error(err.to_string()),
     };
-    Ok(item)
+    Ok(match contain_failure(POST_PROCESSING_STAGE, attached)? {
+        Ok(()) => ProcessOutcome::Ok(original),
+        Err(EventError::ProcessingFailed {
+            code,
+            message,
+            retriable,
+        }) => ProcessOutcome::unprocessed(code, message, retriable),
+        Err(err) => ProcessOutcome::Failed {
+            code: codes::INVALID_INPUT,
+            message: err.to_string(),
+        },
+    })
 }

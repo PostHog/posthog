@@ -35,6 +35,8 @@ export type SurveyFeatureRequirement = {
     feature: string
     docsUrl?: string
     unsupportedSdks: UnsupportedSdk[]
+    /** Printed under the generated SDK feature support table, for requirements a version number can't express. */
+    docsNotes?: string[]
 }
 
 /**
@@ -96,12 +98,13 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Custom font selection',
         sdkVersions: {
             'posthog-js': '1.223.4',
-            'posthog-ios': '3.22.0',
+            'posthog-ios': '4.0.6',
+            'posthog-android': '4.0.3', // via posthog-android-surveys-compose UI module 1.1.0
+            posthog_flutter: '5.56.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2959' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/258' },
+        unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2959' }],
+        docsNotes: [
+            'Android applies the survey font from `posthog-android-surveys-compose` 1.1.0. Earlier versions of the module ignore it, including those that run with `posthog-android` 4.0.3.',
         ],
         check: (s) => s.appearance?.fontFamily !== undefined && s.appearance?.fontFamily !== 'inherit',
     },
@@ -147,9 +150,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.245.0',
             'posthog-react-native': '4.43.13',
+            'posthog-ios': '3.95.0',
         },
         unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/581' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/502' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/379' },
         ],
@@ -162,13 +165,14 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Partial response collection',
-        sdkVersions: { 'posthog-js': '1.240.0' },
-        unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2962' },
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/447' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/390' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/261' },
-        ],
+        sdkVersions: {
+            'posthog-js': '1.240.0',
+            'posthog-ios': '3.79.0',
+            'posthog-android': '3.70.0',
+            posthog_flutter: '5.48.0',
+            'posthog-react-native': '4.75.0',
+        },
+        unsupportedSdks: [],
         check: (s) => s.enable_partial_responses === true,
     },
     {
@@ -176,12 +180,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.244.0',
             'posthog-react-native': '4.26.0',
+            'posthog-ios': '3.77.0',
+            'posthog-android': '3.66.4', // via posthog-android-surveys-compose UI module 0.3.0
+            posthog_flutter: '5.45.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/448' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/391' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/262' },
-        ],
+        unsupportedSdks: [],
         check: (s) =>
             s.questions.some(
                 (q) =>
@@ -196,12 +199,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.259.0',
             'posthog-react-native': '4.4.0',
+            'posthog-ios': '3.78.0',
+            'posthog-android': '3.67.0',
+            posthog_flutter: '5.47.0', // first version to require posthog-ios >= 3.80.0 and posthog-android >= 3.69.0
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/445' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/388' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/259' },
-        ],
+        unsupportedSdks: [],
         check: (s) => !!s.conditions?.linkedFlagVariant,
     },
     {
@@ -238,10 +240,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Cancellation events',
-        sdkVersions: { 'posthog-js': '1.299.0' },
+        sdkVersions: { 'posthog-js': '1.299.0', 'posthog-ios': '3.96.0' },
         unsupportedSdks: [
             { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2964' },
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/450' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/393' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/264' },
         ],
@@ -299,9 +300,8 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Shuffle questions',
-        sdkVersions: { 'posthog-js': '1.131.5' },
+        sdkVersions: { 'posthog-js': '1.131.5', 'posthog-react-native': '4.68.0' },
         unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
             { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/442' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
@@ -310,13 +310,14 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Shuffle choice options',
-        sdkVersions: { 'posthog-js': '1.131.5' },
-        unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI; flag exposed on display model
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
-        ],
+        sdkVersions: {
+            'posthog-js': '1.131.5',
+            'posthog-react-native': '4.77.1', // 4.68.0-4.77.0 shuffled choices but submitted the wrong option
+            'posthog-ios': '3.76.0',
+            'posthog-android': '3.66.0', // via posthog-android-surveys-compose UI module 0.2.2
+            posthog_flutter: '5.44.1',
+        },
+        unsupportedSdks: [],
         check: (s) =>
             s.questions.some(
                 (q) =>
@@ -342,11 +343,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.141.0',
             'posthog-ios': '3.54.0',
             'posthog-android': '3.49.0',
+            'posthog-react-native': '4.85.0',
+            posthog_flutter: '5.54.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/322' },
-        ],
+        unsupportedSdks: [],
         check: (s) => (s.appearance?.surveyPopupDelaySeconds ?? 0) > 0,
     },
     {
