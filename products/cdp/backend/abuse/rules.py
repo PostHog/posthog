@@ -164,7 +164,7 @@ _CHAT_MESSAGE_APIS = (
 )
 _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _TEAMS_WEBHOOK_PATH = re.compile(r"/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+(?:/[^/]+)?")
-_INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
+INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
     {
@@ -214,6 +214,14 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
+def fetches_internal_host(content: HogFunctionContent) -> bool:
+    """Whether a literal `fetch` URL in the code names an internal host anywhere in it. An input value with a local URL
+    can be message text or a body field, but a literal `fetch` URL is code that sends a request. A URL in its query
+    counts, because a redirect through a public host can carry the request to an internal one. The search reads the
+    raw source, so a `fetch` in a comment also counts, which errs toward alerting."""
+    return any(_is_internal(host) for host in _hosts_in(_fetch_literals(content.hog)))
+
+
 def has_outbound_call(content: HogFunctionContent) -> bool:
     """Whether the code or a Hog template can call a function that sends a request. Code that does not parse counts,
     as does unedited template code, which still runs."""
@@ -237,7 +245,7 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
     elif (
         requests.only_literal_fetches
         and all(_is_literal_public_url(url) for url in requests.literal_urls)
-        and not rules & _INTERNAL_HOST_RULES
+        and not rules & INTERNAL_HOST_RULES
     ):
         set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
     # A transformation returns its payload to ingestion whatever it posts to chat.
@@ -1091,7 +1099,11 @@ def _request_targets(content: HogFunctionContent, url_inputs: frozenset[str] | N
     if content.type != "destination":
         return
     yield from _strings(list(_all_inputs(content, url_inputs)))
-    yield from (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(content.hog))
+    yield from _fetch_literals(content.hog)
+
+
+def _fetch_literals(hog: str) -> Iterator[str]:
+    return (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(hog))
 
 
 def _texts(content: HogFunctionContent, input_keys: frozenset[str] | None = None) -> Iterator[str]:

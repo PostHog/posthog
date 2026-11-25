@@ -39,6 +39,16 @@ NEW = {"has_active_subscription": False, "age": timedelta(days=2)}
 NEVER_SYNCED = {"has_active_subscription": None, "age": timedelta(days=90)}
 PAYING_FOR_TEN_DAYS = {"has_active_subscription": True, "age": timedelta(days=10)}
 DEFAULT_THRESHOLDS = {"alert_threshold": 0.5, "block_threshold": 0.9}
+QUIET_SCORES = {**SCORES, "internal_network": 0.3, "runtime_escape": 0.1}
+CHAT_HOG = "fetch('https://slack.com/api/chat.postMessage', {'body': {'text': inputs.text}})"
+LOCAL_LINK_INPUTS = {
+    "inputs_schema": [{"key": "text", "type": "string", "label": "Text"}],
+    "inputs": {"text": {"value": "Open {event.properties.id} in http://127.0.0.1:8080/tool"}},
+}
+CLUSTER_LINK_HOG = (
+    "let link := f'http://traces.observability.svc.prod.cluster.local/{event.uuid}'\n"
+    "fetch('https://slack.com/api/chat.postMessage', {'body': {'text': link}})"
+)
 
 
 class TestAbuseClassification(AbuseClassificationTestCase):
@@ -249,6 +259,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "rule_hits": rule_hits,
             "outbound_call": outbound_call,
             "set_aside_scores": set_aside_scores or {},
+            "set_aside_rules": {},
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -556,6 +567,99 @@ class TestAbuseClassification(AbuseClassificationTestCase):
     @parameterized.expand(
         [
             (
+                "established_input_link_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": False, "would_block": False},
+                {"internal_host": "low_ssrf_score"},
+            ),
+            (
+                "established_code_link_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                CLUSTER_LINK_HOG,
+                {},
+                {"rule_hits": ["internal_host_reference"], "would_alert": False, "would_block": False},
+                {"internal_host_reference": "low_ssrf_score"},
+            ),
+            (
+                "established_input_link_with_an_ssrf_score",
+                ESTABLISHED,
+                {**QUIET_SCORES, "internal_network": 0.5},
+                CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+            (
+                "established_transformation_literal_fetch_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                METADATA_HOG,
+                {"type": "transformation"},
+                {"rule_hits": ["internal_host_reference"], "would_alert": True, "would_block": False},
+                {},
+            ),
+            (
+                "established_input_link_without_a_score",
+                ESTABLISHED,
+                None,
+                CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+            (
+                "standard_input_link_with_a_low_ssrf_score",
+                PAYING_FOR_TEN_DAYS,
+                QUIET_SCORES,
+                CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": False, "would_block": False},
+                {"internal_host": "low_ssrf_score"},
+            ),
+            (
+                "new_input_link_with_a_low_ssrf_score",
+                NEW,
+                QUIET_SCORES,
+                CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+        ]
+    )
+    def test_an_internal_host_rule_needs_model_evidence_outside_new_accounts(
+        self,
+        _name: str,
+        account: dict[str, Any],
+        scores: dict[str, float] | None,
+        hog: str,
+        overrides: dict[str, Any],
+        expected: dict[str, Any],
+        set_aside_rules: dict[str, str],
+    ) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(
+            has_active_subscription=account["has_active_subscription"], created_at=timezone.now() - account["age"]
+        )
+        self.gateway.response = (
+            httpx.Response(200, json=decision_payload(scores))
+            if scores is not None
+            else httpx.Response(503, json={"error": "busy"})
+        )
+
+        self.create_destination(hog=hog, **overrides)
+
+        [event] = self.captured_events()
+        properties = event["properties"]
+        assert {key: properties[key] for key in expected} == expected
+        assert properties["set_aside_rules"] == set_aside_rules
+
+    @parameterized.expand(
+        [
+            (
                 "refused_with_a_blocking_rule",
                 httpx.Response(503, json={"error": "busy"}),
                 None,
@@ -742,7 +846,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 (False, timedelta(days=90)),
                 [False, True],
             ),
-            ("new_account_grows_into_standard", (False, timedelta(days=2)), (False, timedelta(days=20)), [True]),
+            ("new_account_grows_into_standard", (False, timedelta(days=2)), (False, timedelta(days=20)), [True, True]),
         ]
     )
     def test_an_unchanged_resave_is_scored_again_only_when_its_alert_gate_changes(

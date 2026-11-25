@@ -66,6 +66,15 @@ class Trigger(StrEnum):
     EVAL = "eval"
 
 
+class RuleSetAsideReason(StrEnum):
+    """Why a rule hit neither alerts nor blocks. The hit is still reported."""
+
+    # An input or the code names a local URL that may never be requested, such as a link in a chat message or a page
+    # URL sent as a body field. Without a literal `fetch` to an internal host, only an SSRF score from the alert
+    # threshold up shows that a request goes there. New accounts are left out, because they are where abuse starts.
+    LOW_SSRF_SCORE = "low_ssrf_score"
+
+
 @frozen
 class ScoredHogFunction:
     content_hash: str
@@ -77,14 +86,19 @@ class ScoredHogFunction:
     account: Account
     account_tier: AccountTier
     set_aside: dict[str, SetAsideReason]
+    set_aside_rules: dict[rules.Rule, RuleSetAsideReason]
+
+    @property
+    def acted_on_rules(self) -> tuple[rules.Rule, ...]:
+        return tuple(rule for rule in self.rule_hits if rule not in self.set_aside_rules)
 
     @property
     def would_alert(self) -> bool:
-        return bool(self.rule_hits) or (self.verdict is not None and self.verdict.would_alert)
+        return bool(self.acted_on_rules) or (self.verdict is not None and self.verdict.would_alert)
 
     @property
     def would_block(self) -> bool:
-        blocked_by_rule = any(rule in rules.BLOCKING_RULES for rule in self.rule_hits)
+        blocked_by_rule = any(rule in rules.BLOCKING_RULES for rule in self.acted_on_rules)
         return blocked_by_rule or (self.verdict is not None and self.verdict.would_block)
 
     @property
@@ -241,7 +255,7 @@ def _scoring_for(team: Team) -> _Scoring:
 def _hash_key(hog_function_id: str) -> str:
     # Versioned with the format of `_cache_entry`, so workers on the previous format do not overwrite these entries
     # during a deploy, and each function scores once more after it.
-    return f"cdp:abuse_classifier:content_hash:v3:{hog_function_id}"
+    return f"cdp:abuse_classifier:content_hash:v4:{hog_function_id}"
 
 
 def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
@@ -398,6 +412,7 @@ def _score(
         )
     except ClassificationFailed as error:
         failure = error.reason
+    fetches_internal_host = rules.fetches_internal_host(content)
     return ScoredHogFunction(
         content_hash=content_hash(content),
         code_modified_from_template=content.code_modified_from_template,
@@ -408,7 +423,23 @@ def _score(
         account=scoring.account,
         account_tier=scoring.account_tier,
         set_aside=set_aside,
+        set_aside_rules=_set_aside_rules(rule_hits, fetches_internal_host, verdict, scoring),
     )
+
+
+def _set_aside_rules(
+    rule_hits: tuple[rules.Rule, ...], fetches_internal_host: bool, verdict: AbuseVerdict | None, scoring: _Scoring
+) -> dict[rules.Rule, RuleSetAsideReason]:
+    """The rule hits that neither alert nor block. A missing verdict sets nothing aside, so a gateway failure still
+    alerts on every rule."""
+    if (
+        scoring.account_tier is AccountTier.NEW
+        or fetches_internal_host
+        or verdict is None
+        or verdict.scores["internal_network"] >= scoring.thresholds.alert
+    ):
+        return {}
+    return {rule: RuleSetAsideReason.LOW_SSRF_SCORE for rule in rule_hits if rule in rules.INTERNAL_HOST_RULES}
 
 
 def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:
@@ -441,13 +472,12 @@ def _cache_entry(
 ) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits, the outbound call and
     the scores set aside. Keeping all of them means a secret change that matches a rule or adds a call scores the
-    function again, while the cache holds nothing more about a secret value than the event does. Only the established
-    tier changes whether a moderate score alerts, so an account that enters or leaves it scores again on its next
-    save. Enabling a function that was scored while disabled reports it again, so a probe that starts running alerts
+    function again, while the cache holds nothing more about a secret value than the event does. The account tier
+    changes whether a moderate score or an internal host rule alerts, so an account that changes tier scores again on
+    its next save. Whether the code fetches an internal host literally follows from the content hash. Enabling a function that was scored while disabled reports it again, so a probe that starts running alerts
     as enabled."""
-    established = account_tier is AccountTier.ESTABLISHED
     reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
-    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}:{reasons}"
+    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{account_tier}:{reasons}"
     return entry if enabled else f"{entry}:disabled"
 
 
@@ -465,7 +495,11 @@ def report(
         metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
         # Without a model verdict, a function no rule matched is unknown rather than clean.
         rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
-        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
+        _capture(
+            hog_function,
+            scored,
+            {**run, "error": reason.value, "rule_hits": rule_hits, "set_aside_rules": {}, **rule_verdict},
+        )
         return
 
     verdict = scored.verdict
@@ -482,6 +516,7 @@ def report(
             "risk_score": verdict.risk_score,
             "rule_hits": rule_hits,
             "set_aside_scores": {question: reason.value for question, reason in scored.set_aside.items()},
+            "set_aside_rules": {rule.value: reason.value for rule, reason in scored.set_aside_rules.items()},
             "would_alert": scored.would_alert,
             "would_block": scored.would_block,
             "model_alert_gates": [gate.value for gate in verdict.model_alert_gates],
