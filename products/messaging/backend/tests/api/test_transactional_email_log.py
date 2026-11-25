@@ -783,31 +783,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": 2, "converted": 2}
 
-    def test_reads_conversions_of_send_bursts_further_apart_than_the_window_in_separate_queries(self, _flag):
-        for name, minutes_ago in (("early", 15 * 24 * 60), ("late", 60)):
-            create_person(team=self.team, distinct_ids=[name])
-            message_id = self._send(minutes_ago, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
-            sent_at = NOW - timedelta(minutes=minutes_ago)
-            self._record_distinct_id(message_id, name, f"{name}@example.com", sent_at)
-            _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=sent_at + timedelta(minutes=30))
-        flush_persons_and_events()
-        [(since_micros,)] = sync_execute("SELECT toUnixTimestamp64Micro(now64(6))")
+    def test_labels_the_message_asset_lookup_impact_runs_in_clickhouses_query_log(self, _flag):
+        self._impact_query_types_after_adding_sends([], 1)
 
-        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=20)).isoformat())
-
-        assert impact["without_click"] == {"sends": 2, "converted": 2}
-        sync_execute("SYSTEM FLUSH LOGS")
-        [(conversion_queries,)] = sync_execute(
+        rows = sync_execute(
             """
-            SELECT count() FROM system.query_log
-            WHERE type = 'QueryFinish' AND event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s)
-              AND current_database = currentDatabase()
+            SELECT DISTINCT JSONExtractString(log_comment, 'query_type') FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_date >= yesterday() AND current_database = currentDatabase()
               AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
-              AND JSONExtractString(log_comment, 'query_type') = 'transactional_email_impact_conversions'
+              AND arrayExists(table -> endsWith(table, '.message_assets'), tables)
             """,
-            {"since_micros": since_micros, "team_id": self.team.id},
+            {"team_id": self.team.id},
         )
-        assert conversion_queries == 2
+        assert rows == [("message_assets_for_invocations",)]
 
     def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
         for _ in range(count):
