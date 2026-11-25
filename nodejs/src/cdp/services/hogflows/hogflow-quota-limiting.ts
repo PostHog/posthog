@@ -23,10 +23,37 @@ export interface HogFlowQuotaLimitResult {
 // the usage report and this check can tell a transactional send from a workflow email by it.
 export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
 
+// Support replies and ticket updates must reach the customer, so the API lets these workflows keep transactional email.
+const SUPPORT_EVENT_PREFIX = '$conversation_'
+const SUPPORT_TRIGGER_TYPES = ['event', 'internal-event']
+
+function triggersOnlyOnSupportEvents(hogFlow: HogFlow): boolean {
+    const trigger = hogFlow.trigger as { type?: string; filters?: { events?: unknown[]; actions?: unknown[] } }
+    const events = trigger?.filters?.events ?? []
+    return (
+        SUPPORT_TRIGGER_TYPES.includes(trigger?.type ?? '') &&
+        events.length > 0 &&
+        !trigger.filters?.actions?.length &&
+        events.every((event) => {
+            const entry = event as { type?: string; id?: unknown }
+            return entry?.type === 'events' && String(entry.id ?? '').startsWith(SUPPORT_EVENT_PREFIX)
+        })
+    )
+}
+
 // Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
 function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
     const emailActions = hogFlow.actions.filter((action) => action.type === 'function_email')
-    return emailActions.length > 0 && emailActions.every((action) => action.id === TRANSACTIONAL_EMAIL_ACTION_ID)
+    if (emailActions.length === 0) {
+        return false
+    }
+    if (emailActions.every((action) => action.id === TRANSACTIONAL_EMAIL_ACTION_ID)) {
+        return true
+    }
+    return (
+        triggersOnlyOnSupportEvents(hogFlow) &&
+        emailActions.every((action) => action.config?.message_category_type === 'transactional')
+    )
 }
 
 /**

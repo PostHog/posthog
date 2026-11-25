@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
+import { canPickTransactionalCategory } from 'products/workflows/frontend/OptOuts/transactionalCategories'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -151,11 +152,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >)
                                             }}
                                             value={action.config.message_category_id ?? undefined}
-                                            // Workflow emails are marketing email. A step that is already transactional keeps its choice.
-                                            allowTransactional={
-                                                !isEmailAction(action) ||
-                                                action.config.message_category_type === 'transactional'
-                                            }
+                                            allowTransactional={canPickTransactionalCategory(
+                                                action,
+                                                workflow,
+                                                categories
+                                            )}
                                             placeholder={
                                                 action.config.message_category_type === 'transactional'
                                                     ? 'Transactional, no category'

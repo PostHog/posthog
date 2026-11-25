@@ -57,6 +57,10 @@ describe('HogFlow Quota Limiting', () => {
             config: { message_category_type: 'transactional' },
         }
         const marketingEmail = { type: 'function_email', config: { message_category_type: 'marketing' } }
+        const supportTrigger = (entryType: string | undefined): Record<string, unknown> => ({
+            type: 'internal-event',
+            filters: { events: [{ id: '$conversation_message_sent', type: entryType }] },
+        })
 
         it.each([
             {
@@ -90,6 +94,20 @@ describe('HogFlow Quota Limiting', () => {
             {
                 name: 'a workflow email in a transactional category is limited',
                 trigger: { type: 'event' },
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: true,
+            },
+            {
+                name: 'a transactional support reply is not limited',
+                trigger: supportTrigger('events'),
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: false,
+            },
+            {
+                name: 'a support trigger entry that matches any event does not exempt',
+                trigger: supportTrigger(undefined),
                 actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: true,
