@@ -214,6 +214,7 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+The review requests, fork labels and routing comment come from the PostHog GitHub App, not from the Stamphog App, so the project also needs the PostHog GitHub App connected for the repository's owner. Without it, routing fails and requests nobody.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
 A diff too large for one call's input cap is split by owner over at most `MAX_CUT_CALLS` calls, smallest parts first.
 An owner that fits in none of them is requested.

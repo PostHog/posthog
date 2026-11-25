@@ -382,6 +382,8 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax = 200
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax = 200000
 
+export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneLegendMax = 1000
+
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneToMax = 100
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax = 100
@@ -396,6 +398,8 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemTileMax = 64
 
 export const dashboardV2QueryBatchCreateBodyQueriesMax = 500
 
+export const dashboardV2QueryBatchCreateBodyFormatDefault = `result`
+
 export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
     queries: zod
         .array(
@@ -407,17 +411,38 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                             .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax)
                             .describe("The panel's ID for this query. Not used for caching."),
                         language: zod
-                            .enum(['insight', 'hogql', 'promql', 'logql'])
+                            .enum(['query', 'insight', 'hogql', 'promql', 'logql'])
                             .describe(
-                                '\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL'
+                                '\* `query` - Query\n\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL'
                             )
                             .describe(
-                                "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `\/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.\n\n\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL"
+                                "'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `\/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.\n\n\* `query` - Query\n\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL"
                             ),
                         query: zod
                             .string()
                             .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax)
                             .describe('The query text, read according to `language`.'),
+                        legend: zod
+                            .string()
+                            .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneLegendMax)
+                            .optional()
+                            .describe(
+                                "The series name template the panel draws. Returned unchanged on the target's line."
+                            ),
+                        format: zod
+                            .enum(['time_series', 'table'])
+                            .describe('\* `time_series` - Time series\n\* `table` - Table')
+                            .optional()
+                            .describe(
+                                "How the panel draws the result. Returned unchanged on the target's line.\n\n\* `time_series` - Time series\n\* `table` - Table"
+                            ),
+                        engine: zod
+                            .enum(['classic', 'new'])
+                            .describe('\* `classic` - Classic\n\* `new` - New')
+                            .optional()
+                            .describe(
+                                "For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `\/query` does.\n\n\* `classic` - Classic\n\* `new` - New"
+                            ),
                     })
                     .describe('What to run.'),
                 time: zod
@@ -472,6 +497,13 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
         )
         .max(dashboardV2QueryBatchCreateBodyQueriesMax)
         .describe("The panels' queries, at most 500."),
+    format: zod
+        .enum(['result', 'frames'])
+        .describe('\* `result` - Result\n\* `frames` - Frames')
+        .default(dashboardV2QueryBatchCreateBodyFormatDefault)
+        .describe(
+            "`result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.\n\n\* `result` - Result\n\* `frames` - Frames"
+        ),
     dashboard: zod
         .number()
         .nullish()
