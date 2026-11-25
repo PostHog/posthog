@@ -17,7 +17,6 @@ from structlog.testing import capture_logs
 from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration.email import SES_SENDING_STATUS_KEY
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_email_sender_domain_sending_stopped
 
@@ -66,12 +65,12 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
     def sending_stopped(self, integration_id: int) -> bool:
         return self.sender_config(integration_id).get("ses_sending_status") == "failed"
 
-    def rollout_summary(self, logs: list[MutableMapping[str, Any]]) -> MutableMapping[str, Any]:
-        [summary] = [log for log in logs if log["event"] == "ses_sender_health_held_back"]
-        return summary
-
-    def held_back_by_the_rollout(self, logs: list[MutableMapping[str, Any]]) -> list[dict]:
-        return self.rollout_summary(logs)["senders"]
+    def held_back_by_the_rollout(self, logs: list[MutableMapping[str, Any]]) -> list[tuple[int, str, bool | None]]:
+        return sorted(
+            (log["team_id"], log["domain"], log["rolled_out"])
+            for log in logs
+            if log["event"] == "ses_sender_health_held_back"
+        )
 
     def test_marks_the_verified_senders_of_a_domain_ses_stopped_and_keeps_them_verified(self) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
@@ -109,22 +108,15 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
 
     @parameterized.expand(
         [
-            ("switching_the_rollout_off_clears_it", False, False, (2, 3, 0)),
-            ("a_flag_evaluation_outage_keeps_it", None, True, (0, 0, 2)),
+            ("switching_the_rollout_off_clears_it", False, False),
+            ("a_flag_evaluation_outage_keeps_it", None, True),
         ]
     )
     def test_the_rollout_decides_whether_a_warning_stays(
-        self, _name: str, rollout: bool | None, still_stopped: bool, logged: tuple[int, int, int]
+        self, _name: str, rollout: bool | None, still_stopped: bool
     ) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
         self.verified_sender(f"hello@{OTHER_DOMAIN}")
-        other_team = Team.objects.create(organization=self.organization, name="Other project")
-        other_teams_sender = self.create_sender(f"news@{OTHER_DOMAIN}", team=other_team)
-        verified = self.client.post(
-            f"/api/projects/{other_team.id}/integrations/{other_teams_sender}/email/verify",
-            HTTP_AUTHORIZATION="Bearer admin_key",
-        )
-        assert verified.status_code == status.HTTP_200_OK, verified.json()
         for domain in (DOMAIN, OTHER_DOMAIN):
             self.world.ses.identities[domain].forced_verification_status = "Failed"
         check_ses_sender_health()
@@ -135,8 +127,10 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
             check_ses_sender_health()
 
         assert self.sending_stopped(sender) is still_stopped
-        summary = self.rollout_summary(logs)
-        assert (summary["projects"], len(summary["senders"]), summary["undecided_projects"]) == logged
+        assert self.held_back_by_the_rollout(logs) == [
+            (self.team.id, DOMAIN, rollout),
+            (self.team.id, OTHER_DOMAIN, rollout),
+        ]
 
     def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
         self.deliver_notices()
@@ -155,7 +149,7 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
             check_ses_sender_health()
         check_ses_sender_health()
 
-        assert self.held_back_by_the_rollout(held_back_logs) == [{"team_id": self.team.id, "domain": DOMAIN}]
+        assert self.held_back_by_the_rollout(held_back_logs) == [(self.team.id, DOMAIN, False)]
         assert self.held_back_by_the_rollout(rolled_out_logs) == []
         [message] = mail.outbox
         assert message.to == [self.user.email]

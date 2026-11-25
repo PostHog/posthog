@@ -43,25 +43,19 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     """
     failed = tuple(sorted({domain.lower() for domain in failed_domains}))
     rolled_out = cache(_rolled_out)
-    held_back: list[dict[str, int | str]] = []
-    undecided: set[int] = set()
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
         in_rollout = rolled_out(sender.team_id)
-        if in_rollout is False:
-            held_back.append({"team_id": sender.team_id, "domain": sender.config["domain"]})
-        elif in_rollout is None:
-            undecided.add(sender.team_id)
         if in_rollout is not True:
+            logger.info(
+                "ses_sender_health_held_back",
+                team_id=sender.team_id,
+                domain=sender.config["domain"],
+                rolled_out=in_rollout,
+            )
             continue
         stopped_at = _mark_stop_awaiting_notice(sender)
         if stopped_at and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at):
             _settle_notice_with_notification(sender, stopped_at)
-    logger.info(
-        "ses_sender_health_held_back",
-        projects=len({sender["team_id"] for sender in held_back}),
-        senders=held_back,
-        undecided_projects=len(undecided),
-    )
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:
             _patch_domain(sender, _UNMARK)
