@@ -1206,6 +1206,7 @@ describe('HogFunctionHandler', () => {
                 send: undefined,
                 simulatePreDeployState: false,
                 expectTracked: false,
+                expectOpens: true,
             },
             {
                 case: 'sensitive template with master tracking off and clicks on turns tracking on before dequeue',
@@ -1214,6 +1215,7 @@ describe('HogFunctionHandler', () => {
                 send: undefined,
                 simulatePreDeployState: false,
                 expectTracked: false,
+                expectOpens: false,
             },
             {
                 case: 'code send with clicks on parked under master tracking off turns tracking on before dequeue',
@@ -1222,6 +1224,7 @@ describe('HogFunctionHandler', () => {
                 send: { tracking: { captureEngagement: true, clicks: true } },
                 simulatePreDeployState: false,
                 expectTracked: false,
+                expectOpens: false,
             },
             {
                 case: 'pre-deploy worker parked a sensitive code send on a non-sensitive template that later enables clicks',
@@ -1230,6 +1233,7 @@ describe('HogFunctionHandler', () => {
                 send: { sensitive: true, tracking: { captureEngagement: true } },
                 simulatePreDeployState: true,
                 expectTracked: false,
+                expectOpens: true,
             },
             {
                 case: 'opted-in sensitive template becomes non-sensitive while click tracking stays enabled',
@@ -1238,6 +1242,7 @@ describe('HogFunctionHandler', () => {
                 send: undefined,
                 simulatePreDeployState: false,
                 expectTracked: true,
+                expectOpens: true,
             },
             {
                 case: 'non-sensitive template with master tracking off turns tracking on before dequeue',
@@ -1246,10 +1251,11 @@ describe('HogFunctionHandler', () => {
                 send: undefined,
                 simulatePreDeployState: false,
                 expectTracked: true,
+                expectOpens: true,
             },
         ])(
             'preserves queued click tracking behavior when $case',
-            async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked }) => {
+            async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked, expectOpens }) => {
                 fakeSes.deliveries.length = 0
                 const emailIntegrationId = uniqueTestId()
                 const emailTemplateId = `template-test-email-${team.id}`
@@ -1411,14 +1417,14 @@ describe('HogFunctionHandler', () => {
                 })
 
                 expect(fakeSes.deliveries).toHaveLength(1)
-                const deliveredLinks = [...fakeSes.deliveries[0].html!.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(
-                    ([, href]) => href
-                )
+                const deliveredHtml = fakeSes.deliveries[0].html!
+                const deliveredLinks = [...deliveredHtml.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) => href)
                 if (expectTracked) {
                     expect(deliveredLinks).toEqual([expect.stringMatching(new RegExp(`^${sesEndpoint}/L0/\\d+$`))])
                 } else {
                     expect(deliveredLinks).toEqual(['https://example.com/reset/tok'])
                 }
+                expect(deliveredHtml.includes(`<img src="${sesEndpoint}/I0/open.gif" />`)).toBe(expectOpens)
             }
         )
     })
