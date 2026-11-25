@@ -162,7 +162,13 @@ describe('impactSteps', () => {
         ],
         [
             'an older API answers without the click tracking count and every send went out untracked',
-            { ...untracked, opened: 1, clicks_untracked: undefined as unknown as number },
+            {
+                ...untracked,
+                opened: 1,
+                not_clicked: 90,
+                without_click: impact.without_click,
+                clicks_untracked: undefined as unknown as number,
+            },
             [1, undefined],
             [null, 'Tracking off'],
             [
