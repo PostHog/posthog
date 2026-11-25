@@ -233,6 +233,7 @@ export const addTrackingToEmail = (
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
     const allLinksOptedOut = !isClickTrackingEnabled(invocation)
+    const redirectUrls = new Map<string, string>()
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
@@ -266,7 +267,8 @@ export const addTrackingToEmail = (
         if (optedOut) {
             return m
         }
-        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
+        const tracked = redirectUrls.get(href) ?? signer.redirectUrl(trackingInvocation, href, isTest)
+        redirectUrls.set(href, tracked)
 
         // replace just the href in the original tag to preserve other attributes
         const hrefAttribute = attributes.find(({ name }) => name === 'href')!

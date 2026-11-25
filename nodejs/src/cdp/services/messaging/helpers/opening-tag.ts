@@ -6,8 +6,6 @@ export type Attribute = { name: string; value: string | null; start: number; end
 
 export type OpeningTag = { attributes: Attribute[]; end: number }
 
-// Follows the HTML tokenizer, so a `>` inside a quoted value does not end the tag. A quote that
-// never closes runs to the end of the input, and the tag then has no end (-1).
 export const readOpeningTag = (html: string, attributesStart: number): OpeningTag => {
     const attributes: Attribute[] = []
     for (let position = attributesStart; ; ) {
@@ -28,8 +26,6 @@ export const readOpeningTag = (html: string, attributesStart: number): OpeningTa
     }
 }
 
-// A quote that never closes makes the rest of the input one tag for a browser, but other parsers end
-// the tag at its first `>`. Ending it there too keeps a link they render inside the opt-out.
 export const readOpeningTagOrCut = (tag: string, attributesStart: number): OpeningTag => {
     const read = readOpeningTag(tag, attributesStart)
     const cut = read.end === -1 ? tag.indexOf('>', attributesStart) : -1

@@ -249,7 +249,7 @@ describe('EmailTrackingService', () => {
                 [
                     'an unclosed anchor before a closed one',
                     '<a href="https://example.com/a">a<a href="https://example.com/b">b</a>',
-                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b">b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b" ses:tags="phl:1">b</a>',
                 ],
                 [
                     'a named anchor after a link',
@@ -445,6 +445,12 @@ describe('EmailTrackingService', () => {
                     `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset">x</a>`,
                     sensitiveInvocation,
                     `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset" ses:no-track>x</a>`,
+                ],
+                [
+                    'a sensitive template whose link holds a quoted end tag before a second link',
+                    '<a href="https://example.com/a"><span title="</a>">a</span><a href="https://example.com/reset">b</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/a" ses:no-track><span title="</a>">a</span><a href="https://example.com/reset" ses:no-track>b</a>',
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',
