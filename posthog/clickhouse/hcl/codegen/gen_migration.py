@@ -63,7 +63,7 @@ ROLE_ORDER = [
     "metrics",
     "flags",
     "ops",
-    "events",
+    "events_ingestion",
     "small",
     "medium",
     "ingestion_metrics",
@@ -72,7 +72,7 @@ ROLE_ORDER = [
 # Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
 # For most roles the member name is that value uppercased; the ingestion members are not.
 NODE_ROLE_MEMBERS = {
-    "events": "INGESTION_EVENTS",
+    "events_ingestion": "INGESTION_EVENTS",
     "small": "INGESTION_SMALL",
     "medium": "INGESTION_MEDIUM",
 }
@@ -130,7 +130,7 @@ def golden_name(role: str) -> str:
     """
     return {
         "aux": "auxiliary",
-        "events": "ingestion_events",
+        "events_ingestion": "ingestion_events",
         "small": "ingestion_small",
         "medium": "ingestion_medium",
     }.get(role, role)

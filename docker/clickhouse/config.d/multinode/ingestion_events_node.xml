@@ -168,6 +168,6 @@
         <shard>01</shard>
         <replica>events</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>events</hostClusterRole>
+        <hostClusterRole>events_ingestion</hostClusterRole>
     </macros>
 </clickhouse>

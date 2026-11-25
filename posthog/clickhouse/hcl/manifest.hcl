@@ -159,8 +159,8 @@ role "data" {
 # tables for its topic class, the MV that reads them, and the writable_* Distributed
 # proxies that write into the data cluster (migration 0157 moved this off the data node).
 # Beyond that they carry only the shared query_log_archive path. Role names are the
-# hostClusterRole macros migrations target: events, small, medium.
-role "events" {
+# hostClusterRole macros migrations target: events_ingestion, small, medium.
+role "events_ingestion" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/logs_avro_ingest", "roles/coshared/events_json_write", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/ingestion_events/local"] }
 }
 

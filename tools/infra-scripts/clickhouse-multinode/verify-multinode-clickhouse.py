@@ -43,7 +43,7 @@ NODES: list[Node] = [
     Node("clickhouse-ops", "localhost", 9300, "ops"),
     Node("clickhouse-sessions", "localhost", 9400, "sessions"),
     Node("clickhouse-logs", "localhost", 9500, "logs"),
-    Node("clickhouse-ingestion-events", "localhost", 9600, "events"),
+    Node("clickhouse-ingestion-events", "localhost", 9600, "events_ingestion"),
     Node("clickhouse-ingestion-small", "localhost", 9700, "small"),
     Node("clickhouse-ingestion-medium", "localhost", 9800, "medium"),
 ]
