@@ -67,6 +67,7 @@ from . import (
     role_external_reference,
     schema_property_group,
     search,
+    service_account,
     sharing,
     tagged_item,
     uploaded_media,
@@ -305,6 +306,12 @@ organizations_router.register(
     r"oauth_applications",
     OrganizationOAuthApplicationViewSet,
     "organization_oauth_applications",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"service_accounts",
+    service_account.ServiceAccountViewSet,
+    "organization_service_accounts",
     ["organization_id"],
 )
 organizations_router.register(
