@@ -9,9 +9,10 @@ export type QueryFrames =
     | { status: 'error'; message: string }
     | ({ status: 'ready'; refreshing: boolean } & QueryResult)
 
-function initial(runQuery: RunQuery, queryKey: string): QueryFrames {
-    const result = cachedResult(runQuery, queryKey)
-    return result ? { status: 'ready', refreshing: false, ...result } : { status: 'loading' }
+// A result from before the latest refresh shows as refreshing, so the chart is marked busy until the new one lands.
+function initial(runQuery: RunQuery, queryKey: string, refresh: number): QueryFrames {
+    const cached = cachedResult(runQuery, queryKey, refresh)
+    return cached ? { status: 'ready', refreshing: cached.stale, ...cached.result } : { status: 'loading' }
 }
 
 // The cache hands back the same frames array, so a remounted tile keeps its state and its chart skips a rebuild.
@@ -35,11 +36,11 @@ export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): Query
     // An edit rebuilds the request object, so the query runs again only when its content changes.
     const queryKey = JSON.stringify(request)
     const refresh = useContext(RefreshContext)
-    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey))
+    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey, refresh))
     useEffect(() => {
         let cancelled = false
         const show = (next: QueryFrames): void => setResult((previous) => (unchanged(previous, next) ? previous : next))
-        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey)))
+        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey, refresh)))
         runCachedQuery(runQuery, queryKey, refresh).then(
             (result) => !cancelled && show({ status: 'ready', refreshing: false, ...result }),
             (error: unknown) =>

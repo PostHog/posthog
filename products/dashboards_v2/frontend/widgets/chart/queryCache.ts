@@ -17,9 +17,17 @@ function cacheFor(runQuery: RunQuery): Map<string, Entry> {
     return cache
 }
 
-/** The result a query already returned through this runner, or undefined when it has not finished. */
-export function cachedResult(runQuery: RunQuery, queryKey: string): QueryResult | undefined {
-    return caches.get(runQuery)?.get(queryKey)?.result
+/**
+ * The result a query already returned through this runner, or undefined when it has not finished. `stale` is true
+ * when the result predates `refresh`, so the query runs again before the chart is up to date.
+ */
+export function cachedResult(
+    runQuery: RunQuery,
+    queryKey: string,
+    refresh = 0
+): { result: QueryResult; stale: boolean } | undefined {
+    const entry = caches.get(runQuery)?.get(queryKey)
+    return entry?.result ? { result: entry.result, stale: entry.refresh < refresh } : undefined
 }
 
 /**
@@ -29,7 +37,9 @@ export function cachedResult(runQuery: RunQuery, queryKey: string): QueryResult 
 export function runCachedQuery(runQuery: RunQuery, queryKey: string, refresh = 0): Promise<QueryResult> {
     const cache = cacheFor(runQuery)
     const existing = cache.get(queryKey)
-    if (existing && existing.refresh >= refresh) {
+    // A failed entry is dropped, so one without a result is still in flight. A refresh waits for it rather than
+    // starting a second request, or a query slower than the refresh interval would never reach its chart.
+    if (existing && (existing.refresh >= refresh || !existing.result)) {
         // A Map keeps insertion order, so moving the entry to the end marks it as the most recently used.
         cache.delete(queryKey)
         cache.set(queryKey, existing)
