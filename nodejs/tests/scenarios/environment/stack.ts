@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { closeSync, openSync, readFileSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
@@ -9,7 +9,6 @@ import { promisify } from 'util'
 import { parse, stringify } from 'yaml'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
-import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
@@ -255,27 +254,6 @@ function startedAgain(project: string, services: string[]): StackNotReadyError {
     )
 }
 
-// The start times read before `hogli up` stay on disk until a later read shows that no kept container started again,
-// so the next run checks again after a refusal, a cancelled wait or a failed read.
-async function checkStarts(docker: string, file: string, signal: AbortSignal): Promise<void> {
-    const { project, before } = parseJSON(readFileSync(file, 'utf8')) as {
-        project: string
-        before: Record<string, ContainerStart>
-    }
-    const now = await containerStarts(docker, Object.keys(before), signal)
-    const again = Object.entries(before).filter(([id, start]) => {
-        const after = now.get(id)
-        return after !== undefined && after.startedAt !== start.startedAt && !after.finishedJob
-    })
-    if (again.length > 0) {
-        throw startedAgain(
-            project,
-            again.map(([, { service }]) => service)
-        )
-    }
-    rmSync(file)
-}
-
 export async function startStack(
     hogli: Hogli,
     docker: string,
@@ -286,10 +264,6 @@ export async function startStack(
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    const starts = path.join(stateDir, 'kept-starts.json')
-    if (existsSync(starts)) {
-        await checkStarts(docker, starts, signal)
-    }
     const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
@@ -318,14 +292,19 @@ export async function startStack(
             `Keeping the existing dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
         )
     }
-    if (containers.length > 0) {
-        const before = await containerStarts(docker, containers, signal)
-        writeFileSync(starts, JSON.stringify({ project, before: Object.fromEntries(before) }))
-    }
+    const before = await containerStarts(docker, containers, signal)
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
-    if (existsSync(starts)) {
-        await checkStarts(docker, starts, signal)
+    const after = await containerStarts(docker, [...before.keys()], signal)
+    const again = [...before].filter(([id, start]) => {
+        const now = after.get(id)
+        return now !== undefined && now.startedAt !== start.startedAt && !now.finishedJob
+    })
+    if (again.length > 0) {
+        throw startedAgain(
+            project,
+            again.map(([, { service }]) => service)
+        )
     }
 }
 

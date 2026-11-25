@@ -1337,7 +1337,7 @@ describe('scenario environment', () => {
             const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
             const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
                 const [service, listed, policy = 'on-failure', code = '0', afterStart = listed] = line.split(' ')
-                const id = 'c' + i + ((stack.recreated || []).includes(service) ? 'r' : '')
+                const id = 'c' + i
                 const restarted = (stack.restarted || []).includes(service)
                 return { id, service, state: restarted ? afterStart : listed, policy, code, restarted }
             })
@@ -1356,10 +1356,6 @@ describe('scenario environment', () => {
                 process.exit(0)
             }
             if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}') {
-                if (stack.inspectFails) {
-                    process.stderr.write('permission denied while trying to connect to the Docker daemon socket\\n')
-                    process.exit(1)
-                }
                 const row = (c) => [c.id + '0000', c.service, c.policy, c.state, c.code, c.restarted ? 'restarted' : 'first']
                 const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
                 process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
@@ -1548,9 +1544,6 @@ describe('scenario environment', () => {
             services?: string[]
             volumes?: string[]
             restartsDuringStart?: string[]
-            restarted?: string[]
-            recreated?: string[]
-            inspectFails?: boolean
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1828,37 +1821,22 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('refuses a stack whose kept containers started again while hogli started it, until they are recreated', async () => {
-            const services = ['kafka running', 'db running', 'temporal-ui running no 0']
-            writeStack({ running: false, ready: false, services, restartsDuringStart: ['kafka', 'temporal-ui'] })
+        it('refuses a stack whose kept containers started again while hogli started it', async () => {
+            writeStack({
+                running: false,
+                ready: false,
+                services: ['kafka running', 'db running', 'temporal-ui running no 0'],
+                restartsDuringStart: ['kafka', 'temporal-ui'],
+            })
             environment = environmentOf()
-            const refusal = {
+
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
                 name: 'StackNotReadyError',
                 message: expect.stringContaining(
                     'The dev services kafka, temporal-ui started again while the runner started the stack'
                 ),
-            }
-
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
-            writeStack({
-                running: true,
-                ready: true,
-                services,
-                restarted: ['kafka', 'temporal-ui'],
-                inspectFails: true,
             })
-            await expect(environment.up(NEVER_ABORTED)).rejects.toThrow('permission denied')
-            writeStack({ running: true, ready: true, services, restarted: ['kafka', 'temporal-ui'] })
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
-            writeStack({ running: true, ready: true, services, restarted: ['temporal-ui'], recreated: ['kafka'] })
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
-                name: 'StackNotReadyError',
-                message: expect.stringContaining('The dev services temporal-ui started again'),
-            })
-            writeStack({ running: true, ready: true, services, recreated: ['kafka', 'temporal-ui'] })
-            await environment.up(NEVER_ABORTED)
-        }, 45_000)
+        }, 30_000)
 
         it.each([
             ['stop on SIGTERM', false],
