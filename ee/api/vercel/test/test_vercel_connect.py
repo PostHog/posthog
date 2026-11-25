@@ -40,7 +40,7 @@ from ee.api.vercel.vercel_connect import (
     _sign_connect_session,
     _validate_next_url,
 )
-from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OAuthTokenResponse, OperationResult
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OAuthTokenResponse, OperationResult, get_installation_access_token
 from ee.vercel.integration import _safe_vercel_sync
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
@@ -1381,8 +1381,8 @@ class TestNoResourceWithoutAVercelToken(VercelConnectTestBase):
         vercel.replace(
             responses.POST,
             VERCEL_OAUTH_TOKEN_URL,
-            status=503,
-            json={"error": {"code": "server_error", "message": "Try again later"}},
+            status=400,
+            json={"error": {"code": "invalid_client", "message": "Integration disabled"}},
         )
         OrganizationIntegration.objects.create(
             organization=self.organization,
@@ -1531,6 +1531,27 @@ class TestIsInstallationOrphaned(SimpleTestCase):
                 json={"error": {"code": error_code, "message": "Token request refused"}},
             )
             assert _is_installation_orphaned(installation) is orphaned
+
+    def test_a_revoked_cached_token_does_not_orphan_a_live_installation(self) -> None:
+        installation_id = f"icfg_{uuid4().hex}"
+        installation = OrganizationIntegration(integration_id=installation_id)
+        issued_tokens = iter(["revoked_token", "fresh_token"])
+
+        def issue_token(_request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+            token = {"access_token": next(issued_tokens), "token_type": "Bearer", "expires_in": 3600}
+            return 200, {}, json.dumps(token)
+
+        def get_installation(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+            return (200, {}, "{}") if request.headers["Authorization"] == "Bearer fresh_token" else (401, {}, "{}")
+
+        with responses.RequestsMock() as vercel:
+            vercel.add_callback(responses.POST, VERCEL_OAUTH_TOKEN_URL, callback=issue_token)
+            vercel.add_callback(
+                responses.GET, f"https://api.vercel.com/v1/installations/{installation_id}", callback=get_installation
+            )
+            get_installation_access_token(installation_id)
+
+            assert _is_installation_orphaned(installation) is False
 
 
 class TestValidateNextUrl(SimpleTestCase):

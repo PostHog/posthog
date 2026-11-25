@@ -277,7 +277,8 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
         return False
 
     try:
-        client = VercelAPIClient.for_installation(installation_id)
+        # A cached token Vercel already revoked would answer 401 for an installation that still exists.
+        client = VercelAPIClient.for_installation(installation_id, fresh=True)
     except InstallationTokenError as e:
         return e.status_code == 400 and e.code == "invalid_grant"
     try:

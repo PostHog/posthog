@@ -65,6 +65,11 @@ class APIError(Exception):
 class InstallationTokenError(APIError):
     code: str | None = None
 
+    @property
+    def is_transient(self) -> bool:
+        # A transport error carries no status. A 4xx is Vercel's answer and stays the same on a retry.
+        return self.code != "invalid_response" and (self.status_code is None or self.status_code >= 500)
+
 
 @frozen
 class InstallationToken:
@@ -107,8 +112,8 @@ class VercelAPIClient:
             self.session.headers.update(headers)
 
     @classmethod
-    def for_installation(cls, installation_id: str, timeout: int = 30) -> "VercelAPIClient":
-        return cls(bearer_token=get_installation_access_token(installation_id), timeout=timeout)
+    def for_installation(cls, installation_id: str, timeout: int = 30, fresh: bool = False) -> "VercelAPIClient":
+        return cls(bearer_token=get_installation_access_token(installation_id, fresh=fresh), timeout=timeout)
 
     @staticmethod
     def _should_retry_request(exc: BaseException) -> bool:
@@ -387,6 +392,12 @@ class VercelAPIClient:
                 error_description=str(e),
             )
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+        retry=retry_if_exception(lambda exc: isinstance(exc, InstallationTokenError) and exc.is_transient),
+        reraise=True,
+    )
     def request_installation_token(self, installation_id: str, client_id: str, client_secret: str) -> InstallationToken:
         try:
             response = self._request(
@@ -472,11 +483,14 @@ def _token_error_code(detail: str | None) -> str | None:
     return error if isinstance(error, str) else None
 
 
-def get_installation_access_token(installation_id: str) -> str:
-    """Return a short-lived token for one Vercel installation, from the cache when it has time left."""
+def get_installation_access_token(installation_id: str, *, fresh: bool = False) -> str:
+    """Return a short-lived token for one Vercel installation, from the cache when it has time left.
+
+    ``fresh`` skips the cached token, for a caller that acts on a 401 or 403 from Vercel.
+    """
     cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
     try:
-        cached = token_cache.get(cache_key)
+        cached = None if fresh else token_cache.get(cache_key)
     except Exception:
         # The cache only saves a token request, so an outage costs a request, not the call.
         logger.warning("Vercel token cache read failed", installation_id=installation_id, integration="vercel")
