@@ -437,5 +437,9 @@
         <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool>
         <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
         <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+        <!-- Compatibility 26.7 and later reject AggregatingMergeTree tables with a plain column outside
+             the sorting key. The log, metric and trace attribute tables keep service_name outside the
+             key because resource_fingerprint in the key determines it, so merges never mix values. -->
+        <allow_dimensions_outside_sorting_key>1</allow_dimensions_outside_sorting_key>
     </merge_tree>
 </clickhouse>

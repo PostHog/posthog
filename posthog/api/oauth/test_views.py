@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import base64
 import hashlib
 import importlib
@@ -262,6 +263,30 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
+    @parameterized.expand(
+        [
+            ("stale_session_allows", "stale", True, status.HTTP_403_FORBIDDEN),
+            ("step_up_session_allows", "step_up", True, status.HTTP_403_FORBIDDEN),
+            ("stale_session_declines", "stale", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_consent_needs_a_recent_sign_in_only_to_allow(self, _name, session_state, allow, expected_status):
+        if session_state == "step_up":
+            session = self.client.session
+            session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+            session.save()
+        age = settings.SESSION_SENSITIVE_ACTIONS_AGE + 10 if session_state == "stale" else 0
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=age), tick=False):
+            response = self.client.post(
+                "/oauth/authorize/", {**self.base_authorization_post_body, "allow": allow}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+            self.assertFalse(OAuthGrant.objects.filter(application=self.confidential_application).exists())
 
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
@@ -4157,6 +4182,45 @@ class TestOAuthAPI(APIBaseTest):
         body = response.json()
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
+
+    @parameterized.expand([("first_party",), ("auto_approval",)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_skipped_consent_waits_for_a_recent_sign_in_then_completes_on_reload(self, grant_path):
+        self.client.force_login(self.user)
+        url = f"{self.base_authorization_url}&state=request-state-123"
+        if grant_path == "first_party":
+            self.confidential_application.is_first_party = True
+            self.confidential_application.save()
+        else:
+            self._set_scope_split(["experiment:read"], [])
+            OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token="at_auto_approval_stale_session",
+                expires=timezone.now() + timedelta(days=1),
+                scope="experiment:read",
+                scoped_teams=[self.team.id],
+                scoped_organizations=None,
+            )
+            url += "&scope=experiment:read&approval_prompt=auto"
+
+        with time_machine.travel(
+            timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
+        ):
+            stale_response = self.client.get(url)
+
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+            session.save()
+            reloaded_response = self.client.get(url)
+
+        self.assertEqual(stale_response.status_code, status.HTTP_200_OK)
+        self.assertIs(stale_response.context["posthog_app_context"]["oauth_reauthentication_required"], True)
+
+        self.assertEqual(reloaded_response.status_code, status.HTTP_302_FOUND)
+        query = parse_qs(urlparse(reloaded_response["Location"]).query)
+        self.assertEqual(query["state"], ["request-state-123"])
+        self.assertEqual(OAuthGrant.objects.get(code=query["code"][0]).code_challenge, self.code_challenge)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):

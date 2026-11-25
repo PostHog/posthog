@@ -4844,6 +4844,8 @@ export interface PreflightStatus {
     webmcp_available?: boolean
     /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
     cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5336,8 +5338,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6213,6 +6226,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6763,6 +6778,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

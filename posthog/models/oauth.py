@@ -411,10 +411,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def provisioning_signing(self) -> ProvisioningSigning:
-        provisioning = self.provisioning
-        if not self.is_provisioning_partner or not (
-            provisioning.can_create_accounts or provisioning.pays_for_customers
-        ):
+        """Every provisioning partner signs its requests with a private key, because its client_id alone is public."""
+        if not self.is_provisioning_partner:
             return ProvisioningSigning.NOT_REQUIRED
         return ProvisioningSigning.REQUIRED
 

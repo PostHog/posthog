@@ -289,7 +289,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[], source?: string): Promise<void> {
         const now = new Date()
-        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', () => now)
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', () => now, 1)
     }
 
     // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This

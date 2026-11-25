@@ -86,6 +86,8 @@ describe("RunBudgetGuard", () => {
     ["zai-org/glm-5.3-flash", 0.68],
     ["moonshotai/kimi-k3", 18.3],
     ["deepseek-ai/deepseek-v4-flash-0731", 0.418],
+    ["deepseek-ai/deepseek-v4.1-flash-1017", 1.507],
+    ["deepseek-ai/deepseek-v4.1-flash-1017-fast", 3.014],
   ])(
     "prices %s below opus, the way the gateway bills it",
     (model, perMillionEach) => {

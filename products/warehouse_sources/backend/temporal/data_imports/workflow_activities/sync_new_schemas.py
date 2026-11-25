@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
@@ -143,6 +144,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # message in get_non_retryable_errors.
             if isinstance(e, UndecryptedIntegrationSecretError):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
+
+            # An SSH server at its limit of new connections closed this one. A retry opens another
+            # session to the same busy server, so skip until the next discovery run.
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                logger.warning(f"Skipping schema discovery because the SSH server is busy: {e}")
                 return
 
             error_msg = str(e)

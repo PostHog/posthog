@@ -99,6 +99,8 @@ export interface SecretMountOptions {
  */
 export class SecretMount {
     private held: MountedSecrets | null = null
+    // The values `held` was built from, so `withdraw()` can take names away from them.
+    private heldValues: Record<string, string> | null = null
 
     constructor(private readonly opts: SecretMountOptions) {}
 
@@ -125,8 +127,9 @@ export class SecretMount {
     apply(values: Record<string, string> | null): void {
         const now = this.opts.now ?? Date.now
         const next = values ? this.build(values) : null
-        if (next) {
+        if (values && next) {
             this.held = next
+            this.heldValues = values
             servingStaleSeconds.set(0)
         } else {
             mountErrorsTotal.inc()
@@ -134,6 +137,30 @@ export class SecretMount {
                 servingStaleSeconds.set((now() - Date.parse(this.held.fetchedAt)) / 1000)
             }
         }
+    }
+
+    /**
+     * Apply only what `values` takes away. A name it no longer carries stops being served, and a
+     * name it adds to the recovery list is served as recovery. Every value it adds or changes stays
+     * out, for a snapshot whose signing keys the service refused: the keys still held could read it.
+     */
+    withdraw(values: Record<string, string> | null): void {
+        const held = this.heldValues
+        if (values === null || held === null) {
+            this.apply(null)
+            return
+        }
+        const kept: Record<string, string> = {}
+        for (const [name, value] of Object.entries(held)) {
+            if (Object.prototype.hasOwnProperty.call(values, name)) {
+                kept[name] = value
+            }
+        }
+        const recovery = new Set([...commaList(held[RECOVERY_KEYS]), ...commaList(values[RECOVERY_KEYS])])
+        if (recovery.size > 0) {
+            kept[RECOVERY_KEYS] = [...recovery].join(',')
+        }
+        this.apply(kept)
     }
 
     private build(values: Record<string, string>): MountedSecrets | null {

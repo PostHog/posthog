@@ -2,7 +2,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import PROJECT_KEY_ACTOR_SCOPES, ActivityLog
 from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 
 
@@ -73,6 +73,13 @@ class ActivityLogSerializer(serializers.Serializer):
 
     @extend_schema_field({"type": "object", "nullable": True})
     def get_user(self, activity_log: ActivityLog):
+        if (
+            activity_log.scope in PROJECT_KEY_ACTOR_SCOPES
+            and activity_log.credential_type == "project_secret_key"
+            and activity_log.user_id is None
+        ):
+            key_id = activity_log.customer_visible_credential_id
+            return {"first_name": f"Project key {key_id}" if key_id else "Project key", "email": None}
         if activity_log.is_system:
             return {"first_name": "System", "email": None, "is_system": True}
         else:

@@ -1430,6 +1430,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Zenefits": "zenefits",
     "Zenloop": "zenloop",
     "Zep": "zep",
+    "Zernio": "zernio",
     "Zero": "zero",
     "Zitadel": "zitadel",
     "Zluri": "zluri",

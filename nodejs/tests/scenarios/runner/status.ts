@@ -3,7 +3,7 @@ import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
-import { atLeastOnce, bouncedSuppressed } from '../judge/invariants'
+import { atLeastOnce, bouncedSuppressed, noLoss } from '../judge/invariants'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
@@ -193,7 +193,16 @@ const unreadReasonOf = (unread: string): string => `the judge could not read the
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
 
-const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name])
+export const unobservedValvesOf = (timeline: readonly ValveTimelineEntry[], drive: DriveWindow): string[] =>
+    timeline.flatMap((entry) =>
+        entry.observedAt === undefined
+            ? [unobservedReasonOf(entry)]
+            : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+              ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
+              : []
+    )
+
+const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name, noLoss.name])
 
 export const judgedInvariantsOf = (
     checked: InvariantResult[],
@@ -313,13 +322,12 @@ function unrampedStatusOf({
         return { status: 'invalid', statusReason: interrupted }
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
+    const valves = unobservedValvesOf(timeline, drive)
+    const unjudgedOnlyByValves = valves.join('; ')
     const unobserved = [
-        ...timeline.flatMap((entry) =>
-            entry.observedAt === undefined
-                ? [unobservedReasonOf(entry)]
-                : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
-                  ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
-                  : []
+        ...valves,
+        ...invariants.flatMap(({ name, unjudged }) =>
+            unjudged === undefined || unjudged === unjudgedOnlyByValves ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
@@ -329,7 +337,7 @@ function unrampedStatusOf({
     const failures = [
         ...notConvergedOf(convergence),
         ...invariants
-            .filter(({ passed }) => !passed)
+            .filter(({ passed, unjudged }) => !passed && unjudged === undefined)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
         ...bars.flatMap(({ name, unit, breakingPoint: broke }) =>
             broke === undefined

@@ -35,7 +35,7 @@ from posthog.dataclasses import frozen
 # take that name. Left untouched here rather than reported as undeclared.
 RESERVED_VARIABLE_NAMES = frozenset({"filters"})
 
-NotebookVariableValue = str | int | float | bool | None
+NotebookVariableValue = str | int | float | bool | list[str] | None
 
 
 class NotebookVariableError(Exception):
@@ -44,7 +44,7 @@ class NotebookVariableError(Exception):
 
 @frozen
 class NotebookVariable:
-    """One declared variable, with its value already coerced to a Python scalar."""
+    """One declared variable with its value coerced at dispatch."""
 
     name: str
     value: NotebookVariableValue
@@ -96,7 +96,10 @@ class _ReplaceNotebookVariables(CloningVisitor):
             raise _undeclared_error(name, list(self.values))
 
         self.replaced.add(name)
-        return ast.Constant(value=self.values[name], start=node.start, end=node.end)
+        value = self.values[name]
+        if isinstance(value, list):
+            return ast.Array(exprs=[ast.Constant(value=item) for item in value], start=node.start, end=node.end)
+        return ast.Constant(value=value, start=node.start, end=node.end)
 
 
 def substitute_hogql_variables(code: str, variables: list[NotebookVariable]) -> str:
@@ -266,7 +269,7 @@ def reject_variables_in_raw_query(code: str, variables: list[NotebookVariable]) 
 
 
 def build_notebook_variables(items: list[dict[str, Any]]) -> list[NotebookVariable]:
-    """Coerce the run request's declarations into variables with Python scalar values.
+    """Coerce the run request's declarations into variables.
 
     Duplicates keep the first declaration, matching what the editor treats as the valid one.
     """
@@ -282,6 +285,8 @@ def build_notebook_variables(items: list[dict[str, Any]]) -> list[NotebookVariab
 
 
 def _coerce_value(variable_type: Any, value: Any) -> NotebookVariableValue:
+    if variable_type == "list":
+        return value if isinstance(value, list) and all(isinstance(item, str) for item in value) else []
     if value is None:
         return None
     if variable_type == "number":

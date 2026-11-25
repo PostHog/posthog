@@ -123,6 +123,25 @@ tools:
         exclude_params:
             - include_points
         feature_flag: anomalies-search
+    inbox-monitor-pr:
+        operation: signals_monitor_pr_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Monitor PR
+        description: >
+            Start a sandbox agent to inspect a GitHub pull request, identify its key impact metric from this project's
+            data, and create an inbox report assigned to the person calling this tool. Requires a branch pull request in
+            a repository connected to the project's GitHub integrations (fork PRs are not supported). Research starts
+            immediately for open, draft, and recently merged PRs. Monitoring starts after research has produced a
+            measurable check and the PR has merged; open PRs wait for merge. Optionally include a team-visible note to
+            steer what the research agent focuses on, or omit it so the agent chooses the metric. If no meaningful
+            metric is available, the report waits for input. Returns the report link and current status, not the
+            completed research. Safe to retry: the same person and PR in this project return the original report.
+        feature_flag: signals-monitor-pr
+        feature_flag_behavior: enable
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
         enabled: true
@@ -642,7 +661,8 @@ tools:
             need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
             keep their personal order.
 
-            Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
+            Without `limit`, a page holds up to 100 reports. Each row carries `summary_lead`, the opening of the
+            report's summary; inbox-reports-retrieve returns the whole summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
@@ -684,7 +704,7 @@ tools:
             include:
                 - id
                 - title
-                - summary
+                - summary_lead
                 - metrics
                 - tags
                 - status
@@ -1122,7 +1142,8 @@ tools:
             Check a filter expression before you save it, and see what it does to the source's records from the last 7
             days: how many pass, how many it excludes, and the newest records of each with their field values. Use the
             fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid
-            expression or a source that has not synced. Records that pass can still be skipped later by guidance or
+            expression or a source that has not synced. Records that never become signals, such as Linear issues without
+            a description, are left out of every count. Records that pass can still be skipped later by guidance or
             deduplication. Saves nothing.
         feature_flag: signals-source-filters
     inbox-steering-instructions-get:

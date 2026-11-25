@@ -1159,6 +1159,71 @@ export interface InboxSummaryApi {
     people: InboxSummaryPersonApi[] | null
 }
 
+export interface MonitorPRRequestApi {
+    /**
+     * GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.
+     * @maxLength 500
+     */
+    pr_url: string
+    /**
+     * Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+/**
+ * * `potential` - Potential
+ * * `candidate` - Candidate
+ * * `in_progress` - In Progress
+ * * `pending_input` - Pending Input
+ * * `ready` - Ready
+ * * `monitoring` - Monitoring
+ * * `resolved` - Resolved
+ * * `closed` - Closed
+ * * `failed` - Failed
+ * * `deleted` - Deleted
+ * * `suppressed` - Suppressed
+ */
+export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+
+export const SignalReportStatusEnumApi = {
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    PendingInput: 'pending_input',
+    Ready: 'ready',
+    Monitoring: 'monitoring',
+    Resolved: 'resolved',
+    Closed: 'closed',
+    Failed: 'failed',
+    Deleted: 'deleted',
+    Suppressed: 'suppressed',
+} as const
+
+export interface MonitorPRResponseApi {
+    /** The report assigned to the person who requested monitoring. */
+    report_id: string
+    /** Open the report to follow research and monitoring. */
+    report_url: string
+    /** Current report status. Research runs asynchronously; monitoring starts after research and PR merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** True when this person already requested monitoring for this PR in this project. */
+    idempotent_replay: boolean
+}
+
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
     scout_run_id?: string
@@ -2011,6 +2076,82 @@ export interface PauseResponseApi {
 }
 
 /**
+ * * `open` - Open
+ * * `closed` - Closed
+ * * `merged` - Merged
+ */
+export type PRStateEnumApi = (typeof PRStateEnumApi)[keyof typeof PRStateEnumApi]
+
+export const PRStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export interface PRBrowserReportApi {
+    /** Monitoring report assigned to the caller. */
+    id: string
+    /** Current report status, including research and waiting for merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+}
+
+export interface PRBrowserItemApi {
+    /** GitHub URL. */
+    url: string
+    /** Repository registered with this project, in owner/name format. */
+    repository: string
+    /** GitHub pull request number. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Current GitHub pull request state.
+     *
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: PRStateEnumApi
+    /** Whether this is a draft pull request. */
+    draft: boolean
+    /** GitHub login of the author. */
+    author: string
+    /** When the PR was opened. */
+    created_at: string
+    /** When GitHub last updated the PR. */
+    updated_at: string
+    /** The caller’s monitoring report, or null when not requested. */
+    report: PRBrowserReportApi | null
+    /**
+     * Why monitoring or retrying is unavailable for this pull request, or null when eligible.
+     * @nullable
+     */
+    monitoring_disabled_reason?: string | null
+}
+
+export interface PRBrowserPageApi {
+    /** Recent authored pull requests ordered by creation time, newest first. */
+    results: PRBrowserItemApi[]
+    /**
+     * The caller’s connected GitHub identity, or null if not connected.
+     * @nullable
+     */
+    github_login: string | null
+    /** Whether the project has a GitHub installation. */
+    has_integration: boolean
+}
+
+/**
  * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
  * @nullable
  */
@@ -2068,35 +2209,6 @@ export interface ReviewerControlResponseApi {
     /** Whether this report uses saved reviewer corrections. */
     enabled: boolean
 }
-
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `monitoring` - Monitoring
- * * `resolved` - Resolved
- * * `closed` - Closed
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
-
-export const SignalReportStatusEnumApi = {
-    Potential: 'potential',
-    Candidate: 'candidate',
-    InProgress: 'in_progress',
-    PendingInput: 'pending_input',
-    Ready: 'ready',
-    Monitoring: 'monitoring',
-    Resolved: 'resolved',
-    Closed: 'closed',
-    Failed: 'failed',
-    Deleted: 'deleted',
-    Suppressed: 'suppressed',
-} as const
 
 /**
  * * `claude` - Claude
@@ -13225,6 +13337,13 @@ export interface SourceFilterPreviewRequestApi {
      * @maxLength 16384
      */
     expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
 }
 
 /**
@@ -13284,6 +13403,21 @@ export interface SourceFilterPreviewRecordApi {
 }
 
 export interface SourceFilterPreviewResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
     /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
      *
      * * `ok` - ok
@@ -13303,7 +13437,7 @@ export interface SourceFilterPreviewResponseApi {
     catalog_version: number
     /** The preview reads records created in this many past days. */
     lookback_days: number
-    /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+    /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
     total_count: number
     /** Records in the window that pass the filter. */
     passing_count: number

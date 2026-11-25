@@ -13,6 +13,24 @@ PROJECT_FANOUT = DependentEndpointConfig(
     parent_field_renames={"project_id": "project_id"},
 )
 
+TEAM_FANOUT = DependentEndpointConfig(
+    parent_name="teams",
+    resolve_param="team_id",
+    resolve_field="team_id",
+    include_from_parent=["team_id"],
+    parent_field_renames={"team_id": "team_id"},
+)
+
+# Team users require the Admin role in each team, so a team where the token user is not an admin is skipped.
+TEAM_ADMIN_FANOUT = DependentEndpointConfig(
+    parent_name="teams",
+    resolve_param="team_id",
+    resolve_field="team_id",
+    include_from_parent=["team_id"],
+    parent_field_renames={"team_id": "team_id"},
+    child_response_actions=[{"status_code": 403, "action": "ignore"}],
+)
+
 
 @frozen
 class LokaliseEndpointConfig:
@@ -54,4 +72,26 @@ LOKALISE_ENDPOINTS = {
     "tasks": LokaliseEndpointConfig(
         name="tasks", path="/projects/{project_id}/tasks", primary_keys=["project_id", "task_id"]
     ),
+    "branches": LokaliseEndpointConfig(
+        name="branches", path="/projects/{project_id}/branches", primary_keys=["project_id", "branch_id"]
+    ),
+    "custom_translation_statuses": LokaliseEndpointConfig(
+        name="custom_translation_statuses",
+        path="/projects/{project_id}/custom_translation_statuses",
+        primary_keys=["project_id", "status_id"],
+    ),
+    "orders": LokaliseEndpointConfig(
+        name="orders", path="/teams/{team_id}/orders", primary_keys=["team_id", "order_id"], fanout=TEAM_FANOUT
+    ),
+    "team_users": LokaliseEndpointConfig(
+        name="team_users",
+        path="/teams/{team_id}/users",
+        primary_keys=["team_id", "user_id"],
+        fanout=TEAM_ADMIN_FANOUT,
+    ),
+}
+
+# Fan-out parents that are not tables of their own.
+LOKALISE_PARENT_ENDPOINTS = {
+    "teams": LokaliseEndpointConfig(name="teams", path="/teams", primary_keys=["team_id"], fanout=None),
 }
