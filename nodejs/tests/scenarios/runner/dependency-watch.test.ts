@@ -1,5 +1,10 @@
+import { execFile } from 'child_process'
+import { readFileSync } from 'fs'
 import http from 'http'
 import net, { AddressInfo } from 'net'
+import path from 'path'
+import { pathToFileURL } from 'url'
+import { promisify } from 'util'
 
 import { defaultConfig } from '~/common/config/config'
 
@@ -13,6 +18,7 @@ const UNREACHABLE_POSTGRES = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
 const VALKEY = { host: '127.0.0.1', port: 6379 }
 const RUNNER_BLOCKS_MS = 2100
 const HELD_SOCKETS = 200
+const TSX = pathToFileURL(require.resolve('tsx')).href
 
 const busyFor = (ms: number): void => {
     const until = performance.now() + ms
@@ -97,20 +103,73 @@ describe('dependency watch', () => {
         }
     }
 
-    it('hears healthy dependencies from its own process while the runner is too busy to answer', async () => {
+    it('hears Postgres from its own process, and the edge the busy runner hosts as unheard, not gone', async () => {
         const { losses } = await watchedFromProcess(edge.url, POSTGRES, RUNNER_BLOCKS_MS)
 
-        expect(losses).toEqual([])
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['provider-edge unheard'])
     }, 30_000)
 
     it('names dependencies that went away from its own process, with their step and error', async () => {
-        const closed = await startProviderEdge({ port: 0 })
-        await closed.close()
-
-        const { reason } = await watchedFromProcess(closed.url, UNREACHABLE_POSTGRES)
+        const { reason } = await watchedFromProcess(unavailableUrl, UNREACHABLE_POSTGRES)
 
         expect(reason).toMatch(
-            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\), provider-edge in the 320x step \(connect ECONNREFUSED .*\)$/
+            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\), provider-edge in the 320x step \(http:\/\/127\.0\.0\.1:\d+\/_health answered 503\)$/
+        )
+    }, 30_000)
+
+    it('checks the provider edge over one kept-alive connection', async () => {
+        let connections = 0
+        const healthy = http.createServer((_request, response) => response.writeHead(200).end())
+        healthy.on('connection', () => connections++)
+        const probes = startProbeProcess({
+            edgeUrl: `http://127.0.0.1:${await listening(healthy)}`,
+            postgresUrl: POSTGRES,
+            sesValkey: VALKEY,
+            only: ['provider-edge'],
+        })
+        try {
+            const failures = [await probes.check(), await probes.check()]
+
+            expect({ failures, connections }).toEqual({ failures: [[], []], connections: 1 })
+        } finally {
+            probes.close()
+            healthy.close()
+        }
+    }, 30_000)
+
+    it('keeps the dependency credentials off the command line of its probe process', async () => {
+        const postgresUrl = 'postgres://posthog:scenario-probe-secret@127.0.0.1:1/posthog'
+        const probes = startProbeProcess({ edgeUrl: undefined, postgresUrl, sesValkey: VALKEY, only: [] })
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+
+            expect(readFileSync(`/proc/${probes.pid}/cmdline`, 'utf8')).not.toContain('scenario-probe-secret')
+        } finally {
+            probes.close()
+        }
+    }, 30_000)
+
+    it('names a harness limit when the run host has no file descriptor left to start the probe process', async () => {
+        const watch = `
+            const { openSync } = require('fs')
+            const { startProbeProcess } = require(${JSON.stringify(require.resolve('../environment/probe-process'))})
+            const { watchDependencies, dependencyReasonOf } = require(${JSON.stringify(require.resolve('./dependency-watch'))})
+            const probes = startProbeProcess({ edgeUrl: undefined, postgresUrl: '', sesValkey: { host: '', port: 0 } })
+            try {
+                for (;;) openSync('/dev/null', 'r')
+            } catch {}
+            watchDependencies(() => probes.check(), 60_000)
+                .stop()
+                .then((losses) => process.stdout.write(dependencyReasonOf(losses, []) ?? 'no loss', () => process.exit(0)))
+        `
+        const { stdout } = await promisify(execFile)(
+            'bash',
+            ['-c', 'ulimit -n 256 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, watch],
+            { cwd: path.join(__dirname, '../../..') }
+        )
+
+        expect(stdout).toMatch(
+            /^the run host ran out of file descriptors to check health check at \S+ \(the probe process failed: spawn \S+ EMFILE\), a harness limit/
         )
     }, 30_000)
 
@@ -215,7 +274,7 @@ describe('dependency watch', () => {
 
     it('keeps a probe process whose answer waited while the runner was blocked past the deadline', async () => {
         const probes = startProbeProcess(
-            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['postgres'] },
             5_000
         )
         try {

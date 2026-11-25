@@ -1,7 +1,7 @@
 import { performance } from 'perf_hooks'
 import { setTimeout as sleep } from 'timers/promises'
 
-import type { ProbeFailure } from '../environment/stack'
+import { ProbeFailure, hostLimitOf } from '../environment/stack'
 
 export type DependencyLoss = {
     name: string
@@ -24,17 +24,18 @@ async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     const at = Date.now()
     const before = performance.eventLoopUtilization()
     let unchecked = false
-    const failures = await check().catch((error: unknown) => {
+    const failures = await check().catch((error: unknown): ProbeFailure[] => {
         unchecked = true
-        return [
-            { name: 'health check', reason: error instanceof Error ? error.message : String(error), unanswered: false },
-        ]
+        const hostLimit = hostLimitOf(error)
+        const reason = error instanceof Error ? error.message : String(error)
+        return [{ name: 'health check', reason, unanswered: false, ...(hostLimit ? { hostLimit } : {}) }]
     })
     return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization, unchecked }
 }
 
 // The probes run in their own process, but a host busy enough to saturate the runner's loop can still starve that
-// process. So a probe that ran out its budget without an answer while the runner was busy is a harness limit.
+// process, and the provider edge answers on the runner's own loop. So a probe that ran out its budget without an answer
+// while the runner was busy is a harness limit.
 const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
 

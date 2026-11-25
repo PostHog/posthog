@@ -1,8 +1,6 @@
 import { ChildProcess, fork } from 'child_process'
 import { pathToFileURL } from 'url'
 
-import { parseJSON } from '~/common/utils/json-parse'
-
 import { ProbeFailure, dependencyProbes, failedProbes } from './stack'
 
 export type ProbeTarget = {
@@ -14,6 +12,8 @@ export type ProbeTarget = {
 
 export type ProbeProcess = { check(): Promise<ProbeFailure[]>; close(): void; readonly pid: number | undefined }
 
+// The target reaches the child over IPC because a process's command line is readable by every user on the host.
+type Setup = { target: ProbeTarget }
 type Request = { id: number }
 type Reply = { id: number; failures: ProbeFailure[] }
 type Pending = { resolve(failures: ProbeFailure[]): void; reject(error: Error): void; deadline: NodeJS.Timeout }
@@ -22,6 +22,9 @@ type Pending = { resolve(failures: ProbeFailure[]): void; reject(error: Error): 
 // child's start-up under tsx. A child that answers nothing in this time is stuck, and the runner would wait for it.
 const PROBE_PROCESS_DEADLINE_MS = 30_000
 
+// Resolving reads package.json, so a host out of file descriptors would fail it before the fork can report the limit.
+const TSX = pathToFileURL(require.resolve('tsx')).href
+
 function serveProbes(target: ProbeTarget): void {
     const all = dependencyProbes(target.edgeUrl, target.postgresUrl, target.sesValkey)
     const only = target.only
@@ -29,7 +32,6 @@ function serveProbes(target: ProbeTarget): void {
     process.on('message', ({ id }: Request) => {
         void failedProbes(probes).then((failures) => process.send!({ id, failures } satisfies Reply))
     })
-    process.on('disconnect', () => process.exit(0))
 }
 
 // The probes run in their own process, so a drive that saturates the runner's event loop cannot time them out.
@@ -55,8 +57,8 @@ export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCES
     }
 
     const started = (): ChildProcess => {
-        const forked = fork(__filename, [JSON.stringify(target)], {
-            execArgv: ['--import', pathToFileURL(require.resolve('tsx')).href],
+        const forked = fork(__filename, [], {
+            execArgv: ['--import', TSX],
             stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
         })
         forked.unref()
@@ -69,8 +71,14 @@ export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCES
                 request.resolve(failures)
             }
         })
-        forked.on('error', (error) => end(forked, new Error(`the probe process failed: ${error.message}`)))
+        forked.on('error', (error) =>
+            end(forked, new Error(`the probe process failed: ${error.message}`, { cause: error }))
+        )
         forked.on('exit', (code, signal) => end(forked, new Error(`the probe process exited with ${signal ?? code}`)))
+        // A fork that the host had no file descriptor for has no channel, and its error event ends it.
+        if (forked.connected) {
+            forked.send({ target } satisfies Setup)
+        }
         return forked
     }
 
@@ -94,7 +102,9 @@ export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCES
                     deadlineMs
                 )
                 pending.set(id, { resolve, reject, deadline })
-                checking.send({ id } satisfies Request)
+                if (checking.connected) {
+                    checking.send({ id } satisfies Request)
+                }
             })
         },
         close: () => {
@@ -110,5 +120,6 @@ export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCES
 }
 
 if (require.main === module && process.send) {
-    serveProbes(parseJSON(process.argv[2]) as ProbeTarget)
+    process.once('message', ({ target }: Setup) => serveProbes(target))
+    process.on('disconnect', () => process.exit(0))
 }

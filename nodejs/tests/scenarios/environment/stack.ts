@@ -1,7 +1,6 @@
 import { execFile, spawn } from 'child_process'
 import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
-import net from 'net'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client, DatabaseError } from 'pg'
@@ -400,21 +399,6 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-// The kernel completes a connect to a listening socket without the server's event loop, so a busy runner that hosts
-// the provider edge cannot make it look gone.
-export async function accepts(url: string): Promise<void> {
-    const { hostname, port } = new URL(url)
-    await new Promise<void>((resolve, reject) => {
-        const socket = net.connect({ host: hostname, port: Number(port) })
-        socket.setTimeout(PROBE_TIMEOUT_MS, () => socket.destroy(new Error(`connect to ${hostname}:${port} timed out`)))
-        socket.once('connect', () => {
-            socket.destroy()
-            resolve()
-        })
-        socket.once('error', reject)
-    })
-}
-
 export type ProbeFailure = {
     name: string
     reason: string
@@ -436,7 +420,7 @@ export function dependencyProbes(
         redis: () => pingRedis(STACK.redis),
         'ses-rate-limiter-valkey': () => pingRedis(sesValkey),
         personhog: () => expectOk(STACK.personhogReadinessUrl),
-        'provider-edge': () => (edgeUrl ? accepts(edgeUrl) : Promise.reject(new Error('not started'))),
+        'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
     }
 }
 
@@ -484,7 +468,7 @@ const isTypedAnswer = (error: unknown): boolean =>
 const isAnswer = (error: unknown): boolean =>
     isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
 
-const hostLimitOf = (error: unknown): string | undefined =>
+export const hostLimitOf = (error: unknown): string | undefined =>
     HOST_LIMITS[String(codeOf(error))] ??
     (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
 
