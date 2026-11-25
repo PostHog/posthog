@@ -101,9 +101,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
-    const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
+    const trackedOf = (
+        trackingCode: string | undefined
+    ): { actionId?: string; flowId?: string; invocationId?: string } => {
         const tracked = trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)
-        return { actionId: tracked?.actionId, flowId: tracked?.functionId }
+        return { actionId: tracked?.actionId, flowId: tracked?.functionId, invocationId: tracked?.invocationId }
     }
 
     const sendEmail = (body: unknown): Reply | Silence | Held => {
