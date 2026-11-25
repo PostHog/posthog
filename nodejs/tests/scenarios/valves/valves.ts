@@ -9,7 +9,7 @@ import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import { AmbiguousParams, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -126,8 +126,8 @@ export const sesReject: ValveDefinition = {
 }
 
 const AmbiguousDose = z.union([
-    z.object({ accepted: z.boolean(), count: z.number().int().min(1) }).strict(),
-    z.object({ accepted: z.boolean(), share: z.number().gt(0).max(1) }).strict(),
+    z.object({ accepted: AmbiguousParams.shape.accepted, count: z.number().int().min(1) }).strict(),
+    z.object({ accepted: AmbiguousParams.shape.accepted, share: z.number().gt(0).max(1) }).strict(),
 ])
 
 export const sesAmbiguous: ValveDefinition = {
