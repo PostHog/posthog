@@ -25,6 +25,7 @@ from products.messaging.backend.facade.contracts import (
     InvalidIdempotencyKey,
     InvalidRequest,
     PushBatchRecipient,
+    PushBusy,
     QueuedEmail,
     QuotaLimited,
     TemplateNotSendable,
@@ -67,7 +68,7 @@ _push_requests = threading.BoundedSemaphore(PUSH_REQUESTS_PER_PROCESS)
 def _push_request() -> Iterator[None]:
     # Refuses instead of waiting, because a waiting request holds its thread too.
     if not _push_requests.acquire(blocking=False):
-        raise DeliveryUnavailable()
+        raise PushBusy()
     try:
         yield
     finally:

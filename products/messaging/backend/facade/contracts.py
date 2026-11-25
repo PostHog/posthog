@@ -272,6 +272,10 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
+class PushBusy(Exception):
+    """This web process already waits on as many pushes as it may. Nothing was sent."""
+
+
 class SendWarningCode(LabeledStrEnum):
     SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 

@@ -566,6 +566,7 @@ class TestTransactionalPushSend(APIBaseTest):
         sent = [self.client.post(url, body, format="json").status_code for _ in range(PUSH_REQUESTS_PER_PROCESS + 1)]
 
         assert refused.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, refused.json()
+        assert refused.json()["code"] == "push_busy"
         assert set(sent) <= {status.HTTP_200_OK, status.HTTP_202_ACCEPTED}
         assert mock_post.call_count == len(sent)
 
