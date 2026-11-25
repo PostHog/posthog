@@ -1239,11 +1239,20 @@ describe('HogFunctionHandler', () => {
                 simulatePreDeployState: false,
                 expectTracked: true,
             },
+            {
+                case: 'non-sensitive template with master tracking off turns tracking on before dequeue',
+                initialConfig: { sensitive: false, tracking_enabled: false },
+                updatedConfig: { sensitive: false, tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: true,
+            },
         ])(
             'preserves queued click tracking behavior when $case',
             async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked }) => {
                 fakeSes.deliveries.length = 0
                 const emailIntegrationId = uniqueTestId()
+                const emailTemplateId = `template-test-email-${team.id}`
                 await insertIntegration(hub.postgres, team.id, {
                     id: emailIntegrationId,
                     kind: 'email',
@@ -1256,7 +1265,7 @@ describe('HogFunctionHandler', () => {
                     },
                 })
                 await insertHogFunctionTemplate(hub.postgres, {
-                    id: emailHogTemplate.id,
+                    id: emailTemplateId,
                     name: emailHogTemplate.name,
                     code: emailHogTemplate.code,
                     inputs_schema: emailHogTemplate.inputs_schema,
@@ -1268,6 +1277,11 @@ describe('HogFunctionHandler', () => {
                     recipientTokensService,
                     hub.encryptedFields
                 )
+                const emailSuppressionService = new EmailSuppressionService(
+                    hub.postgres,
+                    emailSuppressionConfigFromEnv()
+                )
+                const recipientsManagerService = new RecipientsManagerService(hub.postgres)
                 const emailService = new EmailService(
                     {
                         sesAccessKeyId: 'fake-ses-key',
@@ -1282,8 +1296,8 @@ describe('HogFunctionHandler', () => {
                     hub.ENCRYPTION_SALT_KEYS,
                     hub.SITE_URL,
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
+                    emailSuppressionService,
+                    recipientsManagerService,
                     null,
                     { report: jest.fn(), reportEmailSent: jest.fn() }
                 )
@@ -1318,7 +1332,7 @@ describe('HogFunctionHandler', () => {
                 )
                 const emailHandler = new HogFunctionHandler(
                     new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
-                    mockRecipientPreferencesService,
+                    new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
                     mockEmailValidationService,
                     'email',
                     null
@@ -1329,7 +1343,7 @@ describe('HogFunctionHandler', () => {
                     description: '',
                     type: 'function_email',
                     config: {
-                        template_id: 'template-email',
+                        template_id: emailTemplateId as 'template-email',
                         message_category_type: 'transactional',
                         template_uuid: 'template-1',
                         ...initialConfig,

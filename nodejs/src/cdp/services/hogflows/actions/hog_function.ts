@@ -309,18 +309,20 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         if (!functionResult.finished) {
+            const sensitive = isSensitiveMessage(functionResult.invocation)
             const masterTrackingOff = functionResult.invocation.hogFunction?.metadata?.tracking_enabled === false
             const emailClickTrackingState =
                 action.type === 'function_email'
                     ? {
-                          ...(masterTrackingOff ? { trackingEnabled: false } : {}),
-                          clickTrackingEnabled: !masterTrackingOff && isClickTrackingEnabled(functionResult.invocation),
+                          ...(sensitive && masterTrackingOff ? { trackingEnabled: false } : {}),
+                          clickTrackingEnabled:
+                              !(sensitive && masterTrackingOff) && isClickTrackingEnabled(functionResult.invocation),
                       }
                     : {}
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = {
                 ...functionResult.invocation.state,
-                ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
+                ...(sensitive ? { sensitive: true } : {}),
                 ...emailClickTrackingState,
             }
             // Preserve queue routing and parameters from the function result
