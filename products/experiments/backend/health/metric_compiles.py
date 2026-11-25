@@ -51,9 +51,8 @@ from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
     calculation_metric_name,
-    team_experiments_configs,
 )
-from products.experiments.backend.metric_resolution import build_metric, metric_uses_warehouse_native_source
+from products.experiments.backend.metric_resolution import build_metric, metric_dict_uses_warehouse_native_source
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -89,18 +88,21 @@ _CACHE_SECONDS = {
 _CONFIGURATION_ERRORS = (ValidationError, ExposedHogQLError, HogQLNotImplementedError, pydantic.ValidationError)
 
 
-def load_metric_compiles(experiment: Experiment, *, user: User | None) -> MetricCompiles | None:
+def load_metric_compiles(
+    experiment: Experiment, *, team_config: TeamExperimentsConfig, user: User | None
+) -> MetricCompiles | None:
     """The compile of each metric that the experiment calculates, as `user`, or None when it fails. Never raises: the
     check then reports that it couldn't check. Without a user, a metric that reads the warehouse is not checked."""
     try:
-        return _load_metric_compiles(experiment, user)
+        return _load_metric_compiles(experiment, team_config, user)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCompiles:
-    team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+def _load_metric_compiles(
+    experiment: Experiment, team_config: TeamExperimentsConfig, user: User | None
+) -> MetricCompiles:
     # Metrics that share a uuid share its first definition, so one compile covers them.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_calculation_configs(experiment, team_config=team_config):
@@ -109,8 +111,12 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
     failures: list[MetricCompileFailure] = []
     unknown_count = 0
     no_access_count = 0
+    warehouse_native_count = 0
     exposure_query_fails = False
     for calculation_config in configs.values():
+        if metric_dict_uses_warehouse_native_source(dict(calculation_config.definition)):
+            warehouse_native_count += 1
+            continue
         match _answer(compiler, calculation_config):
             case _Outcome.UNKNOWN:
                 unknown_count += 1
@@ -135,6 +141,7 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
         unknown_count=unknown_count,
         no_access_count=no_access_count,
         exposure_query_fails=exposure_query_fails,
+        warehouse_native_count=warehouse_native_count,
     )
 
 
@@ -184,9 +191,6 @@ class _MetricCompiler:
             metric = build_metric(definition)
         except pydantic.ValidationError as error:
             return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
-        if metric_uses_warehouse_native_source(metric):
-            # The statement runs in the customer's warehouse and has no HogQL to compile.
-            return _Outcome.UNKNOWN
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),
             team=self.experiment.team,

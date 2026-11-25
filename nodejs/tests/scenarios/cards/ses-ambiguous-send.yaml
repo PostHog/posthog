@@ -1,0 +1,54 @@
+id: ses-ambiguous-send
+version: 1
+clock: real
+profile: synthetic
+seed: 6
+setup:
+    teams: 1
+drive:
+    for: 30s
+    traffic:
+        - name: event_email
+        - name: event_webhook
+valves:
+    - valve: ses.ambiguous
+      target: ses
+      dose:
+          accepted: true
+          count: 3
+      at: 5s
+      for: 5s
+    - valve: ses.ambiguous
+      target: ses
+      dose:
+          accepted: false
+          count: 3
+      at: 15s
+      for: 5s
+    - valve: dest.ambiguous
+      target: hooks.example.com
+      dose:
+          accepted: true
+          count: 3
+      at: 5s
+      for: 5s
+    - valve: dest.ambiguous
+      target: hooks.example.com
+      dose:
+          accepted: false
+          count: 3
+      at: 15s
+      for: 5s
+convergeWithin: 2m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms

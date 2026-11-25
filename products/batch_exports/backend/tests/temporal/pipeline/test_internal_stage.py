@@ -103,7 +103,7 @@ def mock_clickhouse_client():
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
-@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END, TEST_DATA_INTERVAL_END - dt.timedelta(days=20)])
 async def test_insert_into_stage_activity_executes_the_expected_query_for_events_model(
     mock_clickhouse_client,
     interval,
@@ -126,12 +126,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     if not is_backfill and backfill_within_last_6_days:
         pytest.skip("No need to test backfill within last 6 days for non-backfill")
+    is_late_run = data_interval_end != TEST_DATA_INTERVAL_END
+    if is_backfill and is_late_run:
+        pytest.skip("A backfill's table depends on its start, not on when its run ends")
 
-    expected_table = "distributed_events_recent"
-    if not is_backfill and interval == "every 5 minutes":
+    reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
+    if use_native_schema:
+        expected_table = "events_json_recent" if reads_recent_range else "events_json"
+    elif not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
-    elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events_json" if use_native_schema else "events"
+    else:
+        expected_table = "distributed_events_recent" if reads_recent_range else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -161,7 +166,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+    batch_exports_url = "http://batch-exports.example.com:8123/"
+    with (
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
+            CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -171,19 +186,20 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
+    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
+    connected_url = get_client.call_args.kwargs["clickhouse_url"]
+    assert (connected_url == batch_exports_url) == reads_recent_table
 
 
 @pytest.mark.parametrize(
-    "use_native_schema,rollout_flag_on,expected_table",
-    [(False, False, "events"), (True, False, "events_json"), (False, True, "events")],
-    ids=["legacy", "native", "rollout-flag-on"],
+    "native_switch,expected_table",
+    [("off", "events"), ("batch-exports-rollout", "events_json"), ("project-rollout-flag", "events")],
 )
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
     activity_environment,
     ateam,
-    use_native_schema: bool,
-    rollout_flag_on: bool,
+    native_switch: str,
     expected_table: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -201,8 +217,10 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     )
 
     with (
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema),
-        patch("posthog.models.event.new_events_schema.is_cloud", return_value=rollout_flag_on),
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0
+        ),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=native_switch == "project-rollout-flag"),
         patch(
             "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
@@ -218,11 +236,10 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize(
-    "backfill_days_ago,expected_table,reads_native_table",
-    [(3, "distributed_events_recent", False), (10, "events_json", True)],
-    ids=["legacy-recent-table", "native-table"],
+    "reads_native_table,backfill_days_ago,expected_table",
+    [(False, 3, "distributed_events_recent"), (True, 3, "events_json_recent"), (True, 10, "events_json")],
+    ids=["legacy-recent-table", "native-recent-table", "native-table"],
 )
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
     mock_clickhouse_client,
     interval,
@@ -233,7 +250,9 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     backfill_days_ago: int,
     expected_table: str,
     reads_native_table: bool,
+    settings: "Settings",
 ):
+    settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE = 100 if reads_native_table else 0
     with patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
         return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
@@ -274,6 +293,8 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
         assert "events.properties.`$browser`" in browser_field.group(1)
         assert "events.properties.`$feature_flags`" in query
         assert "JSONExtractRaw(events.properties" not in query
+        # The typed fields and filters fail on the stored text of events_json_recent unless the query casts it first.
+        assert ("_stored_properties" in query) == (expected_table == "events_json_recent")
     else:
         assert browser_field.group(1).strip() == schema["fields"][0]["expression"]
         assert "JSONExtractRaw(events.properties" in query
@@ -282,7 +303,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema_without_its_query(
     mock_clickhouse_client,
     interval,

@@ -12,10 +12,10 @@ import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
 import { HealthTableLink } from './HealthTableLink'
-import { TelemetryLinks } from './TelemetryLinks'
+import { telemetryMenuSection } from './TelemetryLinks'
 
 export interface EndpointsTabProps {
-    /** Absent when traces alerts are off, which hides the row menu. */
+    /** Absent when traces alerts are off, which leaves only the "Open in" links in the row menu. */
     onCreateAlert?: (form: TracesAlertFormType) => void
 }
 
@@ -45,7 +45,7 @@ export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element 
             render: (_, row) => (
                 <HealthTableLink
                     to={endpointOperationUrl(row, { date_from: timeRange, date_to: null })}
-                    className="block max-w-44 truncate"
+                    className="block max-w-36 truncate"
                     title={row.endpoint}
                     data-attr="apm-endpoint-operation"
                 >
@@ -58,36 +58,24 @@ export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element 
             key: 'service_name',
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => (
-                <span className="block max-w-32 truncate" title={row.service_name}>
+                <span className="block max-w-28 truncate" title={row.service_name}>
                     {row.service_name}
                 </span>
             ),
         },
         ...healthColumns<EndpointHealthApi>(filteredEndpoints),
         {
-            title: 'Open in',
-            key: 'links',
+            key: 'actions',
+            width: 0,
             render: (_, row) => (
-                <span className="flex gap-2 whitespace-nowrap">
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
-                </span>
+                <AlertOnThisMenu
+                    target={endpointAlertTarget(row)}
+                    source="endpoints"
+                    onCreateAlert={onCreateAlert}
+                    leadingSections={[telemetryMenuSection(row.service_name, timeRange, 'endpoints')]}
+                />
             ),
         },
-        ...(onCreateAlert
-            ? [
-                  {
-                      key: 'actions',
-                      width: 0,
-                      render: (_: unknown, row: EndpointHealthApi) => (
-                          <AlertOnThisMenu
-                              target={endpointAlertTarget(row)}
-                              source="endpoints"
-                              onCreateAlert={onCreateAlert}
-                          />
-                      ),
-                  },
-              ]
-            : []),
     ]
 
     return (

@@ -1,6 +1,8 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import {
+    CONVERSION_METRIC,
+    CONVERSION_RATE_LABEL,
     MIN_EVIDENCE_SAMPLE,
     describeWindow,
     evidenceDisagrees,
@@ -8,6 +10,7 @@ import {
     readGuardrails,
     readMeasured,
     readUnit,
+    sampleLabel,
 } from './suggestionEvidence'
 
 export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<string, unknown> }): JSX.Element | null {
@@ -28,15 +31,22 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
             <div className="flex flex-col gap-1 text-sm">
                 <span className="flex items-center gap-2 flex-wrap">
                     <span>
-                        {measured.target.metric} {measuredValue ?? 'no data'} on {measured.target.n} tracked sends (v
-                        {measured.version}, {describeWindow(measured.window)}){target ? `, target ${target}` : ''}
+                        {measured.target.metric} {measuredValue ?? 'no data'} on {measured.target.n}{' '}
+                        {sampleLabel(measured.target.metric)} (v{measured.version}, {describeWindow(measured.window)})
+                        {target ? `, target ${target}` : ''}
                     </span>
-                    <Tooltip title="PostHog read this step's metrics itself when the suggestion was filed.">
+                    <Tooltip
+                        title={
+                            measured.target.metric === CONVERSION_RATE_LABEL
+                                ? "PostHog read this workflow's metrics itself when the suggestion was filed."
+                                : "PostHog read this step's metrics itself when the suggestion was filed."
+                        }
+                    >
                         <LemonTag type="success">Measured by PostHog</LemonTag>
                     </Tooltip>
                     {measured.target.below_minimum_sample && (
                         <Tooltip
-                            title={`Under ${MIN_EVIDENCE_SAMPLE} sends. Treat this as a hunch to check, not a finding.`}
+                            title={`Under ${MIN_EVIDENCE_SAMPLE} ${sampleLabel(measured.target.metric)}. Treat this as a hunch to check, not a finding.`}
                         >
                             <LemonTag type="warning">Too little data</LemonTag>
                         </Tooltip>
@@ -71,7 +81,7 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
         <div className="flex flex-col gap-1 text-sm">
             <span className="flex items-center gap-2 flex-wrap">
                 <span>
-                    {metric}: {current ?? 'no data'}
+                    {metric === CONVERSION_METRIC ? CONVERSION_RATE_LABEL : metric}: {current ?? 'no data'}
                     {target ? `, target ${target}` : ''}
                     {window ? ` over ${window}` : ''}
                     {sample !== null ? ` (${sample} observations)` : ''}

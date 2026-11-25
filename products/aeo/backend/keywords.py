@@ -22,7 +22,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import brand_names, brand_regex
+from products.aeo.backend.brand import brand_names
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
     MAX_KEYWORD_MODIFIERS,
@@ -100,13 +100,23 @@ def _to_keyword(row: AEOKeyword) -> Keyword:
 
 
 # `answered` lowercases each answered check once, so the keyword cross join only runs strpos. A check's
-# searches are joined with newlines, which a keyword can't contain, so no match spans two searches. A null
-# brand pattern (no target domain) leaves `mentioned` to the citation alone and `mention_depth` null.
-# `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on a match.
-# It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once for each
-# aggregate that reads it.
+# searches are joined with newlines, which a keyword can't contain, so no match spans two searches. Whether
+# an answer names an own brand, and where it first does, comes from the stored brand rows, so no brand
+# pattern runs against the text. Without an own brand, `mentioned` is the citation alone and `mention_depth`
+# is null. `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on
+# a match. It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once
+# for each aggregate that reads it.
 _KEYWORD_REPORT_SQL = f"""
-    WITH answered AS MATERIALIZED (
+    WITH own_named AS MATERIALIZED (
+        SELECT check_brand.citation_check_id,
+            min(check_brand.first_position)::float / nullif(max(check_brand.answer_length), 0) AS mention_depth
+        FROM posthog_aeo_check_brand AS check_brand
+        WHERE check_brand.team_id = %(team_id)s AND check_brand.created_at >= %(since)s
+            AND check_brand.created_at < %(until)s AND check_brand.mentioned
+            AND check_brand.brand_id = ANY(%(own_brand_ids)s::uuid[])
+        GROUP BY check_brand.citation_check_id
+    ),
+    answered AS MATERIALIZED (
         SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
             lower(check_row.prompt_text) AS prompt_text,
             lower(coalesce(check_row.answer_text, '')) AS answer_text,
@@ -115,11 +125,10 @@ _KEYWORD_REPORT_SQL = f"""
                     CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
                 )
             ), E'\\n')) AS searches,
-            check_row.cited OR coalesce(check_row.answer_text ~* %(brand)s::text, false) AS mentioned,
-            CASE WHEN length(check_row.answer_text) > 0
-                THEN (regexp_instr(check_row.answer_text, %(brand)s::text, 1, 1, 0, 'i') - 1)::float / length(check_row.answer_text)
-            END AS mention_depth
+            check_row.cited OR own_named.citation_check_id IS NOT NULL AS mentioned,
+            own_named.mention_depth
         FROM posthog_aeo_citation_check AS check_row
+        LEFT JOIN own_named ON own_named.citation_check_id = check_row.id
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
             AND {NAMED_SCOPE_SQL}
@@ -202,7 +211,7 @@ def _build_keyword_report(
                     "team_id": resolve_effective_team_id(team_id),
                     "since": window.start,
                     "until": window.until,
-                    "brand": brand_regex(target_domains),
+                    "own_brand_ids": _own_brand_ids(team_id, target_domains),
                     "keywords": keywords,
                     **named_scope_sql_params(scope),
                 },
@@ -216,6 +225,11 @@ def _build_keyword_report(
         brand_names=brand_names(target_domains),
         keywords=tuple(_report_row(keyword, rows.get(keyword), answers) for keyword in keywords),
     )
+
+
+def _own_brand_ids(team_id: int, target_domains: list[str]) -> list[str]:
+    ids = AEOBrand.objects.for_team(team_id).filter(domain__in=target_domains).values_list("id", flat=True)
+    return [str(brand_id) for brand_id in ids]
 
 
 def _rate(part: float, whole: int) -> float | None:

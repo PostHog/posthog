@@ -1,5 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { mkdtempSync, rmSync } from 'fs'
+import http from 'http'
+import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
@@ -9,25 +11,30 @@ import { internalFetch } from '~/common/utils/request'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { TRUTH_PAGE_LIMIT, Truth } from '../provider-edge/truth'
 import { atLeastOnce } from './invariants'
-import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
-import { edgeTruth } from './truth'
+import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
+import { TruthSource, edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
-const NO_RESETS = { janitorResets: 0 }
+const NO_RESETS: RunEvidence = { janitorResets: 0, unobserved: [] }
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
 const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
 
 describe('judge', () => {
     let edge: ProviderEdge
+    let edgeRecords: Truth
     let ses: SESv2Client
     let unfinishedJobs: number
     let clockMs: number
     let probeTakesMs: number
     let resident: ResidentBacklog | undefined
     let truthFails: string | undefined
+    let truthLoses: number | undefined
+    let duringProbe: (() => Promise<unknown>) | undefined
+    let duringFinalPage: (() => Promise<unknown>) | undefined
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -45,18 +52,27 @@ describe('judge', () => {
         createJudge({
             truth: {
                 head: (read) => edgeTruth(edge.url).head(read),
-                after: (cursor, read) => {
+                after: async (cursor, read) => {
+                    if (read?.final) {
+                        await duringFinalPage?.()
+                    }
                     if (truthFails === undefined) {
-                        return edgeTruth(edge.url).after(cursor, read)
+                        return edgeTruth(edge.url)
+                            .after(cursor, read)
+                            .then((page) => ({
+                                ...page,
+                                records: page.records.filter(({ seq }) => seq !== truthLoses),
+                            }))
                     }
                     clockMs += probeTakesMs
                     return Promise.reject(new Error(truthFails))
                 },
             },
             probe: {
-                unfinishedJobs: () => {
+                unfinishedJobs: async () => {
                     clockMs += probeTakesMs
                     polls += 1
+                    await duringProbe?.()
                     return polls > probeAnswers
                         ? Promise.reject(new Error('The operation was aborted due to timeout'))
                         : Promise.resolve(unfinishedJobs)
@@ -64,16 +80,19 @@ describe('judge', () => {
             },
             fetchRetries: 3,
             residentBacklog: () => Promise.resolve(resident!),
+            finalRead: { attempts: 2, backoffMs: 0 },
             pollMs: 10,
             now: () => clockMs,
         })
 
     beforeEach(async () => {
+        edgeRecords = new Truth()
         edge = await startProviderEdge({
             port: 0,
             trackingKeys: TRACKING_KEYS,
             caDir,
             feedbackUrl: NOBODY_LISTENING,
+            truth: edgeRecords,
         })
         ses = new SESv2Client({
             endpoint: edge.url,
@@ -86,6 +105,9 @@ describe('judge', () => {
         probeTakesMs = 10
         resident = undefined
         truthFails = undefined
+        truthLoses = undefined
+        duringProbe = undefined
+        duringFinalPage = undefined
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -97,12 +119,12 @@ describe('judge', () => {
         await edge.close()
     })
 
-    const deliver = (unitId: string, actionId = 'email'): Promise<unknown> =>
+    const deliver = (unitId: string, actionId = 'email', flowId = 'flow-1', cc: string[] = []): Promise<unknown> =>
         ses
             .send(
                 new SendEmailCommand({
                     FromEmailAddress: 'flows@www.example.com',
-                    Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`] },
+                    Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`], CcAddresses: cc },
                     Content: {
                         Simple: {
                             Subject: { Data: 'Scenario delivery' },
@@ -111,7 +133,7 @@ describe('judge', () => {
                                 {
                                     Name: 'X-PostHog-Tracking-Code',
                                     Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
-                                        functionId: 'flow-1',
+                                        functionId: flowId,
                                         id: `invocation-${unitId}`,
                                         teamId: 7,
                                         state: { actionId },
@@ -287,9 +309,11 @@ describe('judge', () => {
                 journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
                 truth: attempts,
                 fetchRetries: 3,
-                ...NO_RESETS,
+                janitorResets: 0,
+                boundary: { truthFrom: 0, horizon: { seq: 0, at: 0 }, unobserved: [] },
             },
-            undefined
+            undefined,
+            {}
         )
 
         expect(result.passed).toBe(passed)
@@ -386,7 +410,7 @@ describe('judge', () => {
         const [result] = await judge.check(
             [{ name: 'duplicate_sends', params: {} }],
             gate === undefined ? {} : { duplicate_sends: gate },
-            { janitorResets }
+            { ...NO_RESETS, janitorResets }
         )
 
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
@@ -461,6 +485,375 @@ describe('judge', () => {
         )
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
+    })
+
+    const ADDRESS = `${UNIT}@${UNIT_EMAIL_DOMAIN}`
+    const CC = 'manager@example.com'
+    const SCHEDULED_PAST_THE_HORIZON = 1_000_000
+
+    it.each<[string, JournalEntry, () => Promise<unknown>, Record<string, unknown>, object]>([
+        ['delivered once', offered(), () => deliver(UNIT), {}, { passed: true, observed: 0, missing: [], extra: [] }],
+        [
+            'resent: accepted twice with no valve applied',
+            offered(),
+            () => deliverTwice(UNIT),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ],
+        [
+            'dropped, while a unit of another run was accepted',
+            offered(),
+            () => deliver('run-b-1'),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: accepted 0 times by the recovery horizon, expected 1`,
+                missing: [UNIT],
+                extra: [],
+            },
+        ],
+        [
+            'accepted once after a retried status',
+            offered(),
+            async () => {
+                answerNextSendWith(503, 'ServiceUnavailable')
+                await deliverTwice(UNIT)
+            },
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'with a follow-up the intake accepted, accepted once from each flow',
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT, 'email', 'follow-up-flow')
+            },
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'with a follow-up the intake accepted, whose first flow sent twice and follow-up never',
+            { ...offered(), followUp: { accepted: true } },
+            () => deliverTwice(UNIT),
+            {},
+            {
+                passed: false,
+                observed: 2,
+                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [UNIT],
+                extra: [UNIT],
+            },
+        ],
+        [
+            'with a follow-up the intake accepted, whose first flow sent three times and follow-up never',
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliverTwice(UNIT)
+                await deliver(UNIT)
+            },
+            {},
+            { passed: false, observed: 3, missing: [UNIT], extra: [UNIT] },
+        ],
+        [
+            "with a follow-up the intake accepted, which reached only one of the first send's recipients",
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliver(UNIT, 'email', 'flow-1', [CC])
+                await deliver(UNIT, 'email', 'follow-up-flow')
+            },
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${CC}: accepted from 1 flow by the recovery horizon, expected 2`,
+                missing: [UNIT],
+                extra: [],
+            },
+        ],
+        [
+            'sent under an action the journal never listed',
+            offered(),
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT, 'sms')
+            },
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} sms to ${ADDRESS}: accepted 1 time, expected 0`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ],
+        [
+            'whose intake reply was lost, accepted once',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            () => deliver(UNIT),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'whose intake reply was lost, accepted twice',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            () => deliverTwice(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'refused with a status, yet accepted',
+            { ...offered({ accepted: false, status: 503 }), kind: 'transactional' },
+            () => deliver(UNIT),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS}: accepted 1 time, expected 0`,
+                extra: [UNIT],
+            },
+        ],
+        [
+            'that expects no email and was sent none',
+            { ...offered(), expect: { deliveries: [] } },
+            () => Promise.resolve(),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'that expects no email, yet was sent one',
+            { ...offered(), expect: { deliveries: [] } },
+            () => deliver(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'scheduled past the horizon and not sent yet',
+            { ...offered(), expect: { deliveries: ['email'], dueAt: SCHEDULED_PAST_THE_HORIZON } },
+            () => Promise.resolve(),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'scheduled past the horizon, yet accepted early',
+            { ...offered(), expect: { deliveries: ['email'], dueAt: SCHEDULED_PAST_THE_HORIZON } },
+            () => deliver(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'ended by a fault the caller never retries',
+            offered(),
+            async () => {
+                await rejectNextSend()
+                await deliver(UNIT)
+            },
+            {},
+            { passed: false, observed: 1, missing: [UNIT] },
+        ],
+    ])('no_loss for a unit %s', async (_story, entry, act, params, expected) => {
+        judge.record(entry)
+        await act()
+        await judge.converge(20, NEVER_ABORTED)
+
+        const [result] = await judge.check([{ name: 'no_loss', params }], {}, NO_RESETS)
+
+        expect(result).toMatchObject({ name: 'no_loss', ...expected })
+    })
+
+    const onFinalPages =
+        (...sends: Array<() => Promise<unknown>>) =>
+        async (): Promise<void> => {
+            await deliver('run-b-1')
+            duringFinalPage = () => sends.shift()?.() ?? Promise.resolve()
+        }
+
+    const recordOtherRuns = (records: number): void => {
+        for (let i = 1; i <= records; i++) {
+            edgeRecords.append({ kind: 'ses.send', status: 200, unitId: `run-c-${i}`, actionId: 'email', detail: {} })
+        }
+    }
+
+    it.each<[string, () => Promise<unknown>, () => Promise<unknown>, object]>([
+        [
+            'its only send',
+            () => Promise.resolve(),
+            () => deliver(UNIT),
+            {
+                passed: false,
+                violation: `${UNIT} email: accepted 0 times by the recovery horizon, expected 1`,
+                missing: [UNIT],
+            },
+        ],
+        ...(
+            [
+                ['a resend', () => deliver(UNIT)],
+                ['a resend the edge accepts while the final read runs', onFinalPages(() => deliver(UNIT))],
+            ] as const
+        ).map(([story, after]): [string, () => Promise<unknown>, () => Promise<unknown>, object] => [
+            story,
+            () => deliver(UNIT),
+            after,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ]),
+    ])(
+        'counts a send after the recovery horizon as extra, never as delivered: %s',
+        async (_story, before, after, expected) => {
+            judge.record(offered())
+            await before()
+            await judge.converge(20, NEVER_ABORTED)
+            await after()
+
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+            expect(result).toMatchObject(expected)
+        }
+    )
+
+    it.each<[string, () => Promise<unknown>, Array<() => Promise<unknown>>, object]>([
+        ['a resend', () => deliver(UNIT), [() => deliver(UNIT)], { passed: false, observed: 1, extra: [UNIT] }],
+        [
+            'a retried status, then the retry',
+            () => Promise.resolve(),
+            [
+                () => {
+                    answerNextSendWith(503, 'ServiceUnavailable')
+                    return deliver(UNIT)
+                },
+                () => deliver(UNIT),
+            ],
+            { passed: true, observed: 0 },
+        ],
+        [
+            'nothing of this run, while another run keeps sending',
+            () => deliver(UNIT),
+            Array.from({ length: 20 }, (_, i) => () => deliver(`run-b-${i + 1}`)),
+            { passed: true, observed: 0 },
+        ],
+    ])(
+        'counts what the edge accepted while convergence read a zero job count: %s',
+        async (_story, before, duringCounts, expected) => {
+            judge.record(offered())
+            await before()
+            duringProbe = () => duringCounts.shift()?.() ?? Promise.resolve()
+            const convergence = await judge.converge(100, NEVER_ABORTED)
+
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+            expect({ convergence, result }).toMatchObject({ convergence: { converged: true }, result: expected })
+        }
+    )
+
+    it.each<[string, () => Promise<unknown>, RunEvidence, string]>([
+        [
+            'convergence was interrupted',
+            () => judge.converge(20, AbortSignal.abort()),
+            NO_RESETS,
+            'the run reached no recovery horizon: convergence was interrupted',
+        ],
+        [
+            'the last truth read failed',
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await deliver('run-b-1')
+                truthFails = 'The operation was aborted due to timeout'
+            },
+            NO_RESETS,
+            'the truth could not be read: the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
+        ],
+        [
+            'the last truth read of convergence failed',
+            async () => {
+                duringProbe = () => {
+                    truthFails = 'The operation was aborted due to timeout'
+                    return Promise.resolve()
+                }
+                await judge.converge(20, NEVER_ABORTED)
+                truthFails = undefined
+            },
+            NO_RESETS,
+            'the run reached no recovery horizon: the last convergence read failed: The operation was aborted due to timeout',
+        ],
+        [
+            'the edge accepted a resend of this run while a later final read ran, past the head that read took',
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await onFinalPages(
+                    () => deliver('run-b-2'),
+                    () => deliver(UNIT)
+                )()
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
+        ],
+        [
+            "the edge accepted a resend of this run while a later final read's last page came back full and ended at its head",
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await onFinalPages(
+                    () => Promise.resolve(recordOtherRuns(TRUTH_PAGE_LIMIT)),
+                    () => deliver(UNIT)
+                )()
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
+        ],
+        [
+            "the edge kept accepting this run's sends through every final read",
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await deliver('run-b-1')
+                duringFinalPage = () => deliver(UNIT)
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
+        ],
+        [
+            'a valve was never observed',
+            () => judge.converge(20, NEVER_ABORTED),
+            { ...NO_RESETS, unobserved: ['role.kill on cdp-cyclotron-worker-email was not observed: never applied'] },
+            'role.kill on cdp-cyclotron-worker-email was not observed: never applied',
+        ],
+        [
+            'the edge accepted a unit of this run that the journal never recorded',
+            async () => {
+                await deliver('run-a-2')
+                await judge.converge(20, NEVER_ABORTED)
+            },
+            NO_RESETS,
+            'the journal is incomplete: the edge accepted run-a-2 email, which the journal never recorded',
+        ],
+        [
+            'the truth it read skips a seq',
+            async () => {
+                truthLoses = 1
+                await deliver('run-b-1')
+                await judge.converge(20, NEVER_ABORTED)
+            },
+            NO_RESETS,
+            'the truth skips from seq 0 to 2',
+        ],
+    ])('leaves no_loss unjudged when %s', async (_story, act, run, unjudged) => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await act()
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, run)
+
+        expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
     })
 
     const TEAM = 2_100_000_000
@@ -738,17 +1131,42 @@ describe('judge', () => {
         })
     })
 
-    it('reports the unfinished jobs as unknown when its last poll fails after an earlier poll counted some', async () => {
-        unfinishedJobs = 5
-        probeAnswers = 1
+    const failTheTruthReadAfterTheCount = (): void => {
+        duringProbe = () => {
+            truthFails = 'The operation was aborted due to timeout'
+            return Promise.resolve()
+        }
+    }
+
+    it.each<[string, number, () => void, number, number | null]>([
+        [
+            'as unknown when its last job count fails after an earlier poll counted some',
+            5,
+            () => {
+                probeAnswers = 1
+            },
+            50,
+            null,
+        ],
+        ['it counted when the truth read after that count fails', 5, failTheTruthReadAfterTheCount, 20, 5],
+        [
+            'as unknown when it counted none and the truth read after that count fails',
+            0,
+            failTheTruthReadAfterTheCount,
+            20,
+            null,
+        ],
+    ])('reports the unfinished jobs %s', async (_story, jobs, failing, withinMs, reported) => {
+        unfinishedJobs = jobs
+        failing()
         judge.record(offered())
         await deliver(UNIT)
 
-        const convergence = await judge.converge(50, NEVER_ABORTED)
+        const convergence = await judge.converge(withinMs, NEVER_ABORTED)
 
         expect(convergence).toEqual({
             converged: false,
-            unfinishedJobs: null,
+            unfinishedJobs: reported,
             unrecorded: [],
             tookMs: expect.any(Number),
             unread: 'The operation was aborted due to timeout',
@@ -759,13 +1177,269 @@ describe('judge', () => {
         judge.record(offered())
         await deliver(UNIT)
         await judge.converge(50, NEVER_ABORTED)
+        await deliver('run-a-2')
         truthFails = 'The operation was aborted due to timeout'
 
         const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
 
         expect({ result, unread: judge.evidence().unread }).toEqual({
             result: expect.objectContaining({ passed: true }),
-            unread: 'The operation was aborted due to timeout',
+            unread: 'the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
+        })
+    })
+
+    describe('reading a large truth', () => {
+        const LARGE_TRUTH_RECORDS = 1_500_000
+        const PAGE = 1000
+        const POLL_BOUND_MS = 100
+        const FINAL_BOUND_MS = 5000
+        const SLOW_PAGE_MS = 300
+
+        type PageFault = 'slow' | 'reset' | 'empty' | 'stale' | undefined
+
+        let truth: Truth
+        let edge: ProviderEdge
+        let front: http.Server
+        let faultOf: (after: number) => PageFault
+        let heads: number
+        let headsAnswered: number
+
+        beforeEach(async () => {
+            truth = new Truth()
+            heads = 0
+            headsAnswered = Infinity
+            edge = await startProviderEdge({ port: 0, truth })
+            front = http.createServer((req, res) => {
+                const url = new URL(req.url ?? '/', edge.url)
+                if (url.pathname === '/_truth/head' && ++heads > headsAnswered) {
+                    res.writeHead(200, { 'content-type': 'application/json' })
+                    res.end('{}')
+                    return
+                }
+                const fault = url.pathname === '/_truth' ? faultOf(Number(url.searchParams.get('after'))) : undefined
+                if (fault === 'reset') {
+                    req.socket.destroy()
+                }
+                if (fault === 'empty' || fault === 'stale') {
+                    const after = Number(url.searchParams.get('after'))
+                    const records = fault === 'stale' ? truth.page(after - 1, 1).records : []
+                    res.writeHead(200, { 'content-type': 'application/json' })
+                    res.end(JSON.stringify({ records, next: after + 1 }))
+                }
+                if (fault !== undefined && fault !== 'slow') {
+                    return
+                }
+                const forward = (): void => {
+                    http.get(`${edge.url}${req.url}`, (answer) => {
+                        res.writeHead(answer.statusCode ?? 502, answer.headers)
+                        answer.pipe(res)
+                    })
+                }
+                if (fault === 'slow') {
+                    setTimeout(forward, SLOW_PAGE_MS)
+                    return
+                }
+                forward()
+            })
+            await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
+        })
+
+        afterEach(async () => {
+            front.closeAllConnections()
+            await new Promise<void>((resolve) => front.close(() => resolve()))
+            await edge.close()
+        })
+
+        const readOf = (records: TruthRecord[]): { read: number; inOrder: boolean } => ({
+            read: records.length,
+            inOrder: records.every(({ seq }, i) => seq === i + 1),
+        })
+
+        const append = (records: number): void => {
+            for (let i = 1; i <= records; i++) {
+                truth.append({ kind: 'ses.send', status: 200, unitId: `run-a-${i}`, actionId: 'email', detail: {} })
+            }
+        }
+
+        const slowAt = (at: number) => (): ((after: number) => PageFault) => (after) =>
+            after === at ? 'slow' : undefined
+
+        const resettingOnce = (at: number) => (): ((after: number) => PageFault) => {
+            let reset = false
+            return (after) => (after === at && !reset && (reset = true) ? 'reset' : undefined)
+        }
+
+        const resettingFrom = (at: number) => (): ((after: number) => PageFault) => (after) =>
+            after >= at ? 'reset' : undefined
+
+        const recordingMoreOnTheFirstPage = (more: number) => (): ((after: number) => PageFault) => (after) => {
+            if (after === 0) {
+                append(more)
+            }
+            return undefined
+        }
+
+        const answeringFrom = (at: number, fault: PageFault) => (): ((after: number) => PageFault) => (after) =>
+            after >= at ? fault : undefined
+
+        const judgeOf = (backoffMs: number, around = (source: TruthSource): TruthSource => source): Judge =>
+            createJudge({
+                truth: around(
+                    edgeTruth(`http://127.0.0.1:${(front.address() as AddressInfo).port}`, {
+                        pollMs: POLL_BOUND_MS,
+                        finalMs: FINAL_BOUND_MS,
+                    })
+                ),
+                probe: { unfinishedJobs: () => Promise.resolve(0) },
+                fetchRetries: 3,
+                finalRead: { attempts: 3, backoffMs },
+            })
+
+        it.each<[string, number, () => (after: number) => PageFault, object]>([
+            [
+                'reads all of it when one page answers slower than a converge poll waits',
+                LARGE_TRUTH_RECORDS,
+                slowAt(LARGE_TRUTH_RECORDS / 2),
+                { read: LARGE_TRUTH_RECORDS, unread: undefined },
+            ],
+            [
+                'reads all of it when one page request fails once',
+                3 * PAGE,
+                resettingOnce(PAGE),
+                { read: 3 * PAGE, unread: undefined },
+            ],
+            [
+                'reads once more to a later head when the edge records more during the read, then stops',
+                1.5 * PAGE,
+                recordingMoreOnTheFirstPage(PAGE),
+                { read: 2.5 * PAGE, unread: undefined },
+            ],
+            [
+                'keeps what it read and names a harness limit when the edge stops answering',
+                3 * PAGE,
+                resettingFrom(2 * PAGE),
+                {
+                    read: 2 * PAGE,
+                    unread: expect.stringMatching(
+                        /^the truth read hit a harness limit at record 2000 of 3000: 3 of 3 attempts failed, the last with /
+                    ),
+                },
+            ],
+            [
+                'keeps what it read and names a harness limit when the edge answers an empty page before the head',
+                3 * PAGE,
+                answeringFrom(2 * PAGE, 'empty'),
+                {
+                    read: 2 * PAGE,
+                    unread: 'the truth read hit a harness limit at record 2000 of 3000: the edge answered no records past 2000',
+                },
+            ],
+            [
+                'keeps what it read and names a harness limit when the edge answers the last record again',
+                3 * PAGE,
+                answeringFrom(2 * PAGE, 'stale'),
+                {
+                    read: 2 * PAGE,
+                    unread: 'the truth read hit a harness limit at record 2000 of 3000: the edge answered no records past 2000',
+                },
+            ],
+        ])('%s', async (_story, records, fault, expected) => {
+            faultOf = fault()
+            const judge = judgeOf(0)
+            await judge.open(SEED)
+            append(records)
+
+            await judge.check([], {}, NO_RESETS)
+
+            const { truth: read, unread } = judge.evidence()
+            expect({ ...readOf(read), unread }).toEqual({ ...expected, inOrder: true })
+        })
+
+        const stoppingAt =
+            (at: number, run: AbortController) =>
+            (after: number): PageFault => {
+                if (after !== at) {
+                    return undefined
+                }
+                run.abort()
+                return undefined
+            }
+
+        it.each<[string, (run: AbortController) => (after: number) => PageFault, number, string | RegExp]>([
+            [
+                'before it starts',
+                (run) => {
+                    run.abort()
+                    return () => undefined
+                },
+                0,
+                'the truth read hit a harness limit at record 0: the run was stopped',
+            ],
+            [
+                'between pages the edge answers',
+                (run) => stoppingAt(PAGE, run),
+                2 * PAGE,
+                'the truth read hit a harness limit at record 2000 of 3000: the run was stopped',
+            ],
+        ])('stops the read when the run is stopped %s', async (_story, fault, records, expected) => {
+            const run = new AbortController()
+            const judge = judgeOf(600_000)
+            await judge.open(SEED)
+            append(3 * PAGE)
+            faultOf = fault(run)
+
+            await judge.check([], {}, NO_RESETS, run.signal)
+
+            const { truth: read, unread } = judge.evidence()
+            expect({ ...readOf(read), unread }).toEqual({
+                read: records,
+                inOrder: true,
+                unread: typeof expected === 'string' ? expected : expect.stringMatching(expected),
+            })
+        })
+
+        it('stops the read when the run is stopped while it waits to retry a failed page', async () => {
+            const run = new AbortController()
+            const stoppingOnceTheBackoffStarts = (source: TruthSource): TruthSource => ({
+                ...source,
+                after: (cursor, read) =>
+                    source.after(cursor, read).catch((error: unknown) => {
+                        setImmediate(() => run.abort())
+                        throw error
+                    }),
+            })
+            const judge = judgeOf(600_000, stoppingOnceTheBackoffStarts)
+            await judge.open(SEED)
+            append(3 * PAGE)
+            faultOf = resettingFrom(2 * PAGE)()
+
+            await judge.check([], {}, NO_RESETS, run.signal)
+
+            const { truth: read, unread } = judge.evidence()
+            expect({ ...readOf(read), unread }).toEqual({
+                read: 2 * PAGE,
+                inOrder: true,
+                unread: expect.stringMatching(
+                    /^the truth read hit a harness limit at record 2000 of 3000: 1 of 3 attempts failed, the last with /
+                ),
+            })
+        })
+
+        it('keeps what it read and names a harness limit when the edge answers no head', async () => {
+            faultOf = () => undefined
+            headsAnswered = 1
+            const judge = judgeOf(0)
+            await judge.open(SEED)
+            append(PAGE)
+
+            await judge.check([], {}, NO_RESETS)
+
+            const { truth: read, unread } = judge.evidence()
+            expect({ ...readOf(read), unread }).toEqual({
+                read: 0,
+                inOrder: true,
+                unread: 'the truth read hit a harness limit at record 0: the edge answered no head',
+            })
         })
     })
 })

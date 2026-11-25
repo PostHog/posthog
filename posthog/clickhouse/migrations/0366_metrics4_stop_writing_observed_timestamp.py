@@ -43,7 +43,7 @@ GROUP BY
     time_bucket,
     series_fingerprint,
     original_expiry_date""",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

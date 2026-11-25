@@ -20,6 +20,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.first_report_experiment import DISPATCHED_VARIANT_KEY, FirstReportExperiment
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult, FirstReportStatus
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalTeamConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
@@ -207,7 +208,13 @@ def lock_first_report_start(team: Team) -> None:
         raise FirstReportRunInProgress
 
 
-def set_first_report_state(team_id: int, status: str, *, activation_team_id: int | None = None) -> None:
+def set_first_report_state(
+    team_id: int,
+    status: str,
+    *,
+    activation_team_id: int | None = None,
+    experiment: FirstReportExperiment | None = None,
+) -> None:
     with transaction.atomic():
         config, _ = SignalTeamConfig.objects.get_or_create(team_id=team_id)
         config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=team_id)
@@ -221,6 +228,8 @@ def set_first_report_state(team_id: int, status: str, *, activation_team_id: int
         }
         if activation_team_id is not None:
             config.onboarding.setdefault("first_report_activation_team_id", activation_team_id)
+        if experiment is not None:
+            config.onboarding[DISPATCHED_VARIANT_KEY] = experiment.variant
         config.save(update_fields=["onboarding", "updated_at"])
 
 

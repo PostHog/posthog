@@ -13,6 +13,7 @@ def _config(**keys: str | None) -> Any:
     config.object_collections = keys.get("object_collections")
     config.audience_keys = keys.get("audience_keys")
     config.in_app_feed_channel_ids = keys.get("in_app_feed_channel_ids")
+    config.service_token = keys.get("service_token")
     return config
 
 
@@ -27,6 +28,10 @@ class TestGetSchemas:
             ("audience_members", "audience_keys", "beta", True),
             ("user_feed_items", "in_app_feed_channel_ids", None, False),
             ("user_feed_items", "in_app_feed_channel_ids", "chan-1", True),
+            ("workflows", "service_token", None, False),
+            ("channels", "service_token", "", False),
+            ("audiences", "service_token", "knock_st_test", True),
+            ("audit_logs", "service_token", "knock_st_test", True),
         ]
     )
     def test_keyed_table_syncs_by_default_only_once_keys_are_configured(

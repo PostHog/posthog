@@ -385,6 +385,7 @@ jobs:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
+            MCP_CATALOG_SYNC_ON_WORKER_READY: 0
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
@@ -684,11 +685,13 @@ jobs:
                   # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
                   # never reads Postgres (see the note in ci-clickhouse-multinode-migrations.yml),
                   # so neither migration depends on the other.
+                  # --skip-checks: Django system checks are not needed to apply migrations;
+                  # ci-backend runs them in its dedicated jobs.
                   - name: Run Django migrations
-                    run: python manage.py migrate --noinput
+                    run: python manage.py migrate --noinput --skip-checks
 
                   - name: Run ClickHouse migrations
-                    run: python manage.py migrate_clickhouse
+                    run: python manage.py migrate_clickhouse --skip-checks
 
             - name: Start Rust flags service
               working-directory: rust

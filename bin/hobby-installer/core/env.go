@@ -32,6 +32,7 @@ type EnvConfig struct {
 	PosthogSecret        string
 	DedicatedSecrets     map[string]string
 	EncryptionSaltKeys   string
+	CdpSealedStateKeys   string
 	Domain               string
 	TLSBlock             string
 	RegistryURL          string
@@ -60,6 +61,11 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		return nil, fmt.Errorf("failed to generate encryption key: %w", err)
 	}
 
+	sealKey, err := GenerateSealKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CDP seal key: %w", err)
+	}
+
 	registryURL := os.Getenv("REGISTRY_URL")
 	if registryURL == "" {
 		registryURL = "posthog/posthog"
@@ -76,6 +82,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		PosthogSecret:        secret,
 		DedicatedSecrets:     dedicatedSecrets,
 		EncryptionSaltKeys:   encryptionKey,
+		CdpSealedStateKeys:   sealKey,
 		Domain:               domain,
 		TLSBlock:             tlsBlock,
 		RegistryURL:          registryURL,
@@ -111,6 +118,7 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 	for _, key := range dedicatedSecretKeys {
 		content += fmt.Sprintf("%s=%s\n", key, c.DedicatedSecrets[key])
 	}
+	content += fmt.Sprintf("CDP_SEALED_STATE_KEYS=%s\n", c.CdpSealedStateKeys)
 
 	return os.WriteFile(".env", []byte(content), 0600)
 }
@@ -120,6 +128,7 @@ func LoadExistingEnv() map[string]string {
 	keys := []string{
 		"POSTHOG_SECRET",
 		"ENCRYPTION_SALT_KEYS",
+		"CDP_SEALED_STATE_KEYS",
 		"DOMAIN",
 		"TLS_BLOCK",
 		"CADDY_HOST",
@@ -179,12 +188,19 @@ func UpdateEnvForUpgrade(version string) error {
 
 	existing := LoadExistingEnv()
 
-	if existing["ENCRYPTION_SALT_KEYS"] == "" {
-		key, err := GenerateEncryptionKey()
+	// Both are Fernet keys, which must be exactly 32 characters, so neither uses GenerateSecret.
+	for key, generate := range map[string]func() (string, error){
+		"ENCRYPTION_SALT_KEYS":  GenerateEncryptionKey,
+		"CDP_SEALED_STATE_KEYS": GenerateSealKey,
+	} {
+		if existing[key] != "" {
+			continue
+		}
+		value, err := generate()
 		if err != nil {
 			return err
 		}
-		if err := AppendToEnv("ENCRYPTION_SALT_KEYS", key); err != nil {
+		if err := AppendToEnv(key, value); err != nil {
 			return err
 		}
 	}

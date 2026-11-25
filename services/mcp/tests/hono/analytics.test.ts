@@ -751,6 +751,26 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
             [
+                'SCIM token rotation',
+                'identity-provider-configs-scim-token-create-execute',
+                { confirmation: 'confirm' },
+                false,
+            ],
+            ['creating an IdP config', 'identity-provider-configs-create-execute', { confirmation: 'confirm' }, false],
+            [
+                'updating an IdP config',
+                'identity-provider-configs-partial-update-execute',
+                { confirmation: 'confirm' },
+                false,
+            ],
+            ['the skill-store install command', 'skill-store-install-command', { rotate: false }, false],
+            [
+                'a destination connect link',
+                'external-data-destinations-connect-link',
+                { destination_type: 'Postgres' },
+                false,
+            ],
+            [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',
                 { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },

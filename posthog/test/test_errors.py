@@ -1,3 +1,8 @@
+from clickhouse_connect.driver.exceptions import (
+    DatabaseError as HttpClientDatabaseError,
+    OperationalError as HttpClientOperationalError,
+    StreamFailureError as HttpClientStreamFailureError,
+)
 from clickhouse_driver.errors import (
     Error as ClickHouseDriverError,
     ServerException,
@@ -7,24 +12,43 @@ from parameterized import parameterized
 
 from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
+    CH_TRANSIENT_ERRORS,
     CLICKHOUSE_ERROR_CODE_LOOKUP,
+    S3_ACCESS_DENIED_MESSAGE,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
     CHQueryErrorNotImplemented,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_message,
+    clickhouse_error_type,
     error_code_from_type,
     internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
+HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+
+
+def _http_client_response(code: int, detail: str, name: str) -> str:
+    return f"Code: {code}. DB::Exception: {detail} ({name}) (version 25.8.1.1 (official build))"
+
+
+def _http_client_error(code: int, detail: str, name: str) -> HttpClientDatabaseError:
+    return HttpClientDatabaseError(
+        f"Received ClickHouse exception, code: {code}, server response: "
+        f"{_http_client_response(code, detail, name)} (for url {HTTP_CLIENT_URL})"
+    )
 
 
 class TestWrapClickhouseQueryError:
@@ -69,6 +93,45 @@ class TestWrapClickhouseQueryError:
         assert clickhouse_error_message(error) == (
             "ClickHouse couldn't complete this query. Contact support and include the error code 999999."
         )
+
+    @parameterized.expand(
+        [
+            (
+                "head_request_403",
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 403: "
+                "while reading exports/part-0.parquet: The table structure cannot be extracted from a Parquet format "
+                "file. (S3_ERROR)",
+            ),
+            (
+                "get_request_access_denied",
+                "Code: 499. DB::Exception: Access Denied: while reading key: exports/part-0.parquet, "
+                "from bucket: example-bucket. (S3_ERROR)",
+            ),
+        ]
+    )
+    def test_s3_access_denied_is_exposed_and_not_retried(self, _name: str, raw_message: str) -> None:
+        raw = ServerException(raw_message, code=499)
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert str(wrapped) == S3_ACCESS_DENIED_MESSAGE
+        # PostHog's own bucket can deny too, so the denial still counts against the query SLO.
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
+        assert internal_ch_error_user_message(error_code_from_type(wrapped)) == S3_ACCESS_DENIED_MESSAGE
+
+    def test_s3_list_denial_keeps_the_generic_s3_error(self) -> None:
+        raw = ServerException(
+            "Code: 499. DB::Exception: Could not list objects in bucket 'example-bucket' with prefix 'exports/', "
+            "S3 exception: `AccessDenied`, message: 'Access Denied'. (S3_ERROR)",
+            code=499,
+        )
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
         assert internal_ch_error_user_message("other_database_error") is None
@@ -487,3 +550,68 @@ class TestWrapClickhouseQueryError:
 
         assert classify_query_error(raw) == category
         assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
+
+    @parameterized.expand(
+        [
+            (
+                "cancelled",
+                _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_on_retried_request",
+                HttpClientOperationalError(str(_http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"))),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_mid_stream",
+                HttpClientStreamFailureError(_http_client_response(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "per_query_memory_limit",
+                _http_client_error(
+                    241, "Query memory limit exceeded: would use 10.00 GiB, maximum: 9.31 GiB.", "MEMORY_LIMIT_EXCEEDED"
+                ),
+                ClickHouseQueryMemoryLimitExceeded,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
+                "unknown_identifier",
+                _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
+                CHQueryErrorUnknownIdentifier,
+                QueryErrorCategory.USER_ERROR,
+            ),
+        ]
+    )
+    def test_http_client_errors_wrap_like_native_driver_errors(
+        self, _name: str, raw: Exception, wrapped_type: type[Exception], category: QueryErrorCategory
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert type(wrapped) is wrapped_type
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrapped) == category
+        assert HTTP_CLIENT_URL not in str(wrapped)
+
+    def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
+        raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")
+
+        assert clickhouse_error_type(raw) == "CHQueryErrorQueryWasCancelled"
+        assert not isinstance(wrap_clickhouse_query_error(raw), CH_TRANSIENT_ERRORS)
+
+    @parameterized.expand(
+        [
+            ("no_code", HttpClientDatabaseError(f"HTTP driver received HTTP status 502 (for url {HTTP_CLIENT_URL})")),
+            (
+                "errors_hidden",
+                HttpClientDatabaseError(f"The ClickHouse server returned an error (for url {HTTP_CLIENT_URL})"),
+            ),
+        ]
+    )
+    def test_http_client_errors_without_a_code_pass_through(self, _name: str, raw: Exception) -> None:
+        assert wrap_clickhouse_query_error(raw) is raw
+        assert classify_query_error(raw) == QueryErrorCategory.ERROR
