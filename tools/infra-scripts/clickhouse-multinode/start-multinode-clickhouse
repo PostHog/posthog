@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Boot the multinode ClickHouse smoke-test stack in the background.
-# One ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions + logs).
+# One ClickHouse server per logical cluster (data, the satellites, the ingestion layer, events and flags).
 # This is opt-in tooling for verifying migration routing — `bin/start` is unaffected.
 #
 
@@ -13,7 +13,7 @@ cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
 CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs
-    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium)
+    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium clickhouse-events clickhouse-flags)
 SERVICES=(zookeeper kafka db redis7 "${CH_SERVICES[@]}")
 
 case "${1:-up}" in
@@ -30,6 +30,8 @@ case "${1:-up}" in
         echo "  clickhouse-ingestion-events  localhost:9600 (HTTP 8129)"
         echo "  clickhouse-ingestion-small   localhost:9700 (HTTP 8130)"
         echo "  clickhouse-ingestion-medium  localhost:9800 (HTTP 8131)"
+        echo "  clickhouse-events            localhost:9900 (HTTP 8132)"
+        echo "  clickhouse-flags             localhost:10000 (HTTP 8133)"
         echo
         # Migrations run from the host shell but route by the hostnames in
         # system.clusters, so the host has to resolve every node.

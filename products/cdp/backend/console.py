@@ -26,6 +26,8 @@ from posthog.admin.console.tools import (
     Live,
     Notice,
     Page,
+    Progress,
+    ProgressPart,
     Row,
     Stat,
     Stats,
@@ -42,6 +44,7 @@ from products.cdp.backend.services.invocation_replay import (
     OUTCOME_WAIT,
     SKIP_REASON_LABELS,
     WORKFLOWS_TEMPLATE_KEY,
+    OutcomeStatus,
     ReplayCriteria,
     ReplayOverlapError,
     ReplayPlan,
@@ -101,6 +104,25 @@ def _as_utc(value: datetime) -> datetime:
 
 def _count(value: int, singular: str, plural: str | None = None) -> str:
     return f"{value:,} {singular if value == 1 else (plural or singular + 's')}"
+
+
+def _delivery_progress(counts: dict[OutcomeStatus, int], *, planned: int, sending: bool, waiting: bool) -> Progress:
+    queued = sum(counts.values())
+    # The counts hold only the runs of requests that went out, so on their own they read as complete too early.
+    total = max(planned, queued)
+    unsent = total - queued if sending else 0
+    delivered = counts.get("succeeded", 0)
+    failed = counts.get("failed", 0)
+    text = f"{delivered:,} of {_count(total, 'run')} delivered"
+    return Progress(
+        text=f"{text}, {failed:,} failed again" if failed else text,
+        total=total,
+        parts=(
+            ProgressPart(count=delivered, tone=Tone.SUCCESS),
+            ProgressPart(count=failed, tone=Tone.DESTRUCTIVE),
+        ),
+        moving=counts.get("running", 0) + counts.get("waiting", 0) + unsent if waiting else 0,
+    )
 
 
 def _result_summary(result: dict[str, Any]) -> str:
@@ -514,6 +536,7 @@ class ReplayStatus:
             rows.extend(
                 Row(cells=(Cell(text=error, mono=True), Cell(text=f"{count:,}"))) for error, count in outcome.errors
             )
+        refresh_seconds = None if outcome.settled and not self.refresh_seconds else OUTCOME_REFRESH_SECONDS
         return Live(
             key="outcome",
             block=Table(
@@ -521,8 +544,14 @@ class ReplayStatus:
                 columns=("Latest attempt", "Runs"),
                 numeric_columns=(1,),
                 rows=tuple(rows),
+                progress=_delivery_progress(
+                    outcome.counts,
+                    planned=self.state["invocation_count"],
+                    sending=bool(self.refresh_seconds),
+                    waiting=refresh_seconds is not None,
+                ),
             ),
-            refresh_seconds=None if outcome.settled and not self.refresh_seconds else OUTCOME_REFRESH_SECONDS,
+            refresh_seconds=refresh_seconds,
         )
 
     def live(self, key: str) -> Live | None:

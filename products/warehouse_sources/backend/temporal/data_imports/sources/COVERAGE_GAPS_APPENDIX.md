@@ -16115,10 +16115,10 @@ Note: Read the official eCommerce operation index and linked Stores, Blog, Booki
 
 Re-audited 2026-11-19 against: <https://dev.wix.com/docs/llms.txt>
 
-- [ ] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
-- [ ] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
-- [ ] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
-- [ ] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
+- [x] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
+- [x] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
+- [x] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
+- [x] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
 - [ ] `Coupons (POST /stores/v2/coupons/query)` — store coupon definitions and usage, to explain order discounts (medium)
 - [ ] `Form submissions (POST /form-submission-service/v4/submissions/namespace/query)` — lead and contact form entries; needs a namespace filter (medium)
 - [ ] `Booking staff members (POST /bookings/v1/staff-members/query)` — staff who deliver bookings, for utilisation by staff (medium)
