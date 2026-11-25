@@ -405,6 +405,15 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         self.assertFalse(watchdog.is_alive())
 
+    def test_a_batch_keeps_no_query_for_a_panel_it_already_answered(self) -> None:
+        batch = QueryBatch(
+            team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="answered"
+        )
+        batch._watchdog.cancel()
+
+        self.assertEqual(len(batch.ready), 1)
+        self.assertEqual(batch._shapes, {})
+
     def test_a_batch_whose_cancel_thread_cannot_start_still_frees_its_slot(self) -> None:
         batch = QueryBatch(
             team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="no-thread"

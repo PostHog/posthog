@@ -804,6 +804,9 @@ class QueryBatch:
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
             self._jobs.append((index, query_id_for(self._client_query_id, inputs[index]), inputs[index]))
+        # A shape holds the panel's query and its text, so only the panels still to run keep one.
+        running = {index for index, _query_id, _query in self._jobs}
+        self._shapes = {index: shape for index, shape in self._shapes.items() if index in running}
 
     def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
         """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
@@ -1054,7 +1057,8 @@ class QueryBatch:
             _release_refreshes(self._shares, len(queries))
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
-        if self._cancelled:
+        shape = self._shapes.pop(index, None)
+        if self._cancelled or shape is None:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
@@ -1071,12 +1075,11 @@ class QueryBatch:
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(
-            index, response, hit=False, stale=False, shape=self._shapes[index], ms=(monotonic() - started) * 1000
-        )
+        return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
-        if self._cancelled:
+        shape = self._shapes.pop(index, None)
+        if self._cancelled or shape is None:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
@@ -1092,9 +1095,7 @@ class QueryBatch:
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(
-            index, response, hit=False, stale=False, shape=self._shapes[index], ms=(monotonic() - started) * 1000
-        )
+        return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():
@@ -1193,6 +1194,7 @@ class QueryBatch:
             self._closed = True
             self._cancelled = True
             self._logql_cancelled.set()
+            self._shapes.clear()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
