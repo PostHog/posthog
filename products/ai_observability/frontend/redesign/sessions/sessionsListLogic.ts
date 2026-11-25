@@ -448,9 +448,10 @@ export const sessionsListLogic = kea<sessionsListLogicType>([
                 return
             }
             const listed = values.pages.flatMap((page) => page.items).find((item) => item.id === sessionId)
+            const read = values.openSessionRead
             if (listed) {
                 actions.sessionListed(listed)
-            } else if (values.state !== 'loading' && values.openSessionRead?.sessionId !== sessionId) {
+            } else if (values.state !== 'loading' && (read?.sessionId !== sessionId || read.status === 'failed')) {
                 actions.lookUpSession(sessionId)
             }
         },
