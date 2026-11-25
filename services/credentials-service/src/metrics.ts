@@ -40,13 +40,13 @@ export const previousVersionServedTotal = new Counter({
 // so this gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'credentials_service_serving_stale_seconds',
-    help: 'Age of the secrets still being served because the secret source could not be re-read or applied (0 when healthy)',
+    help: 'Age of the secrets still being served because the secret source could not be re-read (0 when healthy)',
     registers: [register],
 })
 
 export const mountErrorsTotal = new Counter({
     name: 'credentials_service_store_errors_total',
-    help: 'Snapshots of the secret source (mount or Kubernetes API) not applied: unreadable, or refused by the signing-key load',
+    help: 'Reads of the secret source (mount or Kubernetes API) that returned nothing',
     registers: [register],
 })
 
@@ -108,7 +108,7 @@ export const signingKeysLastLoadedTimestamp = new Gauge({
 
 export const signingKeyReloadFailuresTotal = new Counter({
     name: 'credentials_service_signing_key_reload_failures_total',
-    help: 'Background signing-key reloads that failed, leaving the previous key set in place',
+    help: 'Background signing-key reloads that failed, leaving the previous key set and credential values in place',
     registers: [register],
 })
 
