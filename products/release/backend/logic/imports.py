@@ -9,6 +9,7 @@ from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags, release_flag_creator_id
 
@@ -140,7 +141,7 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
     if not created:
         return
     distinct_id = str(creator.distinct_id) if creator and creator.distinct_id else str(team.uuid)
-    with ph_scoped_capture() as capture:
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
         for release in created:
             capture(
                 distinct_id=distinct_id,
