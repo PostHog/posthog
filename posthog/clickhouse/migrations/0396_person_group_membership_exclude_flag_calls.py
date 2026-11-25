@@ -9,9 +9,10 @@ from posthog.models.person_group_membership.sql import (
     PERSON_GROUP_MEMBERSHIP_MV_SQL,
 )
 
-# The view filters on the event name, so the Kafka table reads the event column.
-# A Kafka table's columns are fixed at creation, so the table and its view are dropped and recreated.
-# The new table keeps the consumer group, so consumption resumes from the committed offsets.
+# The view filters on the event name, so the Kafka table must read the event column.
+# ClickHouse fixes a Kafka table's columns at creation.
+# This migration therefore drops and recreates the table and its view.
+# The new table keeps the consumer group. Consumption therefore resumes from the committed offsets.
 operations = [
     run_sql_with_exceptions(
         f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_MV}",
