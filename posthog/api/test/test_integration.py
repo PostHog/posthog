@@ -38,6 +38,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 from structlog.testing import capture_logs
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
@@ -101,6 +102,7 @@ from posthog.models.user_integration import (
     UserIntegration,
 )
 from posthog.models.utils import hash_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.slack.channels import is_shared_channel
 
@@ -6434,6 +6436,22 @@ class TestStripeIntegrationOAuthTokens:
             revoked=timezone.now(),
             scoped_teams=[self.team.pk],
         )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        partner_key, own_key, other_team_partner_key = (
+            mint_personal_api_key(
+                self.user,
+                label="Key",
+                scopes=["query:read"],
+                teams=AccessibleTeams.for_user(self.user, [team.pk]),
+                organization_ids=[str(self.organization.id)],
+                provisioned_by=provisioned_by,
+            ).key
+            for team, provisioned_by in [
+                (self.team, self.oauth_app),
+                (self.team, None),
+                (other_team, self.oauth_app),
+            ]
+        )
         stripe_int = StripeIntegration(integration)
 
         stripe_int._destroy_posthog_oauth_tokens()
@@ -6441,6 +6459,8 @@ class TestStripeIntegrationOAuthTokens:
         assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=unlinked_refresh_token.pk).exists()
+        assert set(PersonalAPIKey.objects.values_list("id", flat=True)) == {own_key.id, other_team_partner_key.id}
+        assert not PersonalAPIKey.objects.filter(pk=partner_key.pk).exists()
 
     @pytest.mark.parametrize("other_credential", ["other_team_only", "shared_with_this_team"])
     @patch("posthog.models.integration.stripe.get_or_settings")
