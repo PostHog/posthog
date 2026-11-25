@@ -13225,6 +13225,13 @@ export interface SourceFilterPreviewRequestApi {
      * @maxLength 16384
      */
     expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
 }
 
 /**
@@ -13284,6 +13291,21 @@ export interface SourceFilterPreviewRecordApi {
 }
 
 export interface SourceFilterPreviewResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
     /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
      *
      * * `ok` - ok

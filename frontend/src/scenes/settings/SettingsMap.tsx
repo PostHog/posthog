@@ -2663,7 +2663,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
                 description:
-                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
+                    'OAuth applications linked to your organization. Open one to see its provisioning review, what PostHog read from it, or to request verification.',
                 component: <OAuthApps />,
                 keywords: [
                     'oauth',

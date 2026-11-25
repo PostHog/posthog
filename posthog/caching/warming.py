@@ -22,7 +22,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache import (
     clean_up_stale_insights,
@@ -261,13 +261,7 @@ def schedule_warming_for_teams_task():
             read_at_this_time_only = _flag_enabled_for_team(
                 TIME_OF_DAY_FLAG, team_id=team.pk, organization_id=team.organization_id, uuid=team.uuid
             )
-            dashboard_v2 = posthog_feature_flag_enabled(
-                DASHBOARD_V2_FLAG,
-                str(team.uuid),
-                organization_id=team.organization_id,
-                team_id=team.pk,
-                only_evaluate_locally=True,
-            )
+            dashboard_v2 = dashboard_v2_enabled(team, None)
             insight_tuples = list(
                 insights_to_keep_fresh(
                     team,
