@@ -24978,18 +24978,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `frames` - Frames
-     * * `result` - Result
-     */
-    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
-
-
-    export const CachedTileFormatEnum = {
-      Frames: 'frames',
-      Result: 'result',
-    } as const;
-
-    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25096,6 +25084,18 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type ResultFormatEnum = typeof ResultFormatEnum[keyof typeof ResultFormatEnum];
+
+
+    export const ResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
     export interface FrameMeta {
       /**
          * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -25175,9 +25175,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
     }
@@ -36106,9 +36106,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
@@ -43051,8 +43051,6 @@ export namespace Schemas {
     export interface EmailInfrastructureHealth {
       /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
       readonly emails_sent_at_least: number;
-      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-      readonly delivery_rate: number;
       /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
       readonly bounce_rate: number;
       /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -107399,6 +107397,11 @@ export namespace Schemas {
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable
