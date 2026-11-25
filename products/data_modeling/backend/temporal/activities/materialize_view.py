@@ -147,6 +147,7 @@ async def _describe_columns(
     query_settings: dict[str, str],
     external_tables: list[ClickHouseExternalTable],
     retry_with_untouched_query: bool,
+    query_id: str,
 ) -> list[DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
@@ -155,7 +156,7 @@ async def _describe_columns(
             async with client.apost_query(
                 query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
                 query_parameters=query_parameters,
-                query_id=str(uuid.uuid4()),
+                query_id=query_id,
                 settings=query_settings,
                 external_tables=external_tables,
             ) as ch_response:
@@ -484,7 +485,7 @@ async def hogql_table(
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
-    query_id: str | None = None,
+    progress: "_AttemptProgress | None" = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -593,6 +594,7 @@ async def hogql_table(
                 {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
                 list(context.external_tables.values()),
                 retry_with_untouched_query=True,
+                query_id=await _start_query(progress, logger, "describing the query"),
             ),
             probe,
         )
@@ -609,6 +611,7 @@ async def hogql_table(
             ast_settings,
             list(context.external_tables.values()),
             retry_with_untouched_query=False,
+            query_id=await _start_query(progress, logger, "describing the query"),
         )
 
     _reject_duplicate_output_columns(described_columns)
@@ -691,8 +694,7 @@ async def hogql_table(
     # The query goes in a field rather than the message: only the message is copied into the
     # log_entries row users can read, and the compiled query is the saved query's own SQL.
     await logger.adebug("Running clickhouse query", query=arrow_printed)
-    if query_id is not None:
-        await logger.ainfo(f"Running ClickHouse query, query_id={query_id}")
+    query_id = await _start_query(progress, logger, "reading from ClickHouse")
 
     async with (
         _clickhouse_query_semaphore,
@@ -951,6 +953,15 @@ def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextM
     return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
 
 
+async def _start_query(progress: _AttemptProgress | None, logger: FilteringBoundLogger, step: str) -> str:
+    if progress is None:
+        return str(uuid.uuid4())
+    progress.enter(step)
+    query_id = progress.next_query_id()
+    await logger.ainfo(f"Started ClickHouse query {query_id} ({step})")
+    return query_id
+
+
 async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
     return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
 
@@ -1006,7 +1017,7 @@ async def _materialize_fully(
     key_columns = _key_columns(plan)
     progress.enter("reading from ClickHouse")
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, query_id=progress.next_query_id()):
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, progress=progress):
             progress.enter("converting the batch")
             batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
             batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
@@ -1068,6 +1079,7 @@ async def _materialize_fully(
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
             # queryable folder has a file with a schema attached that's queryable
+            progress.enter("writing an empty parquet file")
             empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
             file_uris = [empty_parquet_uri]
 
@@ -1075,6 +1087,7 @@ async def _materialize_fully(
     # can't produce one (no config, or the key missing from the output) simply leaves the query
     # on the full-refresh path.
     if plan.config is not None and plan.fingerprint is not None and watermark is not None:
+        progress.enter("saving the watermark")
         await database_sync_to_async_pool(set_incremental_state)(
             objects.saved_query,
             watermark=watermark,
@@ -1124,9 +1137,7 @@ async def _materialize_incrementally(
 
     progress.enter("reading from ClickHouse")
     try:
-        async for batch, ch_types in hogql_table(
-            hogql_query, objects.team, logger, window=window, query_id=progress.next_query_id()
-        ):
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window, progress=progress):
             progress.enter("converting the batch")
             batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
             batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
@@ -1184,6 +1195,7 @@ async def _materialize_incrementally(
         tracker.close()
 
     if watermark is not None:
+        progress.enter("saving the watermark")
         await database_sync_to_async_pool(set_incremental_state)(
             objects.saved_query,
             watermark=watermark,
@@ -1195,6 +1207,7 @@ async def _materialize_incrementally(
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
+    progress.enter("reopening the Delta table")
     delta_table = await _open_delta_table(table_uri, storage_options)
 
     file_uris = delta_table.file_uris()
@@ -1394,13 +1407,16 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
             activity_span.set_attribute("rows_materialized", row_count)
             await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+        progress.enter("checking the data-quality audit mode")
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)
         )
+        progress.enter("checking account-property sync")
         account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
+                progress.enter("reading the Delta version")
                 with _rust_panics_as_errors():
                     delta_table = await _open_delta_table(table_uri, storage_options)
                     delta_version = delta_table.version()
