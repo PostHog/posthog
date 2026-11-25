@@ -24,6 +24,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from django.db import connections
+from django.db.models import Max
 from django.utils.timezone import now
 
 import structlog
@@ -52,6 +53,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
@@ -68,6 +70,7 @@ from products.dashboards.backend.facade.enums import (
 )
 from products.dashboards.backend.v2.buckets import (
     BUCKETED_RUNS,
+    MAX_STORE_AGE,
     UNBOUNDED_RANGE_END,
     BucketContractError,
     BucketedQuery,
@@ -216,6 +219,9 @@ def _release_batch(keys: tuple[Any, ...]) -> None:
 MAX_RUN_QUERIES = 400
 MAX_RUN_QUERIES_PER_ORG = 150
 MAX_RUN_QUERIES_PER_USER = 100
+# A bucketed panel's first span run takes its query's share; each further one, a split or a fill, takes one of these.
+# Past them a bucketed panel runs whole, so one batch does at most this many runs more than it has queries.
+MAX_BATCH_EXTRA_SPAN_RUNS = 64
 _PROCESS_QUERIES = ("process",)
 _org_queries: dict[Any, int] = {}
 
@@ -770,6 +776,9 @@ class QueryBatch:
         self._user = user
         # Set by `_read_cache`, which runs before any job: a bucketed run plans with the same access as the read.
         self._access_control: Optional[UserAccessControl] = None
+        self._bucket_lock = Lock()
+        self._extra_span_runs = MAX_BATCH_EXTRA_SPAN_RUNS
+        self._deleted_through: Optional[tuple[Optional[datetime]]] = None
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
@@ -1232,7 +1241,16 @@ class QueryBatch:
         # As HogQL prints it: its own LIMIT, held to the context's maximum.
         row_cap = None if checked.limit is None else min(checked.limit, get_max_limit_for_context(limit_context))
         limit = get_default_limit_for_context(limit_context) if row_cap is None else row_cap
-        fetch = partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, query_id)
+        fetch_span = partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, query_id)
+        first_run = True
+
+        def fetch(start: datetime, end: datetime) -> SpanRows:
+            nonlocal first_run
+            if not first_run and not self._take_extra_span_run():
+                raise NotBucketable("the batch has used its budget of extra bucket runs")
+            first_run = False
+            return fetch_span(start, end)
+
         answer = assemble(
             query=checked,
             grid=grid,
@@ -1243,6 +1261,7 @@ class QueryBatch:
             fetch=fetch,
             limit=limit,
             row_cap=row_cap,
+            deleted_through=self._latest_deletion(),
         )
         BUCKETED_RUNS.labels(outcome="far" if answer.far else "served").inc()
         maybe_shadow_check(
@@ -1271,6 +1290,26 @@ class QueryBatch:
         if "result" in line:
             line["result"]["provenance"] = {**line["result"]["provenance"], **provenance(answer, grid)}
         return line
+
+    def _take_extra_span_run(self) -> bool:
+        with self._bucket_lock:
+            if self._extra_span_runs <= 0:
+                return False
+            self._extra_span_runs -= 1
+            return True
+
+    def _latest_deletion(self) -> Optional[datetime]:
+        """When the team's latest event deletion was verified, read once per batch. Only deletions newer than the
+        oldest store that can still be read matter."""
+        with self._bucket_lock:
+            if self._deleted_through is not None:
+                return self._deleted_through[0]
+        latest = AsyncDeletion.objects.filter(
+            team_id=self._team.pk, delete_verified_at__gt=now() - MAX_STORE_AGE
+        ).aggregate(latest=Max("delete_verified_at"))["latest"]
+        with self._bucket_lock:
+            self._deleted_through = (latest,)
+        return latest
 
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)

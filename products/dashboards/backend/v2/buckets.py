@@ -49,8 +49,8 @@ MAX_BUCKETS_PER_RANGE = 5000
 # A store with more buckets or bytes than this starts over on its next write.
 MAX_STORED_BUCKETS = 20_000
 MAX_STORE_BYTES = 16 * 1024 * 1024
-# A store older than this starts over, so deleted events and the retention floor reach its buckets. As long as the
-# query cache keeps a whole-range result, which is also never invalidated when events are deleted.
+# A store older than this starts over, so changes no deletion records still reach its buckets. A verified event
+# deletion starts a store over sooner (see `deleted_through`).
 MAX_STORE_AGE = timedelta(seconds=settings.CACHED_RESULTS_TTL)
 # One answer stops splitting dense spans past this many ClickHouse runs or rows read, and runs whole instead.
 MAX_SPAN_RUNS = 32
@@ -662,10 +662,12 @@ def assemble(
     fetch: Callable[[datetime, datetime], SpanRows],
     limit: int,
     row_cap: Optional[int],
+    deleted_through: Optional[datetime] = None,
 ) -> BucketedAnswer:
     """The answer for [date_from, date_to): stored buckets, plus runs for what the store lacks and for the buckets
     that are not finished. Finished buckets fetched here join the store. `limit` caps the answer's rows, and
-    `row_cap` is the most rows one run returns when the query has its own LIMIT."""
+    `row_cap` is the most rows one run returns when the query has its own LIMIT. `deleted_through` is when the
+    team's latest event deletion was verified: a store born before it may hold deleted rows, so it starts over."""
     if date_to <= date_from:
         raise NotBucketable("the range is empty")
     cutoff = min(date_to, now - query.settle)
@@ -691,11 +693,12 @@ def assemble(
         and (
             meta is None
             or now - meta.born > MAX_STORE_AGE
+            or (deleted_through is not None and meta.born <= deleted_through)
             or meta.size > MAX_STORE_BYTES
             or store.size() > MAX_STORED_BUCKETS
         )
     ):
-        # Unreadable, too old, or grown past its cap: start over rather than trust what it claims.
+        # Unreadable, too old, older than a deletion, or grown past its cap: start over rather than trust it.
         reset, meta = True, None
 
     served: Optional[Span] = None

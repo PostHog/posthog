@@ -98,6 +98,7 @@ class TestAssembleBuckets(SimpleTestCase):
         now: datetime,
         limit: int = 10_000,
         row_cap: int | None = None,
+        deleted_through: datetime | None = None,
     ):
         grid = BucketGrid(unit=events.unit, size=1, tz=events.tz)  # type: ignore[arg-type]
         return assemble(
@@ -110,6 +111,7 @@ class TestAssembleBuckets(SimpleTestCase):
             fetch=events.fetch,
             limit=limit,
             row_cap=row_cap,
+            deleted_through=deleted_through,
         )
 
     @parameterized.expand(
@@ -206,6 +208,24 @@ class TestAssembleBuckets(SimpleTestCase):
             self.assertEqual(tracker.get_total_size(), one_store)
         finally:
             tracker.purge()
+
+    def test_a_deletion_verified_after_a_store_was_born_starts_it_over(self) -> None:
+        tz = ZoneInfo("UTC")
+        events = _Events("hour", tz)
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        events.timestamps = [start + timedelta(minutes=13 * i) for i in range(2000)]
+        now = start + timedelta(days=14)
+        store = self._store()
+        self._run(events, store, start, now, now)
+        # The deletion removes an event inside a stored bucket, then is verified.
+        deleted = events.timestamps.pop(100)
+        later = now + timedelta(minutes=5)
+
+        answer = self._run(events, store, start, later, later, deleted_through=now + timedelta(minutes=1))
+
+        self.assertEqual(answer.stored_buckets, 0)
+        self.assertEqual(_answer_json(answer.rows), _as_json(events.whole(start, later)))
+        self.assertLess(deleted, now - EVENTS_SETTLE)
 
     def test_a_warm_range_decodes_stored_buckets_only_up_to_its_row_limit(self) -> None:
         tz = ZoneInfo("UTC")
