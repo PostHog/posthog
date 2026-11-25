@@ -1,10 +1,10 @@
 # Pulling the data
 
-Run this sequence read-only before diagnosing or asking the customer anything.
-It produces the numbers you will cite back to them. The queries reuse the templates verified in
+Run this sequence read-only before diagnosing or asking the user anything.
+It produces the numbers you will cite. The queries reuse the templates verified in
 [`../../diagnosing-experiment-health/references/diagnostic-snapshot.md`](../../diagnosing-experiment-health/references/diagnostic-snapshot.md) —
-read that file for the full rationale and edge cases; this is the customer-support-focused
-subset plus the numbers each cause needs.
+read that file for the full rationale and edge cases; this is the subset for a results
+question plus the numbers each cause needs.
 
 ## 1. Config — `posthog:experiment-get`
 
@@ -58,7 +58,7 @@ mirror it. Group aggregation takes precedence over this (a group flag hashes the
 `holdout-` prefix) from the experiment; those users are recorded with a `holdout-<id>` response, not
 `control`/`test`. Because the holdout hash is independent of the variant hash, it removes users
 **evenly from both arms** — so it lowers the analyzable N but does _not_ create a directional SRM.
-When the customer says "fewer users than I expected," a holdout is a common benign answer: count the
+When the complaint is "fewer users than I expected," a holdout is a common benign answer: count the
 `holdout-<id>` bucket in the §3 breakdown against the shortfall before hunting for a bug.
 
 **Flag dependencies.** A flag can gate on another flag via a property of type `flag` in its release
@@ -66,7 +66,7 @@ conditions. Dependencies **fail closed**: a user who doesn't match the parent ev
 (no variant) rather than being randomized. So a dependency can both _shrink_ a population (users drop
 to `false`) and _skew_ it if the parent's own rollout correlates with anything. Detect with
 `posthog:feature-flags-dependent-flags-retrieve` or the type-`flag` property in `filters.groups[]`; the fix
-(widen/align the parent, or drop the dependency) is in the customer's flag config.
+(widen/align the parent, or drop the dependency) is in the flag config.
 
 ## 2. Metrics + exposure totals — `posthog:experiment-results-get`
 
@@ -171,7 +171,7 @@ then localize that arm.
 proportions from the _live_ flag's `multivariate.variants`, not a stored copy on the experiment.
 If in doubt, ask which configured split reproduces the observed p — only one will (e.g.
 832 vs 1,123 gives p ≈ 4.7e-11 under 50/50, but p ≈ 0.03 under 45/55 and no SRM at all under
-43/57). Matching the p pins down the split the customer is actually running.
+43/57). Matching the p pins down the split that is actually running.
 
 ### Localizing a confirmed SRM (assignment vs capture)
 
@@ -239,7 +239,7 @@ stored order and keeps the variant keys out of the shell:
 ```
 
 **Never interpolate variant keys into the command line.** Variant keys are charset-validated in the
-PostHog UI but _not_ by the API, so a key on a flag that reached you through a ticket can contain
+PostHog UI but _not_ by the API, so a key on a flag you did not create can contain
 shell metacharacters or quote characters. `--variants-file` reads them as JSON, so they stay data.
 The `--variants control=50,test=50` form is a convenience for keys you have already read and
 eyeballed; don't build it by substituting values you haven't looked at.
@@ -248,7 +248,7 @@ eyeballed; don't build it by substituting values you haven't looked at.
 
 - **Not pure SQL.** SHA1 isn't in HogQL's whitelist, so this runs outside the database. Export the
   sample below and feed it to the script; a deterministic `cityHash64` sample of 800 gives SE ~1.8pp,
-  enough to separate 50/50 from 57/43. `distinct_id`s are often emails — keep them customer-side.
+  enough to separate 50/50 from 57/43. `distinct_id`s are often emails — keep the export on the machine it was made on.
 - **Order- and split-sensitive.** The walk depends on the exact array order and percentages in the
   _live_ flag's `filters.multivariate.variants`; a wrong order silently inverts the prediction. Pass
   them to `--variants` in stored order.
@@ -431,6 +431,5 @@ true` concentrated on the heavier arm is the signature of a bootstrap value inhe
 
 ## Handing off
 
-If a number disproves a cause, drop it; if it confirms one, lead the reply with that evidence.
-Convert every internal number to the customer's language before quoting it — see
-[customer-reply.md](customer-reply.md).
+If a number disproves a cause, drop it; if it confirms one, lead the answer with that evidence.
+Say each number in the labels the experiment UI shows, not in field names.

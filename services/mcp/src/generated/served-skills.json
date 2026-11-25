@@ -121,6 +121,9 @@
         "creating-surveys": {
             "audience": "customer"
         },
+        "debugging-experiments": {
+            "audience": "customer"
+        },
         "debugging-failed-data-quality-checks": {
             "audience": "customer"
         },
