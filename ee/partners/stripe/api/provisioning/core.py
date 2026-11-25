@@ -207,14 +207,6 @@ class ProjectCreationRefusedError(Exception):
 
 
 def _assert_user_can_create_project(user: User, organization: Organization) -> None:
-    # Stripe created this organization to hold the projects it provisions, so its admin-only
-    # setting does not stop the Stripe flow from adding one. Organizations other partners
-    # created get no exemption, because this API serves only the Stripe OAuth application.
-    if OrganizationProvisioning.objects.filter(
-        organization=organization, partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS
-    ).exists():
-        return
-
     membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
     if membership is None or not membership_can_create_projects(organization, membership.effective_level):
         raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)

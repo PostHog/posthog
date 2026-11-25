@@ -116,7 +116,7 @@ class TestResources(StripeProvisioningTestBase):
                 OrganizationMembership.Level.MEMBER,
                 False,
                 OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-                200,
+                403,
             ),
             (
                 "member_of_an_organization_another_partner_created",

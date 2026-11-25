@@ -247,7 +247,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
                 OrganizationMembership.Level.MEMBER,
                 False,
                 OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-                None,
+                "forbidden",
             ),
             (
                 "member_of_an_organization_another_partner_created",
