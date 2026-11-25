@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import TypeVar
 
 from django.db import connection, transaction
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -43,9 +44,13 @@ def erase_recipient(team_id: int, identifier: str, confirm_complaints: bool) -> 
         suppressions = MessageSuppression.objects.for_team(team_id)
         locked = lock_confirming_complaints(suppressions.filter(identifier=address.lower()), confirm_complaints)
         suppressions_deleted, _ = suppressions.filter(id__in=[row.id for row in locked]).delete()
-        preferences_deleted, _ = MessageRecipientPreference.objects.filter(
-            team_id=team_id, identifier__iexact=address
-        ).delete()
+        # Stored identifiers can carry case variants and surrounding whitespace of the same address.
+        preferences_deleted, _ = (
+            MessageRecipientPreference.objects.filter(team_id=team_id)
+            .annotate(normalized_identifier=Lower(Trim("identifier")))
+            .filter(normalized_identifier=address.lower())
+            .delete()
+        )
         MessageRecipientErasure.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             identifier_hash=_identifier_hash(team_id, address),

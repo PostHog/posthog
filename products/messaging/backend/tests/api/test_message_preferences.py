@@ -1210,7 +1210,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
     def test_erase_recipient_deletes_the_address_in_any_case(self):
-        for identifier in ("Erased@Example.com", "erased@example.com", "kept@example.com"):
+        for identifier in ("Erased@Example.com", "erased@example.com", " erased@example.com ", "kept@example.com"):
             MessageRecipientPreference.objects.create(
                 team=self.team,
                 identifier=identifier,
@@ -1226,7 +1226,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         repeat = self._erase_recipient({"identifier": "erased@example.com"})
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"preferences_deleted": 2, "suppressions_deleted": 1})
+        self.assertEqual(first.json(), {"preferences_deleted": 3, "suppressions_deleted": 1})
         self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
         self.assertEqual(
             sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),
