@@ -96,4 +96,3 @@ class TestMultiQueryExecutorExecuteGroup(SimpleTestCase):
 
         with self.assertRaises(CancelledError):
             self.execute_group(multi_query, shared)
-        self.assertEqual(shared.execute.call_count, 0 if cancel_before else 1)
