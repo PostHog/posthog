@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     FanoutEndpointLike,
     PageNumberPaginator,
     Resource,
+    ResponseAction,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -204,6 +205,24 @@ _PAYMENT_REQUIRED_MESSAGE = (
 )
 
 
+MISSING_PERMISSION_SYNC_MESSAGE = (
+    "Your ElevenLabs API key is missing the read permissions needed to sync this data. Grant the "
+    "required read scopes in your ElevenLabs account settings, then reconnect."
+)
+
+# ElevenLabs answers a valid key that lacks a scope with a 401, not only a 403. Without this action
+# that 401 falls through to `raise_for_status` and reads as an invalid key.
+_MISSING_PERMISSION_ACTIONS: list[ResponseAction] = [
+    {
+        "status_code": 401,
+        "json_field": "detail.status",
+        "json_values": ["missing_permissions"],
+        "action": "raise",
+        "message": MISSING_PERMISSION_SYNC_MESSAGE,
+    }
+]
+
+
 def _is_missing_permission(response: Response) -> bool:
     try:
         detail = response.json().get("detail")
@@ -220,8 +239,8 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
 
     At source-create (`schema_name=None`) a missing scope is accepted: users may grant only the scopes
     for the endpoints they want, so a missing scope must not block connecting. When probing a specific
-    schema it is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately
-    by `get_non_retryable_errors`.
+    schema it is a genuine per-table scope error and is surfaced. Sync-time 403s and missing-permission
+    401s are handled separately by `get_non_retryable_errors`.
 
     Any other status (429, 5xx, or an unexpected code) means the key was never actually verified, so
     validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
@@ -314,8 +333,13 @@ def elevenlabs_source(
                 parent_endpoint_extra={
                     "paginator": _paginator(parent_config),
                     "data_selector": parent_config.items_key,
+                    "response_actions": _MISSING_PERMISSION_ACTIONS,
                 },
-                child_endpoint_extra={"paginator": _paginator(config), "data_selector": config.items_key},
+                child_endpoint_extra={
+                    "paginator": _paginator(config),
+                    "data_selector": config.items_key,
+                    "response_actions": _MISSING_PERMISSION_ACTIONS,
+                },
                 child_params_extra=params,
                 page_size_param=config.page_size_param,
             ),
@@ -341,6 +365,7 @@ def elevenlabs_source(
                     # Top-level array key; a 200 body missing it is a legit zero-row page (the old
                     # code yielded nothing rather than raising), so the selector is not required.
                     "data_selector": config.items_key,
+                    "response_actions": _MISSING_PERMISSION_ACTIONS,
                 },
             }
         ],

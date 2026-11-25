@@ -50,14 +50,16 @@ class TestValidateSandboxUrl:
             "rejected_no_host",
         ],
     )
-    def test_scheme_and_host_validation(self, url: str, expected_error: str | None):
+    @patch(
+        "products.tasks.backend.logic.services.agent_command.socket.getaddrinfo",
+        return_value=[(2, 1, 6, "", ("93.184.216.34", 443))],
+    )
+    def test_scheme_and_host_validation(self, _mock_getaddrinfo, url: str, expected_error: str | None):
+        result = validate_sandbox_url(url)
+
         if expected_error is None:
-            # We can't fully validate without DNS, but scheme+host parsing should pass
-            result = validate_sandbox_url(url)
-            # May fail on DNS but won't fail on scheme/host
-            assert result is None or "Cannot resolve" in result
+            assert result is None
         else:
-            result = validate_sandbox_url(url)
             assert result is not None
             assert expected_error in result
 

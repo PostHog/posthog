@@ -264,3 +264,16 @@ When the file is invalid, every command stops except `hog config check`, which l
 
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls a schema, so it drops hog's settings.
 Run only hog's `schema pull` once a project uses hog settings.
+
+## Where hog writes
+
+posthog-cli writes and deletes files wherever a repository's files point it.
+hog keeps those writes inside the project:
+
+- `schema pull` refuses an `output_path` in `posthog.json` outside the project, and any module path inside the repository that links out of it. A module outside the repository, such as `../web/typed.ts`, needs `--file` on each run.
+- hog won't write a `posthog.json` that links out of its folder.
+- `endpoints pull` writes only inside the endpoints folder, and leaves alone a file there that links somewhere else. `endpoints.dir` in `posthog.json` must be inside the project.
+- `error-tracking` commands refuse a folder in `errorTracking.sources` that resolves outside the project, through `..`, an absolute path or a link.
+- `error-tracking` commands skip a bundle whose sourcemap is outside the selected paths, and never open that map, so they don't read, rewrite, upload or delete it. Pass the folder that holds the maps too.
+
+A path you pass with `--file`, a file you name with `--to`, or a folder you pass to an `error-tracking` command can be anywhere.

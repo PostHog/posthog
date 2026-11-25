@@ -4,23 +4,24 @@ from typing import TYPE_CHECKING, Literal
 
 from posthog.hogql.database.database import Database
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
 from . import posthog_tables
+from .access import can_access
 from .subject_access import DenialContext, ReadableSubjects, denial_context
 
 if TYPE_CHECKING:
-    from posthog.scopes.catalog import APIScopeObject
-
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-_SUBJECT_RESOURCES: dict[SubjectType, "APIScopeObject"] = {
-    SubjectType.TABLE: "warehouse_table",
-    SubjectType.VIEW: "warehouse_view",
-    SubjectType.METRIC: "data_catalog",
-    SubjectType.POSTHOG_TABLE: posthog_tables.RESOURCE,
+_SUBJECT_RESOURCES: dict[SubjectType, ResourceType] = {
+    SubjectType.TABLE: ResourceType.WAREHOUSE_TABLE,
+    SubjectType.VIEW: ResourceType.WAREHOUSE_VIEW,
+    SubjectType.METRIC: ResourceType.DATA_CATALOG,
+    SubjectType.POSTHOG_TABLE: ResourceType(posthog_tables.RESOURCE),
 }
 _WAREHOUSE_FAMILY_SCOPE = "warehouse_objects"
 
@@ -32,11 +33,13 @@ def authorized_subject_types(
     write: bool = False,
 ) -> frozenset[SubjectType]:
     level: Literal["editor", "viewer"] = "editor" if write else "viewer"
-    return frozenset(
-        kind
-        for kind, resource in _SUBJECT_RESOURCES.items()
-        if _scope_reaches(scopes, kind, resource, write) and _has_subject_access(access, kind, level)
-    )
+    # One session for every kind, so a caller outside a request loads its user once.
+    with authorization.authorization_session():
+        return frozenset(
+            kind
+            for kind, resource in _SUBJECT_RESOURCES.items()
+            if _scope_reaches(scopes, kind, resource, write) and _has_subject_access(access, kind, level)
+        )
 
 
 def _scope_reaches(scopes: Collection[str] | None, kind: SubjectType, resource: str, write: bool) -> bool:
@@ -46,7 +49,7 @@ def _scope_reaches(scopes: Collection[str] | None, kind: SubjectType, resource: 
 
 
 def _has_subject_access(access: "UserAccessControl", kind: SubjectType, level: Literal["editor", "viewer"]) -> bool:
-    if access.check_access_level_for_resource(_SUBJECT_RESOURCES[kind], level):
+    if can_access(access, _SUBJECT_RESOURCES[kind], Action.EDIT if level == "editor" else Action.VIEW):
         return True
     if access.team is None or kind in (SubjectType.METRIC, SubjectType.POSTHOG_TABLE):
         return False
@@ -73,10 +76,10 @@ def writable_subjects(
         view_ids=context.readable.view_ids
         & data_modeling_facade.allowed_saved_query_ids(access.team.id, access, required_level="editor"),
         metric_ids=context.readable.metric_ids
-        if access.check_access_level_for_resource("data_catalog", "editor")
+        if can_access(access, ResourceType.DATA_CATALOG, Action.EDIT)
         else frozenset(),
         posthog_table_ids=context.readable.posthog_table_ids
-        if access.check_access_level_for_resource(posthog_tables.RESOURCE, "editor")
+        if can_access(access, ResourceType(posthog_tables.RESOURCE), Action.EDIT)
         else frozenset(),
     )
 

@@ -10,9 +10,11 @@ import {
 import path from 'path'
 
 import {
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+    KAFKA_INGESTION_WARNINGS,
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper, MessageWithoutTopic } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -69,6 +71,8 @@ interface KafkaOutputEvent {
     team_id: number
 }
 
+type PipelineOutputRow = Record<string, unknown>
+
 type TopicWatermarks = { partition: number; offsets: WatermarkOffsets }[]
 
 // Per-test isolation state. Each test produces to a unique input topic and reads only the
@@ -95,6 +99,8 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         outputTopicStartWatermarks = await captureTopicStartWatermarks([
             KAFKA_EVENTS_JSON,
             KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+            KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+            KAFKA_INGESTION_WARNINGS,
         ])
     })
 
@@ -159,6 +165,55 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             await producer.disconnect()
         }
     })
+
+    test.each([
+        {
+            pipeline: 'heatmaps',
+            eventName: '$$heatmap',
+            properties: {
+                $session_id: 'session-1',
+                $viewport_width: 1024,
+                $viewport_height: 768,
+                $current_url: 'http://localhost:3000/',
+                $heatmap_data: {
+                    'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
+                },
+            },
+            outputTopic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+            distinctIdOf: (row: PipelineOutputRow) => String(row.distinct_id),
+        },
+        {
+            pipeline: 'clientwarnings',
+            eventName: '$$client_ingestion_warning',
+            properties: { $$client_ingestion_warning_message: 'something broke' },
+            outputTopic: KAFKA_INGESTION_WARNINGS,
+            distinctIdOf: (row: PipelineOutputRow) =>
+                (parseJSON(String(row.details)) as { distinctId: string }).distinctId,
+        },
+    ])(
+        'Rust consumer ingests $eventName events through Node workers that run the $pipeline pipeline',
+        async ({ pipeline, eventName, properties, outputTopic, distinctIdOf }) => {
+            const workers = await startNodeWorkerSet(services, { INGESTION_PIPELINE: pipeline })
+            const producer = await KafkaProducerWrapper.create(undefined)
+            const team = { ...DEFAULT_TEAM, id: TEST_TEAM_ID, api_token: TEST_TEAM_TOKEN }
+            const events = createDistinctIds(4).map((distinctId) =>
+                new EventBuilder(team, distinctId).withEvent(eventName).withProperties(properties).build()
+            )
+
+            try {
+                await produceEvents(producer, events)
+                const { groupId } = await startRustConsumerForWorkers(services, workers)
+
+                const rows = (await readTopicMessages(outputTopic, events.length)).map((message) =>
+                    parseKafkaOutput<PipelineOutputRow>(message)
+                )
+                expect(rows.map(distinctIdOf).sort()).toEqual(events.map((event) => event.distinct_id).sort())
+                await expectCommittedOffsetsAtTopicEnd(groupId, currentIngestionTopic, events.length)
+            } finally {
+                await producer.disconnect()
+            }
+        }
+    )
 
     test('Rust consumer commits a mixed batch after Node DLQs an invalid event', async () => {
         const workers = await startNodeWorkerSet(services)
@@ -362,16 +417,19 @@ function configureParentTestEnv(): void {
     process.env.REDIS_URL = 'redis://127.0.0.1'
 }
 
-async function startNodeIngestionApiWorkers(count: number): Promise<NodeWorker[]> {
+async function startNodeIngestionApiWorkers(count: number, extraEnv: Record<string, string>): Promise<NodeWorker[]> {
     const workers: NodeWorker[] = []
     for (let i = 0; i < count; i++) {
-        workers.push(await startNodeIngestionApiWorker(`node-worker-${i + 1}`))
+        workers.push(await startNodeIngestionApiWorker(`node-worker-${i + 1}`, undefined, extraEnv))
     }
     return workers
 }
 
-async function startNodeWorkerSet(services: ServiceProcess[]): Promise<NodeWorker[]> {
-    const workers = await startNodeIngestionApiWorkers(NODE_WORKER_COUNT)
+async function startNodeWorkerSet(
+    services: ServiceProcess[],
+    extraEnv: Record<string, string> = {}
+): Promise<NodeWorker[]> {
+    const workers = await startNodeIngestionApiWorkers(NODE_WORKER_COUNT, extraEnv)
     services.push(...workers.map((worker) => worker.service))
     return workers
 }
@@ -409,14 +467,18 @@ async function startRustNodeStack(
 // released before the next test allocates.
 const workerPortsInUse: number[] = []
 
-async function startNodeIngestionApiWorker(name: string, port?: number): Promise<NodeWorker> {
+async function startNodeIngestionApiWorker(
+    name: string,
+    port?: number,
+    extraEnv: Record<string, string> = {}
+): Promise<NodeWorker> {
     // A free-port check is a snapshot: another socket can take the port before the
     // worker binds it. Unpinned starts retry with a fresh pair; pinned restarts wait
     // for the previous holder to let go (see restartNodeIngestionApiWorker).
     for (let attempt = 1; ; attempt++) {
         const workerPort = port ?? (await getFreeWorkerPort(GRPC_PORT_OFFSET))
         try {
-            return await spawnNodeIngestionApiWorker(name, workerPort)
+            return await spawnNodeIngestionApiWorker(name, workerPort, extraEnv)
         } catch (error) {
             const addressInUse = error instanceof Error && error.message.includes('EADDRINUSE')
             if (port !== undefined || !addressInUse || attempt >= 3) {
@@ -426,7 +488,11 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
     }
 }
 
-async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Promise<NodeWorker> {
+async function spawnNodeIngestionApiWorker(
+    name: string,
+    workerPort: number,
+    extraEnv: Record<string, string>
+): Promise<NodeWorker> {
     const service = new ServiceProcess(name, 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
         cwd: NODEJS_ROOT,
         env: {
@@ -443,6 +509,7 @@ async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Pr
             INGESTION_WORKER_CONCURRENT_BATCHES: '1',
             PROPERTY_DEFS_WRITE_DISABLED: 'true',
             PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: '',
+            ...extraEnv,
         },
     })
 
@@ -907,7 +974,7 @@ function sumCommittedOffsets(
 }
 
 function expectKafkaOutputEvents(messages: Message[], expectedEvents: TestEvent[]): void {
-    const outputEvents = messages.map(parseKafkaOutputEvent)
+    const outputEvents = messages.map((message) => parseKafkaOutput<KafkaOutputEvent>(message))
     expect(outputEvents.map((event) => event.uuid).sort()).toEqual(expectedEvents.map((event) => event.uuid).sort())
 
     for (const distinctId of new Set(expectedEvents.map((event) => event.distinct_id))) {
@@ -935,12 +1002,12 @@ function expectDlqMessage(message: Message, expected: { topic: string; event: st
     expect(dlqHeaders.dlq_reason).toBeTruthy()
 }
 
-function parseKafkaOutputEvent(message: Message): KafkaOutputEvent {
+function parseKafkaOutput<T>(message: Message): T {
     if (!message.value) {
         throw new Error(`Kafka output message at ${message.topic}:${message.partition}:${message.offset} had no value`)
     }
 
-    return parseJSON(message.value.toString()) as KafkaOutputEvent
+    return parseJSON(message.value.toString()) as T
 }
 
 async function waitForRoutedMetrics(

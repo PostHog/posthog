@@ -47,6 +47,14 @@ runs:
               NPM_CONFIG_AUDIT: 'false'
               NPM_CONFIG_FUND: 'false'
 
+        - name: Turn off build tool telemetry
+          shell: bash
+          run: |
+              {
+                  echo "TURBO_TELEMETRY_DISABLED=1"
+                  echo "NEXT_TELEMETRY_DISABLED=1"
+              } >> "$GITHUB_ENV"
+
         - name: Fix node-gyp permissions
           shell: bash
           # Depot CI's restored pnpm store can land node-gyp's gyp_main.py without +x.

@@ -169,6 +169,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
 from products.signals.backend.personal_ranking.list_sort import (
@@ -446,6 +447,7 @@ from products.signals.backend.throttles import (
     report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.transition_credit import TransitionCredit, resolve_transition_credit
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
@@ -771,8 +773,10 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description=(
             "Check a filter expression before saving it, and see what it does to the source's records created in the "
             "last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission "
-            "would read, with the source's saved team allowlist, and runs with your own warehouse access. Records "
-            "that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI."
+            "would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your "
+            "own warehouse access. Leaves out records that never become signals, such as Linear issues without a "
+            "description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing "
+            "and calls no AI."
         ),
     )
     @action(
@@ -791,6 +795,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source_product=request.validated_data["source_product"],
                 source_type=request.validated_data["source_type"],
                 expression=request.validated_data["expression"],
+                scope_ids=request.validated_data.get("scope_ids"),
             )
         except FilterValidationError as error:
             raise serializers.ValidationError({"source_type": str(error)})
@@ -3046,12 +3051,7 @@ class SignalReportViewSet(
             personal_threshold = (
                 SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
             )
-            project_threshold = (
-                SignalTeamConfig.objects.filter(team=self.team)
-                .values_list("default_autostart_priority", flat=True)
-                .first()
-                or AutonomyPriority.P4
-            )
+            project_threshold = effective_autostart_priority(SignalTeamConfig.objects.filter(team=self.team).first())
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
             return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
@@ -5308,6 +5308,18 @@ class SignalReportViewSet(
             self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
         return self._cached_request_attribution
 
+    def _request_credit(self) -> TransitionCredit | None:
+        """The person this request's transitions name, resolved once and reused like `_request_attribution`."""
+        if not hasattr(self, "_cached_request_credit"):
+            user = self.request.user
+            self._cached_request_credit = resolve_transition_credit(
+                self._request_attribution(),
+                None,
+                team_id=self.team.id,
+                actor_user=user if isinstance(user, User) else None,
+            )
+        return self._cached_request_credit
+
     def _latest_selected_repository(self, report_id: str) -> str | None:
         """The repository named by the report's latest repo_selection artefact, if any."""
         artefact = (
@@ -5543,6 +5555,7 @@ class SignalReportViewSet(
                         monitoring_started_at=timezone.now(),
                         attribution=self._request_attribution(),
                         actor_user=self.request.user if isinstance(self.request.user, User) else None,
+                        credit=self._request_credit(),
                         close_pr_on_resolve=True,
                     )
                 except (InvalidStatusTransition, ValueError):
@@ -5614,7 +5627,8 @@ class SignalReportViewSet(
                 # on the linked pull request and tracker issue. An external agent keeps its user
                 # principal, so it names the person who ran it rather than nobody.
                 report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
-                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
+                report._transition_credit = self._request_credit()  # type: ignore[attr-defined]
+                report._transition_credit_resolved = True  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 

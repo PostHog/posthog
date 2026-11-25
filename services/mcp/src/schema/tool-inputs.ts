@@ -7,6 +7,10 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import {
+    IntegrationsDomainConnectApplyUrlCreateBody,
+    IntegrationsEmailPartialUpdateBody,
+} from '../generated/integrations/api'
 import { HogFlowsActionsEmailPartialUpdateBody } from '../generated/workflows/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
@@ -168,6 +172,21 @@ export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+
+const EmailSenderConfigFields = IntegrationsEmailPartialUpdateBody().shape.config.unwrap()
+
+export const EmailSenderConfigSchema = EmailSenderConfigFields.omit({ setup_method: true })
+    .extend({
+        email: z.string().describe(EmailSenderConfigFields.shape.email.description!),
+        reply_to: z.string().optional().describe(EmailSenderConfigFields.shape.reply_to.description!),
+        provider: z.literal('ses').default('ses').describe('Sending provider. Always `ses`.'),
+    })
+    .describe('Email sender config.')
+
+export const DomainConnectSenderIdSchema = IntegrationsDomainConnectApplyUrlCreateBody()
+    .shape.integration_id.unwrap()
+    .unwrap()
+    .describe('ID of the email sender integration, the `id` from integrations-email-create or integrations-list.')
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
@@ -1236,7 +1255,7 @@ export const ExecuteSQLSchema = z.object({
         .optional()
         .default(true)
         .describe(
-            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+            'Whether to shorten long values and cap the result at a preview. Defaults to true. Set to false when you need every row and full values (e.g., for dumping to a file).'
         ),
     connectionId: z
         .string()

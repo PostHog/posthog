@@ -13,7 +13,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
@@ -138,9 +138,18 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         results = self._map_results(columns, query_result.results, sentiment_lookup)
 
+        has_more = None
+        events_limit = self.query.eventsLimit
+        if events_limit is not None:
+            # The query keeps one event past the limit, so a trace that still has it has more events.
+            has_more = any(len(trace.events) > events_limit for trace in results)
+            for trace in results:
+                trace.events = trace.events[:events_limit]
+
         return TraceQueryResponse(
             columns=columns,
             results=results,
+            hasMore=has_more,
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
@@ -269,7 +278,31 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             LIMIT 1
             """,
         )
-        return cast(ast.SelectQuery, query)
+        query = cast(ast.SelectQuery, query)
+        if self.query.eventsLimit is not None:
+            self._keep_earliest_events(query, self.query.eventsLimit + 1)
+        return query
+
+    @staticmethod
+    def _keep_earliest_events(query: ast.SelectQuery, take: int) -> None:
+        # The sort key leads with timestamp so the content columns are not compared.
+        # The inner tuple has the same shape as the unlimited one, so _map_event reads both.
+        events = next(item for item in query.select if isinstance(item, ast.Alias) and item.alias == "events")
+        events.expr = parse_expr(
+            """
+            arrayMap(
+                x -> x.3,
+                groupArraySortedIf({take})(
+                    tuple(deduped.timestamp, deduped.uuid,
+                          tuple(deduped.uuid, deduped.event, deduped.timestamp, deduped.properties,
+                                deduped.input, deduped.output, deduped.output_choices,
+                                deduped.input_state, deduped.output_state, deduped.tools)),
+                    deduped.event != '$ai_trace'
+                )
+            )
+            """,
+            placeholders={"take": ast.Constant(value=take)},
+        )
 
     def get_cache_payload(self) -> dict[str, Any]:
         payload = {

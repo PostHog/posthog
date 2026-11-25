@@ -36,7 +36,7 @@ def _answer(items: list[dict]) -> MagicMock:
 class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patcher = patch("products.aeo.backend.presentation.views.posthog_feature_flag_enabled", return_value=True)
+        flag_patcher = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
         self.organization.is_ai_data_processing_approved = True

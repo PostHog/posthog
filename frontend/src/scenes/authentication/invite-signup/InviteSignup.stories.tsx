@@ -40,7 +40,10 @@ const meta: Meta<StoryArgs> = {
                         organization_name: 'Acme Corp',
                     },
                 ],
-                '/api/signup/not-found/': () => [404, { detail: 'Invite not found or already used.' }],
+                '/api/signup/not-found/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', detail: 'The provided invite ID is not valid.' },
+                ],
             },
             post: {
                 '/api/signup': async () => {
