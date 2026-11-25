@@ -51,6 +51,10 @@ class ExposureCounts:
     in_condition: Mapping[ConditionMatch, ConditionExposure] = field(default_factory=dict)
 
 
+def exposure_share(counts: ExposureCounts) -> float:
+    return counts.exposed / counts.with_flag if counts.with_flag else 0.0
+
+
 @frozen
 class ExposureBucket:
     start: datetime

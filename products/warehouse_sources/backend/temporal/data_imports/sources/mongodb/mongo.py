@@ -4,13 +4,14 @@ import re
 import math
 import uuid
 import base64
+import socket
 import datetime
 import contextlib
 import collections
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 import certifi
 import structlog
@@ -20,16 +21,27 @@ from bson.code import Code
 from bson.codec_options import DatetimeConversion
 from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, pool_shared
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.monitoring import (
+    ServerHeartbeatFailedEvent,
+    ServerHeartbeatListener,
+    ServerHeartbeatStartedEvent,
+    ServerHeartbeatSucceededEvent,
+)
+from pymongo.pool_options import PoolOptions
 from pymongo.server_description import ServerDescription
+from pymongo.uri_parser import parse_uri
+from pymongo.uri_parser_shared import _validate_uri, split_options
 from structlog.types import FilteringBoundLogger
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -42,7 +54,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
     HostNotAllowedError,
+    TemporaryHostResolutionError,
     _is_host_safe,
+    _single_host_error,
+    check_oob_domain,
+    check_resolved_addresses,
     log_connection_open,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -305,6 +321,94 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
 _UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
 
 
+class _OutboundHostPolicy(ServerHeartbeatListener):
+    """Carries a client's team to `_create_checked_connection`.
+
+    pymongo gives the client's event listeners to the connection pools of its monitors and of its
+    operations, so every socket the client opens can find the team here. A heartbeat listener is
+    used because pymongo publishes those events directly. A server or topology listener makes the
+    client queue one event per seed in a 100-entry queue, and a larger SRV answer blocks the
+    client's construction.
+    """
+
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+
+    def started(self, event: ServerHeartbeatStartedEvent) -> None:
+        pass
+
+    def succeeded(self, event: ServerHeartbeatSucceededEvent) -> None:
+        pass
+
+    def failed(self, event: ServerHeartbeatFailedEvent) -> None:
+        pass
+
+
+def _refuse_oob_domain(host: str, team_id: int) -> None:
+    # A lookup of an out-of-band interaction domain already reaches whoever runs it, so this runs
+    # before any DNS lookup of the host.
+    if check_oob_domain(host, team_id) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
+    # The domain matcher skips a name that holds "/" or "@", and pymongo decodes those from %2F and
+    # %40 and still looks the name up, so refuse a name that is not one plain host first.
+    if is_cloud() and (malformed_host_error := _single_host_error(host)) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {malformed_host_error}")
+
+
+_pymongo_create_connection = pool_shared._create_connection
+
+
+def _create_checked_connection(address: tuple[str, int | None], options: PoolOptions) -> socket.socket:
+    """Open a socket for a client of this source only to an address the outbound policy allows.
+
+    pymongo resolves the host again for every socket, from its monitors and from its operations,
+    and calls a custom server selector for neither a Single nor a LoadBalanced topology. A check
+    made once on the name can therefore approve one answer while the socket connects to another.
+    This resolves the host once, checks every answer, and dials only those addresses. The socket
+    is then wrapped in TLS against the original hostname, because pymongo does that with the
+    address it passed in.
+    """
+    listeners = options._event_listeners.event_listeners() if options._event_listeners else []
+    policy = next((listener for listener in listeners if isinstance(listener, _OutboundHostPolicy)), None)
+    if policy is None:
+        return _pymongo_create_connection(address, options)
+
+    host, port = address
+    _refuse_oob_domain(host, policy.team_id)
+    is_unix_socket = host.endswith(".sock")
+    # The policy checks the bare address. A link-local IPv6 address only routes through the
+    # interface that getaddrinfo returns beside it, so the dial target keeps that scope.
+    dial_targets: dict[str, str] = {}
+    if not is_unix_socket:
+        family = socket.AF_UNSPEC if socket.has_ipv6 and host != "localhost" else socket.AF_INET
+        for *_, sockaddr in socket.getaddrinfo(host, port, family=family, type=socket.SOCK_STREAM):
+            checked_address = str(sockaddr[0])
+            scope_id = sockaddr[3] if len(sockaddr) == 4 else 0
+            dial_targets.setdefault(checked_address, f"{checked_address}%{scope_id}" if scope_id else checked_address)
+
+    resolution = check_resolved_addresses(host, list(dial_targets), policy.team_id, port=port)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(
+            f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
+        )
+    if is_unix_socket:
+        return _pymongo_create_connection(address, options)
+
+    error: OSError | None = None
+    for checked_address in resolution.addresses:
+        try:
+            return _pymongo_create_connection((dial_targets.get(checked_address, checked_address), port), options)
+        except OSError as e:
+            error = e
+    raise error or OSError(f"{host}: no address to connect to")
+
+
+# pymongo has no supported hook on the path that opens a socket. Both its monitor pools and its
+# operation pools call `pool_shared._create_connection` by name, so this replaces it there.
+# `_OutboundHostPolicy` limits the check to clients of this source.
+pool_shared._create_connection = _create_checked_connection  # ty: ignore[invalid-assignment]
+
+
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
@@ -359,20 +463,92 @@ _UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
 UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
 
 
+# Only mechanisms that sign in with the username and password in the string are allowed. The
+# other mechanisms (MONGODB-OIDC, MONGODB-AWS, MONGODB-X509, GSSAPI) get their credential from the
+# host that runs the client, which is our pod and not the customer's machine, and send it to the
+# server the string names. `authMechanismProperties` only configures those mechanisms.
+_PASSWORD_AUTH_MECHANISMS = frozenset({"DEFAULT", "SCRAM-SHA-1", "SCRAM-SHA-256"})
+_AUTH_MECHANISM_OPTION = "authmechanism"
+_AUTH_MECHANISM_PROPERTIES_OPTION = "authmechanismproperties"
+UNSUPPORTED_AUTH_OPTION_ERROR = "Connection string sets an authentication mechanism PostHog does not support"
+
+
 class UnsupportedConnectionOptionError(ValueError):
     pass
 
 
+class UnsupportedAuthOptionError(UnsupportedConnectionOptionError):
+    pass
+
+
+def _option_tokens(connection_string: str) -> list[str]:
+    # pymongo splits a query that has no `&` or `;` on whitespace instead, so an option can sit
+    # after a space inside what `_options` returns as one option.
+    return re.split(r"[&;\s]", connection_string.partition("?")[2])
+
+
+def _sets_unsupported_auth_option(connection_string: str) -> bool:
+    # URI option names are case-insensitive and pymongo percent-decodes the values, so compare
+    # the decoded forms. A duplicated option counts on every occurrence, not only the one that wins.
+    for option in _option_tokens(connection_string):
+        key, _, value = option.partition("=")
+        key = unquote_plus(key).lower()
+        if key == _AUTH_MECHANISM_PROPERTIES_OPTION:
+            return True
+        if key == _AUTH_MECHANISM_OPTION and unquote_plus(value).upper() not in _PASSWORD_AUTH_MECHANISMS:
+            return True
+    # Check again with the parser `MongoClient` uses, so that a difference between the loop above
+    # and pymongo cannot let a mechanism through. The DNS TXT record of a mongodb+srv host cannot
+    # add either option, because pymongo accepts only authSource, replicaSet and loadBalanced there.
+    query = connection_string.partition("?")[2]
+    if not query:
+        return False
+    parsed = split_options(query, validate=False, warn=False, normalize=True)
+    if _AUTH_MECHANISM_PROPERTIES_OPTION in parsed:
+        return True
+    mechanism = parsed.get(_AUTH_MECHANISM_OPTION)
+    return mechanism is not None and str(mechanism).upper() not in _PASSWORD_AUTH_MECHANISMS
+
+
 def _checked_connection_string(connection_string: str) -> str:
-    """The string without `tlsCAFile`. Raises when it names a file that has no replacement."""
+    """The string without `tlsCAFile`. Raises when it names a file that has no replacement, or an
+    authentication mechanism other than a username and password."""
     options = _options(connection_string)
-    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS for option in options):
-        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
     kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
     if len(kept) == len(options):
-        return connection_string
-    base = connection_string.partition("?")[0]
-    return f"{base}?{'&'.join(kept)}" if kept else base
+        checked = connection_string
+    else:
+        base = connection_string.partition("?")[0]
+        checked = f"{base}?{'&'.join(kept)}" if kept else base
+    # Check the string `MongoClient` receives, not the input. Removing `tlsCAFile` can leave one
+    # option, which pymongo then splits on whitespace into several. A `tlsCAFile` still present was
+    # hidden behind whitespace, so the strip missed it and pymongo would open that path.
+    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS | {_CA_FILE_OPTION} for option in _option_tokens(checked)):
+        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
+    if _sets_unsupported_auth_option(checked):
+        raise UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR)
+    return checked
+
+
+def _check_single_seed(seeds: Sequence[tuple[str, Any]], team_id: int) -> None:
+    """Refuse a client whose only seed is a host the outbound policy forbids.
+
+    pymongo never calls a custom server selector for a Single or LoadBalanced topology, so
+    `_make_safe_server_selector` never sees those servers. Only a client with one seed can end up
+    in either topology: directConnection, loadBalanced (also from a DNS TXT record), or a lone
+    standalone server.
+    """
+    # `parse_uri` keeps a repeated host, while the client keeps one entry per host.
+    unique_seeds = set(seeds)
+    if len(unique_seeds) != 1:
+        return
+    host = next(iter(unique_seeds))[0]
+    is_safe, error = _is_host_safe(host, team_id)
+    if is_safe:
+        return
+    if (error or "").startswith(TEMPORARY_HOST_RESOLUTION_PREFIX):
+        raise TemporaryHostResolutionError(host)
+    raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}")
 
 
 @contextlib.contextmanager
@@ -387,6 +563,10 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         "tls": True,
         "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
+        "event_listeners": [_OutboundHostPolicy(team_id)],
+        # `connect=false` in the string would defer the SRV lookup to the first operation, and
+        # `_check_single_seed` would then check the SRV name instead of the hosts it resolves to.
+        "connect": True,
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
         # Subtype 3 stays as Binary under STANDARD and is handled in _convert_binary.
@@ -405,8 +585,19 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # substitutes U+FFFD for the bad bytes so the batch still decodes.
         "unicode_decode_error_handler": "replace",
     }
-    client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
+    checked_connection_string = _checked_connection_string(connection_string)
+    if checked_connection_string.startswith("mongodb+srv://"):
+        # pymongo's own parser, which makes no DNS lookup, gives the exact name it will resolve. A
+        # generic URL parser reads some strings differently, such as a `#` in the password.
+        srv_name = _validate_uri(checked_connection_string, validate=False, warn=True, normalize=False)["fqdn"]
+        _refuse_oob_domain(srv_name or "", team_id)
+    # The client's monitor dials the seed as soon as the client opens, so check before it exists.
+    # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
+    _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)
+    client: MongoClient = MongoClient(checked_connection_string, **kwargs)
     try:
+        # The client makes its own SRV lookup, which can answer with other hosts than the one above.
+        _check_single_seed(list(client.topology_description.server_descriptions()), team_id)
         yield client
     finally:
         client.close()

@@ -139,22 +139,38 @@ export const slotRequestOf = (batch: TransactionalEmailBatchRequest, recipient: 
 
 export const transactionalEmailBatchRequestsTotal = new Counter({
     name: 'cdp_transactional_email_batch_requests_total',
-    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod already ran its share of batches), batch_unavailable (the team is not on async intake), not_sealing (the pod does not seal transactional email state), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
+    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod, or the team on this pod, already ran its share of batches), batch_unavailable (the team is not on async intake), not_sealing (the pod does not seal transactional email state), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
     labelNames: ['outcome'],
 })
 
 export class BatchCapacity {
     private admitted = 0
+    private readonly admittedByTeam = new Map<number, number>()
+    private readonly maxRequestsPerTeam: number
 
-    constructor(private readonly maxRequests: number) {}
+    constructor(private readonly maxRequests: number) {
+        this.maxRequestsPerTeam = Math.max(1, Math.floor(maxRequests / 2))
+    }
 
-    admit(): (() => void) | null {
-        if (this.admitted >= this.maxRequests) {
+    admit(teamId: number): (() => void) | null {
+        const admittedForTeam = this.admittedByTeam.get(teamId) ?? 0
+        if (this.admitted >= this.maxRequests || admittedForTeam >= this.maxRequestsPerTeam) {
             return null
         }
         this.admitted++
+        this.admittedByTeam.set(teamId, admittedForTeam + 1)
         return () => {
             this.admitted--
+            this.releaseForTeam(teamId)
+        }
+    }
+
+    private releaseForTeam(teamId: number): void {
+        const left = (this.admittedByTeam.get(teamId) ?? 1) - 1
+        if (left > 0) {
+            this.admittedByTeam.set(teamId, left)
+        } else {
+            this.admittedByTeam.delete(teamId)
         }
     }
 }

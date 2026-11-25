@@ -23,7 +23,7 @@ const PACKAGES = {
     '@posthog/quill-components': 'components',
 }
 
-const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+export const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
 const INDEX_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*"([^"]+)";?$/
 const INDEX_EXPORT = /^export\s*\{([^}]*)\}(?:\s*from\s*"([^"]+)")?;?$/

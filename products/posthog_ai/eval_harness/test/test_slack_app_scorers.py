@@ -3,18 +3,27 @@ from __future__ import annotations
 from parameterized import parameterized
 
 from products.slack_app.evals.scorers import (
+    DAILY_SUMMARY_WRITE_KEY,
     FOLLOWUP_KEY,
     MESSAGE_SENTIMENT_KEY,
     MODEL_OVERRIDE_KEY,
+    WORK_FOCUS_KEEP_KEY,
     FollowupRoutingMatch,
     MessageSentimentMatch,
     ModelOverrideMatch,
+    NoHandedOffOffer,
     NoUnaskedGif,
     NoUnaskedOverride,
     NoUnaskedReaction,
     NoUnaskedWake,
     SentimentDetected,
+    SummaryCovers,
+    SummaryFaithful,
+    SummaryNotClipped,
+    SummaryOmitsChatter,
+    SummaryVoice,
     UnhappyDetected,
+    WorkFocusKeepMatch,
 )
 
 ASKS_FOR_FABLE = {MODEL_OVERRIDE_KEY: {"model": "claude-fable-5", "reasoning_effort": None}}
@@ -193,3 +202,106 @@ class TestMessageSentimentScorers:
         # A failed call reacts to nobody, which looks like a pass, so an outage would hide in the guard rates.
         score = scorer().eval(output={"sentiment": None, "error": "boom"}, expected=_sentiment("neutral"))
         assert score.score == 0.0
+
+
+class TestWorkFocusHandoffScorers:
+    """The handoff rate must count only handoffs, and an errored call must never pass.
+
+    A failed Jev call keeps nothing, which is the passing answer for a handoff, so a broken
+    classifier would post a perfect `no_handed_off_offer` if errors counted.
+    """
+
+    @parameterized.expand(
+        [
+            ("left_the_handoff_alone", {"kept": False}, True, 1.0),
+            ("offered_a_handoff", {"kept": True}, True, 0.0),
+            ("not_a_handoff", {"kept": True}, False, None),
+            ("errored_call", {"kept": None, "error": "boom"}, True, None),
+        ]
+    )
+    def test_no_handed_off_offer(self, _name, output, handed_off, want):
+        expected = {WORK_FOCUS_KEEP_KEY: {"keep": False, "handed_off": handed_off}}
+        assert NoHandedOffOffer().eval(output=output, expected=expected).score == want
+
+    @parameterized.expand(
+        [
+            ("kept_a_real_ask", {"kept": True}, True, 1.0),
+            ("dropped_a_real_ask", {"kept": False}, True, 0.0),
+            # Opting in by presence, not truthiness, because every handoff expects False.
+            ("dropped_a_handoff", {"kept": False}, False, 1.0),
+            ("errored_call", {"kept": None, "error": "boom"}, False, 0.0),
+        ]
+    )
+    def test_work_focus_keep(self, _name, output, keep, want):
+        expected = {WORK_FOCUS_KEEP_KEY: {"keep": keep, "handed_off": False}}
+        assert WorkFocusKeepMatch().eval(output=output, expected=expected).score == want
+
+
+def _summary(*items: tuple[str, str]) -> dict:
+    return {"items": [{"source": source, "text": text} for source, text in items]}
+
+
+def _write_spec(**spec) -> dict:
+    return {DAILY_SUMMARY_WRITE_KEY: {"names": ["Dana", "Ana"], **spec}}
+
+
+class TestDailySummaryScorers:
+    @parameterized.expand(
+        [
+            ("covers_both", _summary(("incident", "x"), ("decision", "y")), 1.0),
+            ("misses_one", _summary(("incident", "x"), ("lunch", "y")), 0.5),
+            ("empty_summary", _summary(), 0.0),
+            ("errored_call", {"items": [], "error": "boom"}, 0.0),
+        ]
+    )
+    def test_summary_covers(self, _name, output, want):
+        expected = _write_spec(must_cover=["incident", "decision"])
+        assert SummaryCovers().eval(output=output, expected=expected).score == want
+
+    @parameterized.expand(
+        [
+            ("left_out", _summary(("incident", "x")), 1.0),
+            ("kept_the_lunch", _summary(("lunch", "<@U0RAJ> organised tacos")), 0.0),
+            # A failed call writes nothing, which would pass, so it must not count.
+            ("errored_call", {"items": [], "error": "boom"}, None),
+        ]
+    )
+    def test_summary_omits_chatter(self, _name, output, want):
+        expected = _write_spec(must_omit=["lunch"])
+        assert SummaryOmitsChatter().eval(output=output, expected=expected).score == want
+
+    @parameterized.expand(
+        [
+            ("follows_the_rules", _summary(("decision", "You cut the trial to 14 days")), 1.0),
+            ("third_person_for_the_person", _summary(("decision", "<@U0DANA> cut the trial to 14 days")), 0.0),
+            ("names_a_person", _summary(("incident", "Ana rolled back the deploy")), 0.0),
+            # A name inside a longer word is not a name.
+            ("name_inside_a_word", _summary(("incident", "<@U0BEN> fixed Analytics exports")), 1.0),
+            ("em_dash", _summary(("incident", "<@U0BEN> rolled back \u2014 fixed")), 0.0),
+            ("no_items", _summary(), None),
+        ]
+    )
+    def test_summary_voice(self, _name, output, want):
+        expected = _write_spec(you_for=["decision"])
+        assert SummaryVoice().eval(output=output, expected=expected).score == want
+
+    def test_summary_faithful_tells_the_judge_who_you_is(self):
+        output = {
+            "person": "<@U0DANA>",
+            **_summary(("decision", "You cut the trial to 14 days")),
+            "threads": [{"key": "decision", "text": "<@U0DANA>: Decided: 14 day trials"}],
+        }
+        prepared = SummaryFaithful()._prepare(output, _write_spec())
+        assert isinstance(prepared, dict) and prepared["output"]["person"] == "<@U0DANA>"
+
+    @parameterized.expand(
+        [
+            ("fits", {"intro": "Since yesterday: a fix", **_summary(("incident", "<@U0BEN> rolled back"))}, 1.0),
+            ("clipped_intro", {"intro": "Since yesterday: a…", **_summary(("incident", "x"))}, 0.0),
+            ("clipped_item", {"intro": "Since yesterday", **_summary(("incident", "<@U0BEN> rolled…"))}, 0.0),
+            # A failed call writes nothing, which would pass, so it must not count.
+            ("errored_call", {"items": [], "error": "boom"}, None),
+        ]
+    )
+    def test_summary_not_clipped(self, _name, output, want):
+        assert SummaryNotClipped().eval(output=output, expected=_write_spec()).score == want

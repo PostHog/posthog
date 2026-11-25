@@ -475,30 +475,41 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
-        """The team's insight alerts: each insight row, and each platform alert with no insight row. The
-        active real-time ones of a moved alert are counted on its copy, which holds its settings."""
+        """The team's insight alerts, each counted once: from its platform copy when the platform holds
+        its settings, so a moved alert still counts once its insight row is deleted, else from its row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
-        from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
+            count_configurations,
+            rows_with_counted_copies,
+        )
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
-        rows = cls.objects.filter(team_id=team_id)
+        rows = cls.objects.filter(team_id=team_id).exclude(owner=PlatformAlertOwner.PLATFORM)
         if active_real_time:
-            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True).exclude(
-                owner=PlatformAlertOwner.PLATFORM
-            )
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
+        check_interval_minutes = REAL_TIME_CADENCE_MINUTES if active_real_time else None
         on_platform = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
-            native_only=not active_real_time,
-            held_only=active_real_time,
+            held_only=True,
             enabled_only=active_real_time,
-            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            check_interval_minutes=check_interval_minutes,
             exclude_id=UUID(exclude_id) if exclude_id else None,
         )
-        return rows.count() + on_platform
+        # A row that says insight owns it while its copy says the platform does is already counted from
+        # the copy.
+        row_ids = set(rows.values_list("id", flat=True))
+        row_ids -= rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=row_ids,
+            enabled_only=active_real_time,
+            check_interval_minutes=check_interval_minutes,
+        )
+        return len(row_ids) + on_platform
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:

@@ -407,7 +407,7 @@ describe("resolveGatewayTarget", () => {
     });
   });
 
-  it.each(["review_hog", "account_audit"] as const)(
+  it.each(["review_hog", "account_audit", "autoresearch"] as const)(
     "keeps the %s legacy leg on the background_agents slug",
     (product) => {
       expect(
@@ -426,7 +426,7 @@ describe("resolveGatewayTarget", () => {
     },
   );
 
-  it.each(["review_hog", "account_audit"] as const)(
+  it.each(["review_hog", "account_audit", "autoresearch"] as const)(
     "keeps the %s legacy override on an LLM_GATEWAY_URL base too",
     (product) => {
       expect(
@@ -439,7 +439,7 @@ describe("resolveGatewayTarget", () => {
     },
   );
 
-  it.each(["review_hog", "account_audit"] as const)(
+  it.each(["review_hog", "account_audit", "autoresearch"] as const)(
     "routes %s to the Go gateway slugless once listed",
     (product) => {
       expect(

@@ -4,6 +4,7 @@ import { HogError } from '@/core/errors'
 import { parseJson } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 
+import { NoticeList } from './notices'
 import { manifestUrl } from './release-urls'
 import { parseVersion } from './version'
 
@@ -24,6 +25,8 @@ export const ManifestSchema = z.object({
     buildDate: z.iso.datetime({ offset: true }),
     // Releases below it have a problem bad enough that every command warns about it.
     minimumVersion: VersionText.optional(),
+    // Messages for the hogs that read this manifest, such as a version reaching its end of support.
+    notices: NoticeList.optional(),
     baseUrl: z.url(),
     mirrorUrl: z.url(),
     artifacts: z.record(z.string(), ArtifactSchema),

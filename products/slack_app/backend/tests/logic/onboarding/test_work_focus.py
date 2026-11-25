@@ -37,6 +37,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     WorkFocusSummaryItem,
     WorkFocusTransientError,
     _BotLookup,
+    clip,
     find_and_send_daily_focus,
     find_and_send_work_focus,
     start_work_focus,
@@ -761,6 +762,26 @@ def test_model_text_cannot_carry_a_link_or_a_broadcast_but_keeps_mentions() -> N
     assert "<https://evil.example.com" not in text and "<!channel>" not in text
     assert "&lt;https://evil.example.com|the fix&gt;" in text and "&lt;!channel&gt;" in text
     assert "• <@U_LEAD> shared" in text and "in <#C1>. <https://example.slack.com/archives/C1/p1|[1]>" in text
+
+
+@pytest.mark.parametrize(
+    "text,limit,want",
+    [
+        ("fits as it is", 20, "fits as it is"),
+        (
+            "<@U0RORY> ran the migration and explained it is still transitioning",
+            50,
+            "<@U0RORY> ran the migration and explained it is…",
+        ),
+        # The cut lands inside a mention, which would leave a broken token in the DM.
+        ("You and <@U0LONGTOKEN> fixed it", 16, "You and…"),
+        ("cut, at a comma here", 6, "cut…"),
+    ],
+    ids=["fits", "mid word", "mid mention", "trailing comma"],
+)
+def test_clip_never_cuts_a_word_or_a_mention(text: str, limit: int, want: str) -> None:
+    assert clip(text, limit) == want
+    assert len(clip(text, limit)) <= limit
 
 
 @pytest.mark.django_db

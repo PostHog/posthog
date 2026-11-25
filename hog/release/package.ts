@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import type { Artifact, Manifest } from '../src/updates/manifest'
+import type { Notice } from '../src/updates/notices'
 import { archiveName, npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 import { parseVersion } from '../src/updates/version'
 import {
@@ -41,6 +42,11 @@ if (minimumVersion !== undefined && !parseVersion(minimumVersion)) {
     console.error(`release/minimum-version.json names ${minimumVersion}, which isn't a semver version.`)
     process.exit(1)
 }
+
+// The publish job checks out only release/ and src/updates/ and installs no packages, so this script
+// can't load zod to check the file. release.test.ts checks it against NoticeSchema in CI instead.
+const notices = ((await Bun.file(join(HOG_ROOT, 'release/notices.generated.json')).json()) as { notices: Notice[] })
+    .notices
 
 const out = resolve(values.out)
 const input = reused ? join(out, 'unpacked') : resolve(values.in)
@@ -146,7 +152,10 @@ if (reused) {
 
     await writeFile(join(assets, 'SHA256SUMS'), sha256Sums(artifacts))
     const dates = { publishedAt: new Date(), buildDate: new Date(values['build-date']!) }
-    await writeJson(join(assets, 'manifest.json'), buildManifest(version, artifacts, dates, minimumVersion))
+    await writeJson(
+        join(assets, 'manifest.json'),
+        buildManifest(version, artifacts, dates, { minimumVersion, notices })
+    )
     await copyFile(join(HOG_ROOT, 'release/install.sh'), join(assets, 'install.sh'))
     await copyFile(join(HOG_ROOT, 'release/install.ps1'), join(assets, 'install.ps1'))
 }
