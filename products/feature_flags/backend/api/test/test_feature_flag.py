@@ -9197,6 +9197,45 @@ class TestFeatureFlagPropertyAccessControl(APIBaseTest):
         flag.refresh_from_db()
         self.assertEqual(flag.key, "restricted-flag")
 
+    def test_member_deletes_an_experiment_flag_using_a_restricted_property(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [SALARY_CONDITION], "rollout_percentage": 100}])
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertTrue(flag.deleted)
+        self.assertEqual(flag.key, f"restricted-flag:deleted:{flag.id}")
+
+    def test_stale_key_echo_does_not_count_as_a_bucketing_change(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [SALARY_CONDITION], "rollout_percentage": 100}])
+        payload = {
+            "name": "Renamed",
+            "key": "restricted-flag",
+            "version": 0,
+            "original_flag": {"name": "Restricted", "key": "restricted-flag"},
+        }
+        request = ServiceRequest(self.user, method="PATCH")
+        request.data = payload
+        serializer = FeatureFlagSerializer(
+            flag,
+            data=payload,
+            partial=True,
+            context={"request": request, "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        FeatureFlag.objects.filter(pk=flag.pk).update(key="concurrent-key", version=1)
+
+        serializer.save()
+
+        flag.refresh_from_db()
+        self.assertEqual((flag.name, flag.key), ("Renamed", "concurrent-key"))
+
     def test_system_write_changes_targeting_of_a_flag_using_a_restricted_property(self):
         restrict_properties(self, [SALARY])
         flag = self._create_flag(

@@ -1985,6 +1985,7 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_reactivated_references(attrs)
+        self._requested_bucketing = {field: attrs[field] for field in _BUCKETING_FIELDS if field in attrs}
         # update() runs this check again on the row it locks, which another writer may have changed since.
         self._reject_unreadable_bucketing_change(attrs, cast(FeatureFlag | None, self.instance))
         self._validate_flag_limits()
@@ -3228,7 +3229,6 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
-                self._reject_unreadable_bucketing_change(validated_data, locked_instance)
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
                 if not self._v2_write:
@@ -3271,6 +3271,21 @@ class FeatureFlagSerializer(
                             rollback_reason_note=rollback.get("rollback_reason_note") or None,
                             exposure_direction=rollback_change.direction,
                         )
+
+                # Only the bucketing values the client sent count. The conflict check above drops a
+                # stale echo, and a soft delete or a restore sets the key itself.
+                requested = getattr(self, "_requested_bucketing", {})
+                self._reject_unreadable_bucketing_change(
+                    {
+                        **{
+                            field: value
+                            for field, value in requested.items()
+                            if field in validated_data and validated_data[field] == value
+                        },
+                        **({"filters": validated_data["filters"]} if "filters" in validated_data else {}),
+                    },
+                    locked_instance,
+                )
 
                 # Continue with the update
                 validated_data["version"] = locked_version + 1
