@@ -7,6 +7,7 @@ import httpx
 from openai import APITimeoutError
 from rest_framework import status
 
+from posthog.models import User
 from posthog.rate_limit import AIObservabilityTranslationBurstThrottle
 
 from products.ai_observability.backend.translation.constants import (
@@ -56,18 +57,22 @@ class TestTranslateAPI(APIBaseTest):
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch(MOCK_PATH)
-    def test_session_callers_are_throttled(self, mock_get_client, _rate_limit_enabled):
+    def test_session_callers_are_throttled_per_user(self, mock_get_client, _rate_limit_enabled):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_completion(mock_llm_client(mock_get_client), "Hola mundo")
         url = f"/api/environments/{self.team.id}/llm_analytics/translate"
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
 
         with patch.object(AIObservabilityTranslationBurstThrottle, "rate", "1/minute"):
             first = self.client.post(url, {"text": "Hello world"}, format="json")
             second = self.client.post(url, {"text": "Hello world"}, format="json")
+            self.client.force_login(teammate)
+            teammate_first = self.client.post(url, {"text": "Hello world"}, format="json")
 
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert teammate_first.status_code == status.HTTP_200_OK
 
     @patch(MOCK_PATH)
     def test_translation_uses_correct_model(self, mock_get_client):

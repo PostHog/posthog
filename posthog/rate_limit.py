@@ -1248,19 +1248,19 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilityTranslationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+# Per credential, so one member translating a lot cannot lock the rest of the team out. A team-wide
+# bucket would also count the requests these refuse, so one member could still drain it in seconds.
+class AIObservabilityTranslationBurstThrottle(_UserBucketRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(_UserBucketRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class AIObservabilityTranslationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Daily cap for LLM-powered translation endpoint
-    # Hard limit to prevent runaway costs
+class AIObservabilityTranslationDailyThrottle(_UserBucketRateThrottle):
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
 
