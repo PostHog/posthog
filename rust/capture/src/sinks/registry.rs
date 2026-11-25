@@ -2,10 +2,14 @@
 //! the named producer that carries it.
 
 use std::sync::Arc;
+use std::time::Duration;
+
+use futures::future::join_all;
 
 use crate::config::OutputsConfig;
 use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
+use crate::sinks::producer::KafkaProducer;
 
 /// Which configured output a routing decision selects, named by pipeline and
 /// lane. Distinct outputs may share a topic.
@@ -201,6 +205,46 @@ impl<R> OutputTable<R> {
         self.has_ai_overflow_lane
     }
 
+    /// Session replay is absent: only recordings pods route to it.
+    pub(crate) fn analytics_family_targets(&self) -> [(&'static str, &OutputTarget<R>); 9] {
+        [
+            ("ANALYTICS_MAIN", &self.analytics_main),
+            ("ANALYTICS_OVERFLOW", &self.analytics_overflow),
+            ("ANALYTICS_HISTORICAL", &self.analytics_historical),
+            ("HEATMAPS", &self.heatmaps),
+            ("CLIENT_WARNINGS", &self.client_warnings),
+            ("ERROR_TRACKING", &self.error_tracking),
+            ("DLQ", &self.dlq),
+            ("AI_MAIN", &self.ai_main),
+            ("AI_OVERFLOW", &self.ai_overflow),
+        ]
+    }
+
+    pub(crate) fn analytics_family_targets_mut(
+        &mut self,
+    ) -> [(&'static str, &mut OutputTarget<R>); 9] {
+        [
+            ("ANALYTICS_MAIN", &mut self.analytics_main),
+            ("ANALYTICS_OVERFLOW", &mut self.analytics_overflow),
+            ("ANALYTICS_HISTORICAL", &mut self.analytics_historical),
+            ("HEATMAPS", &mut self.heatmaps),
+            ("CLIENT_WARNINGS", &mut self.client_warnings),
+            ("ERROR_TRACKING", &mut self.error_tracking),
+            ("DLQ", &mut self.dlq),
+            ("AI_MAIN", &mut self.ai_main),
+            ("AI_OVERFLOW", &mut self.ai_overflow),
+        ]
+    }
+
+    pub(crate) fn producers(&self) -> Vec<R>
+    where
+        R: Clone,
+    {
+        let mut producers = Vec::new();
+        self.map_producers(|producer| producers.push(producer.clone()));
+        producers
+    }
+
     /// Every registered output must resolve to a non-empty topic. `Custom` is
     /// excluded because it carries its own topic per event.
     pub fn check_complete(&self) -> anyhow::Result<()> {
@@ -213,6 +257,44 @@ impl<R> OutputTable<R> {
             );
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TopicCheckFailure {
+    pub output: &'static str,
+    pub topic: Arc<str>,
+    pub error: String,
+}
+
+impl<P: KafkaProducer + 'static> OutputTable<Arc<P>> {
+    pub async fn check_analytics_family_topics(&self, timeout: Duration) -> Vec<TopicCheckFailure> {
+        let checks = self
+            .analytics_family_targets()
+            .into_iter()
+            .filter(|(_, target)| !target.topic.is_empty())
+            .map(|(output, target)| {
+                let producer = Arc::clone(&target.producer);
+                let topic = Arc::clone(&target.topic);
+                async move {
+                    let check_topic = Arc::clone(&topic);
+                    let result = tokio::task::spawn_blocking(move || {
+                        producer.check_topic_exists(&check_topic, timeout)
+                    })
+                    .await;
+                    let error = match result {
+                        Ok(Ok(())) => return None,
+                        Ok(Err(e)) => format!("{e:#}"),
+                        Err(e) => format!("topic check task failed: {e}"),
+                    };
+                    Some(TopicCheckFailure {
+                        output,
+                        topic,
+                        error,
+                    })
+                }
+            });
+        join_all(checks).await.into_iter().flatten().collect()
     }
 }
 
@@ -339,6 +421,28 @@ mod tests {
             .map(|output| *table.resolve(output).1)
             .collect();
         assert_eq!(producers.len(), Destination::REGISTERED.len() + 1);
+    }
+
+    #[tokio::test]
+    async fn analytics_family_topic_check_names_each_failing_output() {
+        use crate::sinks::producer::MockKafkaProducer;
+        let producer = Arc::new(MockKafkaProducer::new().with_missing_topics([
+            "heatmaps",
+            "ai_events",
+            "replay_overflow",
+        ]));
+        let mut table = test_outputs().map_producers(|_| Arc::clone(&producer));
+        table.dlq.topic = Arc::from("");
+
+        let mut failed: Vec<&str> = table
+            .check_analytics_family_topics(Duration::from_secs(1))
+            .await
+            .into_iter()
+            .map(|failure| failure.output)
+            .collect();
+        failed.sort();
+
+        assert_eq!(failed, vec!["AI_MAIN", "HEATMAPS"]);
     }
 
     #[test]

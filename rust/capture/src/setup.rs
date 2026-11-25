@@ -20,8 +20,9 @@ use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
+use crate::fallback::{self, FallbackSettings};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
-use crate::outputs::{Output, OutputRegistry};
+use crate::outputs::{self as outputs_layer, Output, OutputRegistry, Target};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
@@ -43,6 +44,7 @@ pub struct LifecycleHandles {
     pub server: lifecycle::Handle,
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
+    pub fallback_producer: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
     pub ingestion_warnings: Option<lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
@@ -69,6 +71,15 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             Some(manager.register("kafka-sink", sink_opts.clone())),
             None,
         )
+    };
+
+    let fallback_producer = if config.print_sink || config.noop_sink {
+        None
+    } else {
+        FallbackSettings::from_config(config)
+            .unwrap_or_else(|e| panic!("fatal: invalid configuration: {e:#}"))
+            .filter(FallbackSettings::fallback_gates_liveness)
+            .map(|_| manager.register("kafka-fallback-producer", sink_opts.clone()))
     };
 
     let event_restrictions =
@@ -100,6 +111,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         server,
         sink,
         advisory,
+        fallback_producer,
         event_restrictions,
         ingestion_warnings,
         readiness,
@@ -125,6 +137,7 @@ pub async fn build_components(
         server,
         sink: sink_handle,
         advisory: advisory_handle,
+        fallback_producer: fallback_producer_handle,
         event_restrictions: event_restrictions_handle,
         ingestion_warnings: ingestion_warnings_handle,
         readiness,
@@ -275,10 +288,18 @@ pub async fn build_components(
         _ => None,
     };
 
-    let (outputs, producers) =
-        create_output_registry(&config, &producer_configs, sink_handle, advisory_handle)
-            .await
-            .expect("failed to create the output registry");
+    let (outputs, producers) = create_output_registry(
+        &config,
+        &env,
+        &producer_configs,
+        KafkaHandles {
+            sink: sink_handle,
+            advisory: advisory_handle,
+            fallback_producer: fallback_producer_handle,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("fatal: failed to create the output registry: {e:#}"));
     let outputs = Arc::new(outputs);
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
@@ -525,23 +546,34 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config, max_event_bytes: u64)
     }
 }
 
+#[derive(Default)]
+struct KafkaHandles {
+    sink: Option<lifecycle::Handle>,
+    advisory: Option<lifecycle::Handle>,
+    fallback_producer: Option<lifecycle::Handle>,
+}
+
 async fn create_output_registry(
     config: &Config,
+    env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
-    sink_handle: Option<lifecycle::Handle>,
-    advisory_handle: Option<lifecycle::Handle>,
+    handles: KafkaHandles,
 ) -> anyhow::Result<(OutputRegistry, Option<ProducerRegistry>)> {
-    let (output, producers) =
-        create_output(config, producer_configs, sink_handle, advisory_handle).await?;
+    let (output, producers) = create_output(config, env, producer_configs, handles).await?;
     Ok((OutputRegistry::new(output), producers))
 }
 
 async fn create_output(
     config: &Config,
+    env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
-    sink_handle: Option<lifecycle::Handle>,
-    advisory_handle: Option<lifecycle::Handle>,
+    handles: KafkaHandles,
 ) -> anyhow::Result<(Output, Option<ProducerRegistry>)> {
+    let KafkaHandles {
+        sink: sink_handle,
+        advisory: advisory_handle,
+        fallback_producer: fallback_producer_handle,
+    } = handles;
     if config.print_sink {
         return Ok((Output::single(PrintSink {}), None));
     }
@@ -559,29 +591,79 @@ async fn create_output(
         info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
     }
 
-    // With the S3 fallback, the Kafka producer reports to the advisory handle
-    // so an unhealthy primary never gates the pod.
+    let mut producer_configs = producer_configs.clone();
+    let fallback = match FallbackSettings::from_config(config)? {
+        Some(settings) if producer_configs.contains_key(&ProducerName::Fallback) => {
+            Some((settings, fallback::secondary_table(&outputs, env)?))
+        }
+        Some(settings) => {
+            anyhow::ensure!(
+                settings.check == fallback::CheckMode::Warn,
+                "{}=strict but {} is not set",
+                fallback::CHECK_VAR,
+                fallback::FALLBACK_BROKERS_VAR,
+            );
+            None
+        }
+        None => {
+            if producer_configs.remove(&ProducerName::Fallback).is_some() {
+                info!(
+                    "{} is ignored outside CAPTURE_MODE=events",
+                    fallback::FALLBACK_BROKERS_VAR
+                );
+            }
+            None
+        }
+    };
+    for table in [Some(&outputs), fallback.as_ref().map(|(_, s)| s)]
+        .into_iter()
+        .flatten()
+    {
+        for name in table.producers() {
+            anyhow::ensure!(
+                producer_configs.contains_key(&name),
+                "an output publishes through producer {}, which is not configured",
+                name.as_str()
+            );
+        }
+    }
+
+    // With the S3 fallback, the live Kafka producers report to the advisory
+    // handle so an unhealthy cluster never gates the pod.
     let kafka_handle = if config.s3_fallback_enabled {
         Some(advisory_handle.expect("kafka advisory handle required for fallback"))
     } else {
         sink_handle.clone()
     };
-    let producers = ProducerRegistry::build(
-        producer_configs,
-        kafka_handle
-            .clone()
-            .map(|handle| (ProducerName::Ingestion, handle))
-            .into_iter()
-            .collect(),
-    )
-    .context("failed to start Kafka producers")?;
-    let kafka_sink = KafkaSink::new(
+    let live_producers = outputs.producers();
+    let liveness = producer_configs
+        .keys()
+        .filter_map(|&name| {
+            let handle = if live_producers.contains(&name) {
+                kafka_handle.clone()
+            } else if name == ProducerName::Fallback {
+                fallback_producer_handle.clone()
+            } else {
+                None
+            };
+            handle.map(|handle| (name, handle))
+        })
+        .collect();
+    let producers = ProducerRegistry::build(&producer_configs, liveness)
+        .context("failed to start Kafka producers")?;
+
+    if let Some((settings, secondary)) = &fallback {
+        let secondary = secondary.map_producers(|name| producers.get(*name));
+        fallback::run_boot_checks(&secondary, *settings).await?;
+    }
+    let kafka_output = Output::single(KafkaSink::new(
         outputs.map_producers(|name| producers.get(*name)),
         config.replay_envelope_compression,
-    );
+    ));
+    outputs_layer::record_live_target(Target::Primary);
 
     if !config.s3_fallback_enabled {
-        return Ok((Output::single(kafka_sink), Some(producers)));
+        return Ok((kafka_output, Some(producers)));
     }
 
     let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
@@ -597,11 +679,7 @@ async fn create_output(
     .await
     .expect("failed to create S3 sink");
 
-    let output = Output::failover(
-        Output::single(kafka_sink),
-        Output::single(s3_sink),
-        kafka_handle,
-    );
+    let output = Output::failover(kafka_output, Output::single(s3_sink), kafka_handle);
     Ok((output, Some(producers)))
 }
 
@@ -1246,10 +1324,15 @@ mod tests {
         config.outputs.dlq_topic = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(&config, &default_producers, None, None)
-            .await
-            .err()
-            .expect("boot must be refused when an output topic is empty");
+        let err = create_output_registry(
+            &config,
+            &HashMap::new(),
+            &default_producers,
+            KafkaHandles::default(),
+        )
+        .await
+        .err()
+        .expect("boot must be refused when an output topic is empty");
         let msg = format!("{err:#}");
         assert!(
             msg.contains("dlq"),
@@ -1259,9 +1342,70 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.outputs_completeness_check_enabled = false;
-        create_output_registry(&config, &default_producers, None, None)
-            .await
-            .expect("boot must proceed when the completeness check is disabled");
+        create_output_registry(
+            &config,
+            &HashMap::new(),
+            &default_producers,
+            KafkaHandles::default(),
+        )
+        .await
+        .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    fn fallback_config(mode: CaptureMode, check: &str) -> Config {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode.as_tag()),
+            (fallback::CHECK_VAR, check),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
+    }
+
+    #[tokio::test]
+    async fn events_refuse_boot_when_the_fallback_is_required_but_unset() {
+        let config = fallback_config(CaptureMode::Events, "strict");
+        let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
+
+        let err = create_output_registry(
+            &config,
+            &HashMap::new(),
+            &default_producers,
+            KafkaHandles::default(),
+        )
+        .await
+        .err()
+        .expect("boot must be refused");
+
+        assert!(
+            format!("{err:#}").contains(fallback::FALLBACK_BROKERS_VAR),
+            "{err:#}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case(CaptureMode::Recordings)]
+    #[case(CaptureMode::Ai)]
+    #[case(CaptureMode::Import)]
+    #[tokio::test]
+    async fn other_modes_ignore_the_fallback_configuration(#[case] mode: CaptureMode) {
+        let config = fallback_config(mode, "bogus");
+        let env: HashMap<String, String> = [(fallback::FALLBACK_BROKERS_VAR, "127.0.0.1:1")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let configs = producers::load_all(&env).expect("producer configs");
+
+        let (_, producers) =
+            create_output_registry(&config, &env, &configs, KafkaHandles::default())
+                .await
+                .expect("other modes must boot whatever the fallback settings say");
+
+        let producers = producers.expect("kafka producers");
+        assert!(producers.contains(ProducerName::Ingestion));
+        assert!(!producers.contains(ProducerName::Fallback));
     }
 
     #[test]

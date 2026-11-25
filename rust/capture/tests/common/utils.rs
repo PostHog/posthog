@@ -132,6 +132,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     },
     replay_envelope_compression: EnvelopeCompression::None,
     outputs_completeness_check_enabled: true,
+    kafka_emergency_fallback_check: None,
     otel_url: None,
     otel_sampling_rate: 0.0,
     otel_service_name: "capture-testing".to_string(),

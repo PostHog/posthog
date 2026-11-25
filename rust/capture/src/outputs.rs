@@ -67,6 +67,31 @@ enum Inner {
     Failover(Failover),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    Primary,
+    Fallback,
+}
+
+impl Target {
+    pub const ALL: [Target; 2] = [Target::Primary, Target::Fallback];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Target::Primary => "primary",
+            Target::Fallback => "fallback",
+        }
+    }
+}
+
+/// Emits both targets, so a dashboard can tell "on primary" from "not reporting".
+pub fn record_live_target(live: Target) {
+    for target in Target::ALL {
+        gauge!("capture_kafka_output_live_target", "target" => target.as_str())
+            .set(if target == live { 1.0 } else { 0.0 });
+    }
+}
+
 impl Output {
     pub fn single<S: Sink + 'static>(sink: S) -> Self {
         Self {
