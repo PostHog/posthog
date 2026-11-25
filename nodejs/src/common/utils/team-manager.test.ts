@@ -86,7 +86,6 @@ describe('TeamManager()', () => {
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
                   "project_id": "<PROJECT_ID>",
-                  "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",

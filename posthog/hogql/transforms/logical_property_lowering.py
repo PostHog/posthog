@@ -81,6 +81,7 @@ class LogicalPropertyLowering(CloningVisitor):
             expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
             type=ast.StringType(nullable=True),
+            as_json=property_type.as_json,
         )
 
     def _reads_json_blob(self, field_type: ast.FieldType) -> bool:

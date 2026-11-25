@@ -107,6 +107,8 @@ Choose **Save as cohort** after running a single query against PostHog. Return a
 
 In a Markdown notebook, open the SQL cell’s **⋯** menu after running it. **Save as warehouse table** saves the returned rows under a new name. To refresh a table created by that cell, choose **Update from this run** and confirm **Replace rows**. **Manage table** opens the table in the warehouse, where you can delete it. **Save as cohort** saves a static cohort when the result includes a `person_id`, `actor_id`, or `distinct_id` column. Direct SQL runs keep up to 300 rows. SQL results stored in the notebook’s compute sandbox can be saved from runs of up to 10,000 rows.
 
+If the warehouse rejects a save, you can retry from the same dialog with the captured rows. Closing the dialog releases the browser’s copy.
+
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
 
@@ -415,6 +417,15 @@ This changes setup recommendations and diagnostic actions, not report attributio
 The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
 For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
 Stats tables contain performance metrics and do not replace the dimension table's data.
+
+X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for each entity separately, then for each account-local day if needed.
+Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
+If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
+The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
+For `429` responses during an import, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+Account listing and credential validation run inside web requests, so they keep the shared retry policy and request budget and do not wait for X's reset.
+This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
+Each retry prepares a new OAuth1 signature after the wait, so a rate-limit reset does not leave the request with an expired timestamp.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.

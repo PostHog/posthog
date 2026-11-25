@@ -1,7 +1,7 @@
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { SqlChartProps, isSqlChartVisualizationType, sqlChartComponentFor } from './SqlChart'
+import { SqlChart, SqlChartProps, isSqlChartVisualizationType, sqlChartComponentFor } from './SqlChart'
 
 const baseProps = (visualizationType: ChartDisplayType): SqlChartProps => ({
     xData: null,
@@ -76,4 +76,20 @@ describe('sqlChartComponentFor', () => {
             }).name
         ).toBe('SqlBarGraph')
     })
+})
+
+it('filters by the raw clicked event when two points have the same displayed label', () => {
+    const filter = jest.fn()
+    const chart = SqlChart({
+        ...baseProps(ChartDisplayType.ActionsLineGraph),
+        xData: {
+            column: { name: 'event', label: 'event', type: { name: 'STRING', isNumerical: false }, dataIndex: 0 },
+            data: ['Pageview', 'Pageview'],
+            rawData: ['$pageview', 'Pageview'],
+        },
+        chartInputFilters: { event: filter },
+    })
+    chart.props.onPointClick('events', 0, 'Pageview')
+    chart.props.onPointClick('events', 1, 'Pageview')
+    expect(filter.mock.calls).toEqual([['$pageview'], ['Pageview']])
 })

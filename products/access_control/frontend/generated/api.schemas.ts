@@ -145,7 +145,6 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `subscription` - subscription
  * * `support_ticket` - support_ticket
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
  * * `today` - today
@@ -273,7 +272,6 @@ export const ScopeObjectEnumApi = {
     Subscription: 'subscription',
     SupportTicket: 'support_ticket',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
     Today: 'today',
@@ -424,7 +422,6 @@ export interface ProjectAccessSourceApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -595,7 +592,6 @@ export interface AccessControlObjectRuleApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -706,7 +702,6 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `toolbar` - toolbar
  * * `tracing` - tracing
@@ -767,7 +762,6 @@ export const RuleResourceEnumApi = {
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
@@ -833,7 +827,6 @@ export interface AccessControlRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -1000,7 +993,6 @@ export interface AccessControlObjectRuleResourceApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1122,7 +1114,6 @@ export interface AccessControlMemberRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -1296,7 +1287,6 @@ export interface ResolvedAccessApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1443,7 +1433,6 @@ export interface AccessControlRoleRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing

@@ -34,9 +34,10 @@ const SECTIONS = [
 ] as const
 
 export function LiveFilterSheet({ onClose }: { onClose: () => void }): ReactElement {
-    const { preference, trafficFilters, setLiveFilters } = useLivePreference()
+    const { preference, trafficFilters, showFilterBanner, setLiveFilters } = useLivePreference()
     const [audience, setAudience] = useState(preference)
     const [draft, setDraft] = useState(trafficFilters)
+    const [showBanner, setShowBanner] = useState(showFilterBanner)
     const [editing, setEditing] = useState<LiveFilterField | null>(null)
     const keyboard = useReanimatedKeyboardAnimation()
     const gesture = useMemo(() => Gesture.Native(), [])
@@ -53,7 +54,7 @@ export function LiveFilterSheet({ onClose }: { onClose: () => void }): ReactElem
     }
     const apply = (): void => {
         if (audience !== preference) trackLiveAudienceChanged({ preference: audience })
-        setLiveFilters(audience, normalizeLiveTrafficFilters(draft))
+        setLiveFilters(audience, draft, showBanner)
         close()
     }
     return (
@@ -203,6 +204,20 @@ export function LiveFilterSheet({ onClose }: { onClose: () => void }): ReactElem
                                     </View>
                                 </View>
                             ))}
+                            <View style={styles.switchRow}>
+                                <View style={styles.switchLabel}>
+                                    <Text style={styles.label}>Show filter banner</Text>
+                                    <Text style={styles.hint}>Show active filters at the top of Live.</Text>
+                                </View>
+                                <Switch
+                                    accessibilityLabel="Show filter banner"
+                                    value={showBanner}
+                                    onValueChange={setShowBanner}
+                                    trackColor={{ true: colors.switchOn, false: colors.switchOff }}
+                                    thumbColor={colors.white}
+                                    testID="live-filter-show-banner"
+                                />
+                            </View>
                         </ScrollView>
                     </GestureDetector>
                     <View style={styles.footer}>
