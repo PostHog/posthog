@@ -297,7 +297,7 @@ describe('runCards', () => {
         }
     })
 
-    it('reads the pair again when a saved scorecard cannot be written, and saves the other run with it', async () => {
+    it('reads the pair again when a saved scorecard cannot be written, and saves the other run with it before publishing', async () => {
         const api = await startFakeProjectApi()
         const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
         const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
@@ -311,20 +311,24 @@ describe('runCards', () => {
             writeJson(dir, name, value)
         })
 
+        let savedAtFirstCapture: { event: { pair_reason: unknown } } | undefined
+        api.onCapture = ({ properties }) => {
+            savedAtFirstCapture ??= parseJSON(
+                readFileSync(
+                    path.join(cacheHome, 'posthog-scenarios', String(properties.pair_faulted_run_id), 'scorecard.json'),
+                    'utf8'
+                )
+            )
+        }
+
         try {
             await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
 
             const [control, faulted] = api.captured.map(({ properties }) => properties)
-            const saved = parseJSON(
-                readFileSync(
-                    path.join(cacheHome, 'posthog-scenarios', String(faulted.run_id), 'scorecard.json'),
-                    'utf8'
-                )
-            )
             const reason = expect.stringMatching(
                 /^the control run is invalid: .*; the evidence could not be written: disk full$/
             )
-            expect([control.pair_reason, faulted.pair_reason, saved.event.pair_reason]).toEqual([
+            expect([control.pair_reason, faulted.pair_reason, savedAtFirstCapture?.event.pair_reason]).toEqual([
                 reason,
                 reason,
                 reason,

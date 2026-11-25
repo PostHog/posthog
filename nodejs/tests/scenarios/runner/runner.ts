@@ -895,10 +895,13 @@ export function createRunner(
                           : { ...faulted, evidenceError: faulted.evidenceError ?? savedFaulted?.saveError }
                   )
                 : undefined
-            const results = []
+            const read = []
             for (const run of saved) {
-                const read = reread && run.pair ? await stage.resave(run, { ...reread, role: run.pair.role }) : run
-                results.push(await stage.publish(read, signal))
+                read.push(reread && run.pair ? await stage.resave(run, { ...reread, role: run.pair.role }) : run)
+            }
+            const results = []
+            for (const run of read) {
+                results.push(await stage.publish(run, signal))
             }
             return results
         },
