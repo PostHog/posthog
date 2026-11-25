@@ -124,8 +124,9 @@ to future runs. A preview on a historical run leaves its official score unchange
 By default an input uses the scorer version observed in the run. If several versions contributed, the
 experiment shows each version's statistic and successful item count and leaves the score unset. Choose
 an exact version to use just its results, or **Combine versions** to pool the successful items across versions.
-For example, 9 passes out of 10 on v3 and 1 out of 2 on v4 give 10/12 overall. If both versions scored
-the same item, the pooled input is unavailable. A missing input also leaves the score unset.
+For example, 9 passes out of 10 on v3 and 1 out of 2 on v4 give 10/12 overall. If v3 scores an item
+and v4 errors or skips it, only the v3 result counts. If both versions return a score for the same item,
+the pooled input is unavailable. A missing input also leaves the score unset.
 
 The SQL suite uses these existing scorers:
 

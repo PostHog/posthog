@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
 
 from rest_framework import serializers
@@ -22,6 +23,19 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
+class ExperimentScoreStatistic(models.TextChoices):
+    PASS_RATE = "pass_rate", "pass_rate"
+    MEAN = "mean", "mean"
+    TRUE_RATE = "true_rate", "true_rate"
+    CATEGORY_RATE = "category_rate", "category_rate"
+
+
+class ExperimentScoreVersionPolicy(models.TextChoices):
+    RUN = "run", "run"
+    EXACT = "exact", "exact"
+    COMBINE = "combine", "combine"
+
+
 class CompositeInputSerializer(serializers.Serializer):
     alias = serializers.RegexField(
         r"^[a-z][a-z0-9_]{0,31}$",
@@ -31,8 +45,8 @@ class CompositeInputSerializer(serializers.Serializer):
     scorer_version_id = serializers.UUIDField(
         help_text="Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
     )
-    statistic = serializers.ChoiceField(choices=["pass_rate", "mean", "true_rate", "category_rate"], required=False)
-    version_policy = serializers.ChoiceField(choices=["run", "exact", "combine"], required=False)
+    statistic = serializers.ChoiceField(choices=ExperimentScoreStatistic.choices, required=False)
+    version_policy = serializers.ChoiceField(choices=ExperimentScoreVersionPolicy.choices, required=False)
     category = serializers.CharField(max_length=128, required=False)
 
     def validate_alias(self, value: str) -> str:

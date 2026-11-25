@@ -111,16 +111,18 @@ class TestOfflineEvaluationReads(TestCase):
         assert score is not None
         self.assertEqual(score.value, 0.75)
         self.assertEqual(score.inputs[0].sources[0].version_id, self.numeric_v2.id)
-        self._result(self._item(experiment), self.numeric, 0.0)
-        self._result(self._item(experiment), self.numeric, 0.0)
+        for other_status in ("error", "skipped", "not_applicable"):
+            item = self._item(experiment)
+            self._result(item, self.numeric, 0.0)
+            self._result(item, self.numeric_v2, status=other_status)
         score = self.service.get_experiment(experiment.id).experiment_score
         assert score is not None
         self.assertEqual((score.status, score.value), ("mixed_versions", None))
-        self.assertEqual([source.successful_items for source in score.inputs[0].sources], [2, 1])
+        self.assertEqual([source.successful_items for source in score.inputs[0].sources], [3, 1])
         pin("combine")
         score = self.service.get_experiment(experiment.id).experiment_score
         assert score is not None
-        self.assertEqual(score.value, 0.25)
+        self.assertEqual((score.status, score.value), ("ok", 0.75 / 4))
         self._result(first, self.numeric, 1.0)
         score = self.service.get_experiment(experiment.id).experiment_score
         assert score is not None
@@ -128,7 +130,7 @@ class TestOfflineEvaluationReads(TestCase):
         pin("exact")
         score = self.service.get_experiment(experiment.id).experiment_score
         assert score is not None
-        self.assertAlmostEqual(score.value, 1 / 3)
+        self.assertEqual(score.value, 0.25)
         experiment.status = OfflineExperiment.Status.FAILED
         experiment.save(update_fields=["status"])
         failed = self.service.get_experiment(experiment.id).experiment_score
@@ -480,7 +482,10 @@ class TestOfflineEvaluationReads(TestCase):
                 version.definition_id, OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL)
             )
             self.assertEqual(page.count, 2)
-            groups = {point.breakdown_value: point.summary for point in page.results}
+            groups = {}
+            for point in page.results:
+                assert point.summary is not None
+                groups[point.breakdown_value] = point.summary
             self.assertEqual(groups["model-a"].observed_item_count, 1)
             self.assertEqual(groups["model-b"].observed_item_count, 3)
             self.assertEqual(groups["model-a"].status_counts.ok, 1)
@@ -498,6 +503,7 @@ class TestOfflineEvaluationReads(TestCase):
                 self.assertEqual([category.rate for category in groups["model-b"].categories], [0.0, 1.0, 0.0])
 
         whole = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery()).results[0].summary
+        assert whole is not None
         self.assertEqual((whole.mean, whole.observed_item_count, whole.missing_result_count), (0.5, 4, 1))
         self.assertEqual(self.service.get_item(experiment.id, inherited.id).model_version, "model-a")
         self.assertEqual(self.service.get_item(experiment.id, override.id).model_version, "model-b")

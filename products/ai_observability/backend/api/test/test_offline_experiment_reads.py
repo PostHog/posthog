@@ -135,7 +135,7 @@ class TestOfflineExperimentReads(APIBaseTest):
         )
         url = self._history(str(definition.id))
         self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
-        query = {"breakdown": "suite_key", "limit": 1}
+        query = {"breakdown": "suite_key", "limit": "1"}
         first = self.client.get(url, query)
         self.assertEqual(first.status_code, 200, first.data)
         self.assertEqual(first.data["count"], 2)

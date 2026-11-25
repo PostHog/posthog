@@ -890,7 +890,7 @@ class OfflineEvaluationReadService:
             }
             if combine:
                 duplicates = (
-                    results.filter(scorer_definition_id__in=combine)
+                    results.filter(scorer_definition_id__in=combine, status=OfflineEvaluationResult.Status.OK)
                     .order_by()
                     .values("item__experiment_id", "scorer_definition_id")
                     .annotate(results=Count("pk"), items=Count("item_id", distinct=True))

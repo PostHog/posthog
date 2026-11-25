@@ -31683,10 +31683,10 @@ export namespace Schemas {
      * * `true_rate` - true_rate
      * * `category_rate` - category_rate
      */
-    export type StatisticEnum = typeof StatisticEnum[keyof typeof StatisticEnum];
+    export type ExperimentScoreStatisticEnum = typeof ExperimentScoreStatisticEnum[keyof typeof ExperimentScoreStatisticEnum];
 
 
-    export const StatisticEnum = {
+    export const ExperimentScoreStatisticEnum = {
       PassRate: 'pass_rate',
       Mean: 'mean',
       TrueRate: 'true_rate',
@@ -31698,10 +31698,10 @@ export namespace Schemas {
      * * `exact` - exact
      * * `combine` - combine
      */
-    export type VersionPolicyEnum = typeof VersionPolicyEnum[keyof typeof VersionPolicyEnum];
+    export type ExperimentScoreVersionPolicyEnum = typeof ExperimentScoreVersionPolicyEnum[keyof typeof ExperimentScoreVersionPolicyEnum];
 
 
-    export const VersionPolicyEnum = {
+    export const ExperimentScoreVersionPolicyEnum = {
       Run: 'run',
       Exact: 'exact',
       Combine: 'combine',
@@ -31716,8 +31716,8 @@ export namespace Schemas {
       alias: string;
       /** Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact. */
       scorer_version_id: string;
-      statistic?: StatisticEnum;
-      version_policy?: VersionPolicyEnum;
+      statistic?: ExperimentScoreStatisticEnum;
+      version_policy?: ExperimentScoreVersionPolicyEnum;
       /** @maxLength 128 */
       category?: string;
     }

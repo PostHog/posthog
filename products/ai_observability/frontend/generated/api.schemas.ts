@@ -1036,9 +1036,10 @@ export const ScoreDefinitionCalculationEnumApi = {
  * * `true_rate` - true_rate
  * * `category_rate` - category_rate
  */
-export type StatisticEnumApi = (typeof StatisticEnumApi)[keyof typeof StatisticEnumApi]
+export type ExperimentScoreStatisticEnumApi =
+    (typeof ExperimentScoreStatisticEnumApi)[keyof typeof ExperimentScoreStatisticEnumApi]
 
-export const StatisticEnumApi = {
+export const ExperimentScoreStatisticEnumApi = {
     PassRate: 'pass_rate',
     Mean: 'mean',
     TrueRate: 'true_rate',
@@ -1050,9 +1051,10 @@ export const StatisticEnumApi = {
  * * `exact` - exact
  * * `combine` - combine
  */
-export type VersionPolicyEnumApi = (typeof VersionPolicyEnumApi)[keyof typeof VersionPolicyEnumApi]
+export type ExperimentScoreVersionPolicyEnumApi =
+    (typeof ExperimentScoreVersionPolicyEnumApi)[keyof typeof ExperimentScoreVersionPolicyEnumApi]
 
-export const VersionPolicyEnumApi = {
+export const ExperimentScoreVersionPolicyEnumApi = {
     Run: 'run',
     Exact: 'exact',
     Combine: 'combine',
@@ -1067,8 +1069,8 @@ export interface CompositeInputApi {
     alias: string
     /** Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact. */
     scorer_version_id: string
-    statistic?: StatisticEnumApi
-    version_policy?: VersionPolicyEnumApi
+    statistic?: ExperimentScoreStatisticEnumApi
+    version_policy?: ExperimentScoreVersionPolicyEnumApi
     /** @maxLength 128 */
     category?: string
 }
