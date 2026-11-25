@@ -100,6 +100,12 @@ def test_error_message_matches(_name, error_msg, patterns, expected):
             {"aws_auth": "Role", "aws_access_key_id": "AKIAEXAMPLE"},
         ),
         (
+            "list_selection_left_for_validation",
+            {"aws_auth": ["role"], "aws_access_key_id": "AKIAEXAMPLE"},
+            None,
+            {"aws_auth": ["role"], "aws_access_key_id": "AKIAEXAMPLE"},
+        ),
+        (
             "container_without_selection_keeps_the_stored_role",
             {"aws_auth": {"aws_integration_id": 9}, "aws_access_key_id": "AKIAEXAMPLE"},
             {"aws_auth": {"selection": "role", "aws_integration_id": 7}},
