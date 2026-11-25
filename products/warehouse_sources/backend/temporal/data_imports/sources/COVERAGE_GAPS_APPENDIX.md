@@ -2630,7 +2630,7 @@ Note (2026-11-19): Diffed the REST pages listed in docs/llms.txt (each served as
 
 ## Bunny — gaps
 
-Today (13): `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_libraries`, `video_library_statistics`, `videos`
+Today (18): `billing_summary`, `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zone_optimizer_statistics`, `pull_zone_origin_shield_queue_statistics`, `pull_zone_safehop_statistics`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_heatmaps`, `video_libraries`, `video_library_statistics`, `videos`
 
 Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 
@@ -2642,10 +2642,10 @@ Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 - [x] `GET /dnszone/{id}/statistics` — DNS query volume per zone, the only usage metric for the DNS product (medium)
 - [x] `GET /library/{libraryId}/collections (Stream API)` — lookup resolving the collection IDs carried on videos (medium)
 - [x] `GET /v2/pullzones/{pullZoneId}/logs (CDN Logging API)` — raw edge access logs — request-level detail for traffic analysis (medium)
-- [ ] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
-- [ ] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium)
-- [ ] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
-- [ ] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
+- [x] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
+- [x] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium). Built `heatmap` as `video_heatmaps`; `/play` skipped: it returns playback URLs and signed tokens, not table data.
+- [x] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
+- [x] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
 
 Note: Bunny splits its API across several specs, all fetched this run: Core (core-api-public-docs.b-cdn.net/docs/v3/public.json), Stream (video.bunnycdn.com/openapi/bunnynet-video-api.public.json), and CDN Logging (logging.bunnycdn.com/docs/all/swagger.json). PostHog syncs only the four top-level zone/library objects — every statistics and child resource in all three specs is missing, so the source currently carries configuration objects but none of the usage data that is the point of a CDN import.
 
