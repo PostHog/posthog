@@ -848,46 +848,48 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setTemplateValue: () => actions.autoSaveDraft(),
-        saveTags: async ({ tags }, breakpoint) => {
+        saveTags: async ({ tags }) => {
             // An unsaved template has no row yet, so its tags ride the create.
             if (!props.id || props.id === 'new') {
                 actions.setTemplateValue('tags', tags)
                 return
             }
-            // Shown at once, so the next tag adds to this one instead of replacing it.
-            cache.savedTags ??= values.originalTemplate.tags
+            const { id } = props
             const showTags = (shown: string[] | undefined): void => {
                 actions.setTemplate({ ...values.template, tags: shown })
                 actions.setOriginalTemplate({ ...values.originalTemplate, tags: shown })
             }
+            // One write at a time, so an older one can't land last. Without a breakpoint, leaving the page
+            // can't cancel a tag that already looks saved.
+            const writeBefore: Promise<string[] | undefined> =
+                cache.tagsWrite ?? Promise.resolve(values.originalTemplate.tags)
+            const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
+                // A newer edit already holds these tags.
+                if (cache.tagsWrite !== write) {
+                    return saved
+                }
+                try {
+                    // Tags are metadata: they apply live and must not publish a transactional template's draft,
+                    // which a full form save would.
+                    return (await api.messaging.updateTemplate(id, { tags })).tags
+                } catch (error: any) {
+                    if (cache.tagsWrite === write) {
+                        lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+                    }
+                    return saved
+                }
+            })
+            cache.tagsWrite = write
+            // Shown at once, so the next tag adds to this one instead of replacing it.
             showTags(tags)
-            // The editor fires one save per tag added or removed. Without this, a burst of clicks puts
-            // several writes in flight at once, and the one that lands last wins rather than the latest
-            // selection. The wait collapses the burst into a single write.
-            await breakpoint(300)
-            // One write at a time, so an older one can't land last.
-            await cache.tagsWrite?.catch(() => {})
-            breakpoint()
-            // Tags are metadata: they apply live and must not publish a transactional template's draft,
-            // which a full form save would.
-            let updated: MessageTemplate
-            try {
-                cache.tagsWrite = api.messaging.updateTemplate(props.id, { tags })
-                updated = await cache.tagsWrite
-            } catch (error: any) {
-                // A newer save replaced this one, so its tags stay on screen.
-                breakpoint()
-                showTags(cache.savedTags)
-                cache.savedTags = undefined
-                lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+            const saved = await write
+            if (cache.tagsWrite !== write) {
                 return
             }
-            cache.savedTags = updated.tags
-            // Outside the catch: a breakpoint throws to unwind a superseded listener, and catching that
-            // would report it as a failed save.
-            breakpoint()
-            showTags(updated.tags)
-            cache.savedTags = undefined
+            cache.tagsWrite = undefined
+            if (messageTemplateLogic.isMounted(props)) {
+                showTags(saved)
+            }
         },
         setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {
@@ -1087,10 +1089,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
+            // Tags save on their own, so the answer to this save can hold older ones.
+            const saved = props.id === 'new' ? template : { ...template, tags: current.tags }
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
-            actions.resetTemplate(template)
-            actions.setOriginalTemplate(template)
+            actions.resetTemplate(saved)
+            actions.setOriginalTemplate(saved)
             if (values.transactionalHogFlowId) {
                 // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
                 workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
@@ -1191,10 +1195,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.setTemplatePickerOpen(true)
         }
     }),
-    beforeUnload(({ values, actions }) => ({
+    beforeUnload(({ values, actions, cache }) => ({
         // Guards both new and existing templates - a brand-new template only exists in form
         // state until "Create" is pressed, so leaving without saving would discard it entirely.
         enabled: (newLocation) => {
+            // Closing the tab drops the tags still waiting for their turn.
+            if (!newLocation && cache.tagsWrite) {
+                return true
+            }
             if (!values.hasUnsavedChanges) {
                 return false
             }

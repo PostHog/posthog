@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -674,7 +675,7 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
         })
 
-        it('sends the next tags only after the save before them answers', async () => {
+        it('sends the next tags after the save before them answers, also when the person left', async () => {
             const mocks = tagMocks(200)
             const answers: (() => void)[] = []
             useMocks({
@@ -692,14 +693,41 @@ describe('messageTemplateLogic', () => {
             logic.actions.saveTags(['old', 'a'])
             await waitFor(() => expect(answers).toHaveLength(1))
             logic.actions.saveTags(['old', 'a', 'b'])
-            await expectLogic(logic).delay(400)
+            logic.unmount()
+            await delay(100)
             expect(patches).toEqual([{ tags: ['old', 'a'] }])
 
             answers[0]()
-            await waitFor(() => expect(answers).toHaveLength(2))
+            await waitFor(() => expect(patches).toEqual([{ tags: ['old', 'a'] }, { tags: ['old', 'a', 'b'] }]))
             answers[1]()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+        })
+
+        it('keeps a tag added while the template saves', async () => {
+            const mocks = tagMocks(200)
+            let answerSave: (() => void) | undefined
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        if (body.tags) {
+                            return [200, { id: 'existing-id', name: 'A', tags: body.tags }]
+                        }
+                        await new Promise<void>((resolve) => (answerSave = resolve))
+                        return [200, { id: 'existing-id', name: 'A', tags: ['old'] }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTemplate(logic.values.template)
+            await waitFor(() => expect(answerSave).toBeTruthy())
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(patches).toContainEqual({ tags: ['old', 'a'] }))
+            answerSave?.()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'a'])
+            expect(logic.values.templateChanged).toBe(false)
         })
 
         it('goes back to the saved tags when the save fails', async () => {
