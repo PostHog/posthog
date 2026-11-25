@@ -458,6 +458,7 @@ pub async fn evaluate_for_request(
             enable_realtime_cohort_evaluation: team
                 .evaluates_realtime_cohorts(&state.config.realtime_cohort_evaluation_team_ids),
             use_explicit_exact_matching: team.property_matching_version.uses_explicit_matching(),
+            null_counts_as_not_set: team.null_counts_as_not_set,
             membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
             detailed_analysis: detailed_analysis.unwrap_or(false),
             only_use_override_person_properties: only_use_override_person_properties

@@ -35,6 +35,7 @@ pub async fn evaluate_feature_flags(
     .with_skip_writes(context.skip_writes)
     .with_realtime_cohort_evaluation(context.enable_realtime_cohort_evaluation)
     .with_explicit_exact_matching(context.use_explicit_exact_matching)
+    .with_null_counts_as_not_set(context.null_counts_as_not_set)
     .with_membership_stamp_policy(context.membership_stamp_policy)
     .with_detailed_analysis(context.detailed_analysis)
     .with_only_use_override_person_properties(context.only_use_override_person_properties)

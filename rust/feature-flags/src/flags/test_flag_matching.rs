@@ -5345,6 +5345,94 @@ mod tests {
         assert_eq!(result.reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
+    #[derive(Debug, Clone, Copy)]
+    enum NullIsSetTarget {
+        PersonFilter,
+        PersonPropertyCohort,
+        V2Predicate,
+    }
+
+    #[rstest::rstest]
+    #[case::person_filter_on(NullIsSetTarget::PersonFilter, true, false)]
+    #[case::person_filter_off(NullIsSetTarget::PersonFilter, false, true)]
+    #[case::cohort_on(NullIsSetTarget::PersonPropertyCohort, true, false)]
+    #[case::cohort_off(NullIsSetTarget::PersonPropertyCohort, false, true)]
+    #[case::v2_on(NullIsSetTarget::V2Predicate, true, false)]
+    #[case::v2_off(NullIsSetTarget::V2Predicate, false, true)]
+    #[tokio::test]
+    async fn test_is_set_on_null_person_property_follows_null_counts_as_not_set(
+        #[case] target: NullIsSetTarget,
+        #[case] null_counts_as_not_set: bool,
+        #[case] expected_enabled: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = Uuid::new_v4().to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": null})))
+            .await
+            .unwrap();
+
+        let is_set_on_plan =
+            json!([{"key": "plan", "type": "person", "operator": "is_set", "value": "is_set"}]);
+        let flag = match target {
+            NullIsSetTarget::PersonFilter => {
+                person_property_flag(1, team.id, "null_is_set", "plan", OperatorType::IsSet)
+            }
+            NullIsSetTarget::PersonPropertyCohort => {
+                let cohort = context
+                    .insert_cohort(
+                        team.id,
+                        Some("Plan is set".to_string()),
+                        json!({
+                            "properties": {
+                                "type": "OR",
+                                "values": [{"type": "AND", "values": is_set_on_plan}]
+                            }
+                        }),
+                        false,
+                    )
+                    .await
+                    .unwrap();
+                flag_targeting_cohort(team.id, cohort.id)
+            }
+            NullIsSetTarget::V2Predicate => v2_person_flag(team.id, "null_is_set", is_set_on_plan),
+        };
+
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_null_counts_as_not_set(null_counts_as_not_set);
+
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        let details = &response.flags[&flag.key];
+        assert!(!details.failed, "{target:?} must evaluate, not fail");
+        assert_eq!(details.enabled, expected_enabled, "{target:?}");
+    }
+
     #[tokio::test]
     async fn test_disambiguated_policy_person_stamp_only_falls_back_to_dynamic() {
         let context = TestContext::new(None).await;

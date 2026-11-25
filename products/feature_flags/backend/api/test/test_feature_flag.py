@@ -9155,6 +9155,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_key="some-feature",
             expected_version=1,
             expected_property_matching_version=1,
+            expected_null_counts_as_not_set=False,
             cursor=0,
             limit=1_000,
         )
@@ -9233,6 +9234,31 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNotNone(history.finished_at)
         # The stuck-cohort sweep measures a live run from this open row.
         self.assertEqual(open_history_rows_during_run, [1, 1, 1])
+
+    @parameterized.expand(
+        [
+            # The Rust service reads a missing row as False, so a team without one must send False.
+            ("no_config_row", None, False),
+            ("row_false", False, False),
+            ("row_true", True, True),
+        ]
+    )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_every_page_pins_team_null_counts_as_not_set(
+        self, _name, stored_value, expected_value, mock_batch_evaluate
+    ):
+        self._create_flag()
+        if stored_value is None:
+            TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
+        else:
+            TeamFeatureFlagsConfig.objects.filter(team=self.team).update(null_counts_as_not_set=stored_value)
+        cohort = self._create_static_cohort()
+        mock_batch_evaluate.side_effect = [self._page([], next_cursor=100), self._page([], next_cursor=None)]
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        sent_values = [call.kwargs["expected_null_counts_as_not_set"] for call in mock_batch_evaluate.call_args_list]
+        self.assertEqual(sent_values, [expected_value, expected_value])
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_history_write_failure_does_not_fail_a_populated_cohort(self, mock_batch_evaluate):

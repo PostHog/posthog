@@ -265,6 +265,8 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 Exact property matching is selected per team through `TeamFeatureFlagsConfig.property_matching_version`. Version `1` preserves legacy boolean coercion, while version `2` uses exact scalar and array equality. Team metadata and local-evaluation responses expose the selected version.
 
+`TeamFeatureFlagsConfig.null_counts_as_not_set` makes `is_set` and `is_not_set` treat a property whose value is `null` as not set, the same way HogQL does. It is off by default, and staff turn it on per team.
+
 ### PostgreSQL
 
 | Variable                                  | Default                                             | Purpose                               |

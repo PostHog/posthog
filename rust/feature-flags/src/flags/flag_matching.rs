@@ -484,6 +484,7 @@ pub struct FeatureFlagMatcher {
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
     use_explicit_exact_matching: bool,
+    null_counts_as_not_set: bool,
     membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
@@ -858,6 +859,7 @@ impl FeatureFlagMatcher {
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             use_explicit_exact_matching: false,
+            null_counts_as_not_set: false,
             membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
@@ -918,6 +920,16 @@ impl FeatureFlagMatcher {
     pub fn with_explicit_exact_matching(mut self, enable: bool) -> Self {
         self.use_explicit_exact_matching = enable;
         self
+    }
+
+    pub fn with_null_counts_as_not_set(mut self, enable: bool) -> Self {
+        self.null_counts_as_not_set = enable;
+        self
+    }
+
+    fn property_matching_context(&self) -> PropertyMatchingContext {
+        PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching)
+            .with_null_counts_as_not_set(self.null_counts_as_not_set)
     }
 
     pub fn with_membership_stamp_policy(mut self, policy: MembershipStampPolicy) -> Self {
@@ -1145,7 +1157,7 @@ impl FeatureFlagMatcher {
             target_properties,
             cohorts,
             cached_matches,
-            PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
+            self.property_matching_context(),
         )
     }
 
@@ -1611,10 +1623,7 @@ impl FeatureFlagMatcher {
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
                         Some(&self.flag_evaluation_state.failed_flag_ids),
                         Some(&cohort_matches),
-                        PropertyMatchingContext::new(
-                            self.timezone,
-                            self.use_explicit_exact_matching,
-                        ),
+                        self.property_matching_context(),
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -2296,6 +2305,7 @@ impl FeatureFlagMatcher {
             properties,
             timezone: self.timezone,
             use_explicit_exact_matching: self.use_explicit_exact_matching,
+            null_counts_as_not_set: self.null_counts_as_not_set,
             now: self.now,
         })?;
         // `/flags?v=2` reports these v1 reasons; `/flags?v=4` reports the evaluator's own code.
@@ -2463,10 +2473,7 @@ impl FeatureFlagMatcher {
                         filter,
                         props,
                         partial_props,
-                        PropertyMatchingContext::new(
-                            self.timezone,
-                            self.use_explicit_exact_matching,
-                        ),
+                        self.property_matching_context(),
                     )
                     .unwrap_or(false)
                     {

@@ -195,6 +195,7 @@ pub struct EvaluationContext<'a> {
     pub properties: PersonProperties<'a>,
     pub timezone: Tz,
     pub use_explicit_exact_matching: bool,
+    pub null_counts_as_not_set: bool,
     pub now: DateTime<Utc>,
 }
 
@@ -240,6 +241,7 @@ impl<'a> Evaluator<'a> {
         let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
             PropertyMatchingContext::new(context.timezone, context.use_explicit_exact_matching)
+                .with_null_counts_as_not_set(context.null_counts_as_not_set)
                 .at_time(context.now);
         // Unavailable properties fail only once a predicate is reached.
         let person_properties = match context.properties {
@@ -400,8 +402,7 @@ fn rule_targets(
             matching,
         )
         .map_err(|error| match error {
-            FlagMatchingError::MissingProperty(_)
-            | FlagMatchingError::InconclusiveOperatorMatch => EvaluationError::MissingContext,
+            FlagMatchingError::MissingProperty(_) => EvaluationError::MissingContext,
             FlagMatchingError::ValidationError(_) => EvaluationError::InvalidProperty,
             FlagMatchingError::InvalidRegexPattern => EvaluationError::InvalidRegex,
         })?;

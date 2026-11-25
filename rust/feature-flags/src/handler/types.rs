@@ -109,6 +109,7 @@ pub struct FeatureFlagEvaluationContext {
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
     pub use_explicit_exact_matching: bool,
+    pub null_counts_as_not_set: bool,
     pub membership_stamp_policy: MembershipStampPolicy,
     /// Whether to include detailed condition analysis in flag evaluation results.
     pub detailed_analysis: bool,
