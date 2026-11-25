@@ -435,7 +435,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             validate_user_query(query, team=self.team, requested_offset=self.query.offset)
 
         paginator = HogQLHasMorePaginator.for_hogql_query(
-            query, limit_context=self.limit_context, offset=self.query.offset
+            query, limit_context=self.limit_context, offset=self.query.offset, limit=self.query.limit
         )
         func = cast(
             Callable[..., HogQLQueryResponse],

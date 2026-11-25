@@ -331,6 +331,24 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         return self.autostart_base_branches.get(repository.lower()) or None
 
 
+UNCHOSEN_AUTOSTART_PRIORITY = AutonomyPriority.P2
+
+
+def effective_autostart_priority(config: SignalTeamConfig | None) -> AutonomyPriority:
+    """The project threshold that auto-start applies.
+
+    A project with no row, or with a null PR switch and the P4 column default, never chose a
+    threshold, so it gets `UNCHOSEN_AUTOSTART_PRIORITY`. P4 opens a PR for every report priority,
+    which nobody chose for these projects. A null switch with any other value keeps that value,
+    because a row only holds another value after a write.
+    """
+    if config is None:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    if config.autostart_enabled is None and config.default_autostart_priority == AutonomyPriority.P4:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    return AutonomyPriority(config.default_autostart_priority)
+
+
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
@@ -1441,7 +1459,8 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
 
     One row per (report, issue). The row is the claim: it is taken before the comment goes out, so a
     re-notified report cannot post a second comment on the same issue, and it records which issues
-    already heard back.
+    already heard back. A claim also blocks the team's other open reports from commenting on that
+    issue, so an issue gets one comment at a time.
     """
 
     all_teams = models.Manager()  # noqa: DJ012
@@ -1542,6 +1561,8 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
+    merged_by_login = models.CharField(max_length=255, null=True, blank=True)
+    merged_by_github_id = models.BigIntegerField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
     participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
@@ -2953,6 +2974,12 @@ class SignalReportMonitoringAttempt(UUIDModel):
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
     close_pr_on_resolve = models.BooleanField(null=True, blank=True)
+    # The person who completed the implementation. The automatic transition out of Monitoring names them,
+    # because nobody makes that transition by hand.
+    credited_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    credited_user_source = models.CharField(max_length=16, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -4764,7 +4791,7 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
-    """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
+    """The trained detector artifacts of one insight and model profile of the anomaly scoring tick.
 
     A train step fits one artifact per series and writes them as one blob to object storage. A score
     step fetches only the newest buckets and scores them with the stored artifacts. See
@@ -4777,6 +4804,7 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Not a foreign key: insights belong to another product. A deleted insight leaves a small row behind.
     insight_id = models.BigIntegerField()
+    # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
     # The insight as the state was built for it. A change to any of them makes the next visit train.
     interval = models.CharField(max_length=16)

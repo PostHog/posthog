@@ -16,6 +16,7 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
@@ -32,6 +33,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
@@ -54,6 +56,14 @@ VercelItemType = Literal["flag", "experiment"]
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+# Bounds the billing reads that repeated plan-limit refusals for one organization can cause.
+BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS = 10
+BILLING_FEATURES_REFRESH_CACHE_KEY = "vercel:billing_features_refresh:{organization_id}"
+
+SSO_VERIFY_EMAIL_REASON = "vercel_sso"
+
 
 class VercelSSOError(Exception):
     pass
@@ -66,6 +76,14 @@ class RequiresExistingUserLogin(Exception):
         self.installation_id = installation_id
         self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
+
+
+class RequiresEmailVerification(Exception):
+    def __init__(self, user: User, installation_id: str, email_verified: bool | None):
+        self.user = user
+        self.installation_id = installation_id
+        self.email_verified = email_verified
+        super().__init__(f"User {user.pk} must verify their email first")
 
 
 class SSOLoginRefused(Exception):
@@ -549,6 +567,42 @@ class VercelIntegration:
         return {"plans": VercelIntegration.get_vercel_plans()}
 
     @staticmethod
+    def _refresh_available_product_features(organization: Organization) -> None:
+        license = get_cached_instance_license()
+        if not license:
+            return
+        try:
+            # Deferred for the same reason as in upsert_installation: keep the billing stack off the import path.
+            from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
+
+            BillingManager(license).update_available_product_features(
+                organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh available product features for Vercel resource creation",
+                organization_id=str(organization.id),
+                integration="vercel",
+            )
+            capture_exception(e)
+
+    @staticmethod
+    def _assert_organization_can_add_project(organization: Organization) -> None:
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit == ProjectLimit.PLAN:
+            # upsert_installation authorizes billing but does not store the plan's features, which
+            # arrive later from the billing service. A resource created soon after the install can
+            # find them missing and fall back to the one-project limit, so read them from billing
+            # before refusing.
+            refresh_key = BILLING_FEATURES_REFRESH_CACHE_KEY.format(organization_id=organization.id)
+            if cache.add(refresh_key, True, timeout=BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS):
+                VercelIntegration._refresh_available_product_features(organization)
+                reached_limit = organization_project_limit_reached(organization)
+
+        if reached_limit is not None:
+            raise exceptions.PermissionDenied(PROJECT_LIMIT_MESSAGES[reached_limit])
+
+    @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "Starting Vercel resource creation",
@@ -564,6 +618,8 @@ class VercelIntegration:
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
+
+        VercelIntegration._assert_organization_can_add_project(organization)
 
         team = Team.objects.create_with_data(
             initiating_user=installation.created_by or None,
@@ -998,9 +1054,21 @@ class VercelIntegration:
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
         if resource_id:
             VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
+
+        if user.is_email_verified is not True:
+            # Only a new account gets here, because the other branches require the claim to prove the email.
+            # This gate ignores the email-verification-disabled flag and an instance without email, which
+            # password login honors. The Vercel claim is the only proof of the address. A session for an
+            # unproven address lets an attacker pre-create the account, and a later social login by the
+            # real owner links to that account while the attacker's session stays live.
+            raise RequiresEmailVerification(
+                user, installation_id=claims.installation_id, email_verified=claims.user_email_verified
+            )
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return user
 
     @staticmethod
@@ -1133,6 +1201,30 @@ class VercelIntegration:
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
+    def _verify_email_redirect(blocked: RequiresEmailVerification, next_url: str) -> str:
+        email_sent = True
+        try:
+            email_verification_code_verifier.send_code(blocked.user)
+        except Exception:
+            # The login stays blocked when the send fails, because the verify-email page can send a new code.
+            email_sent = False
+
+        logger.info(
+            "Vercel SSO new user needs email verification",
+            installation_id=blocked.installation_id,
+            user_id=blocked.user.pk,
+            email_verified=blocked.email_verified,
+            email_sent=email_sent,
+            method="verify_email_flow",
+            integration="vercel",
+        )
+
+        params = {"reason": SSO_VERIFY_EMAIL_REASON, "next": next_url}
+        if not email_sent:
+            params["email_sent"] = "false"
+        return f"/verify_email/{blocked.user.uuid}?{urlencode(params)}"
+
+    @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
         claims: VercelClaims | None = None
         try:
@@ -1181,6 +1273,14 @@ class VercelIntegration:
                 integration="vercel",
             )
             return login_url
+        except RequiresEmailVerification as e:
+            next_url = VercelIntegration.determine_sso_redirect(
+                path=params.path,
+                url=params.url,
+                experimentation_item_id=params.experimentation_item_id,
+                user=e.user,
+            )
+            return VercelIntegration._verify_email_redirect(e, next_url)
         except SSOLoginRefused:
             return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:

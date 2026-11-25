@@ -23,7 +23,7 @@ export const ExternalDataSchemasListQueryParams = () => zod.object({
         .boolean()
         .default(externalDataSchemasListQueryCompactDefault)
         .describe(
-            'Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.'
+            'Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -279,7 +279,7 @@ export const ExternalDataSourcesListQueryParams = () => zod.object({
         .boolean()
         .default(externalDataSourcesListQueryCompactDefault)
         .describe(
-            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
+            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
         ),
     include_schemas: zod
         .boolean()
@@ -368,7 +368,7 @@ export const ExternalDataSourcesRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(externalDataSourcesRetrieveQueryCompactDefault)
         .describe(
-            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
+            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
         ),
     include_schemas: zod
         .boolean()

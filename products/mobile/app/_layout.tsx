@@ -17,6 +17,7 @@ import { useDemoHydrated, useDemoMode } from '@/demo/demoMode'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
+import { useLivePreferencesHydrated } from '@/features/live/livePreference'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
@@ -61,10 +62,12 @@ export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
     const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
+    const livePreferencesHydrated = useLivePreferencesHydrated()
     const authStatus = useAuthStore((state) => state.status)
     const [rangesReady, setRangesReady] = useState(useViewRangeStore.persist.hasHydrated)
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
-    const ready = demoHydrated && appearanceHydrated && rangesReady && authStatus !== 'loading'
+    const ready =
+        demoHydrated && appearanceHydrated && livePreferencesHydrated && rangesReady && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()

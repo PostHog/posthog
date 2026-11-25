@@ -306,13 +306,21 @@ sequenceDiagram
 During drive and convergence the Runner polls `Environment.dependencyHealth()` every 5 seconds.
 A failed check runs again at once.
 A dependency that fails on a confirming check gets a confirming check of its own, even when the run is stopping and even after it recovered, up to two confirmations per poll and none after a loss.
-A dependency went away when both checks failed and the runner's event loop does not explain it.
-A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
+The probes run in a child process of the runner, so a drive that saturates the runner's event loop does not time them out.
+The runner sends the child its targets over IPC, so no connection string shows on the child's command line.
+When the child exits, or answers no check within 30 seconds, that check fails and the next check starts a fresh child.
+A child that the run host has no file descriptor to start fails the check with that limit, not with a lost dependency.
+The provider edge runs in the runner, and its probe is a `GET /_health` that must answer 200, over a connection the child keeps alive between checks.
+So a runner too busy to answer that request makes the edge unheard, not gone.
+A dependency went away when both checks failed and neither the run host nor the runner's event loop explains it.
+A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard, because a host that busy can starve the probe process too.
+A check that failed because the run host ran out of local ports or file descriptors is a harness limit that names the resource, not a lost dependency.
+That check keeps the host's 20 largest groups of TCP sockets by state and peer in `probes.json`, since whatever held the ports is gone once the run ends.
 An error that carries a refusal, reset or unknown-host code, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
 An untyped error past the budget, such as ioredis's `Connection is closed.`, is not: on a busy loop it reads as unheard, with its error kept in `probes.json`.
 The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
-`probes.json` keeps one entry for each confirmed failed check: the dependency, its kind, the time of its first failed check, the reason from its last failed check, and the busier check's share of loop time.
+`probes.json` keeps one entry for each confirmed failed check: the dependency, its kind, the time of its first failed check, the reason from the check that supports its kind, and the busier check's share of loop time.
 It reads `Environment.exits()` from `Judge.open` on, to tell an exit a valve caused from an unexplained one.
 `Valves.releaseAll` also runs in a `finally`, so no valve outlives its card.
 
@@ -640,7 +648,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
-- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
+- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, connects to the edge over TCP, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
 - **The roles' environment.** Every role starts from `src/index.ts` with `tsx` in development mode, as its own process group, with:
   - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
   - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;

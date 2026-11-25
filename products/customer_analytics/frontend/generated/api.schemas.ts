@@ -1768,6 +1768,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -3321,6 +3323,18 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
+ * * `keep` - Keep the last synced values
+ * * `remove` - Remove mapped properties
+ */
+export type WarehousePersonPropertyMissingRowBehaviorEnumApi =
+    (typeof WarehousePersonPropertyMissingRowBehaviorEnumApi)[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnumApi]
+
+export const WarehousePersonPropertyMissingRowBehaviorEnumApi = {
+    Keep: 'keep',
+    Remove: 'remove',
+} as const
+
+/**
  * * `tracked` - tracked
  * * `ignored` - ignored
  */
@@ -3410,6 +3424,8 @@ export interface CustomPropertySyncRunApi {
     readonly existing: number
     /** Property updates written or produced to the ingestion pipeline. */
     readonly produced: number
+    /** People whose mapped properties were removed after they left the source table. */
+    readonly removed: number
     /** Changed rows skipped because no existing account, person, or group matched the key column value. */
     readonly skipped_missing_person: number
     /**
@@ -3451,6 +3467,11 @@ export interface CustomPropertySourceApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
@@ -3706,6 +3727,11 @@ export interface CustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3729,6 +3755,11 @@ export interface PatchedCustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -5144,6 +5175,67 @@ export interface PinnedAccountPropertyApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `role` - Role
+ * * `project` - Project
+ */
+export type PinnedAccountPropertiesSourceKindEnumApi =
+    (typeof PinnedAccountPropertiesSourceKindEnumApi)[keyof typeof PinnedAccountPropertiesSourceKindEnumApi]
+
+export const PinnedAccountPropertiesSourceKindEnumApi = {
+    Personal: 'personal',
+    Role: 'role',
+    Project: 'project',
+} as const
+
+export interface PinnedAccountPropertiesRoleApi {
+    /** Organization role UUID. */
+    readonly id: string
+    /** Organization role name. */
+    readonly name: string
+}
+
+export interface PinnedAccountPropertiesSourceApi {
+    /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+     *
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project */
+    readonly kind: PinnedAccountPropertiesSourceKindEnumApi
+    /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+    readonly roles: readonly PinnedAccountPropertiesRoleApi[]
+}
+
+/**
+ * * `project` - Project
+ * * `role` - Role
+ */
+export type DefaultPinnedAccountPropertiesSourceKindEnumApi =
+    (typeof DefaultPinnedAccountPropertiesSourceKindEnumApi)[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnumApi]
+
+export const DefaultPinnedAccountPropertiesSourceKindEnumApi = {
+    Project: 'project',
+    Role: 'role',
+} as const
+
+export interface DefaultPinnedAccountPropertiesSourceApi {
+    /** Whether this default option is the project default or a role default.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    readonly kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /** Role this default belongs to when kind is role, or null for the project default. */
+    readonly role: PinnedAccountPropertiesRoleApi | null
+}
+
+export interface AvailableDefaultPinnedAccountPropertiesApi {
+    /** Which default this entry represents. */
+    readonly source: DefaultPinnedAccountPropertiesSourceApi
+    /** Ordered account properties saved for this default. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+/**
  * * `weekdays` - Weekdays
  * * `every_day` - Every day
  */
@@ -5181,10 +5273,27 @@ export interface AccountDetailTabsConfigApi {
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+    readonly pinned_properties_source: PinnedAccountPropertiesSourceApi
+    /** Project and role defaults the requesting user can reset their pinned properties to. */
+    readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountPropertiesApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
     /** Personal order, visibility, and default for account tabs. */
     readonly account_detail_tabs: AccountDetailTabsConfigApi
+}
+
+export interface FollowedDefaultPinnedPropertiesApi {
+    /** Follow the project default or the default of one of the requesting user's roles.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /**
+     * Role whose default to follow. Required when kind is role.
+     * @nullable
+     */
+    role_id?: string | null
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -5202,6 +5311,8 @@ export interface TaskDigestPreferencesUpdateApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+    followed_default?: FollowedDefaultPinnedPropertiesApi
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
     /** Complete personal account tab configuration. Omit to keep it unchanged. */

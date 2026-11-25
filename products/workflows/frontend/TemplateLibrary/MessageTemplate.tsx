@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useState } from 'react'
 
 import { IconBolt, IconLock, IconTrash } from '@posthog/icons'
 import {
@@ -21,6 +22,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -106,6 +108,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
+    // The editor remounts after each save, and stays the same email until the person leaves the page.
+    const [visitId] = useState(() => uuid())
 
     const testSendLogic = messageTemplateTestSendLogic(props)
     const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
@@ -169,6 +173,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <Spinner className="text-lg" />
             ) : (
                 <EmailTemplater
+                    emailKey={`${visitId}:${props.id}`}
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}

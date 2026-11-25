@@ -130,6 +130,39 @@ class TestFileUploadSources(APIBaseTest):
             format="json",
         )
 
+    def test_inline_save_discards_rejected_files_and_keeps_the_file_a_source_adopted(self) -> None:
+        def save(action: str, **fields: str):
+            return self.client.post(
+                f"{self.base_url}/{action}/?include_columns=false",
+                {
+                    "file": SimpleUploadedFile("result.json", b'{"n":1}\n'),
+                    "file_format": "json",
+                    "notebook_cell": "nb/cell",
+                    **fields,
+                },
+                format="multipart",
+            )
+
+        created = save("create_from_file", table_name="counts")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table_id = created.json()["id"]
+        source = ExternalDataSchema.objects.select_related("source").get(table_id=table_id).source
+        original = next(iter(self.s3.written))
+        assert (source.connection_metadata or {}).get("notebook_cell") == "nb/cell"
+        assert save("create_from_file", table_name="counts").status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            save(f"{table_id}/replace_with_file", notebook_cell="nb/other").status_code == status.HTTP_400_BAD_REQUEST
+        )
+        assert set(self.s3.written) - set(self.s3.removed) == {original}
+
+        self.trigger.side_effect = RuntimeError("sync unavailable")
+        failed_sync = save(f"{table_id}/replace_with_file")
+        assert failed_sync.status_code == status.HTTP_400_BAD_REQUEST
+        source.refresh_from_db()
+        adopted = next(path for path in self.s3.written if source.job_inputs["upload_id"] in path)
+        assert adopted != original
+        assert set(self.s3.written) - set(self.s3.removed) == {original, adopted}
+
     def test_an_upload_becomes_a_file_upload_source_and_one_billable_sync(self) -> None:
         response = self._create()
 

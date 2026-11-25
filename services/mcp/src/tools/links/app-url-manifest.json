@@ -1344,6 +1344,11 @@
         "params": [],
         "scope": "project"
     },
+    "oauthApplication": {
+        "template": "/settings/organization-oauth-apps/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "oauthAuthorize": {
         "template": "/oauth/authorize",
         "params": [],
