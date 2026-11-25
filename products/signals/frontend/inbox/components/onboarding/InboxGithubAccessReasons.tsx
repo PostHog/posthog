@@ -12,8 +12,7 @@ export function InboxGithubAccessReasons({ action, className }: InboxGithubAcces
         <>
             <div className="flex items-start justify-between gap-3">
                 <p className="m-0 font-semibold text-default">
-                    We use GitHub access to research issues and may automatically open pull requests with proposed
-                    fixes.
+                    We use GitHub access to research issues and, optionally, open pull requests with proposed fixes.
                 </p>
                 {action}
             </div>
@@ -40,8 +39,8 @@ export function InboxGithubAccessReasons({ action, className }: InboxGithubAcces
                     </p>
                 </li>
                 <li>
-                    <h4 className="m-0 text-sm font-semibold text-default">Automatic fixes</h4>
-                    <p className="m-0">We can open PRs to fix issues we've researched automatically.</p>
+                    <h4 className="m-0 text-sm font-semibold text-default">Proposed fixes</h4>
+                    <p className="m-0">When you turn it on, we open PRs to fix the issues we've researched.</p>
                 </li>
             </ul>
         </>

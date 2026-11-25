@@ -433,7 +433,7 @@ export const QuickEntryWithGithubAccessExplanation: Story = {
         const positions = controls.map((element) => element.getBoundingClientRect().y)
         await userEvent.click(explanation)
         const accessSummary = await within(document.body).findByText(
-            'We use GitHub access to research issues and may automatically open pull requests with proposed fixes.'
+            'We use GitHub access to research issues and, optionally, open pull requests with proposed fixes.'
         )
         await waitFor(() => expect(accessSummary).toBeVisible())
         controls.forEach((element, index) => {
