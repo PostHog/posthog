@@ -28,6 +28,7 @@ import type {
     TraceSpansTreeQueryResponse,
 } from '../../../../frontend/src/queries/schema/schema-general'
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
+import type { ResolvedUntilEnumApi } from '../generated/api.schemas'
 import { mergeIssues } from '../utils'
 import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 
@@ -134,9 +135,11 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus,
+        resolvedUntil?: ResolvedUntilEnumApi | undefined
     ) => {
         id: string
+        resolvedUntil: ResolvedUntilEnumApi | undefined
         status: ErrorTrackingIssueStatus
     } // issueActionsLogic
     cancelQuery: () => {

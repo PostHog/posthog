@@ -7,14 +7,22 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import type { TeamType } from '~/types'
 
-import { errorTrackingSuppressionRulesCreate } from '../../generated/api'
+import {
+    errorTrackingIssuesBulkCreate,
+    errorTrackingIssuesPartialUpdate,
+    errorTrackingSuppressionRulesCreate,
+} from '../../generated/api'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
 import { suppressSimilarIssuesLogic } from './suppressSimilarIssuesLogic'
 
 jest.mock('../../generated/api', () => ({
+    errorTrackingIssuesBulkCreate: jest.fn(),
+    errorTrackingIssuesPartialUpdate: jest.fn(),
     errorTrackingSuppressionRulesCreate: jest.fn(),
 }))
 
+const mockIssuesBulkCreate = jest.mocked(errorTrackingIssuesBulkCreate)
+const mockIssuesPartialUpdate = jest.mocked(errorTrackingIssuesPartialUpdate)
 const mockSuppressionRulesCreate = jest.mocked(errorTrackingSuppressionRulesCreate)
 
 const CHILD_ENVIRONMENT: TeamType = { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1, project_id: MOCK_TEAM_ID }
@@ -24,8 +32,8 @@ describe('suppressSimilarIssuesLogic', () => {
 
     beforeEach(() => {
         initKeaTests(true, CHILD_ENVIRONMENT)
-        jest.spyOn(api.errorTracking, 'updateIssue').mockResolvedValue({} as never)
-        jest.spyOn(api.errorTracking, 'bulkMarkStatus').mockResolvedValue({} as never)
+        mockIssuesPartialUpdate.mockResolvedValue({} as never)
+        mockIssuesBulkCreate.mockResolvedValue({} as never)
         jest.spyOn(api, 'query').mockResolvedValue({ results: [[0, 0]] } as never)
         mockSuppressionRulesCreate.mockResolvedValue({} as never)
         logic = suppressSimilarIssuesLogic()
@@ -140,7 +148,7 @@ describe('suppressSimilarIssuesLogic', () => {
     })
 
     it('does not offer suppression rules when the status update fails', async () => {
-        jest.spyOn(api.errorTracking, 'updateIssue').mockRejectedValue(new Error('Status update failed'))
+        mockIssuesPartialUpdate.mockRejectedValue(new Error('Status update failed'))
         const query = jest.spyOn(api, 'queryHogQL')
 
         await expectLogic(issueActionsLogic, () => {

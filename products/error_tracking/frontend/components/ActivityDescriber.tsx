@@ -14,6 +14,7 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { TZLabel } from 'lib/components/TZLabel'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +23,12 @@ import { ActivityScope } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './Assignee/AssigneeDisplay'
 import { assigneeSelectLogic } from './Assignee/assigneeSelectLogic'
+
+// Pinned: the trigger job type of the activity entry that ingestion writes when it reopens an issue.
+// It must match INGESTION_REOPEN_TRIGGER_JOB_TYPE in the backend.
+const INGESTION_REOPEN_JOB_TYPE = 'error_tracking_ingestion'
+// Pinned: the resolved_until value the backend logs for an issue resolved until the next occurrence.
+const RESOLVED_UNTIL_NEXT_OCCURRENCE = 'next_occurrence'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
@@ -62,8 +69,56 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
+function hasChangedField(logItem: ActivityLogItem | undefined, field: string): boolean {
+    return (logItem?.detail.changes ?? []).some((change) => change.field === field)
+}
+
+function resolvedUntilNextOccurrence(logItem?: ActivityLogItem): boolean {
+    return (logItem?.detail.changes ?? []).some(
+        (change) => change.field === 'resolved_until' && change.after === RESOLVED_UNTIL_NEXT_OCCURRENCE
+    )
+}
+
+function reopenedByReleaseVersion(logItem?: ActivityLogItem): string | null {
+    const version = logItem?.detail.trigger?.payload?.release?.version
+    return typeof version === 'string' && version ? version : null
+}
+
+function reopeningExceptionTime(logItem?: ActivityLogItem): JSX.Element | null {
+    const timestamp = logItem?.detail.trigger?.payload?.exception_timestamp
+    return typeof timestamp === 'string' && timestamp ? (
+        <>
+            {' '}
+            on <TZLabel time={timestamp} timestampStyle="absolute" />
+        </>
+    ) : null
+}
+
+function describeIngestionReopen(logItem?: ActivityLogItem): ChangeMapping {
+    const version = reopenedByReleaseVersion(logItem)
+    if (version) {
+        return {
+            summary: [<>Reopened by release {version}</>],
+            description: [
+                <>
+                    reopened {nameAndLink(logItem)} after an exception from release <strong>{version}</strong>
+                    {reopeningExceptionTime(logItem)}
+                </>,
+            ],
+        }
+    }
+    return {
+        summary: ['Reopened by a new exception'],
+        description: [
+            <>
+                reopened {nameAndLink(logItem)} after a new exception{reopeningExceptionTime(logItem)}
+            </>,
+        ],
+    }
+}
+
 const errorTrackingIssueActionsMapping: Record<
-    keyof ErrorTrackingRelationalIssue,
+    keyof ErrorTrackingRelationalIssue | 'resolved_until',
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
     assignee: (change, logItem) => {
@@ -130,6 +185,15 @@ const errorTrackingIssueActionsMapping: Record<
         if (!before || !after) {
             return null
         }
+        if (logItem?.detail.trigger?.job_type === INGESTION_REOPEN_JOB_TYPE) {
+            return describeIngestionReopen(logItem)
+        }
+        if (after === 'resolved' && resolvedUntilNextOccurrence(logItem)) {
+            return {
+                summary: ['Resolved until the next occurrence'],
+                description: [<>resolved {nameAndLink(logItem)} until the next occurrence</>],
+            }
+        }
         return {
             summary: [
                 <>
@@ -143,6 +207,22 @@ const errorTrackingIssueActionsMapping: Record<
                 </>,
             ],
         }
+    },
+
+    resolved_until: (change, logItem) => {
+        // The status change of the same entry describes the mode together with the resolve.
+        if (!change?.after || hasChangedField(logItem, 'status')) {
+            return null
+        }
+        return change.after === RESOLVED_UNTIL_NEXT_OCCURRENCE
+            ? {
+                  summary: ['Changed to reopen on the next occurrence'],
+                  description: [<>changed {nameAndLink(logItem)} to reopen on the next occurrence</>],
+              }
+            : {
+                  summary: ['Changed to reopen only in a newer release'],
+                  description: [<>changed {nameAndLink(logItem)} to reopen only in a newer release</>],
+              }
     },
 
     /** readonly / computed fields aren't described */

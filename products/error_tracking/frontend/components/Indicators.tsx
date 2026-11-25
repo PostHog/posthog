@@ -108,15 +108,17 @@ interface StatusIndicatorProps {
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     /** Whether to show a tooltip explaining each status. If just `true`, tooltip placement defaults to `top`. */
     withTooltip?: boolean | NonNullable<React.ComponentProps<typeof TooltipContent>['side']>
+    /** Shown instead of the status's own tooltip, even when `withTooltip` is off. */
+    tooltip?: React.ReactNode
     className?: string
 }
 
 export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
-    { status, size = 'small', intent = false, className, withTooltip },
+    { status, size = 'small', intent = false, className, withTooltip, tooltip: tooltipOverride },
     ref
 ): JSX.Element {
     const config = getIssueStatusConfig(status)
-    const tooltip = withTooltip ? config.tooltip : undefined
+    const tooltip = tooltipOverride ?? (withTooltip ? config.tooltip : undefined)
     const content = (
         <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>
             <IssueStatusDot status={status} />

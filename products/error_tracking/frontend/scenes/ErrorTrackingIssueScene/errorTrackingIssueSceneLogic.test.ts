@@ -134,6 +134,110 @@ describe('errorTrackingIssueSceneLogic', () => {
             .toMatchValues({ issue: expect.objectContaining({ severity: 'critical' }) })
     })
 
+    it.each([
+        {
+            from: 'active' as const,
+            fromTime: null,
+            status: 'resolved' as const,
+            resolvedUntil: 'new_release' as const,
+            serverTime: '2026-01-02T03:04:05Z',
+            expectedBody: { status: 'resolved', resolved_until: 'new_release' },
+        },
+        {
+            from: 'resolved' as const,
+            fromTime: '2026-01-01T00:00:00Z',
+            status: 'active' as const,
+            resolvedUntil: undefined,
+            serverTime: null,
+            expectedBody: { status: 'active' },
+        },
+    ])(
+        'sends the mode and shows what the server returns after a change to $status',
+        async ({ from, fromTime, status, resolvedUntil, serverTime, expectedBody }) => {
+            const latestRelease = {
+                id: 'release-b',
+                version: '2.4.0',
+                project: 'web',
+                created_at: '2026-01-01T12:00:00Z',
+            }
+            let sentBody: unknown = null
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/error_tracking/issues/:id/': async ({ request }) => {
+                        sentBody = await request.json()
+                        return [
+                            200,
+                            {
+                                ...ISSUE,
+                                status,
+                                resolved_at: serverTime,
+                                resolved_until: resolvedUntil ?? null,
+                                latest_release: latestRelease,
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setIssue({ ...ISSUE, status: from, resolved_at: fromTime })
+
+            logic.actions.updateStatus(status, resolvedUntil)
+
+            await expectLogic(logic)
+                .toDispatchActions([issueActionsLogic.actionTypes.issueStatusUpdated])
+                .toFinishAllListeners()
+            expect(sentBody).toEqual(expectedBody)
+            expect(logic.values.issue).toMatchObject({
+                status,
+                resolved_at: serverTime,
+                resolved_until: resolvedUntil ?? null,
+                latest_release: latestRelease,
+            })
+        }
+    )
+
+    it.each([
+        {
+            name: 'seen after a resolve until a new release',
+            status: 'resolved' as const,
+            resolvedUntil: 'new_release' as const,
+            resolvedAt: '2026-01-02T00:00:00Z',
+            expected: true,
+        },
+        {
+            name: 'seen after a resolve until the next occurrence',
+            status: 'resolved' as const,
+            resolvedUntil: 'next_occurrence' as const,
+            resolvedAt: '2026-01-02T00:00:00Z',
+            expected: false,
+        },
+        {
+            name: 'last seen before the resolve',
+            status: 'resolved' as const,
+            resolvedUntil: 'new_release' as const,
+            resolvedAt: '2026-01-04T00:00:00Z',
+            expected: false,
+        },
+        {
+            name: 'resolved before the resolve time was recorded',
+            status: 'resolved' as const,
+            resolvedUntil: null,
+            resolvedAt: null,
+            expected: false,
+        },
+        { name: 'active', status: 'active' as const, resolvedUntil: null, resolvedAt: null, expected: false },
+    ])(
+        'flags an issue that is still seen after its resolve: $name',
+        async ({ status, resolvedUntil, resolvedAt, expected }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setIssue({ ...ISSUE, status, resolved_until: resolvedUntil, resolved_at: resolvedAt })
+            logic.actions.setLastSeen('2026-01-03T00:00:00Z')
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.stillSeenAfterResolve).toBe(expected)
+        }
+    )
+
     it('restores the persisted severity when an update fails', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setIssue({ ...ISSUE, severity: 'critical' })
