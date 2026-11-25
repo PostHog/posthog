@@ -1,7 +1,7 @@
 """Lets a query kind run inside a dashboards v2 query batch while `/query` keeps refusing it.
 
 The batch enters `dashboard_v2_batch_scope()` around every place it plans or runs its targets. A runner that is
-batch-only checks `in_dashboard_v2_batch()` in `validate_query_runner_access`. A ContextVar is per thread and per
+batch-only is refused by `get_query_runner` outside the scope, whoever the caller is. A ContextVar is per thread and per
 task, so nothing outside the batch can see it set, and Celery workers never do.
 """
 

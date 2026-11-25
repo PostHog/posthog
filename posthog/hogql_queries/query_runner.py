@@ -194,6 +194,7 @@ from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, in_dashboard_v2_batch
 from posthog.hogql_queries.phase_times import compute_phase_times
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
@@ -770,6 +771,10 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+
+    # Checked here rather than in validate_query_runner_access, which run() skips for share links and userless runs.
+    if kind in DASHBOARD_V2_BATCH_ONLY_KINDS and not in_dashboard_v2_batch():
+        raise UserAccessControlError("tracing", "viewer")
 
     if kind == "InboxUsageQuery":
         from products.signals.backend.facade.spend import InboxUsageQueryRunner
