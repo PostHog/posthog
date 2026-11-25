@@ -12064,6 +12064,11 @@ export namespace Schemas {
         | "not_registered"
         | "missing_inputs"
         | "not_routed";
+    /**
+     * * `include` - Include
+     * * `exclude` - Exclude
+     */
+    export type NewColumnPolicyEnum = "include" | "exclude";
     export type ExternalDataSourceApiVersionDeprecation = {
         /**
          * The deprecated vendor API version this source is pinned to.
@@ -12190,6 +12195,10 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
+        new_column_policy?: (NewColumnPolicyEnum | NullEnum) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
         masked_columns?: (Array<string> | null) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12304,6 +12313,7 @@ export namespace Schemas {
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
+        new_column_policy?: (NewColumnPolicyEnum | NullEnum) | undefined;
         masked_columns?: (Array<string> | null) | undefined;
         row_filters?:
             | (Array<{
@@ -12471,6 +12481,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         auto_sync_schema_patterns?: (Array<string> | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        new_column_policy?: (NewColumnPolicyEnum | NullEnum) | undefined;
         /**
          * Backend engine detected for the direct connection.
          *
@@ -16839,6 +16853,7 @@ export namespace Schemas {
         direct_query_enabled: boolean;
         auto_sync_new_schemas: boolean;
         auto_sync_schema_patterns: Array<string> | null;
+        new_column_policy: NewColumnPolicyEnum | NullEnum;
         engine: EngineEnum | NullEnum;
         last_run_at: string | null;
         schemas: Array<Record<string, unknown>>;
