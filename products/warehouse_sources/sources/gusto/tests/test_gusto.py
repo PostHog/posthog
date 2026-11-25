@@ -1,6 +1,7 @@
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.sources.gusto.gusto import (
     DEFAULT_WINDOW_START,
     GUSTO_API_VERSION_2024_04_01,
     GUSTO_API_VERSION_2026_06_15,
+    PAGE_SIZE,
     GustoClient,
     GustoResumeConfig,
     _window_bounds,
@@ -374,6 +376,111 @@ class TestGetRowsFanOut:
         assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
         assert set(result.params("include")[3:]) == {"all_benefits"}
 
+    def test_time_off_activities_request_each_time_off_type_per_employee(self) -> None:
+        activities = {
+            ("e-1", "vacation"): [{"policy_uuid": "p-1", "event_type": "TimeOffEvent::Accrual", "balance": "2.0"}],
+            ("e-1", "sick"): [],
+            # A row without `time_off_type` gets it from the request, so the key column is never empty.
+            ("e-2", "vacation"): [{"policy_uuid": "p-1", "event_type": "TimeOffEvent::Usage", "balance": "0.0"}],
+            ("e-2", "sick"): [{"policy_uuid": "p-2", "time_off_type": "sick", "event_type": "TimeOffEvent::Accrual"}],
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _token()
+            if request.path == "/v1/me":
+                return ScriptedResponse(json=_me_body(["c-1"]))
+            if request.path == "/v1/companies/c-1/employees":
+                return ScriptedResponse(json=[{"uuid": "e-2"}, {"uuid": "e-1"}], headers={"X-Total-Pages": "1"})
+            return ScriptedResponse(json=activities[(request.path.split("/")[3], request.param("time_off_type") or "")])
+
+        result = _driver().run("time_off_activities", respond)
+        assert result.raised is None
+        assert [(request.path, request.param("time_off_type")) for request in result.requests[3:]] == [
+            ("/v1/employees/e-1/time_off_activities", "vacation"),
+            ("/v1/employees/e-1/time_off_activities", "sick"),
+            ("/v1/employees/e-2/time_off_activities", "vacation"),
+            ("/v1/employees/e-2/time_off_activities", "sick"),
+        ]
+        assert [(row["_employee_uuid"], row["time_off_type"], row["event_type"]) for row in result.rows] == [
+            ("e-1", "vacation", "TimeOffEvent::Accrual"),
+            ("e-2", "vacation", "TimeOffEvent::Usage"),
+            ("e-2", "sick", "TimeOffEvent::Accrual"),
+        ]
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+
+
+class TestGetRowsEvents:
+    @staticmethod
+    def _respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/oauth/token":
+            grant = parse_qs((request.body or b"").decode())["grant_type"][0]
+            return ScriptedResponse(json={"access_token": "sys-tok" if grant == "system_access" else "tok-1"})
+        if request.path == "/v1/me":
+            return ScriptedResponse(json=_me_body(["c-1", "c-2"]))
+        if request.param("resource_uuid") == "c-1":
+            if request.param("starting_after_uuid") is None:
+                return ScriptedResponse(json=[{"uuid": f"ev-1-{index:03d}"} for index in range(PAGE_SIZE)])
+            return ScriptedResponse(json=[{"uuid": "ev-1-last"}])
+        return ScriptedResponse(json=[])
+
+    @parameterized.expand(
+        [
+            ("full_walk", None, PAGE_SIZE + 1, [("c-1", None), ("c-1", "ev-1-099"), ("c-2", None)]),
+            (
+                "resume_partway_through_a_company",
+                GustoResumeConfig(company_index=0, starting_after_uuid="ev-1-099"),
+                1,
+                [("c-1", "ev-1-099"), ("c-2", None)],
+            ),
+            ("resume_at_the_next_company", GustoResumeConfig(company_index=1), 0, [("c-2", None)]),
+        ]
+    )
+    def test_walks_each_company_with_the_uuid_cursor_and_a_system_token(
+        self,
+        _name: str,
+        resume_state: Optional[GustoResumeConfig],
+        expected_row_count: int,
+        expected_requests: list[tuple[str, Optional[str]]],
+    ) -> None:
+        result = _driver().run("events", self._respond, resume_state=resume_state)
+        assert result.raised is None
+        assert len(result.rows) == expected_row_count
+        event_requests = [request for request in result.requests if request.path == "/v1/events"]
+        assert [
+            (request.param("resource_uuid"), request.param("starting_after_uuid")) for request in event_requests
+        ] == expected_requests
+        # /v1/events refuses company tokens; it only accepts the partner's system access token.
+        assert {request.headers["authorization"] for request in event_requests} == {"Bearer sys-tok"}
+        assert {request.param("sort_order") for request in event_requests} == {"asc"}
+
+    @parameterized.expand(
+        [
+            ("token_mint_refused", "/oauth/token", 401),
+            ("events_forbidden", "/v1/events", 403),
+            ("events_unauthorized_after_remint", "/v1/events", 401),
+        ]
+    )
+    def test_refused_system_access_does_not_give_company_token_advice(
+        self, _name: str, refused_path: str, status: int
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            system_mint = request.path == "/oauth/token" and b"system_access" in (request.body or b"")
+            if request.path == refused_path and (refused_path != "/oauth/token" or system_mint):
+                return ScriptedResponse(status=status, json={"error": "refused"})
+            return self._respond(request)
+
+        result = _driver().run("events", respond)
+        assert result.raised is not None
+        matched = [
+            message
+            for pattern, message in GustoSource().get_non_retryable_errors().items()
+            if pattern in str(result.raised)
+        ]
+        assert len(matched) == 1
+        assert matched[0] is not None and "system-level access" in matched[0]
+        assert matched[0] is not None and "system-level access" in matched[0]
+
 
 class TestGetRowsWindowed:
     def _payroll_script(self) -> list[ScriptedResponse]:
@@ -440,6 +547,7 @@ class TestGustoSourceResponse:
             ("earning_types",),
             ("employee_benefits",),
             ("employment_history",),
+            ("time_off_activities",),
         ]
     )
     def test_fan_out_and_keyless_tables_include_their_parent_in_the_key(self, endpoint: str) -> None:

@@ -15,6 +15,7 @@ from products.replay.backend.temporal.export_recordings import workflow
 from products.replay.backend.temporal.export_recordings.quote import QuoteUsage, price
 from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
+    DayViewportsInput,
     ExportDestination,
     ExportRecordingsInput,
     ExportShardInput,
@@ -37,6 +38,10 @@ async def run_export(
         if unsafe_role:
             raise ApplicationError("role lacks the external ID condition", non_retryable=True)
 
+    @activity.defn(name="load_day_viewports")
+    async def fake_load_day_viewports(input: DayViewportsInput) -> None:
+        started.append((input.day, -1))
+
     @activity.defn(name="export_shard")
     async def fake_export_shard(input: ExportShardInput) -> ExportTotals:
         started.append((input.day, input.shard))
@@ -56,7 +61,7 @@ async def run_export(
                 env.client,
                 task_queue=task_queue,
                 workflows=[workflow.ExportRecordingsWorkflow],
-                activities=[fake_check_destination, fake_export_shard, fake_write_summary],
+                activities=[fake_check_destination, fake_load_day_viewports, fake_export_shard, fake_write_summary],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 try:
@@ -89,8 +94,20 @@ async def run_export(
 async def test_runs_every_shard_oldest_day_first_across_continue_as_new() -> None:
     started, summaries, totals = await run_export()
 
-    days = ["2026-01-30", "2026-01-31", "2026-02-01"]
-    assert started == [("check", 0)] + [(day, shard) for day in days for shard in range(2)]
+    # Each run reads a day's viewports before the day's first shard, so the day split by continue-as-new reads twice.
+    assert started == [
+        ("check", 0),
+        ("2026-01-30", -1),
+        ("2026-01-30", 0),
+        ("2026-01-30", 1),
+        ("2026-01-31", -1),
+        ("2026-01-31", 0),
+        ("2026-01-31", -1),
+        ("2026-01-31", 1),
+        ("2026-02-01", -1),
+        ("2026-02-01", 0),
+        ("2026-02-01", 1),
+    ]
     assert totals == ExportTotals(exported=12, missing=6, bytes=600)
     assert [(s.totals, s.failed_shards) for s in summaries] == [(totals, ())]
 
@@ -100,7 +117,7 @@ async def test_a_failed_shard_keeps_the_other_shards_and_fails_the_run_after_the
     # The failed shard is in the first run, so the failure has to survive continue-as-new.
     started, summaries, result = await run_export(failing_shard=("2026-01-30", 1))
 
-    assert len(started) == 7
+    assert len(started) == 11
     assert [(s.totals, s.failed_shards) for s in summaries] == [
         (ExportTotals(exported=10, missing=5, bytes=500), ("2026-01-30:1",))
     ]
@@ -111,7 +128,7 @@ async def test_a_failed_shard_keeps_the_other_shards_and_fails_the_run_after_the
 async def test_only_shards_runs_just_those_shards() -> None:
     started, _, _ = await run_export(only_shards=("2026-01-31:1",))
 
-    assert started == [("check", 0), ("2026-01-31", 1)]
+    assert started == [("check", 0), ("2026-01-31", -1), ("2026-01-31", 1)]
 
 
 @pytest.mark.asyncio

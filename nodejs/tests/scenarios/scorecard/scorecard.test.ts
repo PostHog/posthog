@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
+import type { InvariantResult } from '../judge/judge'
 import { RunResult } from '../runner/runner'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
 import { Provenance, provenanceOf } from './provenance'
@@ -132,7 +133,7 @@ describe('scorecard', () => {
                     owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
-                    card_version: 2,
+                    card_version: 3,
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
@@ -208,6 +209,32 @@ describe('scorecard', () => {
             unfinished_jobs: null,
             invariants_failed: [],
         })
+    })
+
+    it.each<[string, InvariantResult, object]>([
+        [
+            'keeps an invariant it could not judge out of the failed ones',
+            { name: 'no_loss', passed: false, observed: 0, unitIds: [], unjudged: 'the truth could not be read' },
+            { inv_no_loss_unjudged: 'the truth could not be read', invariants_failed: [] },
+        ],
+        [
+            'lists the missing and extra effects of a failed invariant apart',
+            {
+                name: 'no_loss',
+                passed: false,
+                observed: 2,
+                unitIds: ['run-x-3', 'run-x-7'],
+                missing: ['run-x-3'],
+                extra: ['run-x-7'],
+            },
+            {
+                inv_no_loss_missing_ids: ['run-x-3'],
+                inv_no_loss_extra_ids: ['run-x-7'],
+                invariants_failed: ['no_loss'],
+            },
+        ],
+    ])('%s', (_story, invariant, expected) => {
+        expect(scorecardOf({ ...RESULT, invariants: [invariant] }, SMOKE, PROVENANCE)).toMatchObject(expected)
     })
 
     it.each<[string, RunResult['ramp'], object]>([

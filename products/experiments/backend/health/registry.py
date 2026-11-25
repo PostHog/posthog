@@ -27,10 +27,12 @@ from products.experiments.backend.health.checks.bias_risk import (
 from products.experiments.backend.health.checks.bucketing_changed import (
     bucketing_changed_mid_run,
     bucketing_changed_rows,
+    bucketing_changed_values,
 )
 from products.experiments.backend.health.checks.conditions_changed import (
     release_conditions_changed_mid_run,
     release_conditions_changed_rows,
+    release_conditions_changed_values,
 )
 from products.experiments.backend.health.checks.early_significance import (
     early_significance,
@@ -41,14 +43,14 @@ from products.experiments.backend.health.checks.exposure_criteria import (
     exposure_criteria_cannot_match,
     exposure_criteria_values,
 )
-from products.experiments.backend.health.checks.exposure_filters import exposure_filters
+from products.experiments.backend.health.checks.exposure_filters import exposure_filters, exposure_filters_values
 from products.experiments.backend.health.checks.filtered_exposures import (
     KEPT_SHARE_THRESHOLD,
     MINIMUM_EXPOSED_WITHOUT_FILTER,
     exposures_removed_by_test_account_filter,
     test_account_filter_values,
 )
-from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
+from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable, history_values
 from products.experiments.backend.health.checks.flag_state import flag_state, flag_state_values
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch, flag_variants_values
 from products.experiments.backend.health.checks.forced_variant import (
@@ -56,7 +58,11 @@ from products.experiments.backend.health.checks.forced_variant import (
     forced_variant_rows,
     forced_variant_values,
 )
-from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero, metric_all_zero_rows
+from products.experiments.backend.health.checks.metric_all_zero import (
+    metric_all_zero,
+    metric_all_zero_rows,
+    metric_all_zero_values,
+)
 from products.experiments.backend.health.checks.metric_calculation_failed import (
     metric_calculation_failed,
     metric_calculation_values,
@@ -83,9 +89,13 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic,
     new_flag_no_traffic_values,
 )
-from products.experiments.backend.health.checks.no_metric import no_metric
+from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_values
 from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
-from products.experiments.backend.health.checks.split_changed import split_changed_mid_run, split_changed_rows
+from products.experiments.backend.health.checks.split_changed import (
+    split_changed_mid_run,
+    split_changed_rows,
+    split_changed_values,
+)
 from products.experiments.backend.health.checks.srm import (
     SAMPLE_RATIO_MISMATCH_P_VALUE,
     SRM_MINIMUM_SAMPLE_SIZE,
@@ -151,6 +161,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "they can't tell whether a change affected the results."
         ),
         run=flag_history_not_readable,
+        read=history_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SPLIT_CHANGED_MID_RUN,
@@ -160,6 +171,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "already saw one variant to another, which mixes their behavior across variants and biases the results."
         ),
         run=split_changed_mid_run,
+        read=split_changed_values,
         read_rows=split_changed_rows,
     ),
     HealthCheck(
@@ -171,6 +183,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "the results."
         ),
         run=bucketing_changed_mid_run,
+        read=bucketing_changed_values,
         read_rows=bucketing_changed_rows,
     ),
     HealthCheck(
@@ -182,6 +195,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "the results mix two different setups."
         ),
         run=release_conditions_changed_mid_run,
+        read=release_conditions_changed_values,
         read_rows=release_conditions_changed_rows,
     ),
     HealthCheck(
@@ -223,6 +237,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "exposures but has nothing to compare the variants on."
         ),
         run=no_metric,
+        read=no_metric_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
@@ -262,6 +277,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "the metric events have a different ID than the exposures, so the metric can't show a difference."
         ),
         run=metric_all_zero,
+        read=metric_all_zero_values,
         read_rows=metric_all_zero_rows,
     ),
     HealthCheck(
@@ -283,6 +299,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "the results."
         ),
         run=exposure_filters,
+        read=exposure_filters_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,

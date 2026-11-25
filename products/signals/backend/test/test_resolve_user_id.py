@@ -11,6 +11,7 @@ from posthog.models.user_integration import UserIntegration
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.task_profiles import (
     GITHUB_ONLY_DOMAINS,
+    PR_MONITORING,
     REPO_SELECTION,
     RESEARCH,
     SCOUT_FULL_NETWORK,
@@ -216,6 +217,7 @@ def test_acting_user_skips_member_without_project_access(organization, team, wit
     "profile,expected_level,expected_domains",
     [
         pytest.param(RESEARCH, "trusted", [], id="trusted"),
+        pytest.param(PR_MONITORING, "custom", GITHUB_ONLY_DOMAINS, id="pr_monitoring"),
         pytest.param(REPO_SELECTION, "custom", GITHUB_ONLY_DOMAINS, id="github_only"),
         pytest.param(SCOUT_TRIAL_JUDGE, "custom", [], id="custom_without_domains"),
         pytest.param(SCOUT_FULL_NETWORK, "full", [], id="full"),

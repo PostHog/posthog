@@ -51,6 +51,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     compact_backfill_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
+    stopped_evaluation_error,
 )
 from posthog.temporal.ai_observability.run_session_evaluation import (
     ExecuteSessionEvaluationInputs,
@@ -533,6 +534,10 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         # The evaluation may have been paused or deleted during the settle phase —
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
+            if inputs.backfill_id is not None and temporalio.workflow.patched(
+                "evaluation-backfill-stopped-run-fails-2026-11"
+            ):
+                raise stopped_evaluation_error(evaluation)
             disabled_result: WorkflowResult = {
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",

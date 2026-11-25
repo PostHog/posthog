@@ -9,17 +9,13 @@ from posthog.caching.insight_result import InsightResult
 from posthog.renderers import SafeJSONRenderer
 
 from products.dashboards.backend.facade.api import has_frames, insight_frames
+from products.dashboards.backend.facade.enums import ResultFormat
 
 
 class FramesRenderer(SafeJSONRenderer):
     """JSON, selected by `?format=frames`. DRF reads `format` as the renderer to use, so the name must exist."""
 
     format = "frames"
-
-
-class CachedTileFormat(TextChoices):
-    FRAMES = "frames", "Frames"
-    RESULT = "result", "Result"
 
 
 class FrameFieldType(TextChoices):
@@ -71,7 +67,7 @@ def cached_tile_format(insight_data: dict[str, Any], query: Any, result: Insight
     """The `format` and `frames` of a cached tile hit. A tile with frames nulls its result, which the frames replace."""
     frames = insight_frames(query, result) if isinstance(query, Mapping) else None
     if frames is None:
-        return {"format": CachedTileFormat.RESULT}
+        return {"format": ResultFormat.RESULT}
     # Null rather than absent: the published schema requires `result`.
     insight_data["result"] = None
-    return {"format": CachedTileFormat.FRAMES, "frames": frames}
+    return {"format": ResultFormat.FRAMES, "frames": frames}
