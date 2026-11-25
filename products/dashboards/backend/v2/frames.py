@@ -82,12 +82,14 @@ def frames_for(
     *,
     legend: Optional[str] = None,
     target_format: Optional[QueryBatchTargetFormat] = None,
+    timezone: Optional[str] = None,
 ) -> Optional[list[dict[str, Any]]]:
     """The frames of one query batch result as JSON, or None when its kind has no frame shape.
 
-    `query` is the query node that ran, or for LogQL nothing. `result` is the runner's response as a dict.
+    `query` is the query node that ran, or for LogQL nothing. `result` is the runner's response as a dict. `timezone` is
+    the project's, for responses whose buckets are in project wall time but do not name the timezone.
     """
-    frames = _frames(language, query, result, target_format)
+    frames = _frames(language, query, result, target_format, timezone)
     if frames is None:
         return None
     if legend:
@@ -100,6 +102,7 @@ def _frames(
     query: Mapping[str, Any],
     result: Mapping[str, Any],
     target_format: Optional[QueryBatchTargetFormat],
+    timezone: Optional[str] = None,
 ) -> Optional[list[Frame]]:
     as_table = target_format == QueryBatchTargetFormat.TABLE
     if language == QueryBatchLanguage.LOGQL:
@@ -121,9 +124,9 @@ def _frames(
     if kind == "StickinessQuery":
         return stickiness_frames(result)
     if kind == "LifecycleQuery":
-        return lifecycle_frames(source, result)
+        return lifecycle_frames(source, result, timezone)
     if kind == "FunnelsQuery":
-        return funnels_frames(source, result)
+        return funnels_frames(source, result, timezone)
     if kind == "RetentionQuery":
         return retention_frames(result)
     return None
@@ -335,12 +338,14 @@ def stickiness_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
     return frames
 
 
-def lifecycle_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+def lifecycle_frames(
+    source: Mapping[str, Any], result: Mapping[str, Any], timezone_name: Optional[str] = None
+) -> Optional[list[Frame]]:
     """One time series per status (new, returning, resurrecting, dormant). Dormant counts are negative, as charted."""
     rows = result.get("results")
     if not isinstance(rows, list):
         return None
-    timezone = ZoneInfo(result.get("timezone") or "UTC")
+    timezone = ZoneInfo(result.get("timezone") or timezone_name or "UTC")
     meta = _meta(result.get("resolved_date_range"), source.get("interval") or "day", previous=False)
     frames: list[Frame] = []
     for index, series in enumerate(rows):
@@ -361,7 +366,9 @@ def lifecycle_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Op
     return frames
 
 
-def funnels_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+def funnels_frames(
+    source: Mapping[str, Any], result: Mapping[str, Any], timezone_name: Optional[str] = None
+) -> Optional[list[Frame]]:
     rows = result.get("results")
     if isinstance(rows, Mapping):
         return _funnel_time_to_convert_frames(rows)
@@ -369,8 +376,12 @@ def funnels_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Opti
         return None
     if not rows:
         return []
+    series = source.get("series") or []
+    optional = {
+        index for index, node in enumerate(series) if isinstance(node, Mapping) and node.get("optionalInFunnel")
+    }
     if isinstance(rows[0], list):
-        return [_funnel_steps_frame(steps) for steps in rows]
+        return [_funnel_steps_frame(steps, optional) for steps in rows]
     if isinstance(rows[0], Mapping) and "bins" in rows[0]:
         # A compared time-to-convert funnel: one histogram per period.
         frames: list[Frame] = []
@@ -381,18 +392,25 @@ def funnels_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Opti
             frames.extend(period_frames)
         return frames
     if isinstance(rows[0], Mapping) and "days" in rows[0]:
-        return _funnel_trends_frames(source, result, rows)
+        return _funnel_trends_frames(source, result, rows, timezone_name)
     # A compared funnel tags each step with its period. Rates are only meaningful within one period.
     periods: dict[Optional[str], list[Mapping[str, Any]]] = {}
     for step in rows:
         periods.setdefault(step.get("compare_label"), []).append(step)
-    return [_funnel_steps_frame(steps) for steps in periods.values()]
+    return [_funnel_steps_frame(steps, optional) for steps in periods.values()]
 
 
-def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
+def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]], optional: frozenset[int] | set[int] = frozenset()) -> Frame:
     """One row per step, with the conversion rates the funnel chart shows: from the first step and from the previous."""
     counts = [step.get("count") or 0 for step in steps]
     first = counts[0] if counts else 0
+    # Like the funnel chart, a step converts from the last required step before it, skipping optional ones.
+    step_rates: list[Optional[float]] = []
+    last_required = 0
+    for index, count in enumerate(counts):
+        step_rates.append(_percent(count, counts[last_required] if index else count))
+        if index not in optional:
+            last_required = index
     labels: dict[str, str] = {}
     breakdown_value = steps[0].get("breakdown_value") if steps else None
     if breakdown_value is not None:
@@ -413,7 +431,7 @@ def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
             FrameField(
                 name="step_conversion_rate",
                 type="number",
-                values=[_percent(count, counts[index - 1] if index else count) for index, count in enumerate(counts)],
+                values=step_rates,
             ),
             FrameField(
                 name="average_conversion_time",
@@ -437,10 +455,13 @@ def _percent(part: float, whole: float) -> Optional[float]:
 
 
 def _funnel_trends_frames(
-    source: Mapping[str, Any], result: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+    source: Mapping[str, Any],
+    result: Mapping[str, Any],
+    rows: Sequence[Mapping[str, Any]],
+    timezone_name: Optional[str] = None,
 ) -> list[Frame]:
     # The runner already gives each day's conversion as a percentage.
-    timezone = ZoneInfo(result.get("timezone") or "UTC")
+    timezone = ZoneInfo(result.get("timezone") or timezone_name or "UTC")
     interval = source.get("interval") or "day"
     current = _meta(result.get("resolved_date_range"), interval, previous=False)
     previous = FrameMeta(interval=interval, previous=True)

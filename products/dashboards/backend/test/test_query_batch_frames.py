@@ -490,6 +490,23 @@ class TestFrameConverters(SimpleTestCase):
         ]
         assert [frame["fields"][2]["values"] for frame in frames] == [[100.0, 50.0], [100.0, 10.0]]
 
+    def test_funnel_step_conversion_skips_optional_steps(self) -> None:
+        series = [{"kind": "EventsNode", "event": name, "optionalInFunnel": name == "b"} for name in ("a", "b", "c")]
+        steps = [{"name": name, "count": count} for name, count in (("a", 8), ("b", 3), ("c", 7))]
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery", "series": series}, {"results": steps})
+
+        assert frames is not None
+        assert frames[0]["fields"][3]["values"] == [100.0, 37.5, 87.5]
+
+    def test_lifecycle_buckets_use_the_project_timezone(self) -> None:
+        result = {"results": [{"label": "new", "status": "new", "days": ["2026-09-18"], "data": [1]}]}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "LifecycleQuery"}, result, timezone="America/New_York")
+
+        assert frames is not None
+        assert frames[0]["fields"][0]["values"] == [_ms("2026-09-18T00:00:00-04:00")]
+
     def test_compared_time_to_convert_keeps_both_histograms(self) -> None:
         results = [
             {"bins": [[60, 3], [120, 1]], "compare_label": "current"},
