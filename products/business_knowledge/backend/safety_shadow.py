@@ -77,6 +77,13 @@ class _ShadowOutcome:
     model: str | None = None
 
 
+@frozen
+class _WindowAnswer:
+    probability: float
+    input_tokens: int
+    model: str
+
+
 def shadow_windows(content: str) -> list[str]:
     """Slice content into overlapping windows of at most SHADOW_WINDOW_BYTES of UTF-8.
 
@@ -112,7 +119,7 @@ def _shadow_enabled(team_id: int) -> bool:
         return False
 
 
-def _decide_window(doc: PendingDocument, window: str) -> tuple[float, int, str]:
+def _decide_window(doc: PendingDocument, window: str) -> _WindowAnswer:
     result = decision_api.decide_when_available(
         DecisionRequest(
             team_id=doc.team_id,
@@ -133,7 +140,7 @@ def _decide_window(doc: PendingDocument, window: str) -> tuple[float, int, str]:
     answer = result.answers.get(_QUESTION_ID)
     if not isinstance(answer, NoulAnswer) or not 0 <= answer.probability <= 1:
         raise ValueError("decision model returned no usable yes/no answer")
-    return answer.probability, result.input_tokens, result.model
+    return _WindowAnswer(probability=answer.probability, input_tokens=result.input_tokens, model=result.model)
 
 
 async def _shadow_document(doc: PendingDocument, semaphore: asyncio.Semaphore) -> _ShadowOutcome:
@@ -144,7 +151,7 @@ async def _shadow_document(doc: PendingDocument, semaphore: asyncio.Semaphore) -
     if len(windows) > SHADOW_MAX_WINDOWS:
         return _ShadowOutcome(status="skipped_too_large", windows=len(windows))
 
-    async def _one(window: str) -> tuple[float, int, str]:
+    async def _one(window: str) -> _WindowAnswer:
         async with semaphore:
             return await asyncio.to_thread(_decide_window, doc, window)
 
@@ -162,9 +169,9 @@ async def _shadow_document(doc: PendingDocument, semaphore: asyncio.Semaphore) -
     return _ShadowOutcome(
         status="ok",
         windows=len(windows),
-        max_probability=max(probability for probability, _, _ in answers),
-        input_tokens=sum(tokens for _, tokens, _ in answers),
-        model=answers[0][2],
+        max_probability=max(answer.probability for answer in answers),
+        input_tokens=sum(answer.input_tokens for answer in answers),
+        model=answers[0].model,
     )
 
 
