@@ -59,7 +59,7 @@ export function ReleaseTrackLane({
     const changes = useLaneChanges(lane)
     const stepColor = lane.kind !== 'flag' && 'span' in lane && lane.span ? SPAN_LOOK[lane.span.kind].color : color
     return (
-        <div className={cn('relative', !detailed && !flush && 'border-t border-border/60')} style={{ height }}>
+        <div className={cn('relative isolate', !detailed && !flush && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
                 <ReleaseTrackSpan
                     span={lane.span}

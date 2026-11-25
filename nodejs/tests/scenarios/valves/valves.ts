@@ -10,7 +10,7 @@ import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { AmbiguousParams, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
-import { ruleOf } from '../provider-edge/faults'
+import { heldAnswerRule, ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -182,6 +182,15 @@ export const VALVES: ValveDefinition[] = [
 
 const POLL_MS = 1000
 
+function neverAppliedOf({ when }: ValveEntry): string {
+    if (when === undefined) {
+        return 'never applied: released before its offset'
+    }
+    return when.name === 'edge_accepted'
+        ? `never applied: edge_accepted on ${when.params.channel} did not happen before the drive ended`
+        : `never applied: running_on_queue ${when.params.queue} at least ${when.params.atLeast} did not hold before the drive ended`
+}
+
 const now = (): string => new Date().toISOString()
 
 export function createValves({ pollMs = POLL_MS } = {}): Valves {
@@ -207,10 +216,26 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         const withProbeFailure = (error: string): string =>
             probeFailure === undefined ? error : `${error}; the probe last failed: ${probeFailure}`
 
+        let boundary: Actuation | undefined
+        const releaseBoundary = async (): Promise<void> => {
+            const holding = boundary
+            boundary = undefined
+            await holding?.release().catch((error: unknown) => {
+                record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+            })
+        }
+
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
                 await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
                 return true
+            }
+            if (entry.when!.name === 'edge_accepted') {
+                boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
+                if (boundary.accepted === undefined) {
+                    throw new Error('the edge cannot say when it accepted a request')
+                }
+                return boundary.accepted(released.signal)
             }
             const { queue, atLeast } = entry.when!.params
             while (!released.signal.aborted) {
@@ -222,12 +247,17 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             return false
         }
 
-        if (!(await due()) || released.signal.aborted) {
-            record.error = entry.when
-                ? withProbeFailure(
-                      `never applied: running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} did not hold before the drive ended`
-                  )
-                : 'never applied: released before its offset'
+        const isDue = await due().catch((error: unknown) => {
+            record.error = (error as Error).message
+            return false
+        })
+        if (!isDue || released.signal.aborted) {
+            record.error ??= withProbeFailure(
+                isDue && entry.when?.name === 'edge_accepted'
+                    ? 'never applied: the drive ended before the valve applied'
+                    : neverAppliedOf(entry)
+            )
+            await releaseBoundary()
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
@@ -261,7 +291,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     refusals.abort({ ...record })
                 }
             } else if (
-                entry.when &&
+                entry.when?.name === 'running_on_queue' &&
                 definition.strandsRunningJobs &&
                 (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast
             ) {
@@ -277,6 +307,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } catch (error) {
             record.error = (error as Error).message
         } finally {
+            await releaseBoundary()
             if (actuation) {
                 try {
                     await actuation.release()
