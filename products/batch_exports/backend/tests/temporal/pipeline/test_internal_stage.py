@@ -169,7 +169,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     batch_exports_url = "http://batch-exports.example.com:8123/"
     with (
         override_settings(
-            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema,
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
             CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
         ),
         patch(
@@ -192,16 +192,14 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
 
 @pytest.mark.parametrize(
-    "use_native_schema,rollout_flag_on,expected_table",
-    [(False, False, "events"), (True, False, "events_json"), (False, True, "events")],
-    ids=["legacy", "native", "rollout-flag-on"],
+    "native_switch,expected_table",
+    [("off", "events"), ("batch-exports-rollout", "events_json"), ("project-rollout-flag", "events")],
 )
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
     activity_environment,
     ateam,
-    use_native_schema: bool,
-    rollout_flag_on: bool,
+    native_switch: str,
     expected_table: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -219,8 +217,10 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     )
 
     with (
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema),
-        patch("posthog.models.event.new_events_schema.is_cloud", return_value=rollout_flag_on),
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0
+        ),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=native_switch == "project-rollout-flag"),
         patch(
             "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
@@ -252,7 +252,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     reads_native_table: bool,
     settings: "Settings",
 ):
-    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = reads_native_table
+    settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE = 100 if reads_native_table else 0
     with patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
         return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
@@ -303,7 +303,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema_without_its_query(
     mock_clickhouse_client,
     interval,
