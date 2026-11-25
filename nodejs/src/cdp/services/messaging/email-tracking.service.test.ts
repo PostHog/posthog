@@ -302,6 +302,16 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com" title=a\u00a0b='c ses:tags="phl:0">Bob's</a>`,
                 ],
                 [
+                    'ses:tags quoted in a title before the href',
+                    `<a title="a > ses:tags='x'" href="https://example.com/a">a</a>`,
+                    `<a title="a > ses:tags='x'" href="https://example.com/a" ses:tags="phl:0">a</a>`,
+                ],
+                [
+                    'a comment that only starts like an Outlook conditional',
+                    '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b">b</a>',
+                    '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -406,6 +416,24 @@ describe('EmailTrackingService', () => {
                     '<a title="a > b" href="https://example.com/reset">x</a>',
                     sensitiveInvocation,
                     '<a title="a > b" href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template with a quoted <!-- before a link and a comment',
+                    '<span title="<!--">x</span><a href="https://example.com/reset">x</a><!-- footer -->',
+                    sensitiveInvocation,
+                    '<span title="<!--">x</span><a href="https://example.com/reset" ses:no-track>x</a><!-- footer -->',
+                ],
+                [
+                    'a sensitive template whose link title quotes a spaced end tag',
+                    '<a href="https://example.com/reset" title="Example > </a >">x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" title="Example > </a >" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link holds a child title quoting a link',
+                    `<a href="https://example.com/reset"><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/reset" ses:no-track><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',
@@ -577,6 +605,11 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
+                [
+                    'a title quoting an href after a >',
+                    `<a href="https://example.com/a" title="x > href='https://example.org/'">x</a>`,
+                    'https://example.com/a',
+                ],
             ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
                 const html = addTrackingToEmail(
                     `<body>${anchor}</body>`,

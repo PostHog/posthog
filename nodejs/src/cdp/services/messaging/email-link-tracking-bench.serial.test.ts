@@ -46,6 +46,27 @@ describe('email link tracking benchmark', () => {
             body: '<!--<a href="https://example.com/x" data-ph-no-track>x</a>'.repeat(32_000),
             tagged: '<!--<a href="https://example.com/x" data-ph-no-track ses:no-track>x</a>'.repeat(32_000),
         },
+        {
+            shape: 'links whose comments hold end tags',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: '<a href="https://example.com/x"><!--</a>-->'.repeat(32_000),
+            tagged: '<a href="https://example.com/x"><!--</a>-->'.repeat(32_000),
+        },
+        {
+            shape: 'anchors that never close before a comment holding an end tag',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: `${'<a href="https://example.com/x">'.repeat(64_000)}<!--</a>-->`,
+            tagged: `${'<a href="https://example.com/x">'.repeat(64_000)}<!--</a>-->`,
+        },
+        {
+            shape: 'tags with a quoted > before a quote that never closes',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: `${"<a b='>'".repeat(32_000)}<a c="`,
+            tagged: `${"<a b='>'".repeat(32_000)}<a c="`,
+        },
     ] as const)('tags a body full of $shape under the ceiling', ({ mode, body, tagged, end }) => {
         const started = performance.now()
         const out = addTrackingToEmail(`<body>${body}</body>`, invocation, signer, false, mode)

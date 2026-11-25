@@ -5,7 +5,9 @@ export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
 const CLICK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
 const attributeNames = (openingTag: string): string[] =>
-    readOpeningTag(openingTag, openingTag.match(/^<[^\t\n\f\r />]*/)?.[0].length ?? 0).attributeNames
+    readOpeningTag(openingTag, openingTag.match(/^<[^\t\n\f\r />]*/)?.[0].length ?? 0).attributes.map(
+        ({ name }) => name
+    )
 
 export const hasClickTrackingOptOut = (openingTag: string): boolean => CLICK_TRACKING_OPT_OUT_REGEX.test(openingTag)
 
