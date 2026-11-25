@@ -14394,6 +14394,10 @@ export type SignalsReportArtefactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.
+     */
+    type?: string
 }
 
 export type SignalsReportChecksListParams = {
