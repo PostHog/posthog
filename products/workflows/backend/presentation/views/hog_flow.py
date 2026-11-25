@@ -49,6 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metric_totals_by_source,
     fetch_app_metrics_trends,
 )
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -93,6 +94,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
@@ -147,7 +149,12 @@ from products.replay_vision.backend.facade.api import (
 )
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    TASK_RUN_GATEWAY_PRODUCT,
+    reasoning_efforts_for,
+    runnable_model_choices,
+    uncataloged_runtime_adapter,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
@@ -330,6 +337,7 @@ from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_sample,
     suggestions_scout_refusal,
+    suggestions_scout_schedule,
     suggestions_scout_status,
     sync_suggestions_scout,
 )
@@ -2086,17 +2094,21 @@ class HogFlowActionSerializer(serializers.Serializer):
         model = model_value.get("model")
         reasoning_effort = model_value.get("reasoning_effort")
         if model:
-            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-            choice = next((c for c in available if c.model == model), None)
-            if choice is None:
-                raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
-            if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+            choice = next((c for c in runnable_model_choices(TASK_RUN_GATEWAY_PRODUCT) if c.model == model), None)
+            if choice is not None:
+                supported_efforts = choice.supported_efforts
+            else:
+                runtime_adapter = uncataloged_runtime_adapter(model)
+                if runtime_adapter is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                supported_efforts = reasoning_efforts_for(runtime_adapter, model)
+            if reasoning_effort and reasoning_effort not in supported_efforts:
                 raise serializers.ValidationError(
                     {
                         "inputs": {
                             "model": (
                                 f"Reasoning effort '{reasoning_effort}' is not supported for model "
-                                f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                f"'{model}'. Supported values: {', '.join(supported_efforts) or 'none'}."
                             )
                         }
                     }
@@ -3453,13 +3465,6 @@ class EmailInfrastructureHealthSerializer(serializers.Serializer):
             "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
         ),
     )
-    delivery_rate = serializers.FloatField(
-        read_only=True,
-        help_text=(
-            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
-            "to 0.001. Acceptance is not inbox placement."
-        ),
-    )
     bounce_rate = serializers.FloatField(
         read_only=True,
         help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
@@ -4580,6 +4585,10 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     """
     team = Team.objects.get(id=team_id)
     user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user_access_control.user
+    ):
+        raise exceptions.PermissionDenied(CDPPropertyAccessPermission.message)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
@@ -5282,6 +5291,20 @@ class SuggestionsSampleSerializer(serializers.Serializer):
     )
 
 
+class SuggestionsScheduleSerializer(serializers.Serializer):
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the project's suggestions scout last checked its workflows. Null before its first check.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the scout checks next. Null before its first check, or when a custom schedule or a "
+        "backoff decides it.",
+    )
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
     scout_status = serializers.ChoiceField(
@@ -5296,6 +5319,12 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
         "while suggestions are on but the scout is not running, or when the workflow has no email step.",
+    )
+    schedule = SuggestionsScheduleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="When the project's suggestions scout last checked and checks next. Null unless the scout is "
+        "running.",
     )
 
 
@@ -5858,6 +5887,8 @@ class HogFlowViewSet(
     AppMetricsMixin,
     viewsets.ModelViewSet,
 ):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -7221,7 +7252,7 @@ class HogFlowViewSet(
             hog_flow_id=instance.id,
             evidence=evidence,
             changes=content,
-            live=snapshot_flow_content(instance).get("conversion"),
+            live=snapshot_flow_content(instance),
             base_version=params["base_version"],
             now=django_timezone.now(),
         )
@@ -7414,7 +7445,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
-                live_conversion=snapshot_flow_content(hog_flow).get("conversion"),
+                live=snapshot_flow_content(hog_flow),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
@@ -7507,8 +7538,11 @@ class HogFlowViewSet(
             except Exception as error:
                 # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
                 capture_exception(error)
+        schedule = suggestions_scout_schedule(self.team) if scout_status == SuggestionsScoutStatus.RUNNING else None
         return Response(
-            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": scout_status, "sample": sample, "schedule": schedule}
+            ).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:

@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { RealtimeCohortsJoinStateEnumApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { realtimeCohortsJoinLogic } from 'products/cohorts/frontend/realtime/realtimeCohortsJoinLogic'
+
 import { cohortsSceneLogic } from './cohortsSceneLogic'
 
 const MOCK_COHORTS = {
@@ -174,6 +177,21 @@ describe('cohortsSceneLogic', () => {
                 await jest.advanceTimersByTimeAsync(1)
                 expect(listCohorts).toHaveBeenCalledTimes(1)
                 expect(listCohorts).toHaveBeenCalledWith(expect.objectContaining({ search: 'paying' }))
+            })
+
+            it.each<[RealtimeCohortsJoinStateEnumApi, number]>([
+                ['serving', 1],
+                ['setting_up', 0],
+            ])('when the project join reaches %s, sends %s extra list request(s)', async (joinState, extraRequests) => {
+                router.actions.push(urls.cohorts())
+                logic = cohortsSceneLogic()
+                logic.mount()
+                await jest.advanceTimersByTimeAsync(0)
+                listCohorts.mockClear()
+
+                realtimeCohortsJoinLogic.actions.setJoinState(joinState)
+
+                expect(listCohorts).toHaveBeenCalledTimes(extraRequests)
             })
         })
 

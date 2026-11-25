@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl, router } from 'kea-router'
 import { type ReactNode, useEffect } from 'react'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
@@ -23,6 +24,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
+import { SIGNUP_NETWORK_ERROR_CODE } from 'scenes/authentication/auth/signupLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
@@ -173,13 +175,15 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                 {signupManualErrors?.generic && (
                     <AuthBanner variant="danger" className="mb-4">
                         <span>{signupManualErrors.generic.detail || 'Could not complete your signup.'}</span>{' '}
-                        <Link
-                            data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support' })}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Need help?
-                        </Link>
+                        {signupManualErrors.generic.code !== SIGNUP_NETWORK_ERROR_CODE && (
+                            <Link
+                                data-attr="invite-signup-error-contact-support"
+                                onClick={() => openSupportForm({ kind: 'support' })}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Need help?
+                            </Link>
+                        )}
                     </AuthBanner>
                 )}
                 {passkeyError && (
@@ -379,21 +383,32 @@ function InviteInvalid(): JSX.Element {
     const { error } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { location } = useValues(router)
 
     const code = error?.code ?? ErrorCodes.Unknown
+    // Accepting an invite deletes it, so a signed-out person reopening an accepted link lands here and needs a way in
+    const showLogin = !user && code === ErrorCodes.InvalidInvite
+    const loginUrl = combineUrl(urls.login(), { next: location.pathname }).url
 
     const titles: Record<ErrorCodes, string> = {
-        [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.InvalidInvite]: user
+            ? 'This invite link is invalid or expired'
+            : 'This invite link is no longer valid',
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
     }
 
     const details: Record<ErrorCodes, ReactNode> = {
-        [ErrorCodes.InvalidInvite]: (
+        [ErrorCodes.InvalidInvite]: user ? (
             <>
                 {error?.detail} If you believe this is a mistake, ask whoever created the invite to{' '}
                 <b>send you a new one</b>.
+            </>
+        ) : (
+            <>
+                If you already accepted this invite, <b>log in</b> to continue. Otherwise, ask whoever created the
+                invite to send you a new one.
             </>
         ),
         [ErrorCodes.UserAlreadyMember]: (
@@ -432,7 +447,7 @@ function InviteInvalid(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            {!user && (
+            {!user && !showLogin && (
                 <>
                     <Link
                         to={urls.login()}
@@ -479,6 +494,18 @@ function InviteInvalid(): JSX.Element {
                                 disableClientSideRouting
                             >
                                 Try again
+                            </LemonButton>
+                        ) : showLogin ? (
+                            <LemonButton
+                                size="large"
+                                center
+                                fullWidth
+                                type="primary"
+                                to={loginUrl}
+                                // pinned: data-attr used to measure recoveries from this screen
+                                data-attr="invite-invalid-login"
+                            >
+                                Log in
                             </LemonButton>
                         ) : null}
                         <LemonButton size="large" center fullWidth onClick={() => openSupportForm({ kind: 'bug' })}>

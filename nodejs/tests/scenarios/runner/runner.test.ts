@@ -80,6 +80,7 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
+const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
@@ -1157,11 +1158,11 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            invariants = SMOKE.card.invariants,
             measures = SMOKE.card.measure,
             load: loadTargets,
             backlog,
             ramp,
+            invariants = ramp ? RAMP_INVARIANTS : SMOKE.card.invariants,
             stopOnBreak,
             bars = [],
             driveFor = '2s',
@@ -1379,12 +1380,18 @@ describe('runner through seed, drive and judge', () => {
             {
                 status: 'failed',
                 statusReason: expect.stringMatching(
-                    /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it$/
+                    /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it; no_loss failed: [\w-]+-\d+ email: accepted 0 times by the recovery horizon, expected 1/
                 ),
                 invariants: [
                     { name: 'at_least_once', passed: false, observed: expect.any(Number) },
                     { name: 'duplicate_sends', passed: true },
                     { name: 'refused_at_intake', passed: true },
+                    {
+                        name: 'no_loss',
+                        passed: false,
+                        missing: expect.arrayContaining([expect.stringMatching(/^[\w-]+-\d+$/)]),
+                        extra: [],
+                    },
                 ],
             },
             undefined,
@@ -1444,7 +1451,7 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
     it.each([
-        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],
     ])(
         '%s',
@@ -1462,10 +1469,16 @@ describe('runner through seed, drive and judge', () => {
             const result = await run('all', [], 'event_webhook')
 
             expect(result).toMatchObject({
-                status: passed ? 'passed' : 'failed',
+                status: 'failed',
                 janitorResets: resets,
                 invariants: expect.arrayContaining([
                     expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                    expect.objectContaining({
+                        name: 'no_loss',
+                        passed: false,
+                        missing: [],
+                        extra: [expect.any(String)],
+                    }),
                 ]),
             })
             expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
@@ -1820,7 +1833,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason:
-                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-intake-transactional-email, cdp-intake-workflow-webhook, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)

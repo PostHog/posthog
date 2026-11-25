@@ -1022,6 +1022,9 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
             agent_egress_observation=bool(ctx.agent_egress_observation_config),
+            agent_egress_resume=ctx.agent_egress_enrollment_enabled
+            and ctx.agent_egress_maintain_for_run
+            and ctx.is_snapshot_resume,
             use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )

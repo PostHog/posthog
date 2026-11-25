@@ -44,7 +44,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT, MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -63,6 +63,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
@@ -222,6 +223,23 @@ const createEmailParams = (
             integrationIds: from.integrationIds?.map(getIntegrationId),
         },
     }
+}
+const emailSeriesCounts = async (): Promise<Record<string, number>> =>
+    Object.fromEntries(
+        ((await register.getSingleMetric('cdp_hog_function_metric')?.get())?.values ?? [])
+            .filter(({ labels }) => labels.metric_kind === 'email')
+            .map(({ labels, value }) => [String(labels.metric_name), value])
+    )
+const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Promise<Record<string, number>> => {
+    const before = await emailSeriesCounts()
+    new HogFunctionMonitoringService(
+        createRecordingIngestionOutputs([APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT]).outputs
+    ).queueInvocationResults([result])
+    return Object.fromEntries(
+        Object.entries(await emailSeriesCounts())
+            .map(([name, value]): [string, number] => [name, value - (before[name] ?? 0)])
+            .filter(([, delta]) => delta !== 0)
+    )
 }
 const oneRetryAfter = (delayMs: number): any => {
     const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
@@ -457,15 +475,26 @@ describe('EmailService', () => {
                     config: {},
                 })
             })
-            it('should validate if the integration is not found', async () => {
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 100 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
-                )
-            })
+            it.each([
+                ['the integration is not found', false, 100],
+                ['the integration belongs to another team', true, 1],
+            ])(
+                'should fail when %s and label it for Prometheus as an unverified sender',
+                async (_name, fromOtherTeam, integrationId) => {
+                    if (fromOtherTeam) {
+                        invocation.teamId = 100
+                    }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId },
+                    })
+                    const result = await service.executeSendEmail(invocation)
+                    expect(result.error).toMatchInlineSnapshot(
+                        `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                    )
+                    expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(['email_failed'])
+                    expect(await emailSeriesCountedFor(result)).toEqual({ email_sender_unverified: 1 })
+                }
+            )
             it.each([
                 ['slack', 3],
                 ['email_sandbox', 5],
@@ -476,16 +505,6 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
                     `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
-                )
-            })
-            it('should validate if the integration is not the correct team', async () => {
-                invocation.teamId = 100
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
             it.each([
@@ -505,6 +524,8 @@ describe('EmailService', () => {
                     expect(result.error).toMatchInlineSnapshot(
                         `"The selected email integration domain is not verified"`
                     )
+                    expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(isTest ? [] : ['email_failed'])
+                    expect(await emailSeriesCountedFor(result)).toEqual(isTest ? {} : { email_sender_unverified: 1 })
                     expect(await settledActivationEvents()).toEqual(
                         Array(reports).fill({
                             team: team.uuid,
@@ -2055,17 +2076,45 @@ describe('EmailService', () => {
             })
         })
 
-        it('should error if not verified', async () => {
-            ses.failWith({
-                status: 400,
-                type: 'MessageRejected',
-                message: 'Email address not verified "Test User" <test@posthog-test.com>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toEqual(
-                'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
-            )
-        })
+        it.each([
+            [
+                'the sender',
+                {},
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: Test@Posthog-Test.com',
+                'email_sender_unverified',
+            ],
+            [
+                'the sender in the older format',
+                {},
+                'Email address not verified "Test User" <test@posthog-test.com>',
+                'email_sender_unverified',
+            ],
+            [
+                'only the recipient',
+                {},
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@example.com',
+                'email_failed',
+            ],
+            [
+                'only recipients whose addresses contain the sender',
+                { to: { email: 'test@posthog-test.com.au', name: 'Test User' }, cc: 'xtest@posthog-test.com' },
+                'Email address is not verified. The following identities failed the check in region EU-CENTRAL-1: test@posthog-test.com.au, xtest@posthog-test.com',
+                'email_failed',
+            ],
+            ['no identity', {}, 'Illegal address', 'email_failed'],
+        ])(
+            'fails a send SES rejects for %s and counts it as an unverified sender only when the sender is unverified',
+            async (_name, recipients, sesMessage, countedSeries) => {
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, ...recipients })
+                ses.failWith({ status: 400, type: 'MessageRejected', message: sesMessage })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toEqual(`Failed to send email via SES: ${sesMessage}`)
+                expect(result.metrics.map(({ metric_name }) => metric_name)).toEqual(['email_failed'])
+                expect(await emailSeriesCountedFor(result)).toEqual({ [countedSeries]: 1 })
+            }
+        )
 
         it.each([
             ['an ordinary template', {}, '$pageview', { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
@@ -4258,7 +4307,7 @@ describe('EmailService', () => {
                 allowlisted: boolean
                 isTest: boolean
                 sensitive: boolean
-                send?: { sensitive: boolean }
+                send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
                 href: string
             }>([
@@ -4329,6 +4378,15 @@ describe('EmailService', () => {
                     send: { sensitive: false },
                     href: TAGGED_HREF,
                 },
+                {
+                    case: 'leaves the links of a code send that opts out of click tracking but keeps opens',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { tracking: { clicks: false } },
+                    href: STALE_HREF,
+                },
             ])(
                 '$case with the workflow run id',
                 async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
@@ -4347,7 +4405,10 @@ describe('EmailService', () => {
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
-                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
+                    invocation.state.send = send && {
+                        ...send,
+                        tracking: { captureEngagement: true, ...send.tracking },
+                    }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,

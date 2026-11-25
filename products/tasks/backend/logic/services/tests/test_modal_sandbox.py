@@ -2052,6 +2052,46 @@ class TestModalSandboxCreateAllowlist:
             SandboxConfig.model_validate(values)
 
     @pytest.mark.parametrize(
+        "override,allowed",
+        [
+            ({}, True),
+            ({"agent_egress_resume": False}, False),
+            ({"agent_egress_observation": False}, False),
+            ({"resume_snapshot_external_id": None}, False),
+            ({"snapshot_mount_path": None}, False),
+            ({"snapshot_mount_path": "/"}, False),
+            ({"snapshot_mount_path": "/tmp"}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/.."}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/"}, False),
+            ({"snapshot_id": "snapshot-example"}, False),
+            ({"snapshot_external_id": "im-example"}, False),
+            ({"require_snapshot": True}, False),
+            ({"vm_runtime": False}, False),
+            ({"outbound_domain_allowlist": []}, False),
+            ({"block_network": True}, False),
+        ],
+    )
+    def test_egress_resume_requires_an_explicit_directory_handoff(
+        self, override: dict[str, object], allowed: bool
+    ) -> None:
+        values = {
+            "name": "enrollment-resume",
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            "agent_egress_resume": True,
+            "resume_snapshot_external_id": "im-example",
+            "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            **override,
+        }
+        if allowed:
+            config = SandboxConfig.model_validate(values)
+            assert config.resume_snapshot_external_id == "im-example"
+            assert config.snapshot_mount_path == DEFAULT_SANDBOX_WORKING_DIR
+        else:
+            with pytest.raises(ValueError):
+                SandboxConfig.model_validate(values)
+
+    @pytest.mark.parametrize(
         "override",
         [
             {"vm_runtime": False},
@@ -2080,7 +2120,10 @@ class TestModalSandboxCreateAllowlist:
     @override_settings(DEBUG=False, TEST=False)
     @pytest.mark.parametrize("observation", [False, True])
     def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
-        with pytest.raises(ValueError, match="development( or staging)? VM"):
+        with pytest.raises(
+            ValueError,
+            match="explicit directory handoff" if observation else "fresh, credential-free development or staging VM",
+        ):
             SandboxConfig(
                 name="probe",
                 template=SandboxTemplate.SLIM_BASE,

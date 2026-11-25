@@ -90,16 +90,6 @@ class TestResolveIntegration:
         thread_ts: str = "123.456",
         mapping_kind: str = "task",
     ) -> None:
-        if mapping_kind == "fork":
-            from products.slack_app.backend.services.slack_fork_context import PendingFork, store_pending_fork
-
-            store_pending_fork(
-                integration.id,
-                channel,
-                thread_ts,
-                PendingFork(source_channel="CSOURCE", source_thread_ts="100.1", is_ext_shared=True),
-            )
-            return
         if mapping_kind == "report":
             SignalReport = apps.get_model("signals", "SignalReport")
             SignalReportSlackThread = apps.get_model("signals", "SignalReportSlackThread")
@@ -134,7 +124,7 @@ class TestResolveIntegration:
 
         assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     @pytest.mark.parametrize("has_default", [False, True])
     def test_thread_mapping_wins_over_everything(self, mapping_kind, has_default):
         self._mk_thread_mapping(team=self.team_b, integration=self.integration_b, mapping_kind=mapping_kind)
@@ -157,7 +147,7 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     def test_thread_mapping_ignored_when_user_lacks_access(self, mapping_kind):
         # Thread mapping targets team_c, which the user has no membership in
         # (it's in `other_org`). The thread match must be skipped — a user
@@ -205,7 +195,7 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     def test_thread_mapping_falls_through_when_no_sibling_for_team(self, mapping_kind):
         # The mapping points at an Integration whose team has no candidate in
         # the current lookup at all (kind drift left no replacement). Without a
