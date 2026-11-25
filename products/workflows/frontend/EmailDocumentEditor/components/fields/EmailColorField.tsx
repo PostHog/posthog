@@ -9,7 +9,8 @@ import { EmailFieldRow } from './EmailFieldRow'
 const HEX = /^#[0-9a-f]{6}$/i
 
 function isNamedColor(text: string): boolean {
-    return /^[a-z]+$/i.test(text) && CSS.supports('color', text)
+    // Words like `inherit` fit every property, so they aren't colors.
+    return /^[a-z]+$/i.test(text) && CSS.supports('color', text) && !CSS.supports('display', text)
 }
 
 export function EmailColorField({

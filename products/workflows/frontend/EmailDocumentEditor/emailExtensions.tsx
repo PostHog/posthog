@@ -45,6 +45,7 @@ function dividerCanvasCss(style: EmailBlockStyle): string {
         `padding:${sidesCss(style.padding) ?? '8px 0'}`,
         `height:${Math.max(style.lineWidth ?? 0, 0) || 1}px`,
         `background:linear-gradient(${color},${color}) ${style.textAlign ?? 'center'} top/${length}% 100% no-repeat content-box`,
+        ...(style.backgroundColor ? [`background-color:${style.backgroundColor}`, 'background-clip:border-box'] : []),
     ].join(';')
 }
 
