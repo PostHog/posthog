@@ -257,7 +257,11 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             )
 
         [properties] = _shadow_events(capture)
-        assert (properties["outcome"], properties["alert_decision_matches"]) == ("mismatch", None)
+        assert (properties["outcome"], properties["alert_decision_matches"], properties["alert_decision_error"]) == (
+            "mismatch",
+            None,
+            "RuntimeError",
+        )
 
     def test_a_failing_shadow_step_records_an_error_and_never_changes_the_check(self) -> None:
         alert = self._alert(detector=_THRESHOLD_DETECTOR)

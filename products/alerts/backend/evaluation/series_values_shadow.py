@@ -60,6 +60,7 @@ class ShadowComparison:
     max_rel_difference: float = 0.0
     live_with_stored_values: list | None = None
     decision_matches: bool | None = None
+    decision_error: str | None = None
     freshly_built: bool = False
     verification: SeriesValuesVerification | None = None
     verify_error: str | None = None
@@ -131,11 +132,11 @@ def _with_decision(
         )
     except _CANCELLATION:
         raise
-    except Exception:
+    except Exception as err:
         logger.warning(
             "alert_series_values_decision_replay_failed", team_id=alert.team_id, alert_id=str(alert.id), exc_info=True
         )
-        return comparison
+        return replace(comparison, decision_error=type(err).__name__)
     return replace(comparison, decision_matches=decision_matches)
 
 
@@ -375,6 +376,7 @@ def _record(
                 "max_abs_difference": _finite(comparison.max_abs_difference),
                 "max_rel_difference": _finite(comparison.max_rel_difference),
                 "alert_decision_matches": comparison.decision_matches,
+                "alert_decision_error": comparison.decision_error,
                 "alert_id": str(alert.id),
                 "calculation_interval": alert.calculation_interval,
                 "alert_kind": alert_kind,
