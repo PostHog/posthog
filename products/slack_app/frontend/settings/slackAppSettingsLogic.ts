@@ -108,18 +108,6 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
             selectIntegration: () => null,
         },
     }),
-    selectors({
-        selectedIntegrationId: [
-            (s) => [s.pickedIntegrationId, s.slackIntegrations],
-            (pickedIntegrationId: number | null, slackIntegrations: IntegrationType[] | undefined): number | null =>
-                pickedIntegrationId ?? slackIntegrations?.[0]?.id ?? null,
-        ],
-        // One change at a time, so two quick clicks can't save out of order.
-        personalSettingsDisabledReason: [
-            (s) => [s.settingsLoading],
-            (settingsLoading: boolean): string | undefined => (settingsLoading ? 'Saving your last change' : undefined),
-        ],
-    }),
     loaders(({ values }) => ({
         settings: [
             null as SlackAppSettingsApi | null,
@@ -156,6 +144,18 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
             },
         ],
     })),
+    selectors({
+        selectedIntegrationId: [
+            (s) => [s.pickedIntegrationId, s.slackIntegrations],
+            (pickedIntegrationId: number | null, slackIntegrations: IntegrationType[] | undefined): number | null =>
+                pickedIntegrationId ?? slackIntegrations?.[0]?.id ?? null,
+        ],
+        // One change at a time, so two quick clicks can't save out of order.
+        personalSettingsDisabledReason: [
+            (s) => [s.settingsLoading],
+            (settingsLoading: boolean): string | undefined => (settingsLoading ? 'Saving your last change' : undefined),
+        ],
+    }),
     listeners(({ actions }) => ({
         selectIntegration: () => actions.loadSettings(),
         loadIntegrationsSuccess: () => actions.loadSettings(),
