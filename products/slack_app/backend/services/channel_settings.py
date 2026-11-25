@@ -10,6 +10,7 @@ from posthog.integrations import IntegrationRecord
 
 from products.slack_app.backend.feature_flags import is_slack_app_web_settings_enabled
 from products.slack_app.backend.models import SlackChannel, UntaggedFollowupMode
+from products.slack_app.backend.services.integration_references import read_integration_id
 from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
 
 
@@ -32,7 +33,7 @@ def load_channel_defaults(slack_workspace_id: str, slack_channel_id: str | None)
         return None
     default_integration_id, default_repository, mode = row
     return ChannelDefaults(
-        default_integration_id=default_integration_id,
+        default_integration_id=read_integration_id(default_integration_id),
         default_repository=default_repository,
         untagged_question_mode=UntaggedFollowupMode(mode) if mode in UntaggedFollowupMode.values else None,
     )

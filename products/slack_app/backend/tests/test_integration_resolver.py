@@ -356,7 +356,7 @@ class TestResolveIntegration:
             default_integration=self.integration_b, slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER
         )
         SlackChannel.objects.create(
-            slack_workspace_id=WORKSPACE, slack_channel_id="C_MOBILE", default_integration=self.integration_a
+            slack_workspace_id=WORKSPACE, slack_channel_id="C_MOBILE", default_integration_id=str(self.integration_a.id)
         )
 
         with patch("posthoganalytics.feature_enabled", return_value=flag_on):
