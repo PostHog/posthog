@@ -3739,7 +3739,12 @@ def query_accounts_metrics(
     if non_numeric_definition_ids and not ignore_missing_definitions:
         raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
-    accounts = accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
+    accounts = accounts_visible_to(
+        team_id,
+        Subject(user_id=user_access_control.user.pk),
+        require_resource_access=True,
+        preloaded_access=user_access_control,
+    )
     if not filter_groups:
         accounts = _filter_out_hidden_lifecycle_accounts(
             accounts, filters, include_churned=include_churned, include_ignored=include_ignored
@@ -3857,7 +3862,12 @@ def query_accounts_table(
     selection = definitions.selection
     sort = definitions.sort
 
-    queryset = accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
+    queryset = accounts_visible_to(
+        team_id,
+        Subject(user_id=user_access_control.user.pk),
+        require_resource_access=True,
+        preloaded_access=user_access_control,
+    )
     if not filter_groups:
         queryset = _filter_out_hidden_lifecycle_accounts(
             queryset, filters, include_churned=include_churned, include_ignored=include_ignored

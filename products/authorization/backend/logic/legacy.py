@@ -255,15 +255,15 @@ def _check_project(
     user_level = (
         session.project_levels[key]
         if key in session.project_levels
-        else _user_permissions(session, user).team(team).effective_membership_level
+        else _user_permissions(session, user, access).team(team).effective_membership_level
     )
     return user_level is not None and user_level >= level
 
 
-def _user_permissions(session: Session, user: User) -> UserPermissions:
+def _user_permissions(session: Session, user: User, access: UserAccessControl | None = None) -> UserPermissions:
     if user.pk in session.permissions:
         return session.permissions[user.pk]
-    permissions = UserPermissions(user)
+    permissions = UserPermissions(user, organization_membership=access.organization_membership if access else None)
     if session.can_cache():
         session.permissions[user.pk] = permissions
     return permissions

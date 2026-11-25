@@ -52,9 +52,6 @@ from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.models import User
-
-from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 
@@ -581,16 +578,23 @@ def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
         raise TableAccessDeniedError(table_name)
     team_id = database.authorization_team_id
     user_id = database.authorization_user_id
-    if user_id is None and isinstance(context.user, User):
-        user_id = context.user.pk
-        team_id = context.team_id if context.team_id is not None else context.team.pk if context.team else None
-    if user_id is not None and (
-        team_id is None
-        or not authorization.check(
-            resource=Resource(type=ResourceType.TICKET, project_id=team_id),
-            action=Action.VIEW,
-            subject=Subject(user_id=user_id),
-        )
+    if user_id is None and context.user is not None:
+        from posthog.models import User  # noqa: PLC0415 — HogQL's schema imports without Django
+
+        if isinstance(context.user, User):
+            user_id = context.user.pk
+            team_id = context.team_id if context.team_id is not None else context.team.pk if context.team else None
+    if user_id is None:
+        return
+
+    from products.authorization.backend.facade import (
+        api as authorization,  # noqa: PLC0415 — HogQL's schema imports without Django
+    )
+
+    if team_id is None or not authorization.check(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id),
+        action=Action.VIEW,
+        subject=Subject(user_id=user_id),
     ):
         raise TableAccessDeniedError(table_name)
 
