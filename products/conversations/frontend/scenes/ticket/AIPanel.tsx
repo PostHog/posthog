@@ -6,6 +6,7 @@ import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { aiCitationClickProps } from '../../components/Chat/aiCitationClickProps'
 import {
     type AITriage,
     type AITriageSource,
@@ -66,21 +67,17 @@ function AITriageBulletList({ items }: { items: string[] }): JSX.Element {
 
 function AISourceItem({ source }: { source: AITriageSource }): JSX.Element {
     const title = source.title || source.ref
-    const reportClick = (isExternal: boolean): void => {
-        // pinned: analytics event name. Dashboards break when it is renamed.
-        posthog.capture('support ai citation clicked', { surface: 'panel', is_external: isExternal })
-    }
     const name =
         source.source_id != null ? (
             <Link
                 to={urls.businessKnowledgeSource(source.source_id)}
                 className="truncate"
-                onClick={() => reportClick(false)}
+                {...aiCitationClickProps('panel', false)}
             >
                 {title}
             </Link>
         ) : source.url ? (
-            <Link to={source.url} target="_blank" className="truncate" onClick={() => reportClick(true)}>
+            <Link to={source.url} target="_blank" className="truncate" {...aiCitationClickProps('panel', true)}>
                 {title}
             </Link>
         ) : (

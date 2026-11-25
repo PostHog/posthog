@@ -11,11 +11,13 @@ from typing import Literal
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 
+from celery import current_task
 from rapidfuzz.distance import Indel
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
+from posthog.ph_client import ph_scoped_capture
 
 from products.conversations.backend.models import Ticket
 
@@ -119,7 +121,19 @@ def _report_outcome_on_commit(
 
     def report() -> None:
         try:
-            report_team_action(ticket.team, OUTCOME_RECORDED_EVENT, properties)
+            team = ticket.team
+            if current_task:
+                # A reply ingested from a channel is recorded in a Celery task. The global client can
+                # lose its buffer when the worker exits, so this path flushes a dedicated client.
+                with ph_scoped_capture() as capture:
+                    capture(
+                        distinct_id=str(team.uuid),
+                        event=OUTCOME_RECORDED_EVENT,
+                        properties=properties,
+                        groups=groups(team=team),
+                    )
+            else:
+                report_team_action(team, OUTCOME_RECORDED_EVENT, properties)
         except Exception as error:
             capture_exception(error, {"ticket_id": str(ticket.id)})
 

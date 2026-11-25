@@ -13,6 +13,7 @@ import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliver
 import { AiReplyFeedback } from '../AiReplyFeedback/AiReplyFeedback'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 import { richContentToHtml } from '../Editor/richContentToHtml'
+import { aiCitationClickProps } from './aiCitationClickProps'
 import { aiDraftAction } from './aiDraftAction'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
@@ -237,13 +238,7 @@ export function Message({
                                                         to={display.to}
                                                         target={display.external ? '_blank' : undefined}
                                                         className="break-all"
-                                                        onClick={() =>
-                                                            // pinned: analytics event name. Dashboards break when it is renamed.
-                                                            posthog.capture('support ai citation clicked', {
-                                                                surface: 'note',
-                                                                is_external: !!display.external,
-                                                            })
-                                                        }
+                                                        {...aiCitationClickProps('note', !!display.external)}
                                                     >
                                                         {display.title}
                                                     </Link>

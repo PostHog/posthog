@@ -577,10 +577,10 @@ export interface supportTicketSceneLogicActions {
         feedbackText?: string,
         reasons?: AiFeedbackReasonEnumApi[]
     ) => {
-        reasons: AiFeedbackReasonEnumApi[] | undefined
         feedbackText: string | undefined
         messageId: string
         rating: AiReplyFeedbackRating
+        reasons: AiFeedbackReasonEnumApi[] | undefined
     }
     updateTicket: () => {
         value: true
