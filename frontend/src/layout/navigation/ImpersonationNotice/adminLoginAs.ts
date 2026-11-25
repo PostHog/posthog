@@ -1,5 +1,10 @@
 import { getCookie } from 'lib/api'
 
+import { usersRetrieve } from '~/generated/core/api'
+import type { UserApi } from '~/generated/core/api.schemas'
+
+import { ImpersonationSessionUncertainError } from './ImpersonationSessionUncertainError'
+
 async function ensureAdminOAuth2(): Promise<void> {
     const authCheckResponse = await fetch('/admin/auth_check', {
         method: 'GET',
@@ -70,6 +75,27 @@ async function ensureAdminOAuth2(): Promise<void> {
     })
 }
 
+async function verifyImpersonatedSession(userId: number, readOnly: boolean): Promise<void> {
+    let user: UserApi
+    try {
+        user = await usersRetrieve('@me')
+        if (!user || !Number.isSafeInteger(user.id) || user.id <= 0 || typeof user.is_impersonated !== 'boolean') {
+            throw new Error('Invalid session identity response')
+        }
+    } catch (error) {
+        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.', {
+            cause: error,
+        })
+    }
+    if (user.id !== userId || !user.is_impersonated) {
+        const LoginError = user.is_impersonated ? ImpersonationSessionUncertainError : Error
+        throw new LoginError('Could not log in as this user. Check that impersonation is allowed and try again.')
+    }
+    if (user.is_impersonated_read_only !== readOnly) {
+        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.')
+    }
+}
+
 export interface AdminLoginAsParams {
     userId: number
     reason: string
@@ -79,21 +105,39 @@ export interface AdminLoginAsParams {
 export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsParams): Promise<void> {
     await ensureAdminOAuth2()
 
-    const loginResponse = await fetch(`/admin/login/user/${userId}/`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        mode: 'cors',
-        headers: {
-            'X-CSRFToken': getCookie('posthog_csrftoken') as string,
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            read_only: readOnly ? 'true' : 'false',
-            reason,
-        }),
-    })
+    let loginResponse: Response
+    try {
+        loginResponse = await fetch(`/admin/login/user/${userId}/`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            mode: 'cors',
+            headers: {
+                Accept: 'application/json',
+                'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                read_only: readOnly ? 'true' : 'false',
+                reason,
+            }),
+        })
+        if (loginResponse.ok && (await loginResponse.json())?.success !== true) {
+            throw new Error('The login response did not confirm success')
+        }
+    } catch (error) {
+        throw new ImpersonationSessionUncertainError(
+            'Could not confirm the login result. Reload the page to continue.',
+            {
+                cause: error,
+            }
+        )
+    }
 
     if (!loginResponse.ok) {
-        throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+        const LoginError =
+            loginResponse.status >= 500 || loginResponse.redirected ? ImpersonationSessionUncertainError : Error
+        throw new LoginError(`django-loginas request resulted in status ${loginResponse.status}`)
     }
+
+    await verifyImpersonatedSession(userId, readOnly)
 }

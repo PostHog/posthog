@@ -175,7 +175,7 @@ Selected TaskRun -> ordinary VM provision and agent launch
   maintained enrollment handoff -> revoke old execution, enroll a fresh relay
 ```
 
-Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
 
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
@@ -203,7 +203,7 @@ Maintained rotation explicitly permits a directory resume snapshot at the approv
 
 This is stop-and-re-enroll, with a fail-closed gap rather than uninterrupted traffic. Old authority is revoked or expires with its lease; a failed handoff cannot restore it. Delayed cleanup targets only its own execution and relay. Enrollment failure is logged and does not fail the agent run; this still authorizes only synthetic probes. Validate continuation and snapshot rotation on the deployed worker before expanding the cohort.
 
-Automatic snapshot rotation currently serves interactive runs, which enrollment excludes. The handoff supports that path without widening eligibility; a live rotation canary needs an eligible cohort first.
+Automatic snapshot rotation serves idle interactive runs with resume snapshots enabled. Selected interactive runs can enroll when run-lifetime maintenance is configured. A live rotation canary still needs that profile and a sandbox deadline reached during the test; enabling enrollment alone does not trigger rotation.
 
 ## Run the processes
 
@@ -354,6 +354,118 @@ Choose a budget that allows long streams to finish. Expiry cuts off an active st
 The relay sets the same deadline on reads from and writes to the guest. Response wrappers must support `SetReadDeadline` and `SetWriteDeadline`, or expose the underlying writer through `Unwrap`.
 If either deadline cannot be set, the relay reports the failure through `OnError` and aborts before sending anything upstream.
 
+### Git read adapter
+
+`internal/gitread` implements the first credential-aware adapter. It is a library;
+the deployed request listener still serves only the probe.
+Route wiring must land before a sandbox can use it.
+
+```text
+Verified run + repository -> read grant -> GitHub HTTPS with injected token
+```
+
+The caller verifies the capability and relay identity first, reserves audit capacity,
+then calls `Prepare` with that registration. `Lookup` reads an already-published grant;
+it must not mint or refresh credentials. A grant binds the repository and credential
+version to the exact team, run, execution, actor, epoch, relay key and authority.
+Missing, revoked or expired grants deny access. Lookup failures return unavailable.
+Token minting and coordinated refresh remain with the existing Tasks worker owners.
+
+The supported paths follow [Git's smart HTTP protocol](https://git-scm.com/docs/http-protocol):
+
+| Request                                                            | Operation                                 |
+| ------------------------------------------------------------------ | ----------------------------------------- |
+| `GET /v1/git/{owner}/{repo}.git/info/refs?service=git-upload-pack` | Discover refs                             |
+| `POST /v1/git/{owner}/{repo}.git/git-upload-pack`                  | Clone/fetch negotiation and pack transfer |
+
+The adapter creates a new header set, injects Basic authentication for `x-access-token`,
+and sends only to `https://github.com/{owner}/{repo}.git/...`. Guest authorization,
+cookies and other headers are dropped. Git protocol v2 is allowed; other protocol
+header values are rejected. Redirects, pushes, LFS and other paths are refused.
+Response headers are limited to the Git content type and `Cache-Control: no-store`;
+upstream errors have generic responses. Successful pack data streams to the guest.
+
+The caller records admission before calling `Forward`, then records its outcome;
+only `CredentialVersion`, never the grant or token, belongs in audit metadata.
+It supplies the upstream transport, which must use the approved external egress path.
+The adapter does not select its upstream transport or credential source.
+
+Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
+and decoded sizes. The adapter buffers this bounded negotiation before forwarding
+it uncompressed. Pack responses stream without whole-response buffering.
+Transfer deadlines cannot exceed either
+registration lease, credential expiry, the caller deadline or the configured timeout.
+This first slice supports small transfers that fit within the current lease;
+long clones need continued authorization before this restriction can be relaxed.
+Prepare a fresh operation for each request so rotation takes effect on the next call.
+The response writer must support read/write deadlines. A failed response stream is
+aborted rather than reported as a complete pack.
+
+Tests run actual `git clone`, `fetch` and denied operations against a local
+[`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
+They exercise token replacement, scope checks, stripped headers and cancellation.
+They do not prove worker publication, cloud transport or sandbox credential removal.
+
+### Git grant publication
+
+`AgentEgressGitGrants.publish` stores one repository's read credential on an active execution.
+The existing Django encrypted field protects the payload at rest in the regional database.
+The trusted worker must authorize the repository, resolve the correct actor's token, and supply a validity deadline no later than the upstream token's expiry.
+Publication accepts at most one hour of validity; it does not infer expiry from token prefixes or change the minting identity.
+Set `publish_git_read_grant: true` in the regional enrollment config to publish grants
+for read-only runs with exactly one pinned repository. It is off by default.
+The worker uses the team's GitHub installation, scopes the token to that repository's
+contents and metadata, and keeps GitHub's actual expiry. It does not reuse the legacy
+token cache, which does not store expiry.
+
+Enrollment publishes the first grant. The existing GitHub credential refresh activity
+rotates it, reading the live execution from run state. Publication checks authority
+again after minting; a delayed refresh cannot overwrite a newer grant or a withdrawal.
+The execution keeps the opt-in separately, so refresh can retry first publication
+after a temporary owner lookup failure. A withdrawn grant stays withdrawn.
+A failed refresh emits `agent_egress_git_refresh_failed` without token values and leaves
+the previous grant valid only until its original expiry. Ineligible runs receive no
+grant. Losing the repository or integration clears the existing grant at refresh.
+
+This opt-in only exercises worker publication. Sandbox tokens and Git routing stay
+on their existing path; initial enrollment still follows cloning and agent launch.
+Initial publication runs in its own activity while the workflow renews the execution lease.
+Slow minting does not suspend renewal; cancellation or loss of authority stops publication and closes the execution.
+If optional publication exhausts its retries, enrollment continues without a Git grant and the existing refresh activity can retry later.
+Public sandbox repositories need no token; GitHub's rejection of a repository scope leaves it without a grant.
+Before removing guest credentials, enrollment and grant publication must precede
+the first clone, and Git must use a renewable run capability through the adapter.
+
+```text
+Worker: publish(version, previous_version, repository, token, expiry)
+  -> active execution + matching previous version
+  -> encrypted grant
+Proxy: scoped HTTPS lookup
+  -> recheck execution and repository
+  -> credential + version + current lease
+```
+
+Retries with the same version and payload are idempotent.
+A delayed rotation cannot overwrite a newer version.
+`clear` removes the credential and advances its version, fencing earlier publishers.
+Execution revocation, replacement and sandbox cleanup erase the payload.
+Expiry denies access even when cleanup has not run; an abandoned row can retain expired ciphertext until cleanup.
+Registration metadata lookups do not load or return the credential.
+
+The grant endpoint has its own `posthog:agent_egress_credentials` audience and `AGENT_EGRESS_CREDENTIALS_JWT_SECRETS` key list, newest first.
+Provision separate values per region; there is no default or fallback to the registration key.
+Tokens last at most 30 seconds and bind team, run, execution, region, repository and the `git_read_grant` operation.
+The endpoint requires HTTPS and returns `Cache-Control: no-store` on every response.
+After authentication and claim validation, an atomic Redis budget limits each team's execution to a burst of 60 lookups, refilling at 600 per hour.
+Rotating the lookup JWT does not reset the budget. Exhaustion returns `429` with `Retry-After`; an unavailable budget store returns `503` without reading the grant.
+The Go client refuses HTTP and redirects, checks the returned binding, and distinguishes denial from unavailability.
+Neither endpoint nor client mints an upstream token.
+
+This slice supplies storage, opted-in worker publication and a proxy client.
+It does not mount the adapter, provision the service key, or remove sandbox credentials.
+The credential client requires a verified TLS path to Django; the metadata client's optional cluster HTTP path does not apply.
+Before serving Git traffic, maintain proxy state within its lease without a database lookup for every Git request.
+
 ## Registration and time
 
 `Lookup` receives the verified team, run and execution IDs and returns their current registration.
@@ -378,7 +490,7 @@ Replacement requires the previous execution ID and keeps the old registration re
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
-The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. Missing, revoked or expired authority on a live run still fails the child.
+The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. If an activity observes a stopped run first, the child completes cleanup with reason `cancelled`; an actual Temporal cancellation ends the child as cancelled. Missing, revoked or expired authority on a live run still fails the child.
 Failed probe rounds emit `agent_egress_probe_failed` with their status counts before checking whether the run ended. A normal child completion does not erase that failure evidence.
 
 Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.

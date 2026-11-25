@@ -1895,6 +1895,21 @@ export const HomeWhileSelfDrivingReviews: Story = {
     ],
 }
 
+export const HomeWithSelfDrivingNotSetUp: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
+}
+
 const PHONE_PARAMETERS = {
     featureFlags: [
         FEATURE_FLAGS.TODAY_RAIL_NAV,

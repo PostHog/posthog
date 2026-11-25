@@ -260,3 +260,38 @@ class TestBroadcastClicks:
         assert [(row["broadcast_id"], row["id"]) for row in result.rows] == [(11, 51), (11, 52), (12, 53)]
         assert result.rows[0]["url"] == "https://example.com/51"
         assert result.paths[1] == "/v4/broadcasts/11/clicks"
+
+
+class TestSingleObjectStats:
+    @parameterized.expand(
+        [
+            ("email_stats", "/v4/account/email_stats", {"sent": 6, "opened": 3}),
+            ("growth_stats", "/v4/account/growth_stats", {"subscribers": 40, "new_subscribers": 5}),
+        ]
+    )
+    def test_yields_one_row_without_paging_params(self, endpoint: str, path: str, metrics: dict[str, int]) -> None:
+        stats = {"starting": "2026-08-01T00:00:00Z", "ending": "2026-10-30T00:00:00Z", **metrics}
+        result = _driver().run(endpoint, [ScriptedResponse(json={"stats": stats})])
+
+        assert result.raised is None
+        assert result.rows == [stats]
+        assert result.paths == [path]
+        assert result.requests[0].param("per_page") is None
+        assert result.requests[0].param("after") is None
+
+
+class TestSnippets:
+    def test_requests_snippet_content_on_every_page(self) -> None:
+        result = _driver().run(
+            "snippets",
+            [
+                _page("snippets", [1], has_next=True, end_cursor="C1"),
+                _page("snippets", [2]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        # Without include_content the list omits the snippet body.
+        assert result.params("include_content") == ["true", "true"]
+        assert result.params("after") == [None, "C1"]

@@ -13,6 +13,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { uiSoundsLogic } from 'lib/uiSounds/uiSoundsLogic'
 import { createSceneRenderedMark, markBootPhase } from 'lib/utils/bootTiming'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
@@ -96,6 +97,7 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+    useMountedLogic(uiSoundsLogic)
 
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.

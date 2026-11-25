@@ -135,12 +135,14 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
                 "`sagemaker:ListHyperParameterTuningJobs`, `sagemaker:DescribeHyperParameterTuningJob`, "
                 "`sagemaker:ListAutoMLJobs`, `sagemaker:DescribeAutoMLJobV2`, "
                 "`sagemaker:ListTransformJobs`, `sagemaker:DescribeTransformJob`, "
-                "`sagemaker:ListPipelines`, `sagemaker:ListPipelineExecutions`, `sagemaker:DescribePipelineExecution`, "
+                "`sagemaker:ListPipelines`, `sagemaker:DescribePipeline`, "
+                "`sagemaker:ListPipelineExecutions`, `sagemaker:DescribePipelineExecution`, "
+                "`sagemaker:ListPipelineExecutionSteps`, "
                 "`sagemaker:ListExperiments`, `sagemaker:DescribeExperiment`, "
                 "`sagemaker:ListTrials`, `sagemaker:DescribeTrial`, "
                 "`sagemaker:ListTrialComponents`, `sagemaker:DescribeTrialComponent`, "
                 "and `sagemaker:ListMonitoringExecutions`. "
-                "Jobs, executions, experiments, endpoints, and model packages use full refresh to capture status changes. "
+                "Jobs, pipelines, executions, steps, experiments, endpoints, and model packages use full refresh to capture status changes. "
                 "Models and endpoint configurations also support incremental sync by creation time."
             ),
             iconPath="/static/services/aws_sagemaker.png",

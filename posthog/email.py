@@ -36,6 +36,7 @@ from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_st
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.ph_client import ScopedCapture, ph_background_capture, ph_scoped_capture
+from posthog.service_accounts.emails import is_generated_service_account_email
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -187,6 +188,8 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "oauth_app_provisioning_accepted": "01a1ead9-ce16-0000-e8fd-dad300f776e0",
     "oauth_app_provisioning_rejected": "01a1eada-49dc-0000-ebd5-6c02c2a9b87b",
     "oauth_app_provisioning_in_review": "01a1eada-c67b-0000-7581-1894d06284d9",
+    "oauth_app_provisioning_declined": "01a20e45-c468-0000-01b0-509f3fcc13a6",
+    "oauth_app_provisioning_changes_requested": "01a20e46-40d4-0000-10c5-decd6f37c30e",
 }
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
@@ -1034,8 +1037,12 @@ class EmailMessage:
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
         self.headers = headers if headers else {}
+        self._skipped_generated_recipient = False
 
     def add_recipient(self, email: str, name: Optional[str] = None, distinct_id: Optional[str] = None) -> None:
+        if is_generated_service_account_email(email):
+            self._skipped_generated_recipient = True
+            return
         sanitized_name = html.escape(name) if name else None
         recipient_data = {
             "recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email,
@@ -1062,6 +1069,8 @@ class EmailMessage:
         asynchronous send returns an empty list.
         """
         if not self.to:
+            if self._skipped_generated_recipient:
+                return []
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
         kwargs = {

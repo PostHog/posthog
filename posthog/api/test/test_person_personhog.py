@@ -18,6 +18,7 @@ from rest_framework import status
 from posthog.api.person import PersonsDeleteBurstThrottle, PersonsDeleteTeamBurstThrottle
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_uuid
@@ -469,6 +470,8 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert log.user_id is None
         assert log.credential_type == "project_secret_key"
         assert log.credential_id == key.id
+        assert log.is_system is True
+        assert ActivityLogSerializer(log).data["user"]["first_name"] == "System"
         assert log.ip_address == "127.0.0.1"
         assert log.was_impersonated is False
         assert log.organization_id == self.organization.pk

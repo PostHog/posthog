@@ -41,9 +41,12 @@ class RecordingApiClient:
     decrypted using KMS, while unencrypted sessions pass through unchanged.
     """
 
-    def __init__(self, session: aiohttp.ClientSession, base_url: str):
+    def __init__(self, session: aiohttp.ClientSession, base_url: str, recycle_connection_every: int = 0):
         self.session = session
         self.base_url = base_url.rstrip("/")
+        # Kube-proxy balances per connection, so a pooled connection stays on one pod for good unless it is closed.
+        self._recycle_connection_every = recycle_connection_every
+        self._block_requests = 0
 
     async def fetch_block(
         self, key: str, start_byte: int, end_byte: int, session_id: str, team_id: int, *, decompress: bool = False
@@ -52,11 +55,13 @@ class RecordingApiClient:
         params: dict[str, str | int] = {"key": key, "start_byte": start_byte, "end_byte": end_byte}
         if decompress:
             params["decompress"] = "true"
+        headers = recording_api_auth_headers(team_id, "read")
+        self._block_requests += 1
+        if self._recycle_connection_every and self._block_requests % self._recycle_connection_every == 0:
+            headers = {**headers, "Connection": "close"}
 
         try:
-            async with self.session.get(
-                url, params=params, headers=recording_api_auth_headers(team_id, "read")
-            ) as response:
+            async with self.session.get(url, params=params, headers=headers) as response:
                 if response.status == 404:
                     raise BlockNotFoundError("Block not found")
                 if response.status == 410:
@@ -137,7 +142,9 @@ class RecordingApiClient:
 
 
 @asynccontextmanager
-async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[RecordingApiClient]:
+async def recording_api_client(
+    connection_limit: int = 100, *, base_url: str | None = None, recycle_connection_every: int = 0
+) -> AsyncIterator[RecordingApiClient]:
     """
     Async context manager for creating a RecordingApiClient instance.
 
@@ -145,7 +152,8 @@ async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[Rec
         async with recording_api_client() as client:
             content = await client.fetch_block(key, start, end, session_id, team_id, decompress=True)
     """
-    if not settings.RECORDING_API_URL:
+    base_url = settings.RECORDING_API_URL if base_url is None else base_url
+    if not base_url:
         raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
 
     # Every request mints a token with this secret. Check it once here, so a missing secret raises the
@@ -159,4 +167,4 @@ async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[Rec
     connector = aiohttp.TCPConnector(limit=connection_limit)
     # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
     async with aiohttp.ClientSession(timeout=timeout, trust_env=False, connector=connector) as session:
-        yield RecordingApiClient(session, settings.RECORDING_API_URL)
+        yield RecordingApiClient(session, base_url, recycle_connection_every)
