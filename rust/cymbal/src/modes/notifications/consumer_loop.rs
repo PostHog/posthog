@@ -13,6 +13,7 @@ const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
 const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
 const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
 const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
+const NOTIFICATIONS_OFFSET_ERRORS_TOTAL: &str = "cymbal_notifications_offset_errors_total";
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
 const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
@@ -20,6 +21,11 @@ const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 /// handling, then explicitly committed after each fetched batch. Serde and empty
 /// failures are auto-stored as poison pills inside `json_recv_batch`, so this
 /// loop also explicitly commits those stored offsets.
+///
+/// Offset store and commit failures are logged, not fatal. They happen during
+/// consumer-group rebalances, when this consumer no longer owns a partition. The
+/// new owner then re-reads from the last committed offset, so delivery stays
+/// at-least-once.
 pub async fn consume_loop(
     consumer: SingleTopicConsumer,
     context: NotificationsContext,
@@ -57,15 +63,13 @@ async fn handle_notification_batch(
     for result in batch {
         match result {
             Ok((notification, offset)) => {
-                let offset = match validate_notification_with_offset(
+                let Some(offset) = validate_notification_with_offset(
                     &notification,
                     offset,
                     Offset::store,
                     pending_offsets,
-                ) {
-                    Ok(Some(offset)) => offset,
-                    Ok(None) => continue,
-                    Err(e) => panic!("failed to store invalid notification offset: {e}"),
+                ) else {
+                    continue;
                 };
 
                 log_notification_summary(&notification);
@@ -74,10 +78,7 @@ async fn handle_notification_batch(
                     Ok(()) => {
                         metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
                         // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
-                        if let Err(e) = offset.store() {
-                            panic!("failed to store notification offset: {e}");
-                        }
-                        *pending_offsets += 1;
+                        store_offset_result(offset.store(), pending_offsets);
                     }
                     Err(e) => {
                         metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
@@ -104,21 +105,31 @@ async fn handle_notification_batch(
     }
 }
 
-fn validate_notification_with_offset<O, E>(
+fn validate_notification_with_offset<O, E: std::fmt::Display>(
     notification: &IngestionNotification,
     offset: O,
     store_offset: impl FnOnce(O) -> Result<(), E>,
     pending_offsets: &mut usize,
-) -> Result<Option<O>, E> {
+) -> Option<O> {
     if let Err(e) = notification.validate() {
         warn!(error = %e, "notification validation error (poison pill skipped)");
         metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "validation").increment(1);
-        store_offset(offset)?;
-        *pending_offsets += 1;
-        return Ok(None);
+        store_offset_result(store_offset(offset), pending_offsets);
+        return None;
     }
 
-    Ok(Some(offset))
+    Some(offset)
+}
+
+fn store_offset_result<E: std::fmt::Display>(result: Result<(), E>, pending_offsets: &mut usize) {
+    match result {
+        Ok(()) => *pending_offsets += 1,
+        Err(e) => {
+            warn!(error = %e, "failed to store notification offset, partition likely revoked");
+            metrics::counter!(NOTIFICATIONS_OFFSET_ERRORS_TOTAL, "operation" => "store")
+                .increment(1);
+        }
+    }
 }
 
 fn commit_pending_offsets(
@@ -130,14 +141,22 @@ fn commit_pending_offsets(
         return;
     }
 
-    if let Err(e) = consumer.commit() {
-        panic!("failed to commit notification offsets: {e}");
+    match consumer.commit() {
+        Ok(()) => debug!(
+            count = *pending_offsets,
+            reason, "committed notification offsets"
+        ),
+        Err(e) => {
+            warn!(
+                error = %e,
+                count = *pending_offsets,
+                reason,
+                "failed to commit notification offsets"
+            );
+            metrics::counter!(NOTIFICATIONS_OFFSET_ERRORS_TOTAL, "operation" => "commit")
+                .increment(1);
+        }
     }
-
-    debug!(
-        count = *pending_offsets,
-        reason, "committed notification offsets"
-    );
     *pending_offsets = 0;
 }
 
@@ -224,11 +243,10 @@ mod tests {
             10,
             |offset| {
                 stored.push(offset);
-                Ok::<_, ()>(())
+                Ok::<_, &str>(())
             },
             &mut pending_offsets,
-        )
-        .unwrap();
+        );
         if let Some(offset) = result {
             handled.push(offset);
         }
@@ -238,17 +256,38 @@ mod tests {
             11,
             |offset| {
                 stored.push(offset);
-                Ok::<_, ()>(())
+                Ok::<_, &str>(())
             },
             &mut pending_offsets,
-        )
-        .unwrap();
+        );
         if let Some(offset) = result {
             handled.push(offset);
         }
 
         assert_eq!(stored, vec![10]);
         assert_eq!(handled, vec![11]);
+        assert_eq!(pending_offsets, 1);
+    }
+
+    #[test]
+    fn failed_offset_store_is_not_fatal_and_not_counted_as_pending() {
+        let issue_id = Uuid::now_v7();
+        let invalid = issue_created(issue_id, Uuid::now_v7());
+        let mut pending_offsets = 0;
+
+        let result = validate_notification_with_offset(
+            &invalid,
+            10,
+            |_| Err("Local: Erroneous state"),
+            &mut pending_offsets,
+        );
+        assert_eq!(result, None);
+        assert_eq!(pending_offsets, 0);
+
+        store_offset_result(Err("Local: Erroneous state"), &mut pending_offsets);
+        assert_eq!(pending_offsets, 0);
+
+        store_offset_result(Ok::<_, &str>(()), &mut pending_offsets);
         assert_eq!(pending_offsets, 1);
     }
 }

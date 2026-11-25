@@ -1779,6 +1779,8 @@ export namespace Schemas {
       keep_materialized?: boolean;
       /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
       delete_view?: boolean;
+      /** Deprecate only: false to stop a materialized view's refreshes and delete its stored table without marking it deprecated in the data catalog. If the view is still unread 30 days later, the deprecate suggestion is shown again. Refused with a 400 when the view is not materialized, or with keep_materialized or delete_view. Refused with a 409 when another view, a sync, a destination or a workflow reads it, or when it reads a direct-connection source. */
+      mark_deprecated?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -26196,6 +26198,8 @@ export namespace Schemas {
       content: string;
       /** Whether this comment body has more content. */
       content_truncated: boolean;
+      /** Byte offset where this body chunk starts. */
+      content_offset: number;
       /**
          * Byte offset for the next body chunk, or null when complete.
          * @nullable
@@ -54571,6 +54575,15 @@ export namespace Schemas {
       DuplicatePrimaryKey: 'duplicate_primary_key',
     } as const;
 
+    export type WebhookIssueEnum = typeof WebhookIssueEnum[keyof typeof WebhookIssueEnum];
+
+
+    export const WebhookIssueEnum = {
+      NotRegistered: 'not_registered',
+      MissingInputs: 'missing_inputs',
+      NotRouted: 'not_routed',
+    } as const;
+
     export interface RowFilterColumn {
       /** Column name to use as `column` in a row filter. */
       name: string;
@@ -54719,6 +54732,8 @@ export namespace Schemas {
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
       /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
       readonly webhook_not_registered: boolean;
+      /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+      readonly webhook_issue: WebhookIssueEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -76638,10 +76653,14 @@ export namespace Schemas {
          * @nullable
          */
       cost_multiplier?: string | null;
+      /** Largest context window the model accepts, in tokens. */
+      context_window?: number;
+      /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
+      allowed?: boolean;
     }
 
     export interface ModelCatalogueResponse {
-      /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+      /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
       models: ModelChoice[];
     }
 
@@ -77488,7 +77507,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       name: string;
-      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+      /** Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'. */
       type: string;
       /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
       value?: unknown;
@@ -93916,6 +93935,8 @@ export namespace Schemas {
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
       /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
       readonly webhook_not_registered?: boolean;
+      /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+      readonly webhook_issue?: WebhookIssueEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -122373,6 +122394,13 @@ export namespace Schemas {
       feature_tips_enabled: boolean;
     }
 
+    export interface SlackAppRepositoryOptions {
+      /** Repositories as owner/name from this person's own GitHub installs, sorted by name. */
+      repositories: string[];
+      /** Whether this person connected a personal GitHub account. False means repositories is empty. */
+      github_connected: boolean;
+    }
+
     export interface SlackAppWorkspaceSettings {
       /** The workspace's reaction choices. Null fields use PostHog's defaults. */
       reactions: SlackAppReactionChoices;
@@ -125273,6 +125301,8 @@ export namespace Schemas {
       content: string;
       /** Whether this comment body has more content. */
       content_truncated: boolean;
+      /** Byte offset where this body chunk starts. */
+      content_offset: number;
       /**
          * Byte offset for the next body chunk, or null when complete.
          * @nullable
@@ -145407,6 +145437,10 @@ export namespace Schemas {
 
     export type ExperimentSavedMetricsListParams = {
     /**
+     * Filter to shared metrics created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string;
+    /**
      * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
      */
     event?: string;
@@ -145416,6 +145450,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics.
+     */
+    metric_type?: ExperimentSavedMetricsListMetricType;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -145423,7 +145461,23 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * JSON-encoded list of tag names. Returns shared metrics carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
     };
+
+    export type ExperimentSavedMetricsListMetricType = typeof ExperimentSavedMetricsListMetricType[keyof typeof ExperimentSavedMetricsListMetricType];
+
+
+    export const ExperimentSavedMetricsListMetricType = {
+      Funnel: 'funnel',
+      Mean: 'mean',
+      Quantile: 'quantile',
+      Ratio: 'ratio',
+      Retention: 'retention',
+      Trend: 'trend',
+    } as const;
 
     export type ExperimentsListParams = {
     /**

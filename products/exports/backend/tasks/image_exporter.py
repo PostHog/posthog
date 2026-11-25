@@ -853,7 +853,7 @@ def export_image(
             elif exported_asset.dashboard:
                 is_pdf = exported_asset.export_format == ExportedAsset.ExportFormat.PDF
                 if is_pdf:
-                    validate_dashboard_pdf(exported_asset.dashboard)
+                    validate_dashboard_pdf(exported_asset.dashboard.id)
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
