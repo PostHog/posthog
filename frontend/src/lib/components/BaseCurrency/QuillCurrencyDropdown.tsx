@@ -66,7 +66,7 @@ export function QuillCurrencyDropdown({
                 ref={triggerRef}
                 variant="outline"
                 left
-                className="w-fit min-w-60"
+                className="w-fit"
                 onClick={() => setOpen(!open)}
                 disabledReason={disabledReason}
             >

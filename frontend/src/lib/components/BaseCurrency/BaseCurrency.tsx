@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { Text } from '@posthog/quill'
+
 import { TeamMembershipLevel } from 'lib/constants'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,7 +47,10 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
         return hideTitle ? (
             dropdown
         ) : (
-            <SceneSection title="Base currency" description={BASE_CURRENCY_DESCRIPTION}>
+            <SceneSection title="Base currency">
+                <Text size="xs" render={<p className="m-0 max-w-160" />}>
+                    {BASE_CURRENCY_DESCRIPTION}
+                </Text>
                 {dropdown}
             </SceneSection>
         )
