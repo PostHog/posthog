@@ -9,6 +9,7 @@ import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { FaultRule, heldAnswerRule, ruleOf } from './faults'
+import { Truth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -17,9 +18,11 @@ const BOB = 'run-1-2@www.example.com'
 describe('provider edge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
+    let edgeTruth: Truth
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edgeTruth = new Truth()
+        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS, truth: edgeTruth })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',
@@ -400,12 +403,17 @@ describe('provider edge', () => {
         const hold = edge.hold(heldAnswerRule())
         const drive = new AbortController()
         const waiting = hold.accepted!(drive.signal)
+        const append = edgeTruth.append.bind(edgeTruth)
+        edgeTruth.append = (record) => {
+            const appended = append(record)
+            drive.abort()
+            return appended
+        }
         const answer = sends ? send(ALICE) : Promise.resolve(undefined)
-        if (sends) {
-            await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+        if (!sends) {
+            drive.abort()
         }
 
-        drive.abort()
         const accepted = await waiting
         await hold.release()
 

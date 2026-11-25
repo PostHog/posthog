@@ -18,6 +18,7 @@ import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
+import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
@@ -517,6 +518,7 @@ describe('valves', () => {
         let edge: ProviderEdge
         let ses: SESv2Client
         let caDir: string
+        let truth: Truth
 
         beforeAll(() => {
             caDir = mkdtempSync(path.join(os.tmpdir(), 'valves-edge-'))
@@ -527,10 +529,12 @@ describe('valves', () => {
         })
 
         beforeEach(async () => {
+            truth = new Truth()
             edge = await startProviderEdge({
                 port: 0,
                 caDir,
                 feedbackUrl: 'http://127.0.0.1:1/public/m/ses_webhook',
+                truth,
             })
             ses = new SESv2Client({
                 endpoint: edge.url,
@@ -660,7 +664,7 @@ describe('valves', () => {
 
         const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
 
-        const withWorker = (running: boolean, acceptedAsDriveEnds = false) => {
+        const withWorker = (running: boolean) => {
             const worker = new AbortController()
             const sentWhenKilled: number[] = []
             let boundaryHeld = (): void => undefined
@@ -671,18 +675,7 @@ describe('valves', () => {
                     actuate: (action) => {
                         if (action.kind === 'edge.fault') {
                             boundaryHeld()
-                            const hold = edge.hold(action.rule)
-                            return Promise.resolve(
-                                acceptedAsDriveEnds
-                                    ? {
-                                          ...hold,
-                                          accepted: (until: AbortSignal) =>
-                                              new Promise<boolean>((resolve) =>
-                                                  until.addEventListener('abort', () => resolve(true), { once: true })
-                                              ),
-                                      }
-                                    : hold
-                            )
+                            return Promise.resolve(edge.hold(action.rule))
                         }
                         if (action.kind !== 'kill' || action.role !== EMAIL_WORKER || !running) {
                             return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
@@ -739,14 +732,20 @@ describe('valves', () => {
                 'never applied: edge_accepted on ses did not happen before the drive ended',
             ],
             ['SES took its send as the drive ended', true, 'never applied: the drive ended before the valve applied'],
-        ])('kills nothing and lifts its boundary when %s', async (_story, acceptedAsDriveEnds, error) => {
+        ])('kills nothing and lifts its boundary when %s', async (_story, endsOnSend, error) => {
             const valves = createValves({ pollMs: 5 })
-            const stack = withWorker(true, acceptedAsDriveEnds)
+            const stack = withWorker(true)
 
             await valves.start([killAfterAccept], stack.context)
             await stack.held
-            const heldSend = acceptedAsDriveEnds ? send(stack.worker) : Promise.resolve(undefined)
-            if (acceptedAsDriveEnds) {
+            const append = truth.append.bind(truth)
+            truth.append = (record) => {
+                const appended = append(record)
+                void valves.releaseAll()
+                return appended
+            }
+            const heldSend = endsOnSend ? send(stack.worker) : Promise.resolve(undefined)
+            if (endsOnSend) {
                 await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
             }
             await valves.releaseAll()
@@ -758,7 +757,7 @@ describe('valves', () => {
                 sentWhenKilled: stack.sentWhenKilled,
             }).toEqual({
                 error,
-                heldSend: acceptedAsDriveEnds ? 'sent' : undefined,
+                heldSend: endsOnSend ? 'sent' : undefined,
                 next: 'sent',
                 sentWhenKilled: [],
             })
