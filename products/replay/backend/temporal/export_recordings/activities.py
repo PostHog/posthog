@@ -37,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration.aws import AWS_ROLE_ARN_RE, validate_aws_role_arn
 from posthog.models.integration.common import IntegrationError
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
@@ -904,6 +905,8 @@ async def _probe[T](call: Awaitable[T], permission: str) -> T:
 
 
 async def ready_export_pods(host: str) -> int:
+    if matched_oob_domain(host):
+        raise ApplicationError("RECORDING_API_EXPORT_PODS_HOST is on a refused domain", non_retryable=True)
     try:
         addresses = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
