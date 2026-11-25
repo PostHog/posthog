@@ -12303,7 +12303,7 @@ Re-audited 2026-11-19 against <https://help.rapid7.com/insightvm/en-us/api/insig
 
 ## Raygun — gaps
 
-Today (10): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`
+Today (11): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`, `teams`
 
 Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 
@@ -12311,7 +12311,7 @@ Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 - [x] `metrics/{application}/errors/time-series` — Raygun's headline error-rate metric, pre-aggregated over time (medium)
 - [x] `applications/{id}/deployments/{id}/error-groups` — Maps error groups to the deployment that introduced them, the core regression-detection join (medium)
 - [x] `metrics/{application}/pages/time-series and /pages/histogram` — Real user monitoring page-load performance over time and its distribution (medium) — time-series only; the histogram is a snapshot over a caller-chosen window with no time dimension, and the time-series percentiles cover the distribution over time
-- [ ] `teams` — Lookup resolving team ownership of applications (low)
+- [x] `teams` — Lookup resolving team ownership of applications (low) — team list only; the v3 team object has no application identifiers and the API has no per-team application listing
 
 Note: Spec URL is not linked from the product docs page; found it by reading the Swagger UI bootstrap at https://api.raygun.com/v3/swagger/index.js. Coverage of the top-level collections is good - the gap is one level down, at error instances and the metrics endpoints.
 
