@@ -589,6 +589,7 @@ class TestEmail(BaseTest):
             ("workflows_refusal_retries_and_never_uses_smtp", True, "localhost", 400, None, 0, "retries"),
             ("workflows_may_have_queued_retries", True, "localhost", 503, None, 0, "retries"),
             ("undeliverable_address_is_dropped", True, "localhost", 422, "recipient_unreachable", 0, "dropped"),
+            ("smtp_only_template_skips_workflows", True, "localhost", None, "smtp_only", 1, "sent"),
         ]
     )
     @patch("posthog.email.requests.post")
@@ -622,7 +623,9 @@ class TestEmail(BaseTest):
             message = EmailMessage(
                 campaign_key="smtp_routing",
                 subject="Subject",
-                template_name="async_migration_error",
+                template_name="customer_email_forwarding_verification"
+                if condition == "smtp_only"
+                else "async_migration_error",
                 reply_to="Support <a@b.com>, c@bücher.de, d@example.com.",
             )
             message.add_recipient("test@posthog.com")
@@ -635,8 +638,9 @@ class TestEmail(BaseTest):
                 self.assertEqual(undeliverable, ["test@posthog.com"] if outcome == "dropped" else [])
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
-        self.assertEqual(mock_post.call_count, 1 if has_key else 0)
-        if has_key:
+        uses_workflows = has_key and condition != "smtp_only"
+        self.assertEqual(mock_post.call_count, 1 if uses_workflows else 0)
+        if uses_workflows:
             payload = mock_post.call_args.kwargs["json"]
             self.assertEqual(payload["template_key"], "async_migration_error")
             self.assertEqual(payload["subject"], "Subject")

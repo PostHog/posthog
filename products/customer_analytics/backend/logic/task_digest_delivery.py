@@ -6,7 +6,13 @@ from django.utils import timezone
 
 import posthoganalytics
 
-from posthog.email import EmailDeliveryError, WorkflowsEmailError, is_email_available, raise_if_delivery_rejected
+from posthog.email import (
+    EmailDeliveryError,
+    WorkflowsEmailError,
+    is_email_available,
+    is_smtp_email_service_available,
+    raise_if_delivery_rejected,
+)
 from posthog.models.messaging import MessagingRecord
 
 from products.customer_analytics.backend.facade.contracts import TaskDigestPreferences
@@ -77,7 +83,7 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
         return
 
     outcome = "permanent_rejection"
-    email_available = is_email_available(with_absolute_urls=True)
+    email_available = is_email_available(with_absolute_urls=True) and is_smtp_email_service_available()
     with transaction.atomic():
         record = MessagingRecord.objects.filter(campaign_key=campaign_key).first()
         if record is None:

@@ -278,7 +278,7 @@ class TestEmailChannelPermissions(BaseTest):
         assert channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.is_email_available", return_value=True)
+    @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("posthog.email.is_email_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage.send", autospec=True)
     def test_owner_sends_forwarding_challenge_only_to_claimed_mailbox(
@@ -325,7 +325,7 @@ class TestEmailChannelPermissions(BaseTest):
         assert challenge_token not in str(response.json())
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.is_email_available", return_value=False)
+    @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=False)
     def test_forwarding_challenge_requires_transactional_email(self, _mock_smtp_available: MagicMock) -> None:
         channel = EmailChannel.objects.create(
             team=self.team,
@@ -355,7 +355,7 @@ class TestEmailChannelPermissions(BaseTest):
 
     @patch("products.conversations.backend.api.email_settings.cache.delete")
     @patch("products.conversations.backend.api.email_settings.cache.add", return_value=True)
-    @patch("products.conversations.backend.api.email_settings.is_email_available", return_value=True)
+    @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch(
         "products.conversations.backend.api.email_settings.EmailMessage",
         side_effect=RuntimeError("queue unavailable"),
@@ -396,7 +396,7 @@ class TestEmailChannelPermissions(BaseTest):
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
     @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
-    @patch("products.conversations.backend.api.email_settings.is_email_available", return_value=True)
+    @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_resend_respects_channel_cooldown(
         self,
@@ -439,7 +439,7 @@ class TestEmailChannelPermissions(BaseTest):
         assert mock_email_message.call_count == 1
 
     @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
-    @patch("products.conversations.backend.api.email_settings.is_email_available", return_value=True)
+    @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_stops_after_the_address_reaches_its_attempt_limit(
         self,

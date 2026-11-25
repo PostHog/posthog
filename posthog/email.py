@@ -131,6 +131,9 @@ EMAIL_SEND_DROPPED_COUNTER = Counter(
     labelnames=["transport"],
 )
 
+# Conversations still sends these over SMTP until it moves off Mailgun.
+SMTP_ONLY_TEMPLATES = frozenset({"customer_email_forwarding_verification"})
+
 # Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
 # it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
 _TRANSIENT_SMTP_ERRORS = (
@@ -429,12 +432,14 @@ def _workflows_reply_to(value: Optional[str]) -> list[str]:
     return addresses
 
 
-def _send_code_via_workflows(dest: dict[str, str], campaign_key: str, content: dict[str, Any]) -> dict[str, Any] | None:
+def _send_code_via_workflows(
+    dest: dict[str, str], campaign_key: str, template_name: str, content: dict[str, Any]
+) -> dict[str, Any] | None:
     """Send a rendered email through Workflows when this instance has its key.
 
     Returns the Workflows response, or None when SMTP should send the email.
     """
-    if not is_http_email_service_available():
+    if template_name in SMTP_ONLY_TEMPLATES or not is_http_email_service_available():
         return None
     try:
         return _queue_workflows_email(
@@ -609,7 +614,7 @@ def _send_via_smtp(
                     continue
 
                 try:
-                    workflows_response = _send_code_via_workflows(dest, campaign_key, workflows_content)
+                    workflows_response = _send_code_via_workflows(dest, campaign_key, template_name, workflows_content)
                 except WorkflowsEmailError as err:
                     if _is_undeliverable(err):
                         # Workflows refuses the address, such as after a hard bounce, so the email is dropped.
