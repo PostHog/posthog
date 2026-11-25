@@ -84,7 +84,6 @@ impl Target {
     }
 }
 
-/// Emits both targets, so a dashboard can tell "on primary" from "not reporting".
 pub fn record_live_target(live: Target) {
     for target in Target::ALL {
         gauge!("capture_kafka_output_live_target", "target" => target.as_str())

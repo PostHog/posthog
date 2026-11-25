@@ -312,8 +312,6 @@ pub struct Config {
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
 
-    /// Raw, parsed by [`crate::fallback`] on `events` pods only, so other
-    /// modes never refuse boot over it.
     #[envconfig(from = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK_CHECK")]
     pub kafka_emergency_fallback_check: Option<String>,
 
