@@ -152,6 +152,7 @@ from products.feature_flags.backend.exposure_change import (
 )
 from products.feature_flags.backend.facade import (
     config_writes,
+    edits as flag_edits,
     filters as flag_filters,
 )
 from products.feature_flags.backend.facade.config import (
@@ -785,7 +786,7 @@ def _group_filter_type_index(
     if group_type_index is None:
         group_type_index = flag_filters.condition_aggregation(condition, flag_aggregation)
     # A malformed index reaches here before structural validation rejects it. None stands for any group type.
-    return group_type_index if isinstance(group_type_index, int) and not isinstance(group_type_index, bool) else None
+    return flag_edits.group_type_index(group_type_index)
 
 
 def _group_type_indexes_for_condition_property(
@@ -812,13 +813,15 @@ def _redact_restricted_actual_values(
         return conditions
 
     def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
-        key = prop.get("key")
-        if not isinstance(key, str):
+        key = _targeting_property_key(prop.get("key"))
+        if key is None:
             return False
         if prop.get("type") != "group":
-            return property_key_overlaps_restriction(key, restricted.person)
-        indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
-        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
+            return _TargetingPropertyFilter(key=key, is_group=False, group_type_index=None).is_restricted(restricted)
+        return any(
+            _TargetingPropertyFilter(key=key, is_group=True, group_type_index=index).is_restricted(restricted)
+            for index in _group_type_indexes_for_condition_property(filters, condition_index, key)
+        )
 
     redacted: list[Any] = []
     for condition in conditions:
@@ -837,7 +840,20 @@ def _redact_restricted_actual_values(
 
 _TARGETING_CONDITION_KEYS = ("groups", "super_groups", "holdout_groups")
 
-_BUCKETING_FIELDS = ("key", "bucketing_identifier", "ensure_experience_continuity")
+# Each field the flags service reads when it buckets users, with how it reads the stored value.
+_BUCKETING_FIELDS: dict[str, Callable[[Any], Any]] = {
+    "key": lambda value: value,
+    "bucketing_identifier": flag_edits.normalized_bucketing_identifier,
+    "ensure_experience_continuity": flag_edits.normalized_experience_continuity,
+}
+
+
+def _restricted_flag_change_error(keys: set[str], what: str) -> serializers.ValidationError:
+    return serializers.ValidationError(
+        f"This flag's release conditions use properties you don't have access to ({', '.join(sorted(keys))}). "
+        f"Ask someone with access to change {what}.",
+        code="restricted_property",
+    )
 
 
 def _targeting_conditions(filters: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -2776,22 +2792,14 @@ class FeatureFlagSerializer(
         if not any(_targeting_property_filters(candidate)) or _same_targeting(candidate, stored):
             return
 
-        restricted = self._restricted_property_names()
-        if restricted is None:
-            return
-        candidate_keys = _unreadable_targeting_keys(candidate, restricted)
+        candidate_keys = self._unreadable_keys(candidate)
         if not candidate_keys:
             return
-        keys = ", ".join(sorted(candidate_keys))
-        if _unreadable_targeting_keys(stored, restricted):
-            raise serializers.ValidationError(
-                f"This flag's release conditions use properties you don't have access to ({keys}). "
-                "Ask someone with access to change its targeting.",
-                code="restricted_property",
-            )
+        if self._unreadable_keys(stored):
+            raise _restricted_flag_change_error(candidate_keys, "its targeting")
         raise serializers.ValidationError(
-            f"You don't have access to these properties, so release conditions can't use them: {keys}. "
-            "Remove them, or ask someone with access to add them.",
+            f"You don't have access to these properties, so release conditions can't use them: "
+            f"{', '.join(sorted(candidate_keys))}. Remove them, or ask someone with access to add them.",
             code="restricted_property",
         )
 
@@ -2804,25 +2812,21 @@ class FeatureFlagSerializer(
         if self.instance is None or not self._property_restrictions_apply():
             return
         assert isinstance(self.instance, FeatureFlag)
-        # `or None` reads a stored null and an echoed false or empty string as the same value.
         if not any(
-            field in attrs and (attrs[field] or None) != (getattr(self.instance, field) or None)
-            for field in _BUCKETING_FIELDS
+            field in attrs and normalize(attrs[field]) != normalize(getattr(self.instance, field))
+            for field, normalize in _BUCKETING_FIELDS.items()
         ):
             return
-        filters = attrs.get("get_filters", self.instance.filters) or {}
-        if not any(_targeting_property_filters(filters)):
-            return
-        restricted = self._restricted_property_names()
-        if restricted is None:
-            return
-        keys = _unreadable_targeting_keys(filters, restricted)
+        keys = self._unreadable_keys(attrs.get("get_filters", self.instance.filters) or {})
         if keys:
-            raise serializers.ValidationError(
-                f"This flag's release conditions use properties you don't have access to ({', '.join(sorted(keys))}). "
-                "Ask someone with access to change its key or bucketing settings.",
-                code="restricted_property",
-            )
+            raise _restricted_flag_change_error(keys, "its key or bucketing settings")
+
+    def _unreadable_keys(self, filters: Mapping[str, Any]) -> set[str]:
+        """Property keys in the targeting of ``filters`` that the requesting member cannot read."""
+        if not any(_targeting_property_filters(filters)):
+            return set()
+        restricted = self._restricted_property_names()
+        return _unreadable_targeting_keys(filters, restricted) if restricted is not None else set()
 
     def _property_restrictions_apply(self) -> bool:
         if self.context.get("approval_apply"):
