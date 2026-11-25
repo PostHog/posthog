@@ -2002,7 +2002,6 @@ class TestBufferedIngressCapture:
     def test_a_quiet_table_is_marked_checked_while_its_ticks_stand_down(
         self, _name: str, events: list[ChangeEvent], flag: bool, since_full_run: timedelta, checked: bool
     ) -> None:
-        # Its consumer only runs every few hours, so without this the stalled-schedule sweep flags it.
         source = _make_source()
         schema = _make_schema("users", source=source)
         schema.Status = ExternalDataSchema.Status

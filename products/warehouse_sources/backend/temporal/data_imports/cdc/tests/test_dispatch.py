@@ -76,7 +76,6 @@ class TestConsumerTickDecision(BaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, None, TickDecision.STOOD_DOWN),
-            # A run that died after a PUT, or one still writing, left files no listing is known to have read.
             ("write_open", {BUFFER_WRITE_OPEN_KEY: True}, 5, TickDecision.OWED),
             ("new_writes_and_no_listing", {BUFFER_GENERATION_KEY: 3}, None, TickDecision.OWED),
             ("new_writes_listed_before_they_were_counted", {BUFFER_GENERATION_KEY: 3}, 2, TickDecision.OWED),

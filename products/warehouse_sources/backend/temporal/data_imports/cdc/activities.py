@@ -273,7 +273,6 @@ class CDCExtractActivity:
         self._buffer_writer: CDCBufferWriter | None = None
         self._buffer_file_index: dict[str, int] = {}
         self._buffer_cleaned_schemas: set[str] = set()
-        # Evaluated once per run, and only when a table could stand down.
         self._data_driven_load: bool | None = None
         # Table names whose changes this run writes to the buffer. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()

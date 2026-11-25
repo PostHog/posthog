@@ -36,7 +36,6 @@ CONSUMER_HEARTBEAT_INTERVAL = dt.timedelta(hours=6)
 # On the schema's `sync_type_config`.
 BUFFER_GENERATION_KEY = "cdc_buffer_generation"
 BUFFER_WRITE_OPEN_KEY = "cdc_buffer_write_open"
-# The highest generation a completed consumer run is proven to have read.
 BUFFER_GENERATION_LOADED_KEY = "cdc_buffer_generation_loaded"
 
 # On the consumer's job, beside the listing stamp.
@@ -192,6 +191,5 @@ def consumer_tick_decision(schema: ExternalDataSchema, now: dt.datetime) -> Tick
         def _record_loaded(fresh: dict[str, Any]) -> None:
             fresh[BUFFER_GENERATION_LOADED_KEY] = max(generation, _int_value(fresh, BUFFER_GENERATION_LOADED_KEY) or 0)
 
-        # Later quiet ticks then settle from the settings alone, until extraction counts another write.
         update_sync_type_config_keys(schema.id, schema.team_id, mutate=_record_loaded)
     return TickDecision.STOOD_DOWN
