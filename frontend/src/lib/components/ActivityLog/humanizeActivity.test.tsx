@@ -58,13 +58,25 @@ describe('humanizeActivity', () => {
                 { field: 'effective_membership_level', after: 1 },
                 {
                     field: 'feature_flag_policy_config',
-                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
-                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                    before: {
+                        require_tags: false,
+                        blocked_hosts: ['old.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: ['shop.example.com'],
+                        allowed_ips: [],
+                    },
+                    after: {
+                        require_tags: true,
+                        blocked_hosts: ['new.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: [],
+                        allowed_ips: ['203.0.113.7'],
+                    },
                 },
             ],
-            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests',
             description:
-                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,

@@ -1,5 +1,6 @@
 import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
 import { isGitlabRun } from "@posthog/git/gitlab";
+import { SECURITY_FIX_PUBLISH_REMINDER } from "@posthog/harness/extensions/task-system-prompt";
 import type { Logger } from "../../../utils/logger";
 
 export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
@@ -397,8 +398,7 @@ export class RunBudgetGuard {
     const spent = formatUsd(this.spentUsd);
     const cap = formatUsd(this.capUsd);
     if (this.gitlab) {
-      const publish =
-        "Stage and commit your changes with git commit, push with git push, and open or update the merge request using gitlab_merge_request. ";
+      const publish = `Stage and commit your changes with git commit, push with git push, and open or update the merge request using gitlab_merge_request. ${SECURITY_FIX_PUBLISH_REMINDER} `;
       const instruction =
         this.mode === "publish"
           ? publish
@@ -420,6 +420,7 @@ export class RunBudgetGuard {
           "Stop new work now. Stage what is on disk and commit it with the git_signed_commit tool " +
           "(it publishes the commit for you; raw git commit and git push are blocked here), then open " +
           "or update the pull request and end your turn with a two-line summary. " +
+          `${SECURITY_FIX_PUBLISH_REMINDER} ` +
           "Do not start subagents or workflows, and do not run further test or review passes."
         );
       }
@@ -429,7 +430,8 @@ export class RunBudgetGuard {
         "already touched, then stage and commit with the git_signed_commit tool (it publishes the " +
         "commit for you; raw git commit and git push are blocked here) and open the draft pull request. " +
         "Skip optional polish such as /simplify or parallel review subagents: an open PR is what " +
-        "preserves the work. If a PR is already open, commit what you have and stop."
+        "preserves the work. If a PR is already open, commit what you have and stop. " +
+        SECURITY_FIX_PUBLISH_REMINDER
       );
     }
     const explicitPr =
@@ -480,8 +482,8 @@ export class RunBudgetGuard {
       const next =
         this.mode === "publish"
           ? this.gitlab
-            ? "Commit with git commit, push with git push, and open or update the merge request with gitlab_merge_request."
-            : "Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself."
+            ? `Commit with git commit, push with git push, and open or update the merge request with gitlab_merge_request. ${SECURITY_FIX_PUBLISH_REMINDER}`
+            : `Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself. ${SECURITY_FIX_PUBLISH_REMINDER}`
           : "Finish with the result you have.";
       return {
         continue: true,

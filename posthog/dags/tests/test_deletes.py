@@ -54,8 +54,7 @@ from posthog.dags.deletes import (
     wait_for_delete_mutations_in_shards,
 )
 from posthog.dags.person_overrides import squash_person_overrides
-from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.ai_events.sql import DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE
+from posthog.dags.tests.conftest import insert_ai_events, insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
@@ -65,15 +64,6 @@ from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.team import Team
 from posthog.models.team.event_retention import EVENTS_DATA_RETENTION_FLAG
-
-
-def insert_ai_events(rows: list[tuple[int, str, UUID, UUID, datetime]], client: Client) -> None:
-    # _timestamp is the sweep's ingestion bound here, so it is pinned to the event time like
-    # inserted_at elsewhere. retention_days keeps the hardcoded TTL from dropping the rows.
-    client.execute(
-        f"INSERT INTO {AI_EVENTS_DATA_TABLE} (team_id, distinct_id, person_id, uuid, timestamp, _timestamp, trace_id, retention_days) VALUES",
-        [(*row, row[4], "trace", 10000) for row in rows],
-    )
 
 
 def surviving_ai_events(client: Client) -> set[tuple[int, UUID, UUID]]:

@@ -36,6 +36,7 @@ from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_st
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.ph_client import ScopedCapture, ph_background_capture, ph_scoped_capture
+from posthog.service_accounts.emails import is_generated_service_account_email
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -1036,8 +1037,12 @@ class EmailMessage:
         self.html_body = inline_css(template.render(template_context))
         self.txt_body = ""
         self.headers = headers if headers else {}
+        self._skipped_generated_recipient = False
 
     def add_recipient(self, email: str, name: Optional[str] = None, distinct_id: Optional[str] = None) -> None:
+        if is_generated_service_account_email(email):
+            self._skipped_generated_recipient = True
+            return
         sanitized_name = html.escape(name) if name else None
         recipient_data = {
             "recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email,
@@ -1064,6 +1069,8 @@ class EmailMessage:
         asynchronous send returns an empty list.
         """
         if not self.to:
+            if self._skipped_generated_recipient:
+                return []
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
         kwargs = {

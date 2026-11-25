@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.flutterwave.settings import (
     FlutterwaveV4EndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     BearerTokenAuthConfig,
     ClientConfig,
     Endpoint,
@@ -78,8 +79,8 @@ class FlutterwaveResumeConfig:
 
 
 class FlutterwaveCursorPaginator(JSONResponseCursorPaginator):
-    def __init__(self) -> None:
-        super().__init__(cursor_path="data.cursor.next", cursor_param="next", raise_on_repeated_cursor=True)
+    def __init__(self, cursor_param: str = "next") -> None:
+        super().__init__(cursor_path="data.cursor.next", cursor_param=cursor_param, raise_on_repeated_cursor=True)
 
     def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
         # v4 reports `has_more_items` next to the cursor. Check it first, so a last page that
@@ -213,16 +214,22 @@ def _v3_endpoint_config(endpoint: str, fan_out: Optional[dict[str, str]] = None)
         params["from"] = EARLIEST_WINDOW_START
         params["to"] = _window_end()
 
+    paginator: BasePaginator
+    if config.cursor_param is not None:
+        paginator = FlutterwaveCursorPaginator(cursor_param=config.cursor_param)
+    elif config.total_pages_path is not None:
+        # Paged v3 list endpoints count pages from 1 and report the page count under
+        # `page_info.total_pages`, which stops pagination without paying an extra empty page.
+        # Page size is left to the API: v3 documents no maximum, and an over-cap value 4xxs.
+        paginator = PageNumberPaginator(base_page=1, total_path=config.total_pages_path)
+    else:
+        paginator = SinglePagePaginator()
+
     endpoint_config: Endpoint = {
         "path": path,
         "params": params,
         "data_selector": config.data_selector,
-        # Paged v3 list endpoints count pages from 1 and report the page count under
-        # `page_info.total_pages`, which stops pagination without paying an extra empty page.
-        # Page size is left to the API: v3 documents no maximum, and an over-cap value 4xxs.
-        "paginator": PageNumberPaginator(base_page=1, total_path=config.total_pages_path)
-        if config.total_pages_path is not None
-        else SinglePagePaginator(),
+        "paginator": paginator,
         "response_actions": _NO_RECORDS_RESPONSE_ACTIONS,
     }
     return endpoint_config
@@ -249,6 +256,20 @@ def _wallet_currencies(client: ClientConfig, team_id: int, job_id: str) -> list[
     return sorted(currencies)
 
 
+def _payout_subaccount_references(client: ClientConfig, team_id: int, job_id: str) -> list[str]:
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resources": [{"name": "payout_subaccounts", "endpoint": _v3_endpoint_config("payout_subaccounts")}],
+    }
+    references: set[str] = set()
+    for page in rest_api_resource(rest_config, team_id, job_id, None):
+        for row in page if isinstance(page, list) else [page]:
+            reference = row.get("account_reference")
+            if isinstance(reference, str) and reference:
+                references.add(reference)
+    return sorted(references)
+
+
 def _v3_fan_out_values(endpoint: str, client: ClientConfig, team_id: int, job_id: str) -> list[dict[str, str]]:
     fan_out_params = FLUTTERWAVE_ENDPOINTS[endpoint].fan_out_params
     if fan_out_params == ("country",):
@@ -260,6 +281,10 @@ def _v3_fan_out_values(endpoint: str, client: ClientConfig, team_id: int, job_id
             {"currency": currency, "type": statement_type}
             for currency in _wallet_currencies(client, team_id, job_id)
             for statement_type in WALLET_STATEMENT_TYPES
+        ]
+    if fan_out_params == ("account_reference",):
+        return [
+            {"account_reference": reference} for reference in _payout_subaccount_references(client, team_id, job_id)
         ]
     return [{}]
 
@@ -345,7 +370,9 @@ def get_rows(
     resume_keys = [_fan_out_key(values) for values in fan_out_values]
     if resume is not None and resume.fan_out_value in resume_keys:
         first_index = resume_keys.index(resume.fan_out_value)
-        if resume.next_page > 1:
+        if resume.next_cursor:
+            initial_paginator_state = {"cursor": resume.next_cursor}
+        elif resume.next_page > 1:
             initial_paginator_state = {"page": resume.next_page}
 
     for index in range(first_index, len(fan_out_values)):
