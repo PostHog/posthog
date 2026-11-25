@@ -12,7 +12,7 @@ from .event import kind_of_event
 from .node import IO_KEY_CANDIDATES
 from .step_content import built_once, read_step
 from .thread import pick_first_generation, pick_user_visible_generation
-from .turn import TIMED_OUT, TOO_LARGE, Side, Turn, TurnStep, readable_tail
+from .turn import TIMED_OUT, TOO_LARGE, Side, Turn, TurnSide, TurnStep, readable_tail
 
 if TYPE_CHECKING:
     from .preview_queries import PreviewEventRow, PreviewEventValues, StoredValue
@@ -190,14 +190,18 @@ def page_of_turns[T](
     *,
     build_normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
+    reads_outputs: bool = True,
 ) -> dict[str, T]:
     """Each trace's `build` of its steps, keyed by trace id. Once `PREVIEWS_TIME_LIMIT_SECONDS` is spent for the whole
     page, a side that failed times out, and every trace not yet read is `timed_out`. The team's normalizer is built at
-    most once, and only when a side needs it."""
+    most once, and only when a side needs it. With `reads_outputs` off, the page's time goes to inputs only: every
+    output comes back empty, and a latest generation that is not also the first is not read."""
     normalizer = built_once(build_normalizer)
     with time_limit(PREVIEWS_TIME_LIMIT_SECONDS):
         return {
-            trace_id: timed_out if out_of_time() else build(_steps(trace_id, trace_sources, normalizer, team_id))
+            trace_id: timed_out
+            if out_of_time()
+            else build(_steps(trace_id, trace_sources, normalizer, team_id, reads_outputs))
             for trace_id, trace_sources in sources.items()
         }
 
@@ -217,6 +221,22 @@ def page_turns(
     )
 
 
+def page_turn_messages(
+    sources: Mapping[str, TracePreviewSources], *, build_normalizer: Callable[[], RecipeNormalizer], team_id: int
+) -> dict[str, TurnSide]:
+    """Each trace's turn message, keyed by trace id, read as `page_of_turns` reads a page that leaves outputs out."""
+    return page_of_turns(
+        sources,
+        lambda steps: (
+            Turn.of(state=steps.state, first_generation=steps.first_generation, latest_generation=None).message
+        ),
+        TIMED_OUT,
+        build_normalizer=build_normalizer,
+        team_id=team_id,
+        reads_outputs=False,
+    )
+
+
 def out_of_time() -> bool:
     try:
         check_time_limit()
@@ -226,7 +246,11 @@ def out_of_time() -> bool:
 
 
 def _steps(
-    trace_id: str, sources: TracePreviewSources, normalizer: Callable[[], RecipeNormalizer], team_id: int
+    trace_id: str,
+    sources: TracePreviewSources,
+    normalizer: Callable[[], RecipeNormalizer],
+    team_id: int,
+    reads_outputs: bool,
 ) -> TraceSteps:
     def read(source: PreviewSource | None) -> TurnStep | None:
         if source is None:
@@ -244,6 +268,7 @@ def _steps(
             source.output.value,
             build_normalizer=normalizer,
             team_id=team_id,
+            reads_output=reads_outputs,
         )
         return TurnStep.of(
             reading, input_unread=source.input.unread, output_unread=source.output.unread, out_of_time=out_of_time()
@@ -255,5 +280,5 @@ def _steps(
         first_generation=first_generation,
         latest_generation=first_generation
         if sources.latest_generation == sources.first_generation
-        else read(sources.latest_generation),
+        else read(sources.latest_generation if reads_outputs else None),
     )

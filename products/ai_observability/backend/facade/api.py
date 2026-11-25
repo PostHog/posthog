@@ -79,7 +79,7 @@ from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
 from ..logic.traces.person import person_label
 from ..logic.traces.preview_queries import load_preview_sources
-from ..logic.traces.previews import page_turns
+from ..logic.traces.previews import page_turn_messages, page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
@@ -192,7 +192,7 @@ from ..logic.traces.trace_selection import (
 )
 from ..logic.traces.trace_selection_queries import SelectionCounts, load_rows_after, load_rows_around, load_rows_before
 from ..logic.traces.tree import TreeNode
-from ..logic.traces.turn import Turn, TurnSides, missing_reason, preview, shown, unread_reason
+from ..logic.traces.turn import Turn, TurnSide, TurnSides, missing_reason, preview, shown, unread_reason
 from ..logic.traces.turn_queries import load_turn_sources
 from ..logic.traces.turn_sides import page_turn_sides
 from ..logic.traces.turn_timing import TurnTiming, turn_verdicts
@@ -464,7 +464,7 @@ def load_session_previews(
     builds the titles, one per requested session in request order. Reads only `posthog.ai_events`, so a session it no
     longer holds has no title.
 
-    The step reads the team's recipes from Postgres and normalizes each first trace's turn, but runs no ClickHouse
+    The step reads the team's recipes from Postgres and normalizes each first trace's input only, but runs no ClickHouse
     query, like the step of `load_trace_previews`.
     """
     requested = list(dict.fromkeys(session_ids))
@@ -481,11 +481,11 @@ def load_session_previews(
     )
 
     def build() -> contracts.SessionPreviewList:
-        turns = page_turns(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+        messages = page_turn_messages(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
         return contracts.SessionPreviewList(
             items=[
                 _to_session_preview(
-                    session_id, turns.get(first_traces[session_id].trace_id) if session_id in first_traces else None
+                    session_id, messages.get(first_traces[session_id].trace_id) if session_id in first_traces else None
                 )
                 for session_id in requested
             ]
@@ -494,8 +494,7 @@ def load_session_previews(
     return build
 
 
-def _to_session_preview(session_id: str, turn: Turn | None) -> contracts.SessionPreview:
-    message = turn.message if turn else None
+def _to_session_preview(session_id: str, message: TurnSide) -> contracts.SessionPreview:
     return contracts.SessionPreview(
         session_id=session_id, input=preview(message), input_missing_reason=missing_reason(message)
     )
