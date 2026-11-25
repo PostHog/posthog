@@ -262,6 +262,8 @@ class HandlebarsToLiquid:
             if len(frames) == 1 and (special := self._root_value(name)) is not None:
                 self._converted_root = name
                 return special, False
+            if (special := self._special(name, frames)) is not None:
+                return special, False
             return self._print(self._path(name, frames), raw), raw
         if self._dialect != "sendgrid":
             raise _Unsupported
@@ -270,6 +272,8 @@ class HandlebarsToLiquid:
             date = f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"'
             return self._print(date, False, may_be_a_list=False), False
         if name == "insert" and len(params) <= 2:
+            if isinstance(params[0], _Path) and (special := self._special(params[0].source, frames)) is not None:
+                return special, False
             value = self._value_path(params[0], frames)
             if len(params) == 1:
                 return self._print(value, raw), raw
@@ -576,8 +580,22 @@ class HandlebarsToLiquid:
                 return "forloop.index0"
         return None
 
+    def _special(self, source: str, frames: tuple[_Frame, ...]) -> str | None:
+        """What a name with a meaning of its own converts to, written in a way that still reads the top level."""
+        read_root = self.read_root
+        base, _, name = self._path(source, frames).rpartition(".")
+        special = self._root_value(name) if base == self._root_path else None
+        if special is not None:
+            self.read_root = read_root
+            self._converted_root = name
+        return special
+
     def _value_path(self, param: object, frames: tuple[_Frame, ...]) -> str:
         if not isinstance(param, _Path):
+            raise _Unsupported
+        # It isn't a value of the recipient's, so nothing can test, count or format it.
+        if self._special(param.source, frames) is not None:
+            self._converted_root = ""
             raise _Unsupported
         return self._path(param.source, frames)
 

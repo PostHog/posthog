@@ -235,6 +235,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         [
             ("value", "<p>Hi {{ name }}</p>", '{{ variables.name | join: "," }}'),
             ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_from_a_loop", "{{#each a}}<p>{{../unsubscribe}}</p>{{/each}}", "{{ unsubscribe_url }}"),
+            (
+                "unsubscribe_link_from_the_root",
+                "{{#each a}}<p>{{@root.unsubscribe}}</p>{{/each}}",
+                "{{ unsubscribe_url }}",
+            ),
+            ("unsubscribe_link_of_this", "<p>{{this.unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_with_a_default", '<p>{{insert unsubscribe "default=x"}}</p>', "{{ unsubscribe_url }}"),
             ("unescaped_unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', '<a href="{{ unsubscribe_url }}">'),
             (
                 "unsubscribe_link_tag",
