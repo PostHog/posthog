@@ -10,46 +10,25 @@ const script = join(dirname(fileURLToPath(import.meta.url)), 'lint-react-perform
 
 for (const [name, source, expected] of [
     [
-        'nested lookup',
-        'export const Canvas = ({ blocks, cells }) => blocks.map(block => <Cell cell={cells.find(cell => cell.id === block.node_id)} />)',
+        'performance diagnostic',
+        'export const Example = ({ rows }) => <div>{JSON.parse(JSON.stringify(rows)).length}</div>',
         1,
     ],
-    ['single lookup', 'export const Canvas = ({ cells, id }) => <Cell cell={cells.find(cell => cell.id === id)} />', 0],
-    [
-        'indexed lookup',
-        'export const Canvas = ({ blocks, cellsById }) => blocks.map(block => <Cell cell={cellsById.get(block.node_id)} />)',
-        0,
-    ],
-    [
-        'different collections',
-        'export const Canvas = ({ groups }) => groups.map(group => <Cell cell={group.cells.find(cell => cell.id === group.id)} />)',
-        0,
-    ],
-    [
-        'event handler',
-        'export const Canvas = ({ blocks, cells }) => blocks.map(block => <Cell onClick={() => cells.find(cell => cell.id === block.node_id)} />)',
-        0,
-    ],
-    [
-        'destructured collections',
-        'export const Canvas = ({ groups }) => groups.map(({ cells, id }) => <Cell cell={cells.find(cell => cell.id === id)} />)',
-        0,
-    ],
-    [
-        'local collection',
-        'export const Canvas = ({ groups }) => groups.map(group => { const cells = group.cells; return <Cell cell={cells.find(cell => cell.id === group.id)} /> })',
-        0,
-    ],
+    ['clean component', 'export const Example = () => <button type="button">Hello</button>', 0],
 ]) {
     test(name, () => {
         const root = mkdtempSync(join(tmpdir(), 'react-performance-'))
         try {
             execFileSync('git', ['init', '--quiet', root])
+            writeFileSync(
+                join(root, 'package.json'),
+                JSON.stringify({ name: 'performance-test', private: true, dependencies: { react: '18.3.1' } })
+            )
             mkdirSync(join(root, 'frontend/src'), { recursive: true })
             writeFileSync(join(root, 'frontend/src/changed.tsx'), source)
             writeFileSync(
                 join(root, 'frontend/src/untouched.tsx'),
-                'export const Other = ({ rows, cells }) => rows.map(row => cells.find(cell => cell.id === row.id))'
+                'export const Other = ({ rows }) => <div>{JSON.parse(JSON.stringify(rows)).length}</div>'
             )
             const result = spawnSync(process.execPath, [script, 'frontend/src/changed.tsx'], {
                 cwd: root,
@@ -58,7 +37,7 @@ for (const [name, source, expected] of [
             assert.equal(result.status, expected, result.stdout + result.stderr)
             assert.doesNotMatch(result.stdout + result.stderr, /untouched\.tsx/)
             if (expected === 1) {
-                assert.match(result.stdout + result.stderr, /react-performance\(no-repeated-array-lookup\)/)
+                assert.match(result.stdout + result.stderr, /JSON\.parse|json-parse/)
             }
         } finally {
             rmSync(root, { recursive: true, force: true })

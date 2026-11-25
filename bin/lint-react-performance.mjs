@@ -27,24 +27,31 @@ const files = [...new Set(candidates)]
     .map((file) => (isAbsolute(file) ? file : resolve(repoRoot, file)))
     .filter((file) => {
         const name = relative(repoRoot, file)
-        return /^(frontend\/src\/|products\/[^/]+\/frontend\/).*\.[cm]?[jt]sx?$/.test(name) && existsSync(file)
+        return (
+            /^(frontend\/src\/|products\/[^/]+\/frontend\/).*\.[cm]?[jt]sx?$/.test(name) &&
+            !name.split('/').includes('generated') &&
+            existsSync(file)
+        )
     })
 
 if (files.length === 0) {
     console.info('No changed React source files to check.')
 } else {
     const result = spawnSync(
-        'pnpm',
+        process.execPath,
         [
-            'exec',
-            'oxlint',
-            '--config',
-            resolve(toolRoot, '.oxlintrc-react-performance.json'),
-            '--disable-nested-config',
-            '--no-error-on-unmatched-pattern',
+            resolve(toolRoot, 'node_modules/react-doctor/bin/react-doctor.js'),
+            '--category',
+            'Performance',
+            '--no-supply-chain',
+            '--no-score',
+            '--blocking',
+            'warning',
+            '--verbose',
+            '--yes',
             ...files,
         ],
-        { cwd: toolRoot, stdio: 'inherit' }
+        { cwd: repoRoot, stdio: 'inherit' }
     )
     if (result.error) {
         throw result.error

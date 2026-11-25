@@ -287,7 +287,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="react-performance",
-        label="repeated key lookups in React source",
+        label="React Doctor performance checks on changed frontend files",
         triggers=[
             f"{tree}/*.{ext}"
             for tree in ("frontend/src", "products/*/frontend")
@@ -298,9 +298,9 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
-        key="react-performance-rules",
-        label="React performance lint regression tests",
-        triggers=["bin/*react-performance*.mjs", ".oxlintrc-react-performance.json"],
+        key="react-performance-runner",
+        label="React performance scan integration tests",
+        triggers=["bin/*react-performance*.mjs"],
         verify=["node", "--test", "bin/lint-react-performance.test.mjs"],
         requires=("node",),
     ),

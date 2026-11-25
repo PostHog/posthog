@@ -17,7 +17,7 @@ Hence the explicit separation between the data and view layers.
 
 Run `hogli lint:react-performance` to check changed React source files against `origin/master`, including staged, unstaged, and untracked files. Pass file paths to check only those files, or use `--base <ref>` to select another base.
 
-The check runs during frontend lint, pre-commit checks, preflight, and frontend CI. It checks repeated key lookups with `find()` or `findIndex()` inside array iteration callbacks. Move a repeated lookup outside the iteration or build an index that preserves first-match behavior. The check does not measure render time or replace profiling.
+The check runs React Doctor's Performance category during frontend lint, pre-commit checks, preflight, and frontend CI. It uses the upstream performance checks and fails on warnings or errors in the selected files. Generated files are excluded. Dependency checks and telemetry are disabled. Use profiling to measure runtime performance.
 
 #### General tips
 

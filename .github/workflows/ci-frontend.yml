@@ -269,7 +269,6 @@ jobs:
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .oxlintrc.json
-                        - .oxlintrc-react-performance.json
                         - 'bin/*react-performance*.mjs'
                         - .oxfmtrc*
                         - babel.config.js
@@ -318,7 +317,6 @@ jobs:
                         - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
-                        - .oxlintrc-react-performance.json
                         - 'bin/*react-performance*.mjs'
                         - .oxfmtrc*
                         - babel.config.js
