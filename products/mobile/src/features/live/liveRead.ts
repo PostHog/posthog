@@ -22,6 +22,8 @@ import type {
     LiveWorld,
 } from '@/model/live'
 
+import type { LiveTrafficFilters } from '@/model/liveTrafficFilters'
+
 import type { LiveReadResult } from './liveController'
 
 const TOP_JOB: Record<LivePathsMode, LiveQueryKey> = { pages: 'paths', screens: 'screens' }
@@ -49,6 +51,7 @@ export interface LiveReadInput {
     countUsersOnline: boolean
     pathCleaning: boolean
     filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     now: number
     signal: AbortSignal
 }
@@ -104,6 +107,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
         window: liveWindow(now),
         pathCleaning: input.pathCleaning,
         filterTestAccounts: input.filterTestAccounts,
+        trafficFilters: input.trafficFilters,
         mobileOnly: profile.kind === 'mobile',
         webOnly: profile.kind === 'web',
     }
@@ -218,6 +222,7 @@ export interface LiveWorldReadInput {
     webOnly?: boolean
     mobileOnly?: boolean
     filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     run: LiveQueryRunner
     now: number
     signal: AbortSignal
@@ -231,10 +236,18 @@ export async function readLiveWorld({
     mobileOnly,
     webOnly,
     filterTestAccounts,
+    trafficFilters,
 }: LiveWorldReadInput): Promise<LiveReadResult<LiveWorld>> {
     const answer = await run(
         'geo',
-        liveQuery('geo', { window: liveWindow(now), pathCleaning: false, mobileOnly, webOnly, filterTestAccounts }),
+        liveQuery('geo', {
+            window: liveWindow(now),
+            pathCleaning: false,
+            mobileOnly,
+            webOnly,
+            filterTestAccounts,
+            trafficFilters,
+        }),
         signal,
         now
     )

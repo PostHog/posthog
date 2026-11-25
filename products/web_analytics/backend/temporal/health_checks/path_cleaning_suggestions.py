@@ -39,7 +39,7 @@ class PathCleaningSuggestionsCheck(HealthCheck):
 
     name = "path_cleaning_suggestions"
     kind = "path_cleaning_suggestions"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     product = Product.WEB_ANALYTICS
     policy = LLM_EXECUTION_POLICY
     schedule = "23 6 * * 1"  # weekly, Monday 06:23 UTC

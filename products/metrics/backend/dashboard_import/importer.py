@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import uuid
+import base64
 import hashlib
 import datetime as dt
 import dataclasses
@@ -28,6 +29,7 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.utils import timezone
 
@@ -52,6 +54,7 @@ from products.dashboards.backend.facade.dashboard_creation import (
     move_dashboard_tiles,
 )
 from products.exports.backend.facade.api import render_png_export
+from products.metrics.backend.dashboard_import.activity import AgentAction, latest_agent_action
 from products.metrics.backend.dashboard_import.catalog import HISTOGRAM_TYPES, MetricCatalog
 from products.metrics.backend.dashboard_import.display import agent_unit
 from products.metrics.backend.dashboard_import.grafana import MAX_PANELS, GrafanaDashboardParser, GrafanaImportError
@@ -59,6 +62,7 @@ from products.metrics.backend.dashboard_import.layout import (
     MIN_INSIGHT_HEIGHT,
     MIN_INSIGHT_WIDTH,
     RequestedBox,
+    close_dropped_gaps,
     place_screenshot_boxes,
 )
 from products.metrics.backend.dashboard_import.prompt import (
@@ -91,13 +95,16 @@ from products.metrics.backend.dashboard_import.spec import (
 from products.metrics.backend.dashboard_import.tiles import insight_query, insight_tile, text_tile
 from products.metrics.backend.dashboard_import.validation import PanelValidator, QueryCheck
 from products.metrics.backend.facade.contracts import (
+    DashboardImportAgentActivity,
     DashboardImportError,
     DashboardImportInProgress,
+    DashboardImportInput,
     DashboardImportNotAllowed,
     DashboardImportPanel,
     DashboardImportPanelProgress,
     DashboardImportRequest,
     DashboardImportStatus,
+    DashboardImportStorageError,
     DashboardImportSummary,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
@@ -129,6 +136,10 @@ START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
 # A finalizer that holds the claim longer than this died before it saved a result, so another may take over.
 CLAIM_TIMEOUT = dt.timedelta(minutes=5)
+# The dialog polls every few seconds, so several polls share one read of the run log.
+ACTIVITY_CACHE_SECONDS = 10
+# The newest tool call and its updates sit at the end of the log, so the read stops at a fixed tail.
+ACTIVITY_LOG_TAIL_BYTES = 256 * 1024
 MAX_GRAFANA_JSON_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
@@ -355,7 +366,9 @@ class DashboardImporter:
             layout_rounds=MAX_LAYOUT_ROUNDS if state.layout_check else None,
         )
 
-    def status(self, import_id: str, *, finalize: bool = True) -> DashboardImportStatus | None:
+    def status(
+        self, import_id: str, *, finalize: bool = True, skip_dismissed: bool = False
+    ) -> DashboardImportStatus | None:
         """The import's status. With `finalize`, an ended run that nothing finalized yet is finalized in the request."""
         run = tasks_facade.get_owner_origin_latest_run(
             task_id=import_id,
@@ -366,7 +379,7 @@ class DashboardImporter:
         if run is None:
             return None
         state = _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY))
-        if state is None:
+        if state is None or (skip_dismissed and state.dismissed):
             return None
         # An import that another worker holds costs nothing here, so it does not stop the next one from finalizing.
         if (
@@ -404,6 +417,7 @@ class DashboardImporter:
             dashboard_name=state.dashboard_name,
             phase=phase,
             panel_progress=_panel_progress(state),
+            agent_activity=_agent_activity(run, self._team.id) if phase == DashboardImportPhase.MATCHING else None,
             layout_rounds=MAX_LAYOUT_ROUNDS if check else None,
         )
 
@@ -418,8 +432,73 @@ class DashboardImporter:
         )
         # Each finalization checks every query again, so one list request finalizes at most one import.
         # The next poll of the list finalizes the next one.
-        statuses = (self.status(str(task_id), finalize=self._inline_finalizations == 0) for task_id in task_ids)
+        statuses = (
+            self.status(str(task_id), finalize=self._inline_finalizations == 0, skip_dismissed=True)
+            for task_id in task_ids
+        )
         return [status for status in statuses if status is not None]
+
+    def input(self, import_id: str) -> DashboardImportInput | None:
+        """What a failed import read. Its stored files expire after STORAGE_TTL_DAYS."""
+        state = self._owned_state(import_id)
+        if state is None or state.dismissed or state.result is None or state.result.status != "failed":
+            return None
+        paths = {path.rsplit("/", 1)[-1]: path for path in state.input_paths}
+        name = state.dashboard_name if state.named_by_user else None
+        source = DashboardImportSource(state.source)
+        try:
+            if source == DashboardImportSource.GRAFANA and GRAFANA_FILE_NAME in paths:
+                grafana_json = object_storage.read(paths[GRAFANA_FILE_NAME], missing_ok=True)
+                if grafana_json:
+                    return DashboardImportInput(source=source, name=name, grafana_json=grafana_json)
+            if source == DashboardImportSource.SCREENSHOT and SCREENSHOT_FILE_NAME in paths:
+                image = object_storage.read_bytes(paths[SCREENSHOT_FILE_NAME], missing_ok=True)
+                if image:
+                    content, content_type = _image_for_retry(image)
+                    return DashboardImportInput(
+                        source=source,
+                        name=name,
+                        image_base64=base64.b64encode(content).decode(),
+                        image_content_type=content_type,
+                    )
+        except Exception:
+            logger.warning("metrics_dashboard_import_input_read_failed", team_id=self._team.id, exc_info=True)
+        return None
+
+    def dismiss(self, import_id: str) -> bool:
+        state = self._owned_state(import_id)
+        if state is None:
+            return False
+        # A screenshot import keeps running while it checks the layout, after it saved a result.
+        current = self.status(import_id, finalize=False)
+        if current is None or current.status == DashboardImportState.RUNNING:
+            raise DashboardImportInProgress("This import is still running. Wait for it to finish.")
+        failed = _delete_inputs(state.input_paths)
+        _update_state(
+            self._team.id,
+            import_id,
+            lambda latest: latest.model_copy(
+                update={
+                    "dismissed": latest.dismissed or not failed,
+                    "input_paths": [path for path in latest.input_paths if path in failed],
+                }
+            ),
+        )
+        # The import stays listed until its files are gone, so the user can dismiss it again.
+        if failed:
+            raise DashboardImportStorageError("PostHog could not delete what this import read. Try again.")
+        return True
+
+    def _owned_state(self, import_id: str) -> ImportState | None:
+        run = tasks_facade.get_owner_origin_latest_run(
+            task_id=import_id,
+            team_id=self._team.id,
+            created_by_id=self._user.id,
+            origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+        )
+        if run is None:
+            return None
+        return _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY))
 
     def _check_allowed(self) -> None:
         if self._team.organization.is_ai_data_processing_approved is not True:
@@ -599,6 +678,8 @@ class DashboardImporter:
 
     def _build(self, state: ImportState, verdicts: list[PanelVerdict], *, idempotency_key: str) -> ImportResult:
         """Create the dashboard from the verdicts. A dashboard without an insight tile is not created."""
+        if state.spec is not None:
+            verdicts = _close_dropped_gaps(state.spec, verdicts)
         summary = ImportSummary.from_verdicts(verdicts)
         tiles = [verdict.tile for verdict in verdicts if verdict.tile is not None]
         if not any(tile.kind == "insight" for tile in tiles):
@@ -879,6 +960,20 @@ def _requested_box(key: str, layout: GridLayout | None, *, is_text: bool) -> Req
     )
 
 
+def _close_dropped_gaps(spec: DashboardSpec, verdicts: list[PanelVerdict]) -> list[PanelVerdict]:
+    tiles = {verdict.key: verdict.tile for verdict in verdicts if verdict.tile is not None}
+    placed = close_dropped_gaps(
+        [_requested_box(key, tile.layout, is_text=tile.kind == "text") for key, tile in tiles.items()],
+        [panel.layout for panel in spec.panels if panel.key not in tiles],
+    )
+    return [
+        verdict.model_copy(update={"tile": verdict.tile.model_copy(update={"layout": placed[verdict.key]})})
+        if verdict.tile is not None
+        else verdict
+        for verdict in verdicts
+    ]
+
+
 def screenshot_panel_layouts(answers: Iterable[AgentPanel]) -> dict[str, GridLayout]:
     """Grid boxes for the panels that an agent read from a screenshot, with no overlap."""
     return place_screenshot_boxes(
@@ -908,12 +1003,27 @@ def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
     )
 
 
-def _delete_inputs(paths: list[str]) -> None:
+def _delete_inputs(paths: list[str]) -> list[str]:
+    """Delete the stored inputs. Returns the paths that could not be deleted."""
+    failed: list[str] = []
     for path in paths:
         try:
             object_storage.delete(path)
         except Exception:
             logger.warning("metrics_dashboard_import_input_delete_failed")
+            failed.append(path)
+    return failed
+
+
+def _image_for_retry(png: bytes) -> tuple[bytes, str]:
+    """The stored screenshot in a form that a new import accepts, with its content type."""
+    if len(png) <= MAX_IMAGE_BYTES:
+        return png, "image/png"
+    # Converting a photo-like JPEG to PNG can make it larger than the upload limit, so send it back as JPEG.
+    with Image.open(io.BytesIO(png)) as opened:
+        buffer = io.BytesIO()
+        opened.convert("RGB").save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue(), "image/jpeg"
 
 
 def _claim(team_id: int, task_id: str) -> ImportState | None:
@@ -976,7 +1086,9 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> bool:
     except Exception:
         logger.exception("metrics_dashboard_import_record_failed", team_id=team_id)
         result = importer.record(task_id, state, None, "The import failed while it built the dashboard. Try again.")
-    _delete_inputs(state.input_paths)
+    # A failed import keeps its input until it expires or the user dismisses it, so a retry can start from it.
+    if result is not None and result.status == "completed":
+        _delete_inputs(state.input_paths)
     if result is not None:
         importer.capture_finished(state, result, path="agent", background=background)
     return True
@@ -988,6 +1100,42 @@ _PROGRESS_BY_OUTCOME = {
     "approximated": PanelProgressState.DONE,
     "skipped": PanelProgressState.SKIPPED,
 }
+
+
+def _agent_activity(run: TaskRunDTO, team_id: int) -> DashboardImportAgentActivity | None:
+    key = f"metrics_dashboard_import_activity:{run.id}"
+    # The activity is optional, so a cache outage costs an uncached read and never fails the status request.
+    try:
+        cached: tuple[AgentAction | None] | None = cache.get(key)
+    except Exception:
+        logger.warning("metrics_dashboard_import_activity_cache_failed", run_id=str(run.id), exc_info=True)
+        cached = None
+    if cached is None:
+        cached = (_read_agent_action(run, team_id),)
+        try:
+            cache.set(key, cached, ACTIVITY_CACHE_SECONDS)
+        except Exception:
+            logger.warning("metrics_dashboard_import_activity_cache_failed", run_id=str(run.id), exc_info=True)
+    action = cached[0]
+    if action is None:
+        return None
+    now = timezone.now()
+    return DashboardImportAgentActivity(
+        kind=action.kind,
+        seconds=max(0, int((now - action.started_at).total_seconds())),
+        idle_seconds=max(0, int((now - action.last_activity_at).total_seconds())),
+        subject=action.subject,
+        panel_count=action.panel_count,
+    )
+
+
+def _read_agent_action(run: TaskRunDTO, team_id: int) -> AgentAction | None:
+    try:
+        content = tasks_facade.read_task_run_log_tail(run.id, run.task_id, team_id, max_bytes=ACTIVITY_LOG_TAIL_BYTES)
+        return latest_agent_action(content) if content else None
+    except Exception:
+        logger.warning("metrics_dashboard_import_activity_read_failed", run_id=str(run.id), exc_info=True)
+        return None
 
 
 def _panel_progress(state: ImportState) -> tuple[DashboardImportPanelProgress, ...]:
@@ -1142,7 +1290,8 @@ def _end_layout_check(
     # The run ends here, so the agent sandbox stops. Without a result, the task run receiver then builds one.
     tasks_facade.signal_workflow_completion(run.id, tasks_facade.TaskRunStatus.COMPLETED, None)
     if state is not None and state.result is not None:
-        _delete_inputs(state.input_paths)
+        if state.result.status == "completed":
+            _delete_inputs(state.input_paths)
         importer.capture_finished(state, state.result, path="agent", background=True)
 
 

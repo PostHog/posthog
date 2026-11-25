@@ -16,6 +16,7 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
@@ -102,6 +103,7 @@ function GoalEventCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX
 
 function GoalCountsAsCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
     const { editingGoalId, editingGoal, onEditingGoalChange, restrictedReason } = useConversionGoalRowEditing()
+    const recommendationsEnabled = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATIONS')
     const goal = row.original
 
     if (editingGoalId === goal.conversion_goal_id && editingGoal) {
@@ -110,7 +112,11 @@ function GoalCountsAsCell({ row }: CellContext<ConversionGoalFilter, unknown>): 
         )
     }
 
-    const flags = [goal.counts_as_revenue && 'Revenue', goal.counts_as_customer && 'Customer'].filter(Boolean)
+    const flags = [
+        goal.counts_as_revenue && 'Revenue',
+        goal.counts_as_customer && 'Customer',
+        recommendationsEnabled && goal.use_in_recommendations && 'Recommendations',
+    ].filter(Boolean)
 
     return flags.length ? (
         <Text size="xs" render={<span />}>

@@ -183,10 +183,14 @@ class Program(AST):
     declarations: list[Declaration]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldAliasType(Type):
     alias: str
     type: Type
+    # The type the alias projects when a property conversion changes it.
+    # `type` keeps the original PropertyType because property lowering still reads it.
+    constant_type: Optional[ConstantType] = None
+    cte_source_field: DatabaseField | None = field(default=None, init=False, compare=False, repr=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         return self.type.get_child(name, context)
@@ -195,6 +199,8 @@ class FieldAliasType(Type):
         return self.type.has_child(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.constant_type is not None:
+            return self.constant_type
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
@@ -473,7 +479,7 @@ class SelectViewType(BaseTableType):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class CTETableType(BaseTableType):
     name: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -490,6 +496,8 @@ class CTETableType(BaseTableType):
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, UnknownDatabaseField):
+            return self.select_query_type.resolve_column_constant_type(name, context)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -701,7 +709,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -724,7 +732,9 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        if not isinstance(self.table_type, BaseTableType):
+        if not isinstance(self.table_type, BaseTableType) or isinstance(
+            self.table_type, (CTETableType, CTETableAliasType)
+        ):
             return self.table_type.resolve_column_constant_type(self.name, context)
 
         table: Table = self.table_type.resolve_database_table(context)
@@ -1016,7 +1026,7 @@ class Tuple(Expr):
     exprs: list[Expr]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class PropertyAccess(Expr):
     """The lowered form of a `properties.X` read: "read this key path from this properties field."
 
@@ -1044,6 +1054,8 @@ class PropertyAccess(Expr):
 
     expr: Expr
     keys: list[str | int]
+    # Carried over from `PropertyType.as_json`: a JSON function rewrite asked for the key's JSON text.
+    as_json: bool = False
 
 
 @dataclass(frozen=False, kw_only=True, slots=True)

@@ -1,5 +1,6 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -121,7 +122,7 @@ function headerName(view: RenderResult): string | null {
     return view.container.querySelector('h1')?.textContent ?? null
 }
 
-const PARTIAL_HINT = /come from its earliest steps only/
+const PARTIAL_HINT = /covers those steps only/
 
 function hover(element: HTMLElement): void {
     fireEvent.pointerEnter(element, { pointerType: 'mouse' })
@@ -176,7 +177,7 @@ describe('TraceDrawerHost', () => {
     })
 
     it("shows the row's name, person and partial totals while the trace loads, then the trace's", async () => {
-        const totals = { ...makeTraceResource().totals, latencyMs: 2310 }
+        const totals = { ...makeTraceResource().totals, inputTokens: 1840 }
         const row: TraceListRow = {
             ...makeSeededRow({ id: 'a', name: 'row-a', totals, totalsPartial: true }),
             person: { distinctId: 'row-person', label: 'row-person@example.com' },
@@ -193,7 +194,7 @@ describe('TraceDrawerHost', () => {
         expect(attr(view.container, 'trace-view-export').getAttribute('aria-disabled')).toBe('true')
         fireEvent.change(attr(view.container, 'trace-view-search-input'), { target: { value: 'weather' } })
         expect(await view.findByText('Searching…')).toBeTruthy()
-        hover(view.getByText('2.31s'))
+        hover(view.getByText('1,840 in'))
         expect(await view.findByText(PARTIAL_HINT)).toBeTruthy()
 
         release()
@@ -204,7 +205,7 @@ describe('TraceDrawerHost', () => {
         expect(view.queryByText('row-a')).toBeNull()
         expect(view.queryByText('row-person@example.com')).toBeNull()
         expect(view.getByText('ada@example.com')).toBeTruthy()
-        hover(view.getByText('2.31s'))
+        hover(view.getByText('1,840 in'))
         // Longer than the tooltip's open delay, so a marker that survived the answer would show its hint again.
         await expect(view.findByText(PARTIAL_HINT)).rejects.toThrow()
     })
@@ -336,6 +337,21 @@ describe('TraceDrawerHost', () => {
 
         fireEvent.keyDown(document.body, { key: 'p' })
         await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
+
+    it.each<[string, () => void]>([
+        ['Previous', () => fireEvent.click(attr(document.body, 'trace-drawer-previous'))],
+        ['p', () => fireEvent.keyDown(document.body, { key: 'p' })],
+    ])('steps up from the first row with %s when the list has rows before it', async (_name, stepUp) => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        const drawer = traceDrawerLogic({ listId: LIST_ID })
+        act(() => drawer.actions.setRowsBefore(true))
+        await view.findAllByText('answer-a')
+
+        expect(attr(view.container, 'trace-drawer-previous').getAttribute('aria-disabled')).not.toBe('true')
+        await expectLogic(drawer, stepUp).toDispatchActions([drawer.actionCreators.stepTo('previous')])
     })
 
     it('steps through the tree with j and k, but not with a modal open, and its legend names the trace keys', async () => {

@@ -220,7 +220,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
-    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_closed",)])
+    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_closed",), ("$metrics_alert_broken",)])
     def test_generic_api_cannot_subscribe_to_managed_alert_events(self, event_id):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -301,8 +301,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertIn(str(managed.id), listed_ids)
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
 
-    @parameterized.expand([("$logs_alert_firing",), ("$logs_alert_incident_opened",)])
-    def test_generic_api_can_edit_a_logs_alert_destination(self, event_id):
+    @parameterized.expand(
+        [
+            ("$logs_alert_firing",),
+            ("$logs_alert_incident_opened",),
+            ("$metrics_alert_broken",),
+            ("$traces_alert_incident_closed",),
+        ]
+    )
+    def test_generic_api_can_edit_an_alert_destination_of_an_editable_source(self, event_id):
         managed = self._create_internal_destination(_alert_filters(event_id))
 
         # The editor echoes the stored filters back unchanged alongside the edited fields
@@ -397,12 +404,70 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 ["hog_function:write", "logs:write"],
                 status.HTTP_403_FORBIDDEN,
             ),
+            (
+                "metrics edit with metrics and alert write",
+                "patch",
+                "",
+                ["hog_function:write", "metrics:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$metrics_alert_firing",),
+            ),
+            (
+                "metrics edit without alert write",
+                "patch",
+                "",
+                ["hog_function:write", "metrics:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$metrics_alert_firing",),
+            ),
+            (
+                "metrics edit with logs write",
+                "patch",
+                "",
+                ["hog_function:write", "logs:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$metrics_alert_firing",),
+            ),
+            (
+                "traces edit with tracing and alert write",
+                "patch",
+                "",
+                ["hog_function:write", "tracing:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$traces_alert_resolved",),
+            ),
+            (
+                "logs and metrics edit with logs write only",
+                "patch",
+                "",
+                ["hog_function:write", "logs:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$logs_alert_firing", "$metrics_alert_firing"),
+            ),
+            (
+                "logs and metrics edit with every write scope",
+                "patch",
+                "",
+                ["hog_function:write", "logs:write", "metrics:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$logs_alert_firing", "$metrics_alert_firing"),
+            ),
+            (
+                "traces edit with hog function write only",
+                "patch",
+                "",
+                ["hog_function:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$traces_alert_resolved",),
+            ),
         ]
     )
-    def test_writing_to_a_logs_alert_destination_needs_the_logs_write_scope_too(
-        self, _name, method, path, scopes, expected_status
+    def test_writing_to_an_alert_destination_needs_its_sources_write_scope_too(
+        self, _name, method, path, scopes, expected_status, event_ids=("$logs_alert_firing",)
     ):
-        managed = self._create_internal_destination(_alert_filters())
+        managed = self._create_internal_destination(
+            _alert_filters(events=[{"id": event_id, "type": "events"} for event_id in event_ids])
+        )
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
@@ -416,12 +481,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         managed.refresh_from_db()
         self.assertEqual(managed.name == "Renamed alert destination", expected_status == status.HTTP_200_OK)
 
-    def test_editing_a_logs_alert_destination_needs_logs_editor_access(self):
-        managed = self._create_internal_destination(_alert_filters())
+    @parameterized.expand(
+        [
+            ("logs", "$logs_alert_firing", "logs"),
+            ("metrics", "$metrics_alert_firing", "metrics"),
+            ("metrics alert", "$metrics_alert_firing", "alert"),
+            ("traces alert", "$traces_alert_resolved", "alert"),
+        ]
+    )
+    def test_editing_an_alert_destination_needs_editor_access_on_each_of_its_resources(
+        self, _name, event_id, denied_resource
+    ):
+        managed = self._create_internal_destination(_alert_filters(event_id))
 
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: resource != "logs",
+            side_effect=lambda resource, required_level=None, **_: resource != denied_resource,
         ):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",

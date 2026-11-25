@@ -33,6 +33,7 @@ function stateFor(
         initialSyncFrequency: '24hour',
         incrementalDraft: EMPTY_INCREMENTAL_DRAFT,
         incrementalDraftTouched: false,
+        refreshModeChanged: false,
         ...overrides,
     })
 }
@@ -58,6 +59,27 @@ describe('materializationRunActionState', () => {
         'gives delete the right reason when %s',
         (_case, overrides, savedQueryOverrides, expectedReason) => {
             expect(stateFor(overrides, savedQueryOverrides).deleteReason).toEqual(expectedReason)
+        }
+    )
+
+    it.each([
+        ['nothing is running', {}, undefined],
+        ['a run is in progress and only the cadence changed', { latestJobStatus: 'Running' }, undefined],
+        [
+            'a run is in progress and the refresh mode changed',
+            { latestJobStatus: 'Running', refreshModeChanged: true },
+            'Materialization is currently running',
+        ],
+        ['a run is starting', { startingMaterialization: true }, 'Materialization is starting'],
+        [
+            'a run is in progress and settings are saving',
+            { latestJobStatus: 'Running', updatingDataWarehouseSavedQuery: true },
+            'Saving materialization settings',
+        ],
+    ] as [string, Partial<MaterializationRunActionInputs>, string | undefined][])(
+        'gives save the right reason when %s',
+        (_case, overrides, expectedReason) => {
+            expect(stateFor(overrides).saveReason).toEqual(expectedReason)
         }
     )
 

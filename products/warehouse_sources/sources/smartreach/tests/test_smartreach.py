@@ -68,16 +68,24 @@ class TestPagination:
 class TestVersionDispatch:
     @parameterized.expand(
         [
-            ("team_scoped", "prospects", [{"team_id": ("team_abc",)}]),
+            ("team_scoped", "prospects", "/prospects", "prospects", [{"team_id": ("team_abc",)}]),
             # `/teams` lists every team the key can see, so it is not scoped to the configured one.
-            ("teams_listing", "teams", [{}]),
+            ("teams_listing", "teams", "/teams", "teams", [{}]),
+            ("email_settings", "email_settings", "/email_settings", "email_settings", [{"team_id": ("team_abc",)}]),
+            # The route is singular but the response key is plural.
+            ("do_not_contacts", "do_not_contacts", "/do_not_contact", "do_not_contacts", [{"team_id": ("team_abc",)}]),
         ]
     )
     def test_v3_uses_v3_base_root_envelope_and_team_id(
-        self, _name: str, endpoint: str, expected_queries: list[dict[str, tuple[str, ...]]]
+        self,
+        _name: str,
+        endpoint: str,
+        path: str,
+        data_key: str,
+        expected_queries: list[dict[str, tuple[str, ...]]],
     ) -> None:
         result = _run(
-            [_response_v3([{"id": "x_1"}], endpoint, next_url=None)],
+            [_response_v3([{"id": "x_1"}], data_key, next_url=None)],
             endpoint=endpoint,
             api_version=SMARTREACH_API_V3,
             smartreach_team_id="team_abc",
@@ -85,7 +93,7 @@ class TestVersionDispatch:
 
         # Rows come from the v3 root envelope; a leftover v1 `data.*` selector would yield none.
         assert result.rows == [{"id": "x_1"}]
-        assert result.urls[0].startswith(f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/{endpoint}")
+        assert result.urls[0].split("?")[0] == f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}{path}"
         # v3 requires team_id on the first request; the paginator carries it forward via links.next.
         assert result.queries == expected_queries
 
@@ -198,25 +206,63 @@ class TestCampaignFanOut:
             ("cmp_2", "prs_1"),
         ]
 
-    def test_campaign_stats_is_one_row_per_campaign(self) -> None:
-        stats = {"object": "campaign", "total_sent": 10, "reply_sentiment_stats": {"positive": 1}}
+    @parameterized.expand(
+        [
+            (
+                "campaign_stats",
+                "campaign_stats",
+                "stats",
+                {"object": "campaign", "total_sent": 10},
+                {"object": "campaign", "total_sent": 10},
+            ),
+            (
+                # The `channel_settings` wrapper is lifted so each channel gets its own column.
+                "campaign_channel_settings",
+                "campaign_channel_settings",
+                "channel_settings",
+                {"channel_settings": {"email_settings": [{"id": "es_1"}], "sms_settings": []}},
+                {"email_settings": [{"id": "es_1"}], "sms_settings": []},
+            ),
+            (
+                "campaign_channel_settings_without_wrapper",
+                "campaign_channel_settings",
+                "channel_settings",
+                {"channel_settings": None},
+                {"channel_settings": None},
+            ),
+            (
+                # The parent's campaign id wins over a same-named key inside the wrapper.
+                "campaign_channel_settings_key_clash",
+                "campaign_channel_settings",
+                "channel_settings",
+                {"channel_settings": {"campaign_id": "other", "call_settings": []}},
+                {"call_settings": []},
+            ),
+        ]
+    )
+    def test_single_object_child_is_one_row_per_campaign(
+        self, _name: str, endpoint: str, route: str, body: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
         result = _run_v3(
             [
                 CAMPAIGNS_PAGE,
-                # A stray links.next must not be followed: the stats object is the whole response.
-                ScriptedResponse(json={**stats, "links": {"next": f"{V3_BASE}/campaigns/cmp_1/stats?page=2"}}),
-                ScriptedResponse(json=stats),
+                # A stray links.next must not be followed: the object is the whole response.
+                ScriptedResponse(json={**body, "links": {"next": f"{V3_BASE}/campaigns/cmp_1/{route}?page=2"}}),
+                ScriptedResponse(json=body),
             ],
-            "campaign_stats",
+            endpoint,
         )
 
         assert result.raised is None
         assert result.urls == [
             f"{V3_BASE}/campaigns?team_id=team_abc",
-            f"{V3_BASE}/campaigns/cmp_1/stats?team_id=team_abc",
-            f"{V3_BASE}/campaigns/cmp_2/stats?team_id=team_abc",
+            f"{V3_BASE}/campaigns/cmp_1/{route}?team_id=team_abc",
+            f"{V3_BASE}/campaigns/cmp_2/{route}?team_id=team_abc",
         ]
-        assert [(row["campaign_id"], row["total_sent"]) for row in result.rows] == [("cmp_1", 10), ("cmp_2", 10)]
+        assert [{k: v for k, v in row.items() if k != "links"} for row in result.rows] == [
+            {**expected_row, "campaign_id": "cmp_1"},
+            {**expected_row, "campaign_id": "cmp_2"},
+        ]
 
     def test_resume_skips_finished_campaigns(self) -> None:
         result = _run_v3(

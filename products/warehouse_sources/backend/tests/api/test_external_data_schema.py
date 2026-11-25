@@ -198,6 +198,32 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.status == expected
 
     @parameterized.expand(
+        [
+            ("failing", {"failure_streak": {"runs": 8}}, {"failure_streak": {"runs": 8, "manual_run_requested": True}}),
+            ("healthy", {}, {}),
+        ]
+    )
+    def test_sync_now_lets_a_failing_schema_run(self, _name: str, config: dict, expected: dict) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type_config == expected
+
+    @parameterized.expand(
         [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
     )
     def test_incremental_fields_stripe(
@@ -2784,6 +2810,41 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert schema.sync_type_config.get("primary_key_columns") == ["_id"]
 
+    def test_incremental_field_change_lets_a_failing_schema_run(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "failure_streak": {"runs": 8},
+            },
+            table=DataWarehouseTable.objects.create(team=self.team),
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "available_on", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200, response.content
+        mock_trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.manual_run_requested is True
+
     def test_switch_synced_incremental_schema_to_append_with_existing_pk(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
@@ -2940,6 +3001,89 @@ class TestExternalDataSchema(APIBaseTest):
         # Existing webhook: reconcile events, never re-create.
         mock_sync_events.assert_called_once()
         mock_create_webhook.assert_not_called()
+
+    @parameterized.expand([("single", True, False), ("bulk", True, True), ("no_webhook", False, False)])
+    def test_enabling_a_webhook_table_routes_it_on_the_existing_webhook(
+        self, _name: str, has_webhook: bool, bulk: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team=self.team,
+                source=source,
+                should_sync=False,
+                status=ExternalDataSchema.Status.COMPLETED,
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            )
+            for name in (("Charge", "Invoice") if bulk else ("Charge",))
+        ]
+        # Already syncs by webhook; some providers replace their subscription with the names they get.
+        ExternalDataSchema.objects.create(
+            name="Subscription",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        function = None
+        if has_webhook:
+            function = HogFunction.objects.create(
+                team=self.team,
+                type="warehouse_source_webhook",
+                hog="return event",
+                enabled=True,
+                inputs_schema=[
+                    {"key": "source_id", "type": "string"},
+                    {"key": "schema_mapping", "type": "json"},
+                    {"key": "http_auth_user", "type": "string"},
+                ],
+                inputs={
+                    "source_id": {"value": str(source.pk)},
+                    "schema_mapping": {"value": {}},
+                    "http_auth_user": {"value": "posthog"},
+                },
+            )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch.object(
+                StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)
+            ) as sync_events,
+        ):
+            if bulk:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                    data={"schemas": [{"id": str(schema.id), "should_sync": True} for schema in schemas]},
+                    format="json",
+                )
+            else:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_schemas/{schemas[0].id}",
+                    data={"should_sync": True},
+                )
+
+        assert response.status_code == 200, response.content
+        if function is None:
+            # Without a webhook the table reports `not_registered`; enabling it must not register one.
+            assert not HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
+            sync_events.assert_not_called()
+            return
+        function.refresh_from_db()
+        inputs = function.inputs or {}
+        assert inputs["schema_mapping"]["value"] == {
+            StripeSource().webhook_mapping_key(schema.name): str(schema.id) for schema in schemas
+        }
+        # The webhook's other inputs stay as set, or its template drops every delivery.
+        assert inputs["http_auth_user"] == {"value": "posthog"}
+        # One provider reconciliation per source, with every enabled webhook table of the source.
+        assert sync_events.call_count == 1
+        assert sync_events.call_args.args[3] == sorted([*(schema.name for schema in schemas), "Subscription"])
 
     def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
         source = ExternalDataSource.objects.create(
@@ -4847,6 +4991,9 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
             ("external_data_source:write", "PATCH", "partial_update", True),
             ("other_scope:read", "GET", "list", False),
             ("other_scope:write", "PATCH", "partial_update", False),
+            ("external_data_source:read", "GET", "destinations", True),
+            ("external_data_source:read", "PATCH", "destinations", False),
+            ("external_data_source:write", "PATCH", "destinations", True),
         ]
     )
     def test_api_key_scope_gating(self, scope, method, action, should_have_access):
@@ -4862,6 +5009,12 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
         elif action == "partial_update":
             url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/"
             response = self.client.patch(url, {"should_sync": False}, format="json", headers=headers)
+        elif action == "destinations":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations/"
+            if method == "GET":
+                response = self.client.get(url, headers=headers)
+            else:
+                response = self.client.patch(url, {"destination_ids": None}, format="json", headers=headers)
         else:
             self.fail(f"Unknown action: {action}")
 
@@ -5998,8 +6151,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert {row["id"]: row["table_id"] for row in rows} == expected
 
-    def _webhook_source(self, *, with_webhook: bool) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
-        source, _ = self._create()
+    def _webhook_source(
+        self,
+        *,
+        with_webhook: bool,
+        function_inputs: dict | None = None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE,
+    ) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
+        source, _ = self._create(source_type)
         ExternalDataSchema.objects.filter(source=source).delete()
         schemas = [
             ExternalDataSchema.objects.create(
@@ -6013,10 +6172,27 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 type="warehouse_source_webhook",
                 hog="return event",
                 enabled=True,
-                inputs_schema=[{"key": "source_id", "type": "string"}],
-                inputs={"source_id": {"value": str(source.pk)}},
+                inputs_schema=[
+                    {"key": "source_id", "type": "string"},
+                    {"key": "schema_mapping", "type": "json"},
+                    {"key": "signing_secret", "type": "string", "secret": True},
+                    {"key": "signing_secrets_complete", "type": "boolean"},
+                    {"key": "bypass_signature_check", "type": "boolean"},
+                ],
+                inputs={"source_id": {"value": str(source.pk)}, **self._resolve_routes(function_inputs, schemas)},
             )
         return source, schemas
+
+    @staticmethod
+    def _resolve_routes(function_inputs: dict | None, schemas: list[ExternalDataSchema]) -> dict:
+        # Fixtures name the route target "self" to mean the first table's own id.
+        inputs = dict(function_inputs or {})
+        if "schema_mapping" in inputs:
+            routes = inputs["schema_mapping"]["value"]
+            inputs["schema_mapping"] = {
+                "value": {key: str(schemas[0].id) if value == "self" else value for key, value in routes.items()}
+            }
+        return inputs
 
     @parameterized.expand([("no_webhook", False, True), ("enabled_webhook", True, False)])
     def test_retrieve_webhook_not_registered(self, _name: str, with_webhook: bool, expected: bool) -> None:
@@ -6026,18 +6202,77 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert detail["webhook_not_registered"] is expected
 
+    @parameterized.expand(
+        [
+            ("no_webhook", False, {}, "not_registered"),
+            # The webhook answers 200 and drops every delivery while the signing secret is unset.
+            ("no_signing_secret", True, {"schema_mapping": {"value": {"customer": "self"}}}, "missing_inputs"),
+            # With the signature check bypassed, a missing secret drops nothing.
+            (
+                "bypassed_signature_check",
+                True,
+                {"bypass_signature_check": {"value": True}, "schema_mapping": {"value": {"customer": "self"}}},
+                None,
+            ),
+            # A table enabled after the webhook was set up has no route, so its events are dropped.
+            (
+                "table_not_routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {}}},
+                "not_routed",
+            ),
+            # A route left by a deleted table of the same name points at a dead schema.
+            (
+                "routed_to_another_table",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "old-id"}}},
+                "not_routed",
+            ),
+            (
+                "routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "self"}}},
+                None,
+            ),
+            # A function saves an unset input as None; Webflow's input check must not crash on it.
+            ("unset_input_webflow", True, {}, "missing_inputs", ExternalDataSourceType.WEBFLOW),
+        ]
+    )
+    def test_retrieve_webhook_issue(
+        self,
+        _name: str,
+        with_webhook: bool,
+        function_inputs: dict,
+        expected: str | None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE,
+    ) -> None:
+        _, schemas = self._webhook_source(
+            with_webhook=with_webhook, function_inputs=function_inputs, source_type=source_type
+        )
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schemas[0].id}/").json()
+
+        assert detail["webhook_issue"] == expected
+
     def test_list_serializer_looks_up_webhooks_once_for_all_sources(self) -> None:
         _, with_webhook = self._webhook_source(with_webhook=True)
         _, without_webhook = self._webhook_source(with_webhook=False)
         view = ExternalDataSchemaViewset()
         view.team_id = self.team.pk
 
-        with self.assertNumQueries(1):
+        # One lookup for the enabled functions and one for the source types, whatever the number of sources.
+        with self.assertNumQueries(2):
             rows = view.get_serializer(
                 [*with_webhook, *without_webhook], many=True, context={"include_columns": False}
             ).data
 
         assert [row["webhook_not_registered"] for row in rows] == [False, False, True, True]
+        assert [row["webhook_issue"] for row in rows] == [
+            "missing_inputs",
+            "missing_inputs",
+            "not_registered",
+            "not_registered",
+        ]
 
     @parameterized.expand(
         [
@@ -6052,6 +6287,11 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema.status = ExternalDataSchema.Status.FAILED
         schema.should_sync = True
         schema.latest_error = "failed for key 123 " + "y" * 2000
+        # Every run found nothing new, so only the check stamp exists.
+        schema.last_synced_at = None
+        schema.last_checked_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+        # A completion time, later than the stored check; it must not replace it.
+        schema.sync_type_config = {"last_full_run_at": "2026-11-20T08:10:00+00:00"}
         schema.save()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")
@@ -6070,6 +6310,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 "sync_type",
                 "status",
                 "last_synced_at",
+                "last_checked_at",
                 "latest_error",
             }
             assert row["source_id"] == str(source.id)
@@ -6079,6 +6320,20 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         else:
             assert {"table", "sync_frequency", "incremental_field", "webhook_not_registered"} <= set(row)
             assert len(row["latest_error"]) > 2000
+        assert row["last_synced_at"] is None
+        assert row["last_checked_at"] == "2026-11-20T08:00:00Z"
+
+    def test_last_checked_at_ignores_the_legacy_completion_stamp(self) -> None:
+        # Before the column existed, a run that loaded rows stamped its start in `last_synced_at` and its
+        # finish in `last_full_run_at`. Reading the finish would show that run as a later empty one.
+        _, schema = self._create()
+        schema.last_synced_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+        schema.sync_type_config = {"last_full_run_at": "2026-11-20T08:10:00+00:00"}
+        schema.save()
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+
+        assert detail["last_checked_at"] == detail["last_synced_at"]
 
     def test_list_compact_rejects_invalid_flag(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?compact=nope")
@@ -7123,8 +7378,12 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
             )
 
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/logs/"
-        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.Database.create_for"
+        ) as database:
+            second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
 
+        database.assert_not_called()
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
 
