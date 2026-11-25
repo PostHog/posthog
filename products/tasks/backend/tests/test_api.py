@@ -3926,6 +3926,51 @@ class TestTaskAPI(BaseTaskAPITest):
             {"default": str(default_image_id), "requested": str(requested_image.id), None: None}[expected_image],
         )
 
+    @parameterized.expand(
+        [
+            ("discussion_with_code_access", "discussion", True, True, True),
+            ("discussion_without_code_access", "discussion", False, True, False),
+            ("discussion_without_github", "discussion", True, False, False),
+            ("research", "research", True, True, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_report_discussion_run_gets_the_image_default_with_code_access(
+        self, _name, relationship, code_access, github_connected, expects_image, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        self._desktop_access_enabled = code_access
+        integration = (
+            Integration.objects.create(team=self.team, kind="github", integration_id="gh-defaults", config={})
+            if github_connected
+            else None
+        )
+        default_image_id = uuid.uuid4()
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image_id)
+        report = SignalReport.objects.create(team=self.team)
+        if relationship == "research":
+            task = Task.objects.create(
+                team=self.team,
+                title="Research report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile="signals.research",
+                signal_report=report,
+                github_integration=integration,
+                created_by=self.user,
+            )
+        else:
+            create_response = self._post_signal_report_task(report.id, relationship)
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("custom_image_id"), str(default_image_id) if expects_image else None)
+
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
         from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
