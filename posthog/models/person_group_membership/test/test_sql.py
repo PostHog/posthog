@@ -102,6 +102,7 @@ def test_migration_placement(
                     assert op._sharded is False
                     assert op._is_alter_on_replicated_table is False
                     assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
+                    assert "event" not in op._sql
                 elif migration != FLAG_CALLS_MIGRATION:
                     assert "IF NOT EXISTS" in op._sql
             assert any("Kafka" in op._sql for op in operations) == consumes_kafka
