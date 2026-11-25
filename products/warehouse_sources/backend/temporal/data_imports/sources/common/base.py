@@ -185,16 +185,19 @@ def nest_flat_select_containers(
         if not flat:
             continue
         container = job_inputs.get(field.name)
-        if not isinstance(container, dict):
-            # A select sent as a bare string names the chosen branch, as config parsing reads it.
-            options = {option.value for option in field.options}
-            selection = container if isinstance(container, str) and container in options else field.defaultValue
-            nested[field.name] = {"selection": selection, **flat}
-            continue
-        if container.get("selection", field.defaultValue) != field.defaultValue:
-            continue
         stored_container = (stored or {}).get(field.name)
         stored_values = stored_container if isinstance(stored_container, dict) else {}
+        if not isinstance(container, dict):
+            options = {option.value for option in field.options}
+            if container not in (None, "") and container not in options:
+                nested.update(flat)
+                continue
+            # A select sent as a bare string names the chosen branch, as config parsing reads it.
+            nested[field.name] = {"selection": container or field.defaultValue, **flat}
+            continue
+        # An update without a selection keeps the stored branch, as the update merge reads it.
+        if container.get("selection", stored_values.get("selection", field.defaultValue)) != field.defaultValue:
+            continue
         merged = dict(container)
         for name, value in flat.items():
             if value in (None, "") or value == stored_values.get(name):

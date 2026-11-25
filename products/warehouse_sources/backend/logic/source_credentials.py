@@ -290,6 +290,7 @@ def _identity(source_type: str, fields: Mapping[str, Any]) -> str:
     )
 
     source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    fields = comparable_connection_fields(source_type, fields)
     return json.dumps(_identity_parts(fields, source.credential_identity_fields), sort_keys=True)
 
 
@@ -299,7 +300,11 @@ def _identity_parts(fields: Mapping[str, Any], names: frozenset[str], prefix: st
     parts: dict[str, Any] = {}
     for key, value in fields.items():
         path = f"{prefix}{key}"
-        if key in names:
+        if key == "selection":
+            # The auth method is part of the connection. A branch can keep its credential outside the
+            # row (an IAM role), so a switch must not rewrite the row the other users still read.
+            parts[path] = _normalized(value)
+        elif key in names:
             part = _identity_value(str(key), value)
             # An unset and a blank value match.
             if part not in ("", {}):
