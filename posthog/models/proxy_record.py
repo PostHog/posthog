@@ -121,12 +121,28 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     return str(organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
 
 
+class CloudflareActivationState(models.IntegerChoices):
+    IDLE = 0
+    DEPROVISIONED = 1
+    SUSPENDED = 2
+    RECOVERY_PENDING = 3
+
+
+CLOUDFLARE_DEPROVISIONED_STATES = (CloudflareActivationState.DEPROVISIONED, CloudflareActivationState.SUSPENDED)
+CLOUDFLARE_RECOVERY_STATES = (CloudflareActivationState.SUSPENDED, CloudflareActivationState.RECOVERY_PENDING)
+
+
 class ProxyRecord(UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)
     target_cname = models.CharField(max_length=256, null=False)
     root_redirect_url = models.URLField(max_length=1024, null=True, blank=True)
     message = models.CharField(max_length=1024, null=True)
+    cloudflare_activation_state = models.SmallIntegerField(
+        choices=CloudflareActivationState,
+        default=CloudflareActivationState.IDLE,
+        db_default=CloudflareActivationState.IDLE,
+    )
 
     class Status(models.TextChoices):
         WAITING = "waiting"
