@@ -423,7 +423,8 @@ pub async fn serve_with_rate_limiter_clock<C>(
     }
 
     // The definitions v2 entry lives in Redis only. Its reader takes the legacy reader's Redis
-    // client, so both entries are read from the same cluster, and it never reads S3.
+    // client, so both entries are read from the same cluster. The reader holds an S3 client
+    // because the constructor needs one, but the handler only calls its Redis reads.
     let flags_with_cohorts_v2_config = HyperCacheConfig {
         object_name: FLAG_DEFINITIONS_V2_OBJECT_NAME.to_string(),
         ..flags_with_cohorts_config.clone()

@@ -142,10 +142,10 @@ Authenticated via:
 - Project secret API key (`Authorization: Bearer phs_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
+Current implementation returns flag definitions with cohort data from HyperCache (Redis, then S3). There is no PostgreSQL fallback: a miss in both tiers returns 503. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
 
 The `v` query parameter selects the feed.
-Exactly `v=2` selects the definitions v2 feed, which carries config version 2 flags beside the legacy ones.
+A single `v` whose decoded value is `2` selects the definitions v2 feed, which carries config version 2 flags beside the legacy ones.
 Every other value, a repeated `v`, and no `v` select the legacy feed.
 
 A `v=2` request reads the team's `flags_with_cohorts_v2.json` entry and its ETag from Redis only.
@@ -154,7 +154,9 @@ A missing v2 entry requests no rebuild.
 An ETag without its payload, or a payload that cannot be read, also falls back to the legacy entry.
 
 Authentication, both rate-limit budgets, the quota check and billing are the same for both feeds.
-`flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the entry that answered (`served`) and the SDK name (`library`).
+`flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the path that took them (`served`) and the SDK name (`library`).
+`served` is `v2` when the v2 entry answered, and `legacy` when the request went on to the legacy path, whatever that path then answered.
+Requests refused before the feed is chosen are not counted, including a `v=2` request whose stale ETag the full-response budget refuses.
 The request log line carries `requests_v2`, `sdk_name` and `sdk_version`.
 
 Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` behavior:

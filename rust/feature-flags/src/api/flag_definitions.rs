@@ -462,8 +462,8 @@ pub async fn flags_definitions(
     ))
 }
 
-/// Only a single `v` equal to `2` selects the definitions v2 feed, because clients already
-/// send other values. The typed extractor would answer 400 for a repeated `v`.
+/// Only a single `v` that decodes to `2` selects the definitions v2 feed, because clients
+/// already send other values. The typed extractor would answer 400 for a repeated `v`.
 fn requests_definitions_v2(raw_query: Option<&str>) -> bool {
     let mut versions = url::form_urlencoded::parse(raw_query.unwrap_or_default().as_bytes())
         .filter(|(name, _)| name == "v")
