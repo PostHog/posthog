@@ -26,7 +26,11 @@ fi
 
 # pytest resolves --ignore against the working directory, so pass absolute paths.
 ignore_args=()
-while IFS= read -r pattern; do
+# `|| [ -n ... ]` keeps a last line that has no newline. read trims leading blanks, and the
+# expansion below trims trailing whitespace and a CR, so both readers of the list see the
+# same entries (hogli's orphan check strips each line too).
+while read -r pattern || [ -n "$pattern" ]; do
+    pattern=${pattern%"${pattern##*[![:space:]]}"}
     case "$pattern" in '' | '#'*) continue ;; esac
     # shellcheck disable=SC2086 # the pattern may hold a glob, which must expand here
     for path in "$repo_root"/$pattern; do

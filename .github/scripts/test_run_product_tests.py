@@ -15,7 +15,7 @@ def fake_repo(tmp_path: Path) -> Path:
     scripts.mkdir(parents=True)
     shutil.copy(RUNNER, scripts / RUNNER.name)
     (scripts / "product-tests-owned-elsewhere.txt").write_text(
-        "# owned by other jobs\n\nproducts/*/dags\nproducts/foo/vendor\n"
+        "# owned by other jobs\n\nproducts/*/dags \r\nproducts/foo/vendor"
     )
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
     for test_file in ("backend/tests/test_a.py", "scripts/test_b.py", "dags/test_c.py", "vendor/test_d.py"):
