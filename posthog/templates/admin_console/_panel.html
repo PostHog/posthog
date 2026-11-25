@@ -1,6 +1,10 @@
 {# One registered Panel as a quill Card. `rendered` is a RenderedPanel from posthog/admin/console/views.py. #}
+{# console.js fetches live_url again while data-refresh-seconds is set and swaps this element. #}
 <section class="quill-card group/card flex flex-col scroll-mt-4{% if rendered.panel.danger %} console-danger{% endif %}"
          id="panel-{{ rendered.panel.key }}"
+         data-console-live="{{ rendered.live_url }}"
+         {% if rendered.refresh_seconds %}data-refresh-seconds="{{ rendered.refresh_seconds }}"{% endif %}
+         aria-live="polite"
          data-quill
          data-slot="card"
          data-size="default">

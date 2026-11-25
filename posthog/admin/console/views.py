@@ -57,6 +57,9 @@ class RenderedPanel:
     panel: Panel
     facts: list[Fact]
     operations: list[RenderedOperation]
+    # console.js fetches this URL for a fresh copy of the panel while refresh_seconds is set.
+    live_url: str
+    refresh_seconds: int | None
 
 
 @frozen
@@ -313,29 +316,32 @@ def _rendered_operation(
     return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
 
 
+def _rendered_panel(request: HttpRequest, record_type: RecordType, obj: Model, panel: Panel) -> RenderedPanel:
+    return RenderedPanel(
+        panel=panel,
+        facts=panel.facts(obj),
+        operations=[
+            _rendered_operation(
+                request,
+                operation,
+                panel.owner,
+                reverse(
+                    record_type.operation_url_name,
+                    kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                ),
+            )
+            for operation in _offered_operations(panel, obj)
+        ],
+        live_url=reverse(record_type.panel_live_url_name, kwargs={"pk": obj.pk, "panel_key": panel.key}),
+        refresh_seconds=panel.refresh_seconds(obj),
+    )
+
+
 def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
     RecentRecords.remember(request, record_type, obj)
-    panels = [
-        RenderedPanel(
-            panel=panel,
-            facts=panel.facts(obj),
-            operations=[
-                _rendered_operation(
-                    request,
-                    operation,
-                    panel.owner,
-                    reverse(
-                        record_type.operation_url_name,
-                        kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
-                    ),
-                )
-                for operation in _offered_operations(panel, obj)
-            ],
-        )
-        for panel in console.panels_for(record_type.key)
-    ]
+    panels = [_rendered_panel(request, record_type, obj, panel) for panel in console.panels_for(record_type.key)]
     return render(
         request,
         "admin_console/record.html",
@@ -676,11 +682,28 @@ def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpRespons
     live_url = _with_query(
         reverse("admin_console_tool_live", kwargs={"tool_key": tool.key, "live_key": live.key}), request
     )
-    response = render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
+    return _live_response(
+        render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
+    )
+
+
+def _live_response(response: HttpResponse) -> HttpResponse:
     # console.js swaps in only a response that carries this header, never a login page or an error page.
     response["X-Console-Live"] = "1"
     response["Cache-Control"] = "no-store"
     return response
+
+
+@require_safe
+def record_panel_live(request: HttpRequest, record: str, pk: object, panel_key: str) -> HttpResponse:
+    """One panel of a record page, for console.js to swap in. It reads only, like the record page itself."""
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    panel = console.get_panel(record_type.key, panel_key)
+    if panel is None:
+        raise Http404("Unknown console panel")
+    rendered = _rendered_panel(request, record_type, obj, panel)
+    return _live_response(render(request, "admin_console/_panel.html", {"rendered": rendered}))
 
 
 @require_safe
