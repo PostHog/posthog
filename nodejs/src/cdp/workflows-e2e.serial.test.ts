@@ -75,6 +75,7 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CdpIntakeConsumer } from './consumers/cdp-intake.consumer'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import {
     CyclotronV2DequeuedJob,
@@ -3719,9 +3720,36 @@ describe('Workflows E2E (email queue)', () => {
         }
         let clickhouse: Clickhouse
         let api: CdpApi
+        let intakeConsumer: CdpIntakeConsumer
+        let consumedIntakeMessages = 0
         let scheduledSends: CyclotronV2Manager
         let app: express.Application
         let server: ReturnType<express.Application['listen']>
+
+        const drainIntake = async (): Promise<void> => {
+            const all = mockProducerObserver
+                .getProducedMessages()
+                .filter((m) => m.topic === hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                .flatMap((m) => m.messages)
+            const next = all.slice(consumedIntakeMessages)
+            consumedIntakeMessages = all.length
+            if (next.length === 0) {
+                return
+            }
+            await intakeConsumer.processBatch(
+                next.map((m, idx) => ({
+                    topic: hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC,
+                    partition: 0,
+                    offset: consumedIntakeMessages - next.length + idx,
+                    size: m.value ? Buffer.byteLength(m.value) : 0,
+                    key: m.key ? Buffer.from(m.key) : null,
+                    value: m.value ? (Buffer.isBuffer(m.value) ? m.value : Buffer.from(m.value)) : null,
+                    headers: m.headers
+                        ? Object.entries(m.headers).map(([k, v]) => ({ [k]: Buffer.from(String(v)) }))
+                        : undefined,
+                }))
+            )
+        }
 
         const sendFlow = (
             kind: 'template' | 'code',
@@ -3793,10 +3821,14 @@ describe('Workflows E2E (email queue)', () => {
                 hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
                 { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
             )
-            return supertest(pod)
+            const res = await supertest(pod)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/${route}`)
                 .set({ Authorization: `Bearer ${token}` })
                 .send(payload)
+            if (!jest.isMockFunction(setTimeout)) {
+                await drainIntake()
+            }
+            return res
         }
 
         const withOtherPod = async (run: (pod: express.Application) => Promise<void>): Promise<void> => {
@@ -4009,7 +4041,16 @@ describe('Workflows E2E (email queue)', () => {
         beforeEach(async () => {
             await emailWorker.stop()
             hub.SITE_URL = siteUrl
+            await ensureKafkaTopics([hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC, hub.CDP_INTAKE_DLQ_TOPIC])
             deps = createCdpConsumerDeps(hub, kafkaProducer)
+            consumedIntakeMessages = 0
+            intakeConsumer = new CdpIntakeConsumer(hub, deps, 'transactional-email')
+            intakeConsumer['kafkaConsumer'] = {
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+                isHealthy: jest.fn(),
+            } as any
+            await intakeConsumer.start()
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-email',
                 name: 'Email',
@@ -4037,6 +4078,7 @@ describe('Workflows E2E (email queue)', () => {
         afterEach(async () => {
             server.close()
             await api.stop()
+            await intakeConsumer.stop()
             await scheduledSends.disconnect()
         })
 
@@ -4362,15 +4404,15 @@ describe('Workflows E2E (email queue)', () => {
             { length: BODY_MAX_LENGTH, status: 202 },
             { length: BODY_MAX_LENGTH + 1, status: 413 },
         ])(
-            'answers a code send in a marketing category whose html is $length characters long with $status',
+            'answers a code send in a marketing category whose saved step html is $length characters long with $status',
             async ({ length, status }) => {
-                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
                 const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(length, 'x')
+                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional', { html }))
 
                 const res = await post('code', flow, {
                     to: `reader-${new UUIDT().toString()}@example.com`,
                     distinct_id: 'reader',
-                    ...codeSendIn(newsletter, { content: { subject: 'News', html } }),
+                    ...codeSendIn(newsletter, { content: undefined }),
                 })
 
                 expect(res.status).toEqual(status)
@@ -4748,14 +4790,9 @@ describe('Workflows E2E (email queue)', () => {
                 DATABASE_READONLY_URL: dbProxy.url,
                 POSTGRES_CONNECTION_POOL_SIZE: 1,
             })
-            const boundedConfig = {
-                ...hub,
-                CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id),
-                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
-            }
             const boundedDeps = { ...deps, postgres: onePoolPostgres }
             const boundedApi = new CdpApi(
-                boundedConfig,
+                hub,
                 boundedDeps,
                 {
                     hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),

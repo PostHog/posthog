@@ -12,7 +12,11 @@ from products.workflows.backend.services.people_import import (
     MAX_PEOPLE_IMPORT_ROWS,
     start_people_import,
 )
-from products.workflows.backend.services.provider_cohorts import MAX_SOURCE_NAME_LENGTH, resend_segment_description
+from products.workflows.backend.services.provider_cohorts import (
+    MAX_SOURCE_NAME_LENGTH,
+    described_static_cohorts,
+    resend_segment_description,
+)
 from products.workflows.backend.services.provider_contacts import (
     discard_staged_contacts,
     fail_contacts_cohort,
@@ -32,6 +36,7 @@ __all__ = [
     "MAX_SOURCE_NAME_LENGTH",
     "PeopleImportInvalid",
     "ProviderContactsResult",
+    "described_static_cohorts",
     "discard_staged_contacts",
     "fail_contacts_cohort",
     "fill_contacts_cohort",

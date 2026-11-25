@@ -39,6 +39,7 @@ import { CdpCyclotronWorkerEmail } from '../consumers/cdp-cyclotron-worker-email
 import { CdpCyclotronWorkerHogFlow } from '../consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
+import { CdpIntakeConsumer } from '../consumers/cdp-intake.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
 import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
@@ -668,6 +669,14 @@ describe('CDP hog invocation rerun e2e', () => {
         const transactionalTo = `transactional-${new UUIDT().toString()}@example.com`
         const uncategorizedTo = `uncategorized-${new UUIDT().toString()}@example.com`
 
+        await ensureKafkaTopics([hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC, hub.CDP_INTAKE_DLQ_TOPIC])
+        const intakeConsumer = new CdpIntakeConsumer(hub, cdpDeps, 'transactional-email')
+        intakeConsumer['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+        await intakeConsumer.start()
         const api = new CdpApi(hub, cdpDeps, {
             hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
             hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
@@ -732,6 +741,23 @@ describe('CDP hog invocation rerun e2e', () => {
             expect(marketingRes.status).toEqual(202)
             expect(transactionalRes.status).toEqual(202)
             expect(uncategorizedRes.status).toEqual(202)
+            const intakeMessages = mockProducerObserver
+                .getProducedMessages()
+                .filter((m) => m.topic === hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                .flatMap((m) => m.messages)
+            await intakeConsumer.processBatch(
+                intakeMessages.map((m, idx) => ({
+                    topic: hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC,
+                    partition: 0,
+                    offset: idx,
+                    size: m.value ? Buffer.byteLength(m.value) : 0,
+                    key: m.key ? Buffer.from(m.key) : null,
+                    value: m.value ? (Buffer.isBuffer(m.value) ? m.value : Buffer.from(m.value)) : null,
+                    headers: m.headers
+                        ? Object.entries(m.headers).map(([k, v]) => ({ [k]: Buffer.from(String(v)) }))
+                        : undefined,
+                }))
+            )
 
             const marketingRunId = marketingRes.body.invocation_id as string
             const transactionalRunId = transactionalRes.body.invocation_id as string
@@ -852,7 +878,12 @@ describe('CDP hog invocation rerun e2e', () => {
             expect(deliveredTo(uncategorizedTo)).toHaveLength(1)
         } finally {
             server.close()
-            await Promise.all([api.stop(), emailWorker.stop(), freshHub ? closeHub(freshHub) : Promise.resolve()])
+            await Promise.all([
+                api.stop(),
+                intakeConsumer.stop(),
+                emailWorker.stop(),
+                freshHub ? closeHub(freshHub) : Promise.resolve(),
+            ])
         }
     })
 })

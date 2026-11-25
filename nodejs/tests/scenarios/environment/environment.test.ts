@@ -12,7 +12,6 @@ import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
-import { intakeModeOf } from '~/cdp/intake/intake-producer'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { PluginServerMode } from '~/common/config'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -432,19 +431,18 @@ describe('scenario environment', () => {
             )
         })
 
-        it('configures every team for async intake, sealed state and the intake dead-letter check, as production does', () => {
+        it('configures sealed state and the intake dead-letter check, as production does', () => {
             const cdpApi = overrideConfigWithEnv(
                 getDefaultCdpConfig(),
                 specs.find(({ role }) => role === 'cdp-api')!.env
             )
 
             expect({
-                mode: intakeModeOf(cdpApi)(9_999_123),
-                sealed: cdpApi.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+                sealed: Boolean(cdpApi.CDP_SEALED_STATE_KEYS),
                 parksUnreadableRuns: specs
                     .filter(({ role }) => role.startsWith('cdp-intake-'))
                     .map(({ env }) => overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_DLQ_ENABLED),
-            }).toEqual({ mode: 'async', sealed: true, parksUnreadableRuns: [true, true] })
+            }).toEqual({ sealed: true, parksUnreadableRuns: [true, true] })
         })
 
         it('runs a role for every CDP plugin server mode, or names why the scenarios leave it out', () => {

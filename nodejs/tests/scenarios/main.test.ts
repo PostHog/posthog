@@ -1,15 +1,20 @@
 import { randomUUID } from 'crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
+import { parse, stringify } from 'yaml'
 
-import { load } from './cards'
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { PROFILES_DIR, load, loadText } from './cards'
 import { Environment } from './environment/environment'
 import * as processes from './environment/processes'
 import * as stack from './environment/stack'
 import { main, runCards } from './main'
+import * as evidenceFile from './runner/evidence-file'
+import { controlOf } from './runner/pair'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 import { startFakeProjectApi } from './scorecard/fake-project-api'
@@ -17,6 +22,11 @@ import { STORE_URL } from './store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from './store/test-store'
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
+const DESTINATION_ERRORS = parse(readFileSync(path.join(__dirname, 'cards', 'destination-errors.yaml'), 'utf8'))
+const PAIRABLE = loadText('pairable', {
+    card: stringify({ ...DESTINATION_ERRORS, invariants: [...DESTINATION_ERRORS.invariants, { name: 'no_loss' }] }),
+    profile: readFileSync(path.join(PROFILES_DIR, `${DESTINATION_ERRORS.profile}.yaml`), 'utf8'),
+})
 
 const passed = (cardId: string): RunResult => ({
     runId: 'run-a',
@@ -46,11 +56,14 @@ const runnerEnv = (cacheHome: string, credentials: NodeJS.ProcessEnv = {}): Node
     ...credentials,
 })
 
-function environmentWhoseResetFails(): Environment {
+function fakeEnvironment({ resetFails = true } = {}): Environment {
     let edgeUrl: string | undefined = 'http://127.0.0.1:1'
     return {
         up: () => Promise.resolve(),
         reset: () => {
+            if (!resetFails) {
+                return Promise.resolve()
+            }
             edgeUrl = undefined
             return Promise.reject(new Error('cdp-api did not join its consumer group'))
         },
@@ -122,6 +135,7 @@ describe('runCards', () => {
                 }
                 return Promise.resolve(passed(loaded.card.id))
             },
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -155,6 +169,7 @@ describe('runCards', () => {
         const runner: Runner = {
             up: () => Promise.resolve(),
             run: (loaded) => Promise.resolve({ ...passed(loaded.card.id), ...outcome }),
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -172,6 +187,7 @@ describe('runCards', () => {
                     recorded: true,
                     storeError: 'the run store answered 503',
                 }),
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -197,8 +213,44 @@ describe('runCards', () => {
         expect(stderr.filter((text) => text.includes('The preflight test reached'))).toEqual([])
     })
 
+    it.each<[string, string[], NodeJS.ProcessEnv, RegExp]>([
+        [
+            'a card without valves',
+            ['run', 'smoke', '--pair'],
+            {},
+            /^smoke: --pair needs a card that applies valves and judges no_loss/,
+        ],
+        [
+            'a card that judges no no_loss',
+            ['run', 'destination-errors', '--pair'],
+            {},
+            /^destination-errors: --pair needs a card that applies valves and judges no_loss/,
+        ],
+        [
+            'the dev target',
+            ['run', 'dev-smoke', '--target', 'dev', '--pair'],
+            {},
+            /^--pair runs on the local target only/,
+        ],
+        [
+            'a run host',
+            ['run', 'smoke', '--pair'],
+            { SCENARIO_RUN_MANIFEST: '/nonexistent/manifest.json' },
+            /^--pair runs on the local target only/,
+        ],
+    ])('refuses --pair for %s before it starts the stack', async (_story, argv, env, refusal) => {
+        jest.spyOn(processes, 'terminate').mockRejectedValue(new Error('The preflight test reached process cleanup.'))
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
+        expect(await main(argv, env)).toBe(EXIT_CODE.invalid)
+
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toMatch(refusal)
+        expect(stack.startStack).not.toHaveBeenCalled()
+    })
+
     it('names the failed reset for the cards it skips once a reset stopped the environment', async () => {
-        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome))
+        const runner = createRunner(fakeEnvironment(), runnerEnv(cacheHome))
 
         const exitCode = await runCards(runner, [SMOKE, SMOKE], new AbortController().signal)
 
@@ -210,12 +262,88 @@ describe('runCards', () => {
         })
     })
 
+    it('saves both scorecards of a paired card, then publishes each with the pair', async () => {
+        const api = await startFakeProjectApi()
+        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
+        const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+        const stateDir = path.join(cacheHome, 'posthog-scenarios')
+        const savedAtCapture: number[] = []
+        api.onCapture = () =>
+            savedAtCapture.push(
+                readdirSync(stateDir).filter((run) => existsSync(path.join(stateDir, run, 'scorecard.json'))).length
+            )
+
+        try {
+            const exitCode = await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
+
+            const [control, faulted] = api.captured.map(({ properties }) => properties)
+            const pair = {
+                pair_attribution: 'unjudged',
+                pair_reason: expect.stringMatching(/^the control run is invalid: /),
+                pair_control_run_id: control.run_id,
+                pair_faulted_run_id: faulted.run_id,
+            }
+            expect({ exitCode, captured: api.captured.length, control, faulted }).toEqual({
+                exitCode: EXIT_CODE.invalid,
+                captured: 2,
+                control: expect.objectContaining({ ...pair, pair_role: 'control', card_id: 'destination-errors' }),
+                faulted: expect.objectContaining({ ...pair, pair_role: 'faulted', card_id: 'destination-errors' }),
+            })
+            expect(control.run_id).not.toEqual(faulted.run_id)
+            expect([control.card_hash, faulted.card_hash]).toEqual([controlOf(PAIRABLE).cardHash, PAIRABLE.cardHash])
+            expect(savedAtCapture).toEqual([2, 2])
+        } finally {
+            await api.close()
+        }
+    })
+
+    it('reads the pair again when a saved scorecard cannot be written, and saves the other run with it before publishing', async () => {
+        const api = await startFakeProjectApi()
+        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
+        const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+        const { writeJson } = jest.requireActual<typeof evidenceFile>('./runner/evidence-file')
+        let failed = false
+        jest.spyOn(evidenceFile, 'writeJson').mockImplementation((dir, name, value) => {
+            if (name === 'scorecard.json' && !failed) {
+                failed = true
+                throw new Error('disk full')
+            }
+            writeJson(dir, name, value)
+        })
+
+        let savedAtFirstCapture: { event: { pair_reason: unknown } } | undefined
+        api.onCapture = ({ properties }) => {
+            savedAtFirstCapture ??= parseJSON(
+                readFileSync(
+                    path.join(cacheHome, 'posthog-scenarios', String(properties.pair_faulted_run_id), 'scorecard.json'),
+                    'utf8'
+                )
+            )
+        }
+
+        try {
+            await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
+
+            const [control, faulted] = api.captured.map(({ properties }) => properties)
+            const reason = expect.stringMatching(
+                /^the control run is invalid: .*; the evidence could not be written: disk full$/
+            )
+            expect([control.pair_reason, faulted.pair_reason, savedAtFirstCapture?.event.pair_reason]).toEqual([
+                reason,
+                reason,
+                reason,
+            ])
+        } finally {
+            await api.close()
+        }
+    })
+
     it('says the scorecard was captured when the run is interrupted before it was read back', async () => {
         const api = await startFakeProjectApi()
         const interrupt = new AbortController()
         api.hideForQueries = Infinity
         api.onCapture = () => interrupt.abort()
-        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome, api.credentials))
+        const runner = createRunner(fakeEnvironment(), runnerEnv(cacheHome, api.credentials))
 
         try {
             const exitCode = await runCards(runner, [SMOKE], interrupt.signal)

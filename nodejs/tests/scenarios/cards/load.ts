@@ -205,6 +205,34 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     )
 }
 
+const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+
+const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
+    valve === roleKill.name && target === EMAIL_WORKER
+
+function checkAcceptedBoundary(card: Card): string[] {
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill on ${EMAIL_WORKER}`,
+              ]
+            : []
+    )
+}
+
+function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
+    if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.target: role.kill stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+              ]
+            : []
+    )
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
@@ -315,12 +343,14 @@ function check(
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
+        ...checkAcceptedBoundary(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
                   ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
@@ -335,6 +365,9 @@ function check(
         card,
         profile: loaded.profile,
         profileHash,
-        cardHash: sha256({ card: { ...card, gates: undefined }, profileHash }),
+        cardHash: cardHashOf(card, profileHash),
     }
 }
+
+export const cardHashOf = (card: Card, profileHash: string): string =>
+    sha256({ card: { ...card, gates: undefined }, profileHash })
