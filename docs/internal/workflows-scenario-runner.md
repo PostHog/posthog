@@ -673,16 +673,20 @@ export function startProviderEdge(options: {
 
 ```ts
 // nodejs/tests/scenarios/provider-edge/process.ts
-export function startEdgeProcess(options: EdgeProcessOptions): Promise<EdgeProcess> // port, trackingKeys, caDir and feedbackUrl
+export function startEdgeProcess(
+  options: EdgeProcessOptions, // port, trackingKeys, caDir and feedbackUrl
+  deadlines?: { startsWithinMs?: number; answersWithinMs?: number } // 60 and 30 seconds; past one, the edge process is killed and every call rejects
+): Promise<EdgeProcess>
 export type EdgeProcess = {
   url: string
   caCertPath?: string
   hold(rule: FaultRule): Promise<FaultHold> // the rule goes to the edge process as plain data
   clearFaults(): Promise<void>
   close(): Promise<void> // resolves once the process has exited and its port is free
+  readonly pid: number | undefined
 }
 export type FaultHold = {
-  observed(holdEnds?: AbortSignal): Promise<boolean> // waits in the runner on the edge's firstAppliedAt for the fault, within 10 seconds
+  observed(holdEnds?: AbortSignal): Promise<boolean> // waits in the runner on the edge's firstAppliedAt for the fault, within 10 seconds and before the hold ends
   release(): Promise<void> // removes the fault in the edge process, as DELETE /_faults/:id does
 }
 ```

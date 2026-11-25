@@ -73,6 +73,24 @@ describe('provider edge process', () => {
         expect(await send()).toBe('sent')
     })
 
+    it('rejects a pending call when the edge process dies', async () => {
+        process.kill(edge.pid!, 'SIGSTOP')
+        const holding = edge.hold(REJECT)
+        process.kill(edge.pid!, 'SIGKILL')
+
+        await expect(holding).rejects.toThrow('the provider edge process exited with SIGKILL')
+    }, 10_000)
+
+    it('gives up on an edge process that stops answering, and rejects every later call', async () => {
+        await edge.close()
+        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+        process.kill(edge.pid!, 'SIGSTOP')
+        const holding = edge.hold(REJECT)
+
+        await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
+        await expect(edge.clearFaults()).rejects.toThrow('the provider edge process did not answer add within 500 ms')
+    }, 10_000)
+
     it('rejects startup on a port another listener holds', async () => {
         await expect(startEdgeProcess({ port: Number(new URL(edge.url).port) })).rejects.toThrow('EADDRINUSE')
     })
@@ -140,7 +158,13 @@ describe('provider edge process', () => {
             const outcome = await new Promise<string>((resolve) =>
                 execFile(
                     'bash',
-                    ['-c', 'ulimit -n 1024 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, runner],
+                    [
+                        '-c',
+                        'ulimit -S -n 1024 2>/dev/null; exec "$0" --import "$1" -e "$2"',
+                        process.execPath,
+                        TSX,
+                        runner,
+                    ],
                     { cwd: NODEJS_DIR, env: WITHOUT_LOG_THREAD, timeout: 20_000 },
                     (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
                 )

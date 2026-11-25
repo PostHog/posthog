@@ -1,5 +1,5 @@
-import { execFile } from 'child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { execFile, spawn } from 'child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import http from 'http'
 import net, { AddressInfo } from 'net'
 import { tmpdir } from 'os'
@@ -32,10 +32,9 @@ const listening = async (server: net.Server): Promise<number> => {
     return (server.address() as AddressInfo).port
 }
 
-const webhookAnswerOf = (edge: EdgeProcess): Promise<string> =>
-    promisify(execFile)('curl', [
+const webhookAnswerWhileBlocked = (edge: EdgeProcess, answerFile: string): string => {
+    const curl = [
         '--silent',
-        '--show-error',
         '--output',
         '/dev/null',
         '--write-out',
@@ -49,10 +48,15 @@ const webhookAnswerOf = (edge: EdgeProcess): Promise<string> =>
         '--cacert',
         edge.caCertPath!,
         `https://${WEBHOOK_HOST}/u/busy-runner-unit/busy-runner-action`,
-    ]).then(
-        ({ stdout }) => stdout,
-        (error: { stderr?: string }) => error.stderr?.trim() ?? String(error)
-    )
+    ]
+    spawn('bash', ['-c', 'curl "$@" > "$0"', answerFile, ...curl], { stdio: 'ignore' })
+    const blockedUntil = Date.now() + PROBE_TIMEOUT_MS + 3000
+    let answer = ''
+    while (Date.now() < blockedUntil && answer === '') {
+        answer = existsSync(answerFile) ? readFileSync(answerFile, 'utf8') : ''
+    }
+    return answer || 'no answer while the runner was blocked'
+}
 
 const missingDatabase = (): string => {
     const url = new URL(POSTGRES)
@@ -84,8 +88,11 @@ describe('dependency watch', () => {
         sockets.forEach((socket) => socket.destroy())
         silent.close()
         unavailable.close()
-        rmSync(caDir, { recursive: true, force: true })
-        await edge.close()
+        try {
+            rmSync(caDir, { recursive: true, force: true })
+        } finally {
+            await edge.close()
+        }
     })
 
     const edgeAndPostgres = (postgresUrl: string): Probes => {
@@ -150,11 +157,8 @@ describe('dependency watch', () => {
         }
     }, 30_000)
 
-    it('has the edge answer a webhook while the runner is blocked past the webhook timeout', async () => {
-        const webhook = webhookAnswerOf(edge)
-        busyFor(PROBE_TIMEOUT_MS + 1000)
-
-        expect(await webhook).toBe('200')
+    it('has the edge answer a webhook while the runner is blocked past the webhook timeout', () => {
+        expect(webhookAnswerWhileBlocked(edge, path.join(caDir, 'webhook-answer'))).toBe('200')
     }, 30_000)
 
     it('names dependencies that went away from its own process, with their step and error', async () => {

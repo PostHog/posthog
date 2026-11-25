@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
+import { CardFault, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -383,6 +383,17 @@ describe('provider edge', () => {
         } finally {
             clock.mockRestore()
         }
+    })
+
+    it('does not observe a fault the edge first applied after the drive released its hold', async () => {
+        const stamp: { appliedAt?: number } = {}
+        const held = holdOf({ firstAppliedAt: () => Promise.resolve(stamp.appliedAt), remove: () => Promise.resolve() })
+        const released = new AbortController()
+        const observed = held.observed(released.signal)
+        released.abort()
+        stamp.appliedAt = Date.now() + 1
+
+        expect(await observed).toBe(false)
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

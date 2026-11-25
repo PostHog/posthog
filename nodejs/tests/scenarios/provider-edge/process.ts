@@ -10,6 +10,7 @@ export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
+    readonly pid: number | undefined
 }
 
 type Call =
@@ -30,6 +31,8 @@ type Message =
 type Pending = { resolve(value: unknown): void; reject(error: Error): void }
 
 const TSX = pathToFileURL(require.resolve('tsx')).href
+const EDGE_STARTS_WITHIN_MS = 60_000
+const EDGE_ANSWERS_WITHIN_MS = 30_000
 
 async function serveEdge(options: EdgeProcessOptions): Promise<void> {
     const edge = await startProviderEdge(options)
@@ -55,7 +58,10 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
     process.send!({ kind: 'started', url: edge.url, caCertPath: edge.caCertPath } satisfies Message)
 }
 
-export async function startEdgeProcess(options: EdgeProcessOptions): Promise<EdgeProcess> {
+export async function startEdgeProcess(
+    options: EdgeProcessOptions,
+    { startsWithinMs = EDGE_STARTS_WITHIN_MS, answersWithinMs = EDGE_ANSWERS_WITHIN_MS } = {}
+): Promise<EdgeProcess> {
     const child: ChildProcess = fork(__filename, [], {
         execArgv: ['--import', TSX],
         detached: true,
@@ -85,8 +91,23 @@ export async function startEdgeProcess(options: EdgeProcessOptions): Promise<Edg
         })
     })
 
+    const giveUp = (what: string, withinMs: number): NodeJS.Timeout =>
+        setTimeout(() => {
+            end(new Error(`the provider edge process did not ${what} within ${withinMs} ms`))
+            child.kill('SIGKILL')
+        }, withinMs)
     const started = new Promise<Started>((resolve, reject) => {
-        starting = { resolve: resolve as Pending['resolve'], reject }
+        const deadline = giveUp('start', startsWithinMs)
+        starting = {
+            resolve: (value) => {
+                clearTimeout(deadline)
+                resolve(value as Started)
+            },
+            reject: (error) => {
+                clearTimeout(deadline)
+                reject(error)
+            },
+        }
     })
     child.on('message', (message: Message) => {
         if (message.kind === 'started') {
@@ -113,7 +134,17 @@ export async function startEdgeProcess(options: EdgeProcessOptions): Promise<Edg
         }
         const id = next++
         return new Promise<T>((resolve, reject) => {
-            pending.set(id, { resolve: resolve as Pending['resolve'], reject })
+            const deadline = giveUp(`answer ${request.op}`, answersWithinMs)
+            pending.set(id, {
+                resolve: (value) => {
+                    clearTimeout(deadline)
+                    resolve(value as T)
+                },
+                reject: (error) => {
+                    clearTimeout(deadline)
+                    reject(error)
+                },
+            })
             child.send({ ...request, id } satisfies Request)
         })
     }
@@ -140,6 +171,7 @@ export async function startEdgeProcess(options: EdgeProcessOptions): Promise<Edg
         },
         clearFaults: () => call<void>({ op: 'clear' }),
         close,
+        pid: child.pid,
     }
 }
 

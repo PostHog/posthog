@@ -41,12 +41,24 @@ export function holdOf(fault: HeldFault): FaultHold {
     return {
         observed: async (holdEnds) => {
             const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-            const answeredInWindow = async (): Promise<boolean> =>
-                ((await fault.firstAppliedAt()) ?? Infinity) <= deadline
-            while (Date.now() <= deadline && !holdEnds?.aborted && !(await answeredInWindow())) {
-                await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+            let windowEndsAt = deadline
+            const holdEnded = (): void => {
+                windowEndsAt = Math.min(windowEndsAt, Date.now())
             }
-            return answeredInWindow()
+            if (holdEnds?.aborted) {
+                holdEnded()
+            }
+            holdEnds?.addEventListener('abort', holdEnded, { once: true })
+            const answeredInWindow = async (): Promise<boolean> =>
+                ((await fault.firstAppliedAt()) ?? Infinity) <= windowEndsAt
+            try {
+                while (Date.now() <= deadline && !holdEnds?.aborted && !(await answeredInWindow())) {
+                    await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+                }
+                return await answeredInWindow()
+            } finally {
+                holdEnds?.removeEventListener('abort', holdEnded)
+            }
         },
         release: () => fault.remove(),
     }
