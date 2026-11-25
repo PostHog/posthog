@@ -1336,8 +1336,9 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
             const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
-                const [service, state, policy = 'on-failure', code = '0'] = line.split(' ')
-                return { id: 'c' + i, service, state, policy, code }
+                const [service, state, policy = 'on-failure', code = '0', afterStart = state] = line.split(' ')
+                const id = 'c' + i + ((stack.recreated || []).includes(service) ? 'r' : '')
+                return { id, service, state, policy, code, afterStart }
             })
             if (args[0] === 'ps') {
                 const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}']
@@ -1353,12 +1354,19 @@ describe('scenario environment', () => {
                 process.stdout.write(asked.map((c) => [c.id + '0000', c.policy, c.state, c.code].join(' ') + '\\n').join(''))
                 process.exit(0)
             }
-            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.StartedAt}}') {
-                const asked = args.slice(3).map((id) => containers.find((c) => id === c.id || id === c.id + '0000'))
-                const started = (c) => ((stack.restarted || []).includes(c.service) ? 'restarted' : 'first')
-                const found = asked.filter((c) => c !== undefined)
-                process.stdout.write(found.map((c) => [c.id + '0000', c.service, c.policy, started(c)].join(' ') + '\\n').join(''))
-                process.exit(found.length === asked.length ? 0 : 1)
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}') {
+                if (stack.inspectFails) {
+                    process.stderr.write('permission denied while trying to connect to the Docker daemon socket\\n')
+                    process.exit(1)
+                }
+                const row = (c) => {
+                    const restarted = (stack.restarted || []).includes(c.service)
+                    return [c.id + '0000', c.service, c.policy, restarted ? c.afterStart : c.state, c.code, restarted ? 'restarted' : 'first']
+                }
+                const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
+                process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
+                process.stderr.write(asked.filter(([, c]) => !c).map(([id]) => 'Error: No such object: ' + id + '\\n').join(''))
+                process.exit(asked.every(([, c]) => c) ? 0 : 1)
             }
             if (args.join(' ') === 'volume ls --format {{.Name}}') {
                 process.stdout.write((stack.volumes || []).join('\\n') + '\\n')
@@ -1542,6 +1550,9 @@ describe('scenario environment', () => {
             services?: string[]
             volumes?: string[]
             restartsDuringStart?: string[]
+            restarted?: string[]
+            recreated?: string[]
+            inspectFails?: boolean
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1770,7 +1781,7 @@ describe('scenario environment', () => {
                     'kafka-init exited no 0',
                     'db running',
                     'clickhouse running',
-                    'opensearch-init running no 0',
+                    'opensearch-init running no 0 exited',
                 ],
                 volumes: ['posthog_clickhouse-data'],
                 restartsDuringStart: ['opensearch-init'],
@@ -1819,24 +1830,30 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('refuses a stack whose kept container started again while hogli started it, on this run and the next', async () => {
-            writeStack({
-                running: false,
-                ready: false,
-                services: ['kafka running', 'db running'],
-                restartsDuringStart: ['kafka'],
-            })
+        it('refuses a stack whose kept containers started again while hogli started it, until they are recreated', async () => {
+            const services = ['kafka running', 'db running', 'temporal-ui running no 0']
+            writeStack({ running: false, ready: false, services, restartsDuringStart: ['kafka', 'temporal-ui'] })
             environment = environmentOf()
             const refusal = {
                 name: 'StackNotReadyError',
                 message: expect.stringContaining(
-                    'The dev services kafka started again while the runner started the stack'
+                    'The dev services kafka, temporal-ui started again while the runner started the stack'
                 ),
             }
 
             await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
             await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
-        }, 30_000)
+            writeStack({
+                running: true,
+                ready: true,
+                services,
+                restarted: ['kafka', 'temporal-ui'],
+                inspectFails: true,
+            })
+            await expect(environment.up(NEVER_ABORTED)).rejects.toThrow('permission denied')
+            writeStack({ running: true, ready: true, services, recreated: ['kafka', 'temporal-ui'] })
+            await environment.up(NEVER_ABORTED)
+        }, 45_000)
 
         it.each([
             ['stop on SIGTERM', false],
