@@ -597,6 +597,18 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthQuerySerializer(serializers.Serializer):
+    at_launch = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, "
+            "as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a "
+            "launched experiment."
+        ),
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,

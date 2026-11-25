@@ -41,6 +41,7 @@ from products.experiments.backend.health.registry import (
     HealthCheck,
     evaluate,
 )
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting, FlagVariant
@@ -72,6 +73,7 @@ RUNNING_UNEVEN_SPLIT = replace(RUNNING_CONTEXT, flag=UNEVEN_FLAG, exposures=UNEV
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})
 ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
+MATURED_USERS_OFF = 'Runs when "Require completed conversion or retention window" is on'
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 KEY_CHANGE = BucketingChange(
     changed_at=datetime(2026, 10, 3, tzinfo=UTC), setting=BucketingSetting.KEY, before="old-key", after="flag"
@@ -354,6 +356,46 @@ class TestEvaluate(TestCase):
                 and check.key not in READS_NOTHING_YET
             ],
             [],
+        )
+
+    @parameterized.expand(
+        [
+            ("no_metric_waits_for_the_launch", 0, False, Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+            ("no_metric_at_launch", 0, True, Status.FINDING, MATURED_USERS_OFF),
+            ("a_metric_passes_at_launch", 1, True, Status.PASSED, MATURED_USERS_OFF),
+        ]
+    )
+    def test_a_draft_at_launch_runs_the_checks_after_launch(
+        self, _name: str, metric_count: int, at_launch: bool, no_metric: Status, not_matured_reason: str
+    ) -> None:
+        draft = replace(
+            RUNNING_UNEVEN_SPLIT,
+            **DRAFT,
+            flag=replace(UNEVEN_FLAG, active=False),
+            exposures=None,
+            hours_since_launch=None,
+            hours_since_start=None,
+            primary_metric_count=metric_count,
+        )
+        launched = replace(draft, is_launched=True, is_running=True, hours_since_launch=0.0, hours_since_start=0.0)
+
+        health = evaluate(draft, EXPERIMENT_HEALTH_CHECKS, launched=launched if at_launch else None)
+
+        checks = {check.key: check for check in health.checks}
+        self.assertEqual(checks[Key.NO_METRIC].status, no_metric)
+        self.assertEqual(
+            [finding.check for finding in health.findings], [Key.NO_METRIC] if no_metric == Status.FINDING else []
+        )
+        self.assertEqual(
+            {
+                key: (checks[key].status, checks[key].reason)
+                for key in (Key.SPLIT_CHANGED_MID_RUN, Key.METRIC_CALCULATION_FAILED, Key.METRICS_NOT_MATURED)
+            },
+            {
+                Key.SPLIT_CHANGED_MID_RUN: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRIC_CALCULATION_FAILED: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRICS_NOT_MATURED: (Status.NOT_APPLICABLE, not_matured_reason),
+            },
         )
 
     @parameterized.expand(
