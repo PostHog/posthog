@@ -31,7 +31,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 1,
       },
       skipLogPersistence: true,
@@ -61,7 +61,7 @@ describe("Agent", () => {
       expect.any(String),
       expect.objectContaining({
         headers: {
-          Authorization: "Bearer token",
+          Authorization: "Bearer pha_token",
           "X-PostHog-Project-Id": "1",
         },
       }),
@@ -106,7 +106,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 1,
       },
       skipLogPersistence: true,
@@ -125,7 +125,7 @@ describe("Agent", () => {
     expect(config.claudeGatewayEnv).toEqual(
       expect.objectContaining({
         anthropicBaseUrl: expect.any(String),
-        anthropicAuthToken: "token",
+        anthropicAuthToken: "pha_token",
       }),
     );
   });
@@ -219,7 +219,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 7,
       },
       skipLogPersistence: true,
@@ -237,7 +237,7 @@ describe("Agent", () => {
     expect(config.claudeGatewayEnv?.posthogProjectId).toBe("7");
   });
 
-  it("adds task attribution to local Claude gateway headers", async () => {
+  it("adds task attribution to direct AI gateway headers", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: vi.fn().mockResolvedValue({
@@ -248,7 +248,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 7,
       },
       skipLogPersistence: true,
@@ -259,16 +259,103 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-task_id: task-1",
-    );
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      'x-posthog-property-task_repositories: ["org/repo"]',
-    );
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-task_execution_environment: local",
-    );
+    const headers = config.claudeGatewayEnv?.anthropicCustomHeaders ?? "";
+    const blob = headers.match(/^X-PostHog-Properties: (.*)$/m)?.[1];
+    expect(config.claudeGatewayEnv?.isAiGateway).toBe(true);
+    expect(headers).toContain("X-PostHog-Session-Id: task-1");
+    expect(JSON.parse(blob ?? "{}")).toMatchObject({
+      task_id: "task-1",
+      task_repositories: '["org/repo"]',
+      task_execution_environment: "local",
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
   });
+
+  it.each([
+    ["claude", { claudeModelAccess: "own-subscription" }],
+    ["codex", { codexModelAccess: "own-subscription" }],
+  ] as const)(
+    "skips the gateway credential on a %s subscription",
+    async (adapter, access) => {
+      const getApiKey = vi.fn().mockResolvedValue("phx_personal");
+      const agent = new Agent({
+        posthog: { apiUrl: "https://us.posthog.com", getApiKey, projectId: 1 },
+        skipLogPersistence: true,
+      });
+
+      await agent.run("task-1", "run-1", {
+        adapter,
+        ...access,
+        repositoryPath: "/tmp/repo",
+      });
+
+      expect(createAcpConnectionMock).toHaveBeenCalledTimes(1);
+      expect(getApiKey).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a credential the AI gateway rejects instead of sending it", async () => {
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("phx_personal"),
+        projectId: 1,
+      },
+      skipLogPersistence: true,
+    });
+
+    await expect(
+      agent.run("task-1", "run-1", { adapter: "claude" }),
+    ).rejects.toThrow("The AI gateway accepts only");
+    expect(createAcpConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["claude", "codex"] as const)(
+    "sends the person's distinct id to the AI gateway on the direct %s route",
+    async (adapter) => {
+      fetchMock.mockImplementation((url: unknown) =>
+        Promise.resolve({
+          ok: true,
+          json: vi
+            .fn()
+            .mockResolvedValue(
+              String(url).includes("/api/users/@me/")
+                ? { distinct_id: "user-distinct-1" }
+                : String(url).includes("/v1/models")
+                  ? { data: [{ id: "gpt-5.5", owned_by: "openai" }] }
+                  : { origin_product: "posthog_code" },
+            ),
+        }),
+      );
+      const agent = new Agent({
+        posthog: {
+          apiUrl: "https://us.posthog.com",
+          getApiKey: vi.fn().mockResolvedValue("pha_token"),
+          projectId: 7,
+        },
+        skipLogPersistence: true,
+      });
+
+      await agent.run("task-1", "run-1", {
+        adapter,
+        repositoryPath: "/tmp/repo",
+      });
+
+      const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+        [AcpConnectionConfig],
+      ];
+      if (adapter === "claude") {
+        expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+          "X-PostHog-Distinct-Id: user-distinct-1",
+        );
+      } else {
+        expect(config.codexOptions?.httpHeaders).toMatchObject({
+          "X-PostHog-Distinct-Id": "user-distinct-1",
+        });
+      }
+    },
+  );
 
   it("asserts the person's node so the gateway's per-user spend limit applies", async () => {
     fetchMock.mockImplementation((url: unknown) =>
@@ -286,7 +373,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 7,
       },
       skipLogPersistence: true,
@@ -306,7 +393,7 @@ describe("Agent", () => {
     const agent = new Agent({
       posthog: {
         apiUrl: "https://us.posthog.com",
-        getApiKey: vi.fn().mockResolvedValue("token"),
+        getApiKey: vi.fn().mockResolvedValue("pha_token"),
         projectId: 7,
       },
       skipLogPersistence: true,
@@ -321,6 +408,8 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toBe("");
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).not.toContain(
+      "task_id",
+    );
   });
 });

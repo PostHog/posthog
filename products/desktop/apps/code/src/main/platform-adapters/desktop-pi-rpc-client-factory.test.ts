@@ -1,5 +1,4 @@
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { RootLogger } from "@posthog/di/logger";
 import { ROOT_LOGGER } from "@posthog/di/logger";
 import {
@@ -140,7 +139,6 @@ describe("DesktopPiRpcClientFactory", () => {
     ).resolves.toBe(client);
     expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
       projectId: 1,
-      aiGatewayUrl: "https://ai-gateway.dev.posthog.dev",
       headers: {
         "x-posthog-property-task_id": "task-1",
         "x-posthog-property-task_run_id": "run-1",
@@ -286,13 +284,8 @@ describe("DesktopPiRpcClientFactory", () => {
           },
         }),
       );
-      expect(authProxy.start).not.toHaveBeenCalledWith(
-        getLlmGatewayUrl("https://us.posthog.com"),
-        expect.anything(),
-      );
       expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
         projectId: 7,
-        aiGatewayUrl: "https://ai-gateway.us.posthog.com",
         headers: {
           "x-posthog-property-task_id": "task-9",
           "x-posthog-property-task_runtime_adapter": "pi",

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import http from "node:http";
+import { taskModelsUrl } from "@posthog/agent/gateway-models";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -67,6 +68,11 @@ export class AuthProxyService {
       log: this.log,
       fetchImpl: fetchImpl ?? ((url, init) => fetch(url, init)),
       source: () => this.requireSource(),
+      listTaskModels: async (projectId, signal) =>
+        this.auth.authenticatedFetch(
+          taskModelsUrl(await this.auth.apiHost(), projectId),
+          { signal, redirect: "manual" },
+        ),
     });
   }
 
@@ -87,14 +93,12 @@ export class AuthProxyService {
    */
   async startGatewaySession(input: {
     projectId: number;
-    aiGatewayUrl: string;
     headers?: Record<string, string>;
   }): Promise<string> {
     this.requireSource();
-    return this.register(["session", input.projectId, input.aiGatewayUrl], {
+    return this.register(["session", input.projectId], {
       kind: "session",
       projectId: input.projectId,
-      aiGatewayUrl: input.aiGatewayUrl,
       headers: { ...(input.headers ?? {}) },
     });
   }

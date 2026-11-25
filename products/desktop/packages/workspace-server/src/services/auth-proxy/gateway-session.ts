@@ -1,4 +1,8 @@
 import type http from "node:http";
+import {
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
+} from "@posthog/agent/gateway-models";
 import type { ScopedLogger } from "@posthog/di/logger";
 import {
   aiGatewayDenialCode,
@@ -34,8 +38,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export interface SessionTarget {
   kind: "session";
   projectId: number;
-  /** Go gateway origin that lists models while the route is blocked. */
-  aiGatewayUrl: string;
   headers: Record<string, string>;
 }
 
@@ -88,6 +90,10 @@ export class GatewaySessionHandler {
       log: ScopedLogger;
       fetchImpl: FetchLike;
       source: () => GatewayCredentialSource;
+      listTaskModels: (
+        projectId: number,
+        signal: AbortSignal,
+      ) => Promise<Response>;
     },
   ) {}
 
@@ -158,7 +164,7 @@ export class GatewaySessionHandler {
     );
     // Listing models is read-only, so a blocked org still sees the picker.
     if (credential.mode === "blocked" && path === "/v1/models") {
-      await this.listModelsUnauthenticated(target, search, res, abort);
+      await this.serveTaskModels(target, res, abort);
       return;
     }
     if (credential.mode === "blocked") {
@@ -363,53 +369,33 @@ export class GatewaySessionHandler {
     }
   }
 
-  /** Go serves `/v1/models` without auth, so a blocked credential is not forwarded. */
-  private async listModelsUnauthenticated(
+  private async serveTaskModels(
     target: SessionTarget,
-    search: string,
     res: http.ServerResponse,
     abort: AbortController,
   ): Promise<void> {
-    const base = target.aiGatewayUrl.replace(/\/+$/, "");
-    let timedOut = false;
+    let rows: GatewayModelRow[];
     try {
-      const timer = setTimeout(() => {
-        timedOut = true;
-        abort.abort();
-      }, PROXY_TIMEOUTS.headersMs);
-      let response: Response;
-      try {
-        response = await this.deps.fetchImpl(`${base}/v1/models${search}`, {
-          method: "GET",
-          headers: { accept: "application/json" },
-          redirect: "manual",
-          signal: abort.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-      if (response.status >= 300 && response.status < 400) {
+      const response = await this.deps.listTaskModels(
+        target.projectId,
+        abort.signal,
+      );
+      if (!response.ok) {
         void response.body?.cancel().catch(() => {});
-        jsonError(res, 502, {
-          type: "api_error",
-          message: "Unexpected redirect from the PostHog gateway",
-        });
-        return;
-      }
-      res.writeHead(response.status, responseHeaders(response));
-      await streamBodyToResponse(response.body, res, { bytesWritten: 0 });
-    } catch (err) {
-      if (abort.signal.aborted && !timedOut) return;
-      this.deps.log.error("Gateway model list error", {
-        timedOut,
-        errorDetail: serializeError(err),
-      });
-      if (!res.headersSent) {
         jsonError(res, 502, { type: "api_error", message: "Proxy error" });
         return;
       }
-      res.end();
+      rows = gatewayModelRowsFromTaskModels(await response.json());
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      this.deps.log.warn("Model catalogue fetch failed", {
+        error: serializeError(error),
+      });
+      jsonError(res, 502, { type: "api_error", message: "Proxy error" });
+      return;
     }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ data: rows }));
   }
 }
 

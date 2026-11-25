@@ -161,7 +161,6 @@ describe("createWebSearchTool", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer pha_test",
           "X-PostHog-Task-Run-Id": "run-1",
-          "X-PostHog-Product": "posthog_code",
         }),
       }),
     );
