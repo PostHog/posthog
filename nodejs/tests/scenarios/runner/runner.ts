@@ -34,7 +34,7 @@ import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '..
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
-import { COUNTER_READ, CounterRead, counterDrift, readCounters, sinkCountsOf } from '../judge/drift'
+import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -536,6 +536,7 @@ export function createRunner(
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
+            let counters: CounterReading | undefined
             let recorded: Wiring | undefined
             const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
             const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
@@ -674,12 +675,11 @@ export function createRunner(
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)
-                const counters = card.measure.some(({ name }) => name === counterDrift.name)
+                counters = card.measure.some(({ name }) => name === counterDrift.name)
                     ? await (opened.counters
                           ? readCounters(
                                 opened.counters,
                                 { teams: seeded.teamIds, from: Date.parse(startedAt) },
-                                sinkCountsOf(judge.evidence()),
                                 counterRead,
                                 signal
                             )
@@ -817,6 +817,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
+                }
+                if (counters !== undefined) {
+                    writeJson(evidenceDir, 'counters.json', counters)
                 }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })

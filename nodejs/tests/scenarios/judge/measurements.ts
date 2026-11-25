@@ -56,6 +56,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
         unread?: string
+        horizonAt?: number
     }
 
 export type MeasurementDefinition = Definition & {

@@ -22,7 +22,6 @@ export const clickhouseOf = (env: NodeJS.ProcessEnv): ClickHouseAddress => ({
 
 const READ_TIMEOUT_MS = 5000
 
-// The aggregator truncates each app metric's timestamp to its hour, so the window opens at the hour the run started.
 const COUNTED = `
     SELECT metric_name, toString(sum(count)) AS total
     FROM app_metrics2

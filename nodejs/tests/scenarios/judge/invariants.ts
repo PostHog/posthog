@@ -58,10 +58,13 @@ export const deliveryKey = (unitId: string, actionId: string): string => `${unit
 
 const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
 
-const isAccepted = (status: number): boolean => status >= 200 && status < 300
+export const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
-const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
-    status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+export const isThrottled = ({ detail }: TruthRecord): boolean =>
+    ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+
+const isNotRetriedByTheEmailService = (record: TruthRecord): boolean =>
+    record.status >= 400 && record.status < 500 && !isThrottled(record)
 
 const isNotRetriedByFetch = (status: number): boolean => !RETRIABLE_STATUS_CODES.includes(status)
 
@@ -368,6 +371,9 @@ function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, 
     const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
     return { min: flows, max: flows }
 }
+
+export const owedOf = (journal: readonly JournalEntry[], actionId: string, horizonAt: number): number =>
+    journal.reduce((sum, entry) => sum + boundsOf(entry, actionId, horizonAt).min, 0)
 
 type Effect = { recipient: string; flowId?: string }
 

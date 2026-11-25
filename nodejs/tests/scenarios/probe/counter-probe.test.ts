@@ -39,15 +39,19 @@ async function insert(rows: Row[]): Promise<void> {
 describe('counter probe', () => {
     it("sums each email counter of the run's teams from the hour the run started", async () => {
         const [ours, alsoOurs, theirs] = [randomInt(1e9, 2e9), randomInt(1e9, 2e9), randomInt(1e9, 2e9)]
-        const from = Date.parse('2026-01-05T10:20:00.000Z')
-        const hour = '2026-01-05 10:00:00'
+        const HOUR_MS = 3_600_000
+        const runHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS - 2 * HOUR_MS
+        const from = runHour + 20 * 60_000
+        const hourAt = (offset: number): string =>
+            new Date(runHour + offset * HOUR_MS).toISOString().slice(0, 19).replace('T', ' ')
+        const hour = hourAt(0)
         await insert([
             { team: ours, metric: 'email_sent', count: 3, at: hour },
-            { team: ours, metric: 'email_sent', count: 2, at: '2026-01-05 11:00:00' },
+            { team: ours, metric: 'email_sent', count: 2, at: hourAt(1) },
             { team: alsoOurs, metric: 'email_sent', count: 1, at: hour },
             { team: ours, metric: 'email_bounced', count: 1, at: hour },
             { team: ours, metric: 'email_failed', count: 4, at: hour },
-            { team: ours, metric: 'email_sent', count: 7, at: '2026-01-05 09:00:00' },
+            { team: ours, metric: 'email_sent', count: 7, at: hourAt(-1) },
             { team: ours, source: 'hog_flow_version', metric: 'email_sent', count: 5, at: hour },
             { team: ours, metric: 'email_untracked', count: 5, at: hour },
             { team: theirs, metric: 'email_sent', count: 9, at: hour },

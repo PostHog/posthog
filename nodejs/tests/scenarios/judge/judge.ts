@@ -62,7 +62,13 @@ export interface Judge {
         run: RunEvidence,
         signal?: AbortSignal
     ): Promise<InvariantResult[]>
-    evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number; unread?: string }
+    evidence(): {
+        journal: JournalEntry[]
+        truth: TruthRecord[]
+        fetchRetries: number
+        unread?: string
+        horizonAt?: number
+    }
 }
 
 export type JudgeOptions = {
@@ -290,6 +296,7 @@ export function createJudge({
             truth: [...truth],
             fetchRetries,
             ...(unread !== undefined && { unread }),
+            ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
         }),
     }
 }
