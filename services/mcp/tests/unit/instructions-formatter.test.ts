@@ -416,6 +416,9 @@ describe('InstructionsFormatter', () => {
             expect(rendered).toContain(`Look for a report with ${list}`)
             expect(rendered).toContain('`suppression_source` is `safety_judge`')
             expect(rendered.includes('inbox-reports-claim')).toBe(claim)
+            expect(rendered.includes("put the report's `_posthogUrl` in your pull request description")).toBe(claim)
+            expect(rendered.includes('and `pull_requests`')).toBe(claim)
+            expect(rendered).not.toContain('pr_url')
             expect(rendered).not.toMatch(/\{inbox_/)
         })
 
@@ -437,6 +440,43 @@ describe('InstructionsFormatter', () => {
                 expect(rendered).not.toContain('Existing Inbox reports')
             }
         })
+
+        it.each(
+            [
+                {
+                    surface: 'tools instructions',
+                    render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildToolsInstructions(ctx),
+                    ref: 'the `inbox-digest-get` tool',
+                },
+                {
+                    surface: 'exec command reference',
+                    render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildExecCommandReference(ctx),
+                    ref: '`call inbox-digest-get <json_input>`',
+                },
+                {
+                    surface: 'Claude exec command reference',
+                    render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
+                        f.buildClaudeExecCommandReference(ctx),
+                    ref: '`call inbox-digest-get <json_input>`',
+                },
+            ].flatMap((surface) => [true, false].map((available) => ({ ...surface, available })))
+        )(
+            '$surface points to the digest without the inbox-first section only when it is advertised: $available',
+            ({ render, ref, available }) => {
+                const rendered = render(new InstructionsFormatter(), {
+                    ...fullCtx,
+                    inboxFirstEnabled: false,
+                    inboxDigestEnabled: available,
+                })
+
+                expect(
+                    rendered.includes(
+                        `To see which inbox reports need the user and what changed in their product, use ${ref}.`
+                    )
+                ).toBe(available)
+                expect(rendered.includes('inbox-digest-get')).toBe(available)
+            }
+        )
     })
 
     describe('buildExecCommandReference', () => {

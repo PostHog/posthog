@@ -60,6 +60,7 @@ const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 const INBOX_FIRST_TOOLS = ['inbox-reports-list', 'inbox-reports-retrieve']
 const INBOX_CLAIM_TOOL = 'inbox-reports-claim'
+const INBOX_DIGEST_TOOL = 'inbox-digest-get'
 
 // Human comment, not AI slop. Version 2.0.0 of the PostHog app for ChatGPT and Codex started
 // requesting `llm_skill:read`, but existing connections never got re-prompted for it, so their
@@ -132,6 +133,7 @@ export class InstructionsBuilder {
                 state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG] === true &&
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
+            inboxDigestEnabled: state.allTools.some((tool) => tool.name === INBOX_DIGEST_TOOL),
             metricCatalog: state.metricCatalog,
         }
     }
