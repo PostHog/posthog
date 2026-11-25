@@ -13,8 +13,9 @@ import re
 from products.slack_app.backend.facade.enums import SlackReactionKind
 from products.slack_app.backend.facade.types import SlackReactionChoice, SlackResolvedReaction
 
-# Slack emoji names: lowercase letters, digits, and the characters - _ + '
-EMOJI_NAME = re.compile(r"^[a-z0-9_+'\-]{1,100}$")
+# Slack emoji names: lowercase letters, digits, and the characters - _ + ', with an optional skin tone
+# such as ``thumbsup::skin-tone-3``.
+EMOJI_NAME = re.compile(r"^[a-z0-9_+'\-]{1,100}(::skin-tone-[2-6])?$")
 
 DEFAULT_REACTIONS: dict[SlackReactionKind, SlackResolvedReaction] = {
     SlackReactionKind.WORKING: SlackResolvedReaction(emoji="eyes", enabled=True),

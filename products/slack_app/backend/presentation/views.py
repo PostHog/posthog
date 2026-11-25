@@ -9,8 +9,10 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import User
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.facade.api import (
     get_slack_app_settings,
     get_slack_workspace_setup,
@@ -23,10 +25,10 @@ from products.slack_app.backend.facade.api import (
     update_slack_workspace_settings,
 )
 from products.slack_app.backend.facade.enums import (
+    SlackChannelQuestionMode,
     SlackReactionKind,
     SlackSetupEntry,
     SlackSetupStepKey,
-    SlackUntaggedMode,
 )
 from products.slack_app.backend.facade.types import (
     MAX_CHANNELS_TO_JOIN,
@@ -314,18 +316,21 @@ class SlackAppChannelSettingsSerializer(serializers.Serializer):
         allow_null=True, help_text="Repository, as owner/name, that tasks started in this channel use. Null inherits."
     )
     untagged_question_mode = serializers.ChoiceField(
-        choices=SlackUntaggedMode.choices,
+        choices=SlackChannelQuestionMode.choices,
         allow_null=True,
-        help_text="What PostHog does with top-level questions in this channel that do not tag it. Null inherits.",
+        help_text="What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.",
     )
     updated_by_name = serializers.CharField(
-        allow_null=True, help_text="Name of the person who last changed this channel's settings."
+        allow_null=True,
+        help_text="First name of the person who last changed this channel's settings. Null when unknown.",
     )
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When this channel's settings last changed.")
 
 
 class SlackAppChannelSettingsListSerializer(serializers.Serializer):
-    channels = SlackAppChannelSettingsSerializer(many=True, help_text="Channels that have at least one setting.")
+    channels = SlackAppChannelSettingsSerializer(
+        many=True, help_text="Channels that this install's organization gave at least one setting."
+    )
 
 
 class SlackAppChannelSettingsUpdateSerializer(serializers.Serializer):
@@ -337,9 +342,9 @@ class SlackAppChannelSettingsUpdateSerializer(serializers.Serializer):
         allow_null=True, max_length=255, help_text="Repository as owner/name. Null inherits."
     )
     untagged_question_mode = serializers.ChoiceField(
-        choices=SlackUntaggedMode.choices,
+        choices=SlackChannelQuestionMode.choices,
         allow_null=True,
-        help_text="What PostHog does with top-level questions in this channel that do not tag it. Null inherits.",
+        help_text="What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.",
     )
 
 
@@ -355,11 +360,20 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["retrieve", "channels"]
     scope_object_write_actions = ["workspace", "personal", "update_channel"]
 
-    def _integration_id(self, pk: str | None) -> int:
+    def read_object(self) -> IntegrationRecord | None:
         try:
-            return int(pk or "")
-        except ValueError:
-            raise NotFound()
+            return IntegrationManager.slack.oauth.get(self.team_id, int(self.kwargs.get("pk") or ""))
+        except (IntegrationNotFound, ValueError):
+            return None
+
+    def object_access_ref(self, record: IntegrationRecord) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource="integration", id=str(record.id), team_id=record.team_id, created_by_id=record.created_by_id
+        )
+
+    def _integration_id(self, pk: str | None) -> int:
+        # get_object() runs the access-control check on this install, so a member restricted on it gets a 403.
+        return self.get_object().id
 
     @validated_request(
         responses={200: OpenApiResponse(response=SlackAppSettingsSerializer)},
@@ -449,7 +463,7 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 slack_channel_id=slack_channel_id,
                 default_integration_id=data["default_integration_id"],
                 default_repository=data["default_repository"],
-                untagged_question_mode=SlackUntaggedMode(mode) if mode else None,
+                untagged_question_mode=SlackChannelQuestionMode(mode) if mode else None,
             )
         except SlackSetupNotFound as error:
             raise NotFound() from error

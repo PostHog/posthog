@@ -27,12 +27,12 @@ export const SlackAppSettingsChannelsUpdateBody = /* @__PURE__ */ zod.object({
     untagged_question_mode: zod
         .union([
             zod
-                .enum(['auto', 'ask', 'never'])
-                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
+                .enum(['ask', 'never'])
+                .describe('\* `ask` - Asks before answering\n\* `never` - Only answers @-mentions'),
             zod.null(),
         ])
         .describe(
-            'What PostHog does with top-level questions in this channel that do not tag it. Null inherits.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'
+            "What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.\n\n\* `ask` - Asks before answering\n\* `never` - Only answers @-mentions"
         ),
 })
 

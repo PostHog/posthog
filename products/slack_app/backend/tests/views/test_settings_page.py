@@ -1,16 +1,18 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackChannel, SlackSettings
+from products.access_control.backend.models.access_control import AccessControl
+from products.slack_app.backend.models import SlackChannel, SlackChannelSettings, SlackSettings
 
 SLACK_TEAM_ID = "T12345"
 
@@ -127,15 +129,18 @@ class TestSlackAppSettings(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_any_member_changes_channel_settings_and_approval_rows_stay_hidden(self) -> None:
+    def test_any_member_changes_their_organizations_channel_settings_only(self) -> None:
         self._set_level(OrganizationMembership.Level.MEMBER)
         self.user.first_name = "Jamie"
         self.user.save()
-        SlackChannel.objects.create(
-            slack_workspace_id=SLACK_TEAM_ID, slack_channel_id="C999", approved_at=timezone.now()
-        )
-        SlackChannel.objects.create(
-            slack_workspace_id=SLACK_TEAM_ID, slack_channel_id="C111", approved_at=timezone.now()
+        other_organization = Organization.objects.create(name="Other org")
+        other_editor = User.objects.create(email="editor@other.example.com", first_name="")
+        SlackChannelSettings.objects.create(
+            slack_workspace_id=SLACK_TEAM_ID,
+            slack_channel_id="C111",
+            organization=other_organization,
+            default_repository="other/secret",
+            updated_by=other_editor,
         )
 
         response = self.client.put(
@@ -143,7 +148,7 @@ class TestSlackAppSettings(APIBaseTest):
             {
                 "default_integration_id": self.integration.id,
                 "default_repository": "example/web-app",
-                "untagged_question_mode": "auto",
+                "untagged_question_mode": "ask",
             },
             format="json",
         )
@@ -151,31 +156,68 @@ class TestSlackAppSettings(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["updated_by_name"] == "Jamie"
         channels = self.client.get(self._url("channels/")).json()["channels"]
-        assert [c["slack_channel_id"] for c in channels] == ["C111"]
-        assert channels[0]["default_integration_id"] == self.integration.id
-        assert SlackChannel.objects.get(slack_channel_id="C111").approved_at is not None
+        assert [(c["default_repository"], c["default_integration_id"]) for c in channels] == [
+            ("example/web-app", self.integration.id)
+        ]
+        assert SlackChannelSettings.objects.get(organization=other_organization).default_repository == "other/secret"
+
+        cleared = self.client.put(
+            self._url("channels/C111/"),
+            {"default_integration_id": None, "default_repository": None, "untagged_question_mode": None},
+            format="json",
+        )
+
+        assert cleared.status_code == status.HTTP_200_OK
+        assert not SlackChannelSettings.objects.filter(organization=self.organization).exists()
 
     @parameterized.expand(
         [
-            ("project_in_another_workspace", "other_workspace", None, "C111"),
-            ("repository_not_owner_slash_name", None, "web-app", "C111"),
-            ("not_a_channel_id", None, None, "general"),
+            ("project_in_another_workspace", "other_workspace", None, "C111", None),
+            ("project_of_another_organization", "other_organization", None, "C111", None),
+            ("repository_not_owner_slash_name", None, "web-app", "C111", None),
+            ("not_a_channel_id", None, None, "general", None),
+            ("channel_cannot_answer_automatically", None, None, "C111", "auto"),
         ]
     )
     def test_channel_settings_refuse_bad_values(
-        self, _name: str, project: str | None, repository: str | None, channel_id: str
+        self, _name: str, project: str | None, repository: str | None, channel_id: str, mode: str | None
     ) -> None:
-        other_integration = self._slack_install(Team.objects.create(organization=self.organization), "T999")
+        other_team = Team.objects.create(organization=self.organization)
+        projects = {"other_workspace": self._slack_install(other_team, "T999")}
+        if project == "other_organization":
+            other_organization = Organization.objects.create(name="Other org")
+            OrganizationMembership.objects.create(user=self.user, organization=other_organization)
+            projects["other_organization"] = self._slack_install(Team.objects.create(organization=other_organization))
 
         response = self.client.put(
             self._url(f"channels/{channel_id}/"),
             {
-                "default_integration_id": other_integration.id if project else None,
+                "default_integration_id": projects[project].id if project else None,
                 "default_repository": repository,
-                "untagged_question_mode": None,
+                "untagged_question_mode": mode,
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SlackChannel.objects.exists()
+        assert not SlackChannelSettings.objects.exists()
+
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_a_member_restricted_on_the_install_cannot_read_or_change_its_settings(self) -> None:
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            team=self.team, resource="integration", resource_id=str(self.integration.id), access_level="none"
+        )
+
+        read = self.client.get(self._url())
+        write = self.client.put(
+            self._url("channels/C111/"),
+            {"default_integration_id": None, "default_repository": "example/web-app", "untagged_question_mode": None},
+            format="json",
+        )
+
+        assert read.status_code == status.HTTP_403_FORBIDDEN
+        assert write.status_code == status.HTTP_403_FORBIDDEN
+        assert not SlackChannelSettings.objects.exists()

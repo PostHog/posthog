@@ -47,6 +47,7 @@ class TestReactionSettings(SimpleTestCase):
             {
                 "working": {"emoji": "Not An Emoji!", "enabled": "yes"},
                 "done": {"emoji": "tada", "enabled": True},
+                "polite": {"emoji": "thumbsup::skin-tone-3"},
                 "unknown_kind": {"emoji": "tada"},
                 "error": "warning",
             }
@@ -55,4 +56,5 @@ class TestReactionSettings(SimpleTestCase):
         assert parsed == {
             SlackReactionKind.WORKING: SlackReactionChoice(emoji=None, enabled=None),
             SlackReactionKind.DONE: SlackReactionChoice(emoji="tada", enabled=True),
+            SlackReactionKind.POLITE: SlackReactionChoice(emoji="thumbsup::skin-tone-3", enabled=None),
         }

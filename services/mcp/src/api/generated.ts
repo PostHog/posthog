@@ -121949,15 +121949,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `auto` - Answer automatically
-     * * `ask` - Ask first
-     * * `never` - Never answer
+     * * `ask` - Asks before answering
+     * * `never` - Only answers @-mentions
      */
-    export type SlackUntaggedModeEnum = typeof SlackUntaggedModeEnum[keyof typeof SlackUntaggedModeEnum];
+    export type SlackChannelQuestionModeEnum = typeof SlackChannelQuestionModeEnum[keyof typeof SlackChannelQuestionModeEnum];
 
 
-    export const SlackUntaggedModeEnum = {
-      Auto: 'auto',
+    export const SlackChannelQuestionModeEnum = {
       Ask: 'ask',
       Never: 'never',
     } as const;
@@ -121975,14 +121973,13 @@ export namespace Schemas {
          * @nullable
          */
       default_repository: string | null;
-      /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.
        *
-       * * `auto` - Answer automatically
-       * * `ask` - Ask first
-       * * `never` - Never answer */
-      untagged_question_mode: SlackUntaggedModeEnum | null;
+       * * `ask` - Asks before answering
+       * * `never` - Only answers @-mentions */
+      untagged_question_mode: SlackChannelQuestionModeEnum | null;
       /**
-         * Name of the person who last changed this channel's settings.
+         * First name of the person who last changed this channel's settings. Null when unknown.
          * @nullable
          */
       updated_by_name: string | null;
@@ -121994,7 +121991,7 @@ export namespace Schemas {
     }
 
     export interface SlackAppChannelSettingsList {
-      /** Channels that have at least one setting. */
+      /** Channels that this install's organization gave at least one setting. */
       channels: SlackAppChannelSettings[];
     }
 
@@ -122010,12 +122007,11 @@ export namespace Schemas {
          * @nullable
          */
       default_repository: string | null;
-      /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.
        *
-       * * `auto` - Answer automatically
-       * * `ask` - Ask first
-       * * `never` - Never answer */
-      untagged_question_mode: SlackUntaggedModeEnum | null;
+       * * `ask` - Asks before answering
+       * * `never` - Only answers @-mentions */
+      untagged_question_mode: SlackChannelQuestionModeEnum | null;
     }
 
     export interface SlackAppDefaultProject {

@@ -8,11 +8,12 @@ Who may change what:
 
 import re
 from typing import Any
+from uuid import UUID
 
 from posthog.models import User
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.facade.enums import SlackUntaggedMode
+from products.slack_app.backend.facade.enums import SlackChannelQuestionMode
 from products.slack_app.backend.facade.types import (
     SlackAppSettings,
     SlackChannelSettings,
@@ -23,7 +24,7 @@ from products.slack_app.backend.facade.types import (
     WorkspaceSettingsError,
 )
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannelSettings as SlackChannelSettingsRow
 from products.slack_app.backend.services.integration_references import read_integration_id, store_integration_id
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.reaction_settings import (
@@ -116,24 +117,26 @@ def update_personal_settings(integration: WorkspaceIntegration, user: User, *, r
     _capture_change(integration, user, scope="personal", setting="reactions", reactions=reactions)
 
 
-def _channel_settings(row: SlackChannel) -> SlackChannelSettings:
-    updated_by = row.updated_by
+def _organization_id(integration: WorkspaceIntegration) -> UUID:
+    return integration.team.organization_id
+
+
+def _channel_settings(row: SlackChannelSettingsRow) -> SlackChannelSettings:
     return SlackChannelSettings(
         slack_channel_id=row.slack_channel_id,
         default_integration_id=read_integration_id(row.default_integration_id),
         default_repository=row.default_repository,
         untagged_question_mode=row.untagged_question_mode,
-        updated_by_name=(updated_by.first_name or updated_by.email) if updated_by else None,
+        updated_by_name=row.updated_by.first_name or None if row.updated_by else None,
         updated_at=row.updated_at,
     )
 
 
 def list_channel_settings(integration: WorkspaceIntegration) -> tuple[SlackChannelSettings, ...]:
-    """Channels with at least one setting. A row that only records an approval is left out."""
+    """The channel settings of the install's organization. Other organizations in the workspace keep their own."""
     rows = (
-        SlackChannel.objects.filter(slack_workspace_id=_workspace_id(integration))
-        .exclude(
-            default_integration_id__isnull=True, default_repository__isnull=True, untagged_question_mode__isnull=True
+        SlackChannelSettingsRow.objects.filter(
+            slack_workspace_id=_workspace_id(integration), organization_id=_organization_id(integration)
         )
         .select_related("updated_by")
         .order_by("slack_channel_id")
@@ -148,30 +151,51 @@ def update_channel_settings(
     slack_channel_id: str,
     default_integration_id: int | None,
     default_repository: str | None,
-    untagged_question_mode: SlackUntaggedMode | None,
+    untagged_question_mode: SlackChannelQuestionMode | None,
 ) -> SlackChannelSettings:
-    """Replace one channel's settings. A None setting falls back to the workspace or personal setting."""
+    """Replace the organization's settings for one channel. Clearing every setting removes the row."""
     if not SLACK_CHANNEL_ID.match(slack_channel_id):
         raise SlackSettingsInvalid(f"{slack_channel_id} is not a Slack channel ID.")
     slack_workspace_id = _workspace_id(integration)
+    organization_id = _organization_id(integration)
     if default_integration_id is not None:
         options = accessible_candidates(workspace_integrations(slack_workspace_id), user=user)
-        if all(option.id != default_integration_id for option in options):
-            raise SlackSettingsInvalid("This project is not connected to this Slack workspace, or you can't open it.")
+        if all(
+            option.id != default_integration_id or option.team.organization_id != organization_id for option in options
+        ):
+            raise SlackSettingsInvalid(
+                "Pick a project of this organization that is connected to this Slack workspace and that you can open."
+            )
     repository = default_repository.strip() if default_repository else None
     if repository is not None and not REPOSITORY.match(repository):
         raise SlackSettingsInvalid("Enter the repository as owner/name.")
 
-    row, _ = SlackChannel.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_channel_id=slack_channel_id,
-        defaults={
-            "default_integration_id": store_integration_id(default_integration_id),
-            "default_repository": repository,
-            "untagged_question_mode": untagged_question_mode.value if untagged_question_mode else None,
-            "updated_by": user,
-        },
-    )
+    lookup: dict[str, Any] = {
+        "slack_workspace_id": slack_workspace_id,
+        "slack_channel_id": slack_channel_id,
+        "organization_id": organization_id,
+    }
+    if default_integration_id is None and repository is None and untagged_question_mode is None:
+        SlackChannelSettingsRow.objects.filter(**lookup).delete()
+        result = SlackChannelSettings(
+            slack_channel_id=slack_channel_id,
+            default_integration_id=None,
+            default_repository=None,
+            untagged_question_mode=None,
+            updated_by_name=None,
+            updated_at=None,
+        )
+    else:
+        row, _ = SlackChannelSettingsRow.objects.update_or_create(
+            **lookup,
+            defaults={
+                "default_integration_id": store_integration_id(default_integration_id),
+                "default_repository": repository,
+                "untagged_question_mode": untagged_question_mode.value if untagged_question_mode else None,
+                "updated_by": user,
+            },
+        )
+        result = _channel_settings(row)
     _capture_change(
         integration,
         user,
@@ -181,7 +205,7 @@ def update_channel_settings(
         has_default_repository=repository is not None,
         untagged_question_mode=untagged_question_mode.value if untagged_question_mode else None,
     )
-    return _channel_settings(row)
+    return result
 
 
 def _capture_change(

@@ -25,6 +25,14 @@ class SlackUntaggedMode(LabeledStrEnum):
     NEVER = "never", "Never answer"
 
 
+class SlackChannelQuestionMode(LabeledStrEnum):
+    """What PostHog does with an untagged question in a channel. A channel only makes pickups stricter than each
+    person's own mode, so it has no automatic choice. The values match ``UntaggedFollowupMode``."""
+
+    ASK = "ask", "Asks before answering"
+    NEVER = "never", "Only answers @-mentions"
+
+
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"

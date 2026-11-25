@@ -29,7 +29,7 @@ import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 
-from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupEntry, SlackUntaggedMode
+from products.slack_app.backend.facade.enums import SlackChannelQuestionMode, SlackReactionKind, SlackSetupEntry
 from products.slack_app.backend.facade.types import (
     ChannelJoinResult,
     ChannelOption,
@@ -305,7 +305,7 @@ def update_slack_channel_settings(
     slack_channel_id: str,
     default_integration_id: int | None,
     default_repository: str | None,
-    untagged_question_mode: SlackUntaggedMode | None,
+    untagged_question_mode: SlackChannelQuestionMode | None,
 ) -> SlackChannelSettings:
     from products.slack_app.backend.logic import settings_page  # noqa: PLC0415
 

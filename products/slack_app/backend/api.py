@@ -5993,7 +5993,6 @@ def _handle_channel_approval_submit(payload: dict) -> HttpResponse:
         defaults={
             "approved_at": timezone.now(),
             "approved_by": posthog_user,
-            "updated_by": posthog_user,
         },
     )
     context_token = _extract_context_token(payload)

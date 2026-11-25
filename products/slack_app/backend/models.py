@@ -189,7 +189,8 @@ class SlackSettings(UUIDModel):
     # mode) while inheriting the workspace routing default.
     default_integration = models.ForeignKey(
         "posthog.Integration",
-        on_delete=models.CASCADE,
+        # SET_NULL, not CASCADE: the row also holds the person's or the workspace's other settings.
+        on_delete=models.SET_NULL,
         related_name="slack_settings_as_default",
         null=True,
         blank=True,
@@ -356,9 +357,8 @@ class SlackChannel(UUIDModel):
     so workspace-scope here only governs the channel-level question
     ("can the bot speak here at all?"), not which project's data is read.
 
-    A row also carries the channel's settings: the default project, repository
-    and untagged question mode. Any member of the workspace can change them. A
-    NULL setting falls back to the workspace or personal setting.
+    Reserved for future per-channel configuration (denials, routing
+    overrides, etc.) without needing another model.
     """
 
     slack_workspace_id = models.CharField(max_length=64)
@@ -371,40 +371,6 @@ class SlackChannel(UUIDModel):
         blank=True,
         related_name="approved_slack_channels",
         help_text="The PostHog user who clicked Approve. Carries the email and audit trail.",
-    )
-    # A stored reference, not a relation, because integration rows are read through the integrations SDK.
-    # Read and write it with ``services/integration_references.py``. A removed install leaves the reference
-    # behind, and routing skips a reference that matches no install of the workspace.
-    default_integration_id = models.CharField(
-        max_length=64,
-        null=True,
-        blank=True,
-        help_text="Reference to the Slack install of the project that mentions in this channel route to.",
-    )
-    default_repository = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
-        help_text="The repository, as owner/name, that tasks started in this channel use.",
-    )
-    untagged_question_mode = models.CharField(
-        max_length=16,
-        null=True,
-        blank=True,
-        choices=UntaggedFollowupMode.choices,
-        help_text="What PostHog does with top-level questions in this channel that do not tag the app.",
-    )
-    # db_constraint=False: a foreign key constraint to posthog_user locks that hot table when the column is added.
-    # Every write to the row sets this, the approval click included, so it always names who made the
-    # change that ``updated_at`` records.
-    updated_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        related_name="+",
-        help_text="The PostHog user who last changed this row.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -433,3 +399,63 @@ class SlackChannel(UUIDModel):
             slack_channel_id=slack_channel_id,
             approved_at__isnull=False,
         ).exists()
+
+
+class SlackChannelSettings(UUIDModel):
+    """Settings that one PostHog organization sets for one Slack channel: the default project, repository and
+    untagged question mode.
+
+    A Slack workspace can connect to projects in several organizations, so each organization keeps its own row
+    and reads and writes only that row. Routing uses a row only for a project the author can open, and the
+    question mode only for messages routed to a project of the row's organization. A NULL setting falls back
+    to the personal or workspace setting.
+    """
+
+    slack_workspace_id = models.CharField(max_length=64)
+    slack_channel_id = models.CharField(max_length=64)
+    # db_constraint=False: a foreign key constraint to posthog_organization locks that hot table when the table is created.
+    organization = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
+    )
+    # A stored reference, not a relation, because integration rows are read through the integrations SDK.
+    # Read and write it with ``services/integration_references.py``.
+    default_integration_id = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Reference to the Slack install of the project that mentions in this channel route to.",
+    )
+    default_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="The repository, as owner/name, that tasks started in this channel use.",
+    )
+    # Only ``ask`` or ``never``: a channel makes untagged pickups stricter and never opts a person in.
+    untagged_question_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with top-level questions in this channel that do not tag the app.",
+    )
+    # db_constraint=False: a foreign key constraint to posthog_user locks that hot table when the table is created.
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="The PostHog user who last changed this channel's settings.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "slack_channel_id", "organization"],
+                name="uniq_slack_channel_settings_per_org",
+            )
+        ]
