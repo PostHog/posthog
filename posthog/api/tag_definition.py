@@ -4,7 +4,8 @@ from typing import cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import router
-from django.db.models import Count, QuerySet
+from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 
 from drf_spectacular.plumbing import force_instance
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -13,6 +14,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
@@ -20,9 +22,10 @@ from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
-from posthog.models import Tag, Team, User
+from posthog.models import Tag, TaggedItem, Team, User
 from posthog.models.utils import strict_fetch
 from posthog.permissions import OrganizationAdminReadPermissions, TeamMemberAccessPermission
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.tag_management import delete_unused_tag, get_merge_preview, merge_tags, rename_tag
 from posthog.tag_management_access import tag_management_enabled
 
@@ -93,6 +96,22 @@ class TagManagementSessionPermission(BasePermission):
         return isinstance(request.successful_authenticator, SessionAuthentication)
 
 
+class TagMutationBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "tag_mutation_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": f"{self.safely_get_team_id_from_view(view)}:{request.user.pk}",
+        }
+
+
+class TagMutationSustainedRateThrottle(TagMutationBurstRateThrottle):
+    scope = "tag_mutation_sustained"
+    rate = "300/hour"
+
+
 @contextmanager
 def _tag_errors() -> Iterator[None]:
     try:
@@ -133,6 +152,12 @@ class TagDefinitionViewSet(
     ordering = ["name"]
     http_method_names = ["get", "patch", "delete", "post", "head", "options"]
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action in {"partial_update", "destroy", "merge"}:
+            return [TagMutationBurstRateThrottle(), TagMutationSustainedRateThrottle(), *throttles]
+        return throttles
+
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         environment_id = serializers.IntegerField(min_value=1).run_validation(
@@ -149,10 +174,17 @@ class TagDefinitionViewSet(
             raise NotFound()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        usage_count = (
+            TaggedItem.objects.filter(tag_id=OuterRef("pk"))
+            .order_by()
+            .values("tag_id")
+            .annotate(count=Count("id"))
+            .values("count")
+        )
         queryset = (
             queryset.using(router.db_for_write(Tag))
             .exclude(name__startswith="project-group:")
-            .annotate(usage_count=Count("tagged_items"))
+            .annotate(usage_count=Coalesce(Subquery(usage_count), 0))
         )
         return strict_fetch(queryset) if self.action == "list" else queryset
 
