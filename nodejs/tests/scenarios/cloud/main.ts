@@ -20,6 +20,7 @@ const USAGE = [
 ].join('\n')
 
 const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+const PAIR_RUN_RESERVE = '15m'
 
 function defaultController(): Controller {
     return {
@@ -113,9 +114,9 @@ function refuseUnfitPair(
     workMs: number,
     window: string
 ): void {
-    if (2 * (durationMs(drive) + durationMs(convergeWithin)) > workMs) {
+    if (2 * (durationMs(drive) + durationMs(convergeWithin) + durationMs(PAIR_RUN_RESERVE)) > workMs) {
         throw new Error(
-            `${cardId} runs paired, so it needs two drives of ${drive} and their ${convergeWithin} to converge, and they do not fit ${window}.`
+            `${cardId} runs paired, so it needs two runs of ${drive}, each with ${convergeWithin} to converge and ${PAIR_RUN_RESERVE} to start, reset, seed and upload, and they do not fit ${window}.`
         )
     }
 }
