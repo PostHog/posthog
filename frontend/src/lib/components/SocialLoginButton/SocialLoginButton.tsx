@@ -11,7 +11,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { replayBlockClassFor } from 'lib/utils/sensitiveUrlRedaction'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
@@ -41,7 +40,9 @@ function SocialLoginLink({ provider, extraQueryParams, onProviderClick, children
     return (
         // eslint-disable-next-line react/forbid-elements
         <a
-            className={clsx('block', replayBlockClassFor(loginUrl))}
+            // The login URL can hold an invite id, or a reset link in `next`. Replay compresses the href
+            // before `before_send` runs, so the link is always blocked from replay.
+            className="block ph-replay-block"
             href={loginUrl}
             onClick={
                 onProviderClick
