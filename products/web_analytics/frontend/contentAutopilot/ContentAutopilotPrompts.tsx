@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSegmentedButton, LemonSwitch, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSegmentedButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
@@ -10,6 +10,7 @@ import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { promptsTabFilters } from './aiVisibilityFilters'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
@@ -175,7 +176,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     </div>
                 </LemonCard>
             ) : (
-                <LemonTable
+                <AiVisibilityTable
                     dataSource={prompts?.results ?? []}
                     rowKey="id"
                     // Before the first page arrives, placeholder rows hold the table's shape.

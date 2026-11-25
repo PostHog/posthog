@@ -1,9 +1,8 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { percentage } from 'lib/utils/numbers'
 
 import type { AEOPageMoverApi, BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { moverDelta } from './movers'
@@ -22,7 +21,7 @@ export const ContentAutopilotPageMoversTable = ({
     dateTo: string
     branded: BrandedSegmentEnumApi
 }): JSX.Element => (
-    <LemonTable<AEOPageMoverApi>
+    <AiVisibilityTable<AEOPageMoverApi>
         size="small"
         embedded
         dataSource={rows}

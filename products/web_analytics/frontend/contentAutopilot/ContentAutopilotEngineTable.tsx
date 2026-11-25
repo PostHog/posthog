@@ -1,9 +1,8 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptEngineStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { POSITION_DESCRIPTION, positionLabel } from './promptReport'
 
@@ -18,7 +17,7 @@ type EngineRow = Pick<
 
 /** Mention rate, citation rate and position side by side for each engine that answered in the window. */
 export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] }): JSX.Element => (
-    <LemonTable<EngineRow>
+    <AiVisibilityTable<EngineRow>
         size="small"
         embedded
         dataSource={engines}

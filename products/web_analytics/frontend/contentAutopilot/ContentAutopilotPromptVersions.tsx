@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 
@@ -28,7 +29,7 @@ export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string 
     }
 
     return (
-        <LemonTable
+        <AiVisibilityTable
             size="small"
             dataSource={versions}
             rowKey="version"

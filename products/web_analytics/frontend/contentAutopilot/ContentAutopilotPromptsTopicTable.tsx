@@ -1,9 +1,10 @@
-import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonTableColumn, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { sameTopic } from './utils'
 
 type TopicRow = AEOPromptSetTopicCountsApi
@@ -73,7 +74,7 @@ export const ContentAutopilotPromptsTopicTable = ({
         },
     ]
     return (
-        <LemonTable
+        <AiVisibilityTable
             size="small"
             embedded
             dataSource={rows}

@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotKeywordModifierTerms } from './ContentAutopilotKeywordModifierTerms'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
@@ -57,7 +58,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                             : 'The engines searched only for words your prompts already contain. Only some engines report the searches they run.'}
                     </p>
                 ) : (
-                    <LemonTable<ModifierGroup>
+                    <AiVisibilityTable<ModifierGroup>
                         size="small"
                         dataSource={modifierGroups(modifiers.modifiers)}
                         rowKey="kind"

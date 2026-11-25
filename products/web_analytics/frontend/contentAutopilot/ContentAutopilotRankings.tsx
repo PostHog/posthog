@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -22,6 +22,7 @@ import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -164,7 +165,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Brands" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-rankings-brands">
-                        <LemonTable<AEORankedBrandApi>
+                        <AiVisibilityTable<AEORankedBrandApi>
                             size="small"
                             embedded
                             dataSource={rankings.brands}
@@ -268,7 +269,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Sites the engines cite most" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-rankings-domains">
-                        <LemonTable<AEORankedDomainApi>
+                        <AiVisibilityTable<AEORankedDomainApi>
                             size="small"
                             embedded
                             dataSource={rankings.top_domains}
@@ -321,7 +322,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Pages the engines cite most" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-rankings-pages">
-                        <LemonTable<AEORankedPageApi>
+                        <AiVisibilityTable<AEORankedPageApi>
                             size="small"
                             embedded
                             dataSource={rankings.top_pages}

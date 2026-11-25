@@ -343,3 +343,16 @@ const KeywordsEditorStory = (): JSX.Element => {
 export const KeywordsEditorQuill: StoryFn<typeof ContentAutopilot> = () => <KeywordsEditorStory />
 KeywordsEditorQuill.decorators = KeywordsTab.decorators
 KeywordsEditorQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
+
+export const OverviewTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" quill />
+OverviewTabQuill.decorators = OverviewTab.decorators
+// The visibility chart animates as it draws, so the overview tab stays out of the snapshots.
+OverviewTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS, testOptions: { snapshotBrowsers: [] } }
+
+export const PromptsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" quill />
+PromptsTabQuill.decorators = PromptsTab.decorators
+PromptsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
+
+export const KeywordsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" quill />
+KeywordsTabQuill.decorators = KeywordsTab.decorators
+KeywordsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }

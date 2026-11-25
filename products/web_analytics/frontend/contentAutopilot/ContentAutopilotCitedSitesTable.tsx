@@ -1,5 +1,3 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { percentage } from 'lib/utils/numbers'
 
 import type {
@@ -7,6 +5,7 @@ import type {
     BrandedSegmentEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
@@ -23,7 +22,7 @@ export const ContentAutopilotCitedSitesTable = ({
     dateTo: string
     branded: BrandedSegmentEnumApi
 }): JSX.Element => (
-    <LemonTable<AEOPromptSetDomainApi>
+    <AiVisibilityTable<AEOPromptSetDomainApi>
         size="small"
         embedded
         dataSource={domains}

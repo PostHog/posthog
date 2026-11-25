@@ -1,5 +1,3 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { percentage } from 'lib/utils/numbers'
 
 import type {
@@ -7,6 +5,7 @@ import type {
     BrandedSegmentEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { isCitationGap } from './keywordsReport'
@@ -27,7 +26,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
     branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
-    <LemonTable<AEOKeywordModifierApi>
+    <AiVisibilityTable<AEOKeywordModifierApi>
         size="small"
         embedded
         dataSource={modifiers}

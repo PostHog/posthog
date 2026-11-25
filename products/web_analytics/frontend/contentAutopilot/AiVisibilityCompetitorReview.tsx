@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -8,6 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import type { AEOCompetitorCandidateApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import { AiVisibilityTable } from './AiVisibilityTable'
 
 const PAGE_SIZE = 5
 // A narrow card has no room for the counts next to both actions.
@@ -37,7 +38,7 @@ export const AiVisibilityCompetitorReview = (): JSX.Element | null => {
             </p>
             {candidates.length > 0 ? (
                 <div className="overflow-x-auto">
-                    <LemonTable<AEOCompetitorCandidateApi>
+                    <AiVisibilityTable<AEOCompetitorCandidateApi>
                         size="small"
                         dataSource={candidates}
                         rowKey="brand_id"

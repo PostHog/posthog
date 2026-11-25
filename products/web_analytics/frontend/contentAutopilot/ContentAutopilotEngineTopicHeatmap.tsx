@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 
-import { LemonTable, LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { EngineTopicCell, EngineTopicGrid, EngineTopicRow } from './promptsOverview'
 import { sameTopic } from './utils'
@@ -86,7 +87,7 @@ export const ContentAutopilotEngineTopicHeatmap = ({
         <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader title="Visibility by engine and topic" />
             <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-heatmap">
-                <LemonTable
+                <AiVisibilityTable
                     size="small"
                     embedded
                     dataSource={grid.rows}

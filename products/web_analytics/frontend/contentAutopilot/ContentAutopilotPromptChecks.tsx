@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
@@ -31,7 +32,7 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             {checksFailed && errorBanner}
-            <LemonTable
+            <AiVisibilityTable
                 size="small"
                 dataSource={checks?.results ?? []}
                 rowKey="id"

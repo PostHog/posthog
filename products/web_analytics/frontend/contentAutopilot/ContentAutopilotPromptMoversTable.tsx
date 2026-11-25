@@ -1,9 +1,10 @@
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptMoverApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { moverDelta } from './movers'
 
@@ -17,7 +18,7 @@ export const ContentAutopilotPromptMoversTable = ({
     days: number
     onOpenPrompt: (prompt: AEOPromptMoverApi) => void
 }): JSX.Element => (
-    <LemonTable<AEOPromptMoverApi>
+    <AiVisibilityTable<AEOPromptMoverApi>
         size="small"
         embedded
         dataSource={rows}

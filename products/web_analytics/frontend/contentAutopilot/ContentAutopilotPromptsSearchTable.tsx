@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonTableColumn, Link } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -8,6 +8,7 @@ import type {
     BrandedSegmentEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 
@@ -77,7 +78,7 @@ export const ContentAutopilotPromptsSearchTable = ({
     ]
     return (
         <div className="@container/searches">
-            <LemonTable
+            <AiVisibilityTable
                 size="small"
                 embedded
                 dataSource={rows}

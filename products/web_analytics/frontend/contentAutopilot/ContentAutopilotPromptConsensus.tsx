@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { PromptConsensusCell, PromptConsensusMatrix } from './promptReport'
 
@@ -56,7 +57,7 @@ export const ContentAutopilotPromptConsensus = ({ matrix }: { matrix: PromptCons
     ]
     return (
         <div className="overflow-x-auto">
-            <LemonTable
+            <AiVisibilityTable
                 size="small"
                 dataSource={matrix.rows}
                 rowKey="engine"

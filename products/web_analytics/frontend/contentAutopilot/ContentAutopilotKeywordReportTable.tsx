@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumnGroup,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTableColumn, LemonTableColumnGroup, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -20,6 +12,7 @@ import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/gen
 
 import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
@@ -258,7 +251,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                 </p>
             ) : (
                 <div className="overflow-x-auto" data-attr="content-autopilot-keywords-report">
-                    <LemonTable<AEOKeywordReportRowApi>
+                    <AiVisibilityTable<AEOKeywordReportRowApi>
                         size="small"
                         embedded
                         dataSource={report.keywords}

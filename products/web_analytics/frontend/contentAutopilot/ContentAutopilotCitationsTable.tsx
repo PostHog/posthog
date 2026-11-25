@@ -1,9 +1,10 @@
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { AEOPromptCitationApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
@@ -19,7 +20,7 @@ export const ContentAutopilotCitationsTable = ({
     loading: boolean
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => (
-    <LemonTable<AEOPromptCitationApi>
+    <AiVisibilityTable<AEOPromptCitationApi>
         size="small"
         dataSource={citations}
         loading={loading}
