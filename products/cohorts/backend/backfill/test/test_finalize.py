@@ -30,6 +30,7 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_key
+from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
 
 
 class TestFinalizerKindCoverage(SimpleTestCase):
@@ -54,6 +55,17 @@ class TestBackfillFinalizer(BaseTest):
         celery_patch = mock.patch("products.cohorts.backend.backfill.finalize.current_app")
         self.mock_celery_app = celery_patch.start()
         self.addCleanup(celery_patch.stop)
+
+        capture_patch = mock.patch("products.cohorts.backend.backfill.finalize.ph_scoped_capture")
+        self.capture = capture_patch.start().return_value.__enter__.return_value
+        self.addCleanup(capture_patch.stop)
+
+    def _ready_events(self) -> list[dict]:
+        return [
+            call.kwargs["properties"]
+            for call in self.capture.call_args_list
+            if call.kwargs["event"] == "cohort realtime ready"
+        ]
 
     def _behavioral_filters(self) -> dict:
         return {
@@ -117,6 +129,11 @@ class TestBackfillFinalizer(BaseTest):
             # must refuse and supersede instead of opening readiness on a stale backfill.
             rows.update(reconcile_completed_at=now)
             Cohort.objects.filter(id=cohort.id).update(behavioral_filters_shape_hash="diverged-after-reconcile")
+        elif outcome == "completed_already_ready":
+            rows.update(reconcile_completed_at=now)
+            Cohort.objects.filter(id=cohort.id).update(
+                last_backfill_events_at=now, last_backfill_person_properties_at=now
+            )
         elif outcome == "shortfall":
             rows.update(error="markers short, retryable")
         elif outcome == "missing_outcome":
@@ -167,6 +184,7 @@ class TestBackfillFinalizer(BaseTest):
             # terminalize it on incomplete information.
             ("missing_outcome_holds", ["missing_outcome"], CohortBackfillRunStatus.RECONCILING, []),
             ("mixed_held_still_stamps", ["completed", "shortfall"], CohortBackfillRunStatus.RECONCILING, [0]),
+            ("ratifies_a_stamp_already_set", ["completed_already_ready"], CohortBackfillRunStatus.COMPLETED, [0]),
         ]
     )
     def test_outcome_matrix(
@@ -186,6 +204,7 @@ class TestBackfillFinalizer(BaseTest):
             sorted(call.kwargs["cohort_id"] for call in ready_receiver.call_args_list),
             sorted(cohorts[index].pk for index in stamped_indices),
         )
+        self.assertEqual(self._ready_events(), [])
         for index, cohort in enumerate(cohorts):
             cohort.refresh_from_db()
             participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run, cohort=cohort)
@@ -255,6 +274,7 @@ class TestBackfillFinalizer(BaseTest):
         self.assertIsNone(person_cohorts[0].last_backfill_events_at)
         self.assertFalse(behavioral_cohorts[0].is_flag_compatible)
         self.assertFalse(person_cohorts[0].is_flag_compatible)
+        self.assertEqual(self._ready_events(), [])
 
     def test_mixed_cohort_earns_both_stamps_from_two_runs_on_one_cohort(self) -> None:
         # The production shape `cohort_bfr_active_team_kind_uq` permits: one mixed cohort reached by
@@ -274,6 +294,73 @@ class TestBackfillFinalizer(BaseTest):
         self.assertIsNotNone(cohorts[0].last_backfill_events_at)
         self.assertIsNotNone(cohorts[0].last_backfill_person_properties_at)
         self.assertTrue(cohorts[0].is_flag_compatible)
+        self.assertEqual(
+            self._ready_events(),
+            [
+                {
+                    "cohort_id": cohorts[0].pk,
+                    "trigger_kind": CohortBackfillTrigger.TEAM_ENABLEMENT,
+                    "seconds_since_run_created": mock.ANY,
+                }
+            ],
+        )
+
+    def _turned_on_cohort_missing_only_its_events_stamp(self) -> tuple[CohortBackfillRun, Cohort]:
+        run, cohorts = self._make_run(["completed"], scope=CohortBackfillScope.COHORT)
+        now = timezone.now()
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            created_at=now - timedelta(minutes=10)
+        )
+        Cohort.objects.filter(id=cohorts[0].id).update(
+            realtime_enabled_at=now - timedelta(hours=1), last_backfill_person_properties_at=now - timedelta(hours=2)
+        )
+        run.refresh_from_db()
+        return run, cohorts[0]
+
+    @parameterized.expand(
+        [
+            ("serving_team_reports", RealtimeCohortLevel.SERVING, True),
+            ("processing_team_stays_silent", RealtimeCohortLevel.PROCESSING, False),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_first_build_reports_the_time_since_turn_on(
+        self, _name: str, level: RealtimeCohortLevel, reports: bool
+    ) -> None:
+        RealtimeCohortTeamAccess.objects.create(team_id=self.team.id, level=level, purpose="beta")
+        run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
+
+        finalize_backfill_runs()
+
+        cohort.refresh_from_db()
+        assert cohort.last_backfill_events_at is not None and cohort.realtime_enabled_at is not None
+        expected = [
+            {
+                "cohort_id": cohort.pk,
+                "trigger_kind": CohortBackfillTrigger.COHORT_CREATED,
+                "seconds_since_run_created": (cohort.last_backfill_events_at - run.created_at).total_seconds(),
+                "seconds_since_turn_on": (cohort.last_backfill_events_at - cohort.realtime_enabled_at).total_seconds(),
+            }
+        ]
+        self.assertEqual(self._ready_events(), expected if reports else [])
+
+    @parameterized.expand(
+        [
+            ("capture", "products.cohorts.backend.backfill.finalize.ph_scoped_capture"),
+            ("readiness_lookup", "products.cohorts.backend.models.cohort.team_honors_readiness_stamps"),
+        ]
+    )
+    def test_a_failing_ready_event_keeps_the_stamp(self, _name: str, target: str) -> None:
+        run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
+
+        with mock.patch(target, side_effect=RuntimeError("unavailable")):
+            result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohort.refresh_from_db()
+        self.assertEqual(result.errored, 0)
+        self.assertEqual(run.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(cohort.last_backfill_events_at)
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
     def test_person_run_is_held_not_superseded_while_the_readiness_gate_is_off(self) -> None:
