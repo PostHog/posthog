@@ -49,8 +49,9 @@ MAX_BUCKETS_PER_RANGE = 5000
 # A store with more buckets or bytes than this starts over on its next write.
 MAX_STORED_BUCKETS = 20_000
 MAX_STORE_BYTES = 16 * 1024 * 1024
-# A store older than this starts over, so deleted events and the retention floor reach its buckets.
-MAX_STORE_AGE = STORE_TTL
+# A store older than this starts over, so deleted events and the retention floor reach its buckets. As long as the
+# query cache keeps a whole-range result, which is also never invalidated when events are deleted.
+MAX_STORE_AGE = timedelta(seconds=settings.CACHED_RESULTS_TTL)
 # One answer stops splitting dense spans past this many ClickHouse runs or rows read, and runs whole instead.
 MAX_SPAN_RUNS = 32
 MAX_FETCHED_ROWS = 100_000
