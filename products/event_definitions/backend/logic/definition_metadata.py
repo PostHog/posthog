@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -20,11 +19,10 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
+from products.event_definitions.backend.facade.contracts import DefinitionKind
 from products.event_definitions.backend.models import EventDefinitionMetadata, PropertyDefinitionMetadata
 
 logger = structlog.get_logger(__name__)
-
-DefinitionKind = Literal["event", "property"]
 
 _SHARED_COLUMNS = (
     "description",

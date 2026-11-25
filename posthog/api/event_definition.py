@@ -77,7 +77,7 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.event_definitions.backend.logic.definition_metadata import batch_definition_metadata_copies
+from products.event_definitions.backend.facade.api import batch_definition_metadata_copies
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
