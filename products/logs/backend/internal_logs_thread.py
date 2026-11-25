@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import asyncio
 import threading
@@ -25,6 +26,7 @@ EXIT_WAIT_SECONDS = DRAIN_TIMEOUT_SECONDS + 1
 
 TOKEN_CACHE_TTL_SECONDS = 300
 _MAX_CACHED_TEAMS = 10_000
+_PENDING_ENTRY_OVERHEAD_BYTES = 1024
 
 _lock = threading.Lock()
 _pid: int | None = None
@@ -94,7 +96,7 @@ def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
         entries = [entry for entry in entries if producer.accepts(source, entry.team_id)]
         if not entries:
             return
-        size = sum(len(entry.message) for entry in entries)
+        size = sum(sys.getsizeof(entry.message) + _PENDING_ENTRY_OVERHEAD_BYTES for entry in entries)
         if _pending_bytes + size > _max_pending_bytes:
             RECORDS_COUNTER.labels(source=source, outcome="dropped").inc(len(entries))
             return
