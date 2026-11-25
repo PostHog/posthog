@@ -20,6 +20,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.tag import Tag, tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
@@ -371,9 +372,7 @@ def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
         item.uuid_object = notebook
         item.delete()
     if removed:
-        Tag.objects.filter(
-            team_id=notebook.team_id, id__in=[item.tag_id for item in removed], tagged_items__isnull=True
-        ).delete()
+        delete_unused_tags(notebook.team_id, [item.tag_id for item in removed])
     notebook.prefetched_tags = kept  # type: ignore[attr-defined]
 
 

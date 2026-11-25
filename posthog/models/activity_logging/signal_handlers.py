@@ -716,7 +716,9 @@ def handle_tagged_item_change(
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
     related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
     if related_logger and related_object.id:
-        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
+        tag_action: Literal["created", "deleted", "changed"] = (
+            "created" if activity == "created" else "changed" if activity == "updated" else "deleted"
+        )
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
@@ -732,8 +734,8 @@ def handle_tagged_item_change(
                         type=related_logger.scope,
                         field="tag",
                         action=tag_action,
-                        after=tagged_item.tag.name if activity == "created" else None,
-                        before=tagged_item.tag.name if activity == "deleted" else None,
+                        after=after_update.tag.name if after_update is not None else None,
+                        before=before_update.tag.name if before_update is not None else None,
                     )
                 ],
                 trigger=trigger,

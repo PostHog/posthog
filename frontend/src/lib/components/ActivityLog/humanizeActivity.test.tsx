@@ -22,7 +22,30 @@ import { actionActivityDescriber } from 'products/actions/frontend/actionActivit
 import { dashboardActivityDescriber } from 'products/dashboards/frontend/dashboardActivityDescriber'
 import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 
+import { tagActivityDescriber } from './activityDescriptions/tagActivityDescriber'
+
 describe('humanizeActivity', () => {
+    it('shows the source and destination of a tag merge', () => {
+        const result = tagActivityDescriber({
+            activity: 'merged',
+            created_at: '2026-06-04T00:00:00Z',
+            scope: ActivityScope.TAG,
+            detail: {
+                merge: null,
+                trigger: null,
+                changes: null,
+                name: 'duplicate',
+                context: {
+                    source_name: 'duplicate',
+                    target_name: 'canonical',
+                },
+            },
+        })
+        expect(render(<>{result.description}</>).container.textContent).toBe(
+            'A user merged tag duplicate into canonical'
+        )
+        expect(render(<>{result.summary?.target}</>).container.textContent).toBe('canonical')
+    })
     const makeLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => ({
         activity: 'updated',
         created_at: '2026-06-04T00:00:00Z',

@@ -29,6 +29,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.comment import Comment
 from posthog.models.tag import tagify
+from posthog.tag_management import delete_unused_tags
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
@@ -646,7 +647,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
                     if removed_tag_ids:
-                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
+                        delete_unused_tags(team.id, removed_tag_ids)
                 elif tags_mode == "set":
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
@@ -659,7 +660,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         removed_tag_ids.add(tagged_item.tag_id)
                         tagged_item.delete()
                     if removed_tag_ids:
-                        Tag.objects.filter(team_id=team.id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
+                        delete_unused_tags(team.id, removed_tag_ids)
                 else:
                     for tag_name in normalized_tags:
                         tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
