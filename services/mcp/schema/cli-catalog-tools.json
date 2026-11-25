@@ -21123,6 +21123,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "created_by_id",
+                    "key": "created_by_id",
+                    "csv": false
+                },
+                {
                     "param": "event",
                     "key": "event",
                     "csv": false
@@ -21133,6 +21138,11 @@
                     "csv": false
                 },
                 {
+                    "param": "metric_type",
+                    "key": "metric_type",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false
@@ -21140,6 +21150,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 }
             ],
