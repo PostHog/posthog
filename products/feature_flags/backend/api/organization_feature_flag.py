@@ -47,6 +47,10 @@ from products.access_control.backend.facade.user_access_control import (
 from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.transactions import gated_atomic
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.feature_flags.backend.api.feature_flag import FlagLifecycleWriteRequest
@@ -654,14 +658,12 @@ class OrganizationFeatureFlagView(
         serializer.is_valid(raise_exception=True)
         feature_flag_key = serializer.validated_data["feature_flag_key"]
         project_ids = list(dict.fromkeys(serializer.validated_data["project_ids"]))
-        user = cast(User, request.user)
-        accessible_team_ids = set(UserPermissions(user=user).team_ids_visible_for_user)
 
         deleted: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
         for project_id in project_ids:
             try:
-                flag = self._delete_flag_in_project(request, feature_flag_key, project_id, accessible_team_ids)
+                flag = self._delete_flag_in_project(request, feature_flag_key, project_id)
             except APIException as e:
                 failed.append({"project_id": project_id, "error_message": first_error_message(e.detail)})
             except Exception as e:
@@ -672,7 +674,7 @@ class OrganizationFeatureFlagView(
                 deleted.append({"project_id": project_id, "flag_id": flag.id})
 
         report_user_action(
-            user,
+            request.user,
             "feature flag deleted in projects",
             {"project_count": len(project_ids), "deleted_count": len(deleted), "failed_count": len(failed)},
             organization=self.organization,
@@ -680,18 +682,17 @@ class OrganizationFeatureFlagView(
         )
         return Response(DeleteFlagInProjectsResponseSerializer({"deleted": deleted, "failed": failed}).data)
 
-    def _delete_flag_in_project(
-        self, request: Request, feature_flag_key: str, project_id: int, accessible_team_ids: set[int]
-    ) -> FeatureFlag:
-        team = self._get_accessible_target_team(project_id, accessible_team_ids)
-        if team is None:
+    def _delete_flag_in_project(self, request: Request, feature_flag_key: str, project_id: int) -> FeatureFlag:
+        # A flag lives on the project's main team, the one whose id is the project id.
+        team = Team.objects.filter(pk=project_id, project_id=project_id, organization_id=self.organization_id).first()
+        if team is None or not authorization.check(resource=Resource.project(team.pk), action=Action.VIEW):
             raise NotFound("Project not found.")
         flag = FeatureFlag.objects.filter(key=feature_flag_key, team=team).first()
         if flag is None:
             raise NotFound("Feature flag not found.")
-        user = cast(User, request.user)
-        if not self._user_can_edit_flag(user, flag):
+        if not authorization.check(resource=resource_for_object(flag, team=team), action=Action.DELETE):
             raise PermissionDenied(DELETE_PERMISSION_ERROR)
+        user = cast(User, request.user)
         return delete_flag(flag, team=team, user=user, request=FlagLifecycleWriteRequest(request))
 
     def _copy_dependency_flags_to_target(
