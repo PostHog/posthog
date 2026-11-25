@@ -1438,7 +1438,7 @@ export const TasksConfigAgentInstructionsCreateBody = () => zod
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
- * Return the models a task run may use, with the reasoning efforts each one supports. Read from the task model catalog, narrowed to the models the posthog_code product allows.
+ * Return the models a task run may use, with the reasoning efforts each one supports. Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. Each model is marked with whether the project's plan allows it.
  * @summary List available models
  */
 export const TasksModelsRetrieveParams = () => zod.object({

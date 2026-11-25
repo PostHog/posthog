@@ -35,6 +35,7 @@ from rest_framework.views import APIView
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -20445,15 +20446,24 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):
-    def test_returns_catalog_models_with_their_efforts(self):
-        response = self.client.get("/api/projects/@current/tasks/models/")
+    @parameterized.expand([("paid", True), ("free", False)])
+    def test_returns_catalog_models_marked_by_plan(self, plan: str, opus_allowed: bool):
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage"}] if plan == "paid" else []
+        )
+        self.organization.save()
+
+        with patch("posthog.llm.gateway_client.get_llm_client", side_effect=AssertionError("no gateway call")):
+            response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         models = {m["model"]: m for m in response.json()["models"]}
-        self.assertEqual(models["claude-opus-4-8"]["runtime_adapter"], "claude")
-        self.assertEqual(models["claude-opus-4-8"]["display_name"], "Claude Opus 4.8")
-        self.assertIn("max", models["claude-opus-4-8"]["supported_efforts"])
-        self.assertEqual(models["gpt-5.5"]["runtime_adapter"], "codex")
+        self.assertNotIn("claude-opus-4-7", models)
+        self.assertEqual(models["claude-opus-5-5"]["runtime_adapter"], "claude")
+        self.assertEqual(models["claude-opus-5-5"]["context_window"], 1_000_000)
+        self.assertIn("max", models["claude-opus-5-5"]["supported_efforts"])
+        self.assertIs(models["claude-opus-5-5"]["allowed"], opus_allowed)
+        self.assertIs(models["moonshotai/kimi-k3.1-pro"]["allowed"], True)
 
 
 class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):

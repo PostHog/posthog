@@ -5,10 +5,11 @@ import pytest
 from parameterized import parameterized
 from syrupy.extensions.json import JSONSnapshotExtension
 
+from posthog.llm.gateway_client import Product
+
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
-from products.tasks.backend.facade.model_catalogue import available_model_choices
-from products.tasks.backend.logic.services.gateway_model_pin import PRODUCT_ALLOWED_MODELS
+from products.tasks.backend.facade.model_catalogue import FREE_TIER_PIN_KEY, available_model_choices, plan_model_choices
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
@@ -206,11 +207,34 @@ def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
 
 
 class TestAvailableModelChoices:
-    def test_narrows_the_catalog_to_the_product_pin(self) -> None:
-        pin = set(PRODUCT_ALLOWED_MODELS["conversations"])
-        catalog_ids = {entry.id for entry in model_catalog.MODELS}
+    @parameterized.expand(
+        [
+            ("posthog_code", "zai-org/glm-5.3", True),
+            ("posthog_code", "claude-opus-5-5", True),
+            ("posthog_code", "gpt-6.1-terra", False),
+            ("posthog_code", "claude-opus-4-7", False),
+            ("slack_app", "zai-org/glm-5.3", False),
+            ("slack_app", "claude-opus-5-5", True),
+        ]
+    )
+    def test_offers_the_offered_models_the_product_pin_admits(
+        self, product: Product, model: str, offered: bool
+    ) -> None:
+        assert (model in {c.model for c in available_model_choices(product)}) is offered
 
-        assert {c.model for c in available_model_choices("conversations")} == pin & catalog_ids
+    def test_every_offered_model_carries_a_context_window(self) -> None:
+        assert all(c.context_window > 0 for c in available_model_choices("posthog_code"))
+
+    @parameterized.expand(
+        [
+            ("posthog_code", "claude-opus-5-5", True),
+            (FREE_TIER_PIN_KEY, "claude-opus-5-5", False),
+            (FREE_TIER_PIN_KEY, "moonshotai/kimi-k3.1-pro", True),
+        ]
+    )
+    def test_marks_whether_the_plan_pin_admits_each_model(self, plan_pin: str, model: str, allowed: bool) -> None:
+        choices = {c.model: c for c in plan_model_choices("posthog_code", plan_pin)}
+        assert choices[model].allowed is allowed
 
 
 def test_every_model_resolves_to_its_catalog_flag() -> None:
