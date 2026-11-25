@@ -34,6 +34,7 @@ from products.cohorts.backend.realtime_limits import (
     max_realtime_history_days,
     realtime_cohorts_used,
 )
+from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
@@ -137,6 +138,24 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
                 queue_cohort_backfill(each, CohortBackfillTrigger.COHORT_CREATED, kind)
 
     return [each.id for each in turned_on]
+
+
+def prepare_again(team_id: int, cohort_id: int) -> list[CohortBackfillKind]:
+    """Queue the builds a cohort that is on still needs, when nothing is preparing it. Returns the kinds it queued.
+
+    Raises ``RealtimeTurnOnRefused`` when the pipeline can't prepare the cohort's criteria, as a turn-on does.
+    """
+    cohort = Cohort.objects.select_related("team").get(id=cohort_id, team_id=team_id)
+    readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
+    # A reason means the refusal it names holds for the current criteria, so another build would be refused again.
+    if readiness is None or readiness.state != CohortRealtimeState.NEEDS_ATTENTION or readiness.reason is not None:
+        return []
+    # `queue_cohort_backfill` drops a cohort the pipeline can't prepare without an error, so refuse it here instead.
+    _refuse_unless_it_can_be_ready(cohort)
+    unprepared = [
+        CohortBackfillKind(kind) for kind, stamp in cohort._required_backfill_stamps().items() if stamp is None
+    ]
+    return [kind for kind in unprepared if queue_cohort_backfill(cohort, CohortBackfillTrigger.COHORT_CREATED, kind)]
 
 
 def refuse_edit_over_plan_limits(cohort: Cohort, *, held_a_slot: bool, can_edit: Callable[[Cohort], bool]) -> None:

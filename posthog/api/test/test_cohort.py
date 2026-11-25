@@ -9295,6 +9295,20 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         ]
         assert changes == [(False, True), (True, False)]
 
+    def test_turning_on_a_cohort_that_is_on_and_unprepared_prepares_it_again(self) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        self.addCleanup(
+            get_redis_client().delete, cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL)
+        )
+        before = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._switch(cohort, True)
+
+        after = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        assert response.status_code == 200
+        assert (before["state"], after["state"]) == ("needs_attention", "building")
+
     @parameterized.expand(
         [
             ("flag_on_event_criteria", _REALTIME_PAGEVIEW_LEAF, "flag", "feature flag"),

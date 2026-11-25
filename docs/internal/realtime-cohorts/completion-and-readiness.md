@@ -254,6 +254,8 @@ Unless another leaf is `person_metadata` or carries both, that cohort gets no cr
 The reason is as stale as `cohort_type`: a cohort that includes another one keeps `includes_non_realtime_cohort` after that cohort becomes realtime, until it is saved again.
 Every `history_over_limit` carries the plan's limit in `history_limit_days`, because that is the limit a person can raise.
 A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
+Sending `enabled: true` to the `realtime` action for a `needs_attention` cohort with no reason queues a build for each kind that has not stamped, after the same eligibility check a turn-on runs, and the cohort page offers this as "Try again".
+For a team whose saves trigger no backfills it queues nothing and reports no `cohort realtime retried` event.
 
 A cohort that needs two backfill kinds reads `building` or `rebuilding` while every kind that has not stamped is being prepared, and `needs_attention` when nothing is preparing one of those kinds.
 A kind that has stamped is finished for this cohort, so neither its runs nor its debounce key are consulted, including a team run of that kind that stays active while it holds for other cohorts.
