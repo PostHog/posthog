@@ -319,10 +319,12 @@ print_migration_progress() {
 }
 
 start_stack() {
+    sudo -E docker-compose -f docker-compose.yml pull || return 1
     local started=$SECONDS
     local next_report=$((SECONDS + 30))
     # Plain output, so the lines from print_migration_progress do not break compose's terminal UI.
-    sudo -E docker-compose --progress plain -f docker-compose.yml up -d --no-build --pull always --remove-orphans &
+    # The images are pulled above, because plain output prints a line per layer every second.
+    sudo -E docker-compose --progress plain -f docker-compose.yml up -d --no-build --remove-orphans &
     local up_pid=$!
     while kill -0 "$up_pid" 2> /dev/null; do
         sleep 5
@@ -336,8 +338,8 @@ start_stack() {
 
 echo "Starting the stack!"
 echo "The first start downloads over 10 GB of images and migrates the database."
-echo "Expect 30 minutes or more before PostHog is up. Progress prints every 30 seconds."
-# Retry docker-compose up with --pull always up to 3 times
+echo "Expect 30 minutes or more before PostHog is up. Progress prints every 30 seconds after the download."
+# Retry the pull and docker-compose up up to 3 times
 for attempt in 1 2 3; do
     echo "Starting stack (attempt $attempt/3)..."
     if start_stack; then
