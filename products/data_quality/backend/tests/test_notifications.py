@@ -182,6 +182,7 @@ class TestDataQualityNotifications(BaseTest):
             query for query in queries.captured_queries if f'FROM "{Metric._meta.db_table}"' in query["sql"]
         ]
         assert len(metric_reads) <= 1
+        assert not [query for query in queries.captured_queries if f'"{User._meta.db_table}"."id" = ' in query["sql"]]
         assert self.user.id in recipients
         assert blocked.id not in recipients
 
