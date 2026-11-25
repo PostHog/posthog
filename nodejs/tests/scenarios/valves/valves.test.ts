@@ -394,21 +394,14 @@ describe('valves', () => {
     it('kills only once its arming delay passed, though enough jobs ran from the start', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf({ runningJobs: 2 })
-        const { actuate } = stack.context.environment
-        const startedAt = Date.now()
-        let killedAfterMs: number | undefined
-        stack.context.environment = {
-            actuate: (action) => {
-                killedAfterMs ??= Date.now() - startedAt
-                return actuate(action)
-            },
-        }
 
         await valves.start([kill({ at: '100ms', when: RUNNING_ON_EMAIL })], stack.context)
+        // Without the delay the kill needs no timer, so it lands before this one fires, however late both run.
+        const goneBeforeArming = await sleep(50).then(() => stack.gone())
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()
 
-        expect(killedAfterMs).toBeGreaterThanOrEqual(90)
+        expect(goneBeforeArming).toEqual([])
     })
 
     const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }

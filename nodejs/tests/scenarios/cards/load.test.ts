@@ -320,6 +320,12 @@ describe('load', () => {
             "valves.0.at: the valve can fire 36s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
         ],
         [
+            'a valve offset longer than a timer can wait',
+            { ...card, valves: [{ ...emailWorkerKill, at: '2147483648ms' }] },
+            undefined,
+            'valves.0.at: at is past 2147483647ms, the longest a timer waits',
+        ],
+        [
             'a valve armed past the end of the drive on a profile with admission',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '60s' }] },
             { ...profile, host: { cpuCeiling: 0.5 } },

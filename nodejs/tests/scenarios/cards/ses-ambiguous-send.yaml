@@ -1,5 +1,5 @@
 id: ses-ambiguous-send
-version: 1
+version: 2
 clock: real
 profile: synthetic
 seed: 6

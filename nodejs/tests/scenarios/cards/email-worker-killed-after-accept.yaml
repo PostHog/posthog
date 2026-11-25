@@ -1,5 +1,5 @@
 id: email-worker-killed-after-accept
-version: 1
+version: 2
 clock: real
 profile: synthetic
 seed: 8
