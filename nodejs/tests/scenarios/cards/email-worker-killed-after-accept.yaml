@@ -6,7 +6,7 @@ seed: 8
 setup:
     teams: 1
 drive:
-    for: 60s
+    for: 67s
     traffic:
         - name: event_email
         - name: transactional_email
@@ -14,7 +14,7 @@ valves:
     - valve: role.kill
       target: cdp-cyclotron-worker-email
       dose: {}
-      at: 35s
+      at: 37s
       when:
           name: edge_accepted
           params:

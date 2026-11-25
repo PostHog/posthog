@@ -9,7 +9,7 @@ import { getDefaultConfig } from '~/common/config/config'
 
 import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
-import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS } from '../judge/measurements'
+import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
@@ -235,19 +235,28 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
-const FIRST_FAULT_SECONDS = MIN_BASELINE_SECONDS + SAMPLE_INTERVAL_MS / 1000
+const SCRAPED_FAULT_SECONDS = MIN_BASELINE_SECONDS + (SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS) / 1000
 
 function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
     if (profile.load === undefined && profile.host === undefined) {
         return []
     }
+    const scraped = Object.keys(profile.load?.targets.claimsPerSecond ?? {}).length > 0
+    const first = scraped ? SCRAPED_FAULT_SECONDS : MIN_BASELINE_SECONDS
+    const baseline = scraped
+        ? `the ${MIN_BASELINE_SECONDS}s fault-free baseline and the role scrape that closes it, which load admission's claim rates need`
+        : `the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure`
+    const driveSeconds = stepsOf(card.drive).at(-1)!.toMs / 1000
     return card.valves.flatMap((entry, i) => {
         const seconds = durationMs(entry.at ?? '0s') / 1000
-        return seconds < FIRST_FAULT_SECONDS
-            ? [
-                  `valves.${i}.at: the valve can fire ${seconds}s into the drive, before load and host admission measure a ${MIN_BASELINE_SECONDS}s fault-free baseline and the scrape that closes it; set at to ${FIRST_FAULT_SECONDS}s or later`,
-              ]
-            : []
+        if (seconds < first) {
+            return [
+                `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside ${baseline}; set at to ${first}s or later`,
+            ]
+        }
+        return seconds < driveSeconds
+            ? []
+            : [`valves.${i}.at: ${seconds}s is past the drive's end at ${driveSeconds}s, so the valve never fires`]
     })
 }
 

@@ -370,13 +370,16 @@ describe('valves', () => {
         ])
     })
 
-    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
+    it.each<[string, string | undefined]>([
+        ['', undefined],
+        [', once armed', '20ms'],
+    ])('waits until enough jobs of its teams run on the queue before it kills%s', async (_story, at) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         stack.run(1)
         stack.run(3, 'hogflow')
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([kill({ at, when: RUNNING_ON_EMAIL })], stack.context)
         await stack.nextRead()
         await stack.nextRead()
         expect(stack.gone()).toEqual([])
@@ -391,11 +394,18 @@ describe('valves', () => {
     it('kills only once its arming delay passed, though enough jobs ran from the start', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf({ runningJobs: 2 })
+        const { actuate } = stack.context.environment
         const startedAt = Date.now()
+        let killedAfterMs: number | undefined
+        stack.context.environment = {
+            actuate: (action) => {
+                killedAfterMs ??= Date.now() - startedAt
+                return actuate(action)
+            },
+        }
 
         await valves.start([kill({ at: '100ms', when: RUNNING_ON_EMAIL })], stack.context)
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
-        const killedAfterMs = Date.now() - startedAt
         await valves.releaseAll()
 
         expect(killedAfterMs).toBeGreaterThanOrEqual(90)
