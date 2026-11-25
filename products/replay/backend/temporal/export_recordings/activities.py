@@ -5,13 +5,14 @@ import json
 import bisect
 import asyncio
 import hashlib
+import tempfile
 import functools
 import contextlib
 import collections
 import dataclasses
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
@@ -80,8 +81,11 @@ SESSIONS_PER_CHECKPOINT = 500
 PERSON_ROW_LIMIT = 50000
 VIEWPORTS_QUERY_TIMEOUT_SECONDS = 2 * 60 * 60
 VIEWPORTS_GROUP_BY_SPILL_BYTES = 10 * 1024 * 1024 * 1024
-# File playback refuses a header over 8 MiB, so one session's viewports stay well under it.
-MAX_SESSION_VIEWPORT_BYTES = 2 * 1024 * 1024
+# Senders choose the URLs, so both caps keep a team's own events from growing worker memory without bound.
+# File playback refuses a header over 8 MiB, and a session's viewports stay well under it.
+MAX_SESSION_VIEWPORT_BYTES = 64 * 1024
+# A shard reads its whole file into memory, so the file stays bounded too.
+MAX_SHARD_VIEWPORT_BYTES = 256 * 1024 * 1024
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
@@ -328,9 +332,11 @@ class ViewportFileWriter:
         self.shard: int | None = None
         self.listed: frozenset[str] = frozenset()
         self.rows = 0
+        self.dropped = 0
         self.session_id = ""
         self.session_bytes = 0
-        self.buffer = io.BytesIO()
+        self.shard_bytes = 0
+        self.buffer: IO[bytes] = tempfile.TemporaryFile()
         self.file = gzip.GzipFile(fileobj=self.buffer, mode="wb")
 
     async def add(self, row: dict[str, Any]) -> None:
@@ -356,18 +362,24 @@ class ViewportFileWriter:
         }
         line = json.dumps([row["session_id"], viewport]).encode() + b"\n"
         self.session_bytes += len(line)
-        if self.session_bytes <= MAX_SESSION_VIEWPORT_BYTES:
-            self.file.write(line)
-            self.rows += 1
+        if self.session_bytes > MAX_SESSION_VIEWPORT_BYTES or self.shard_bytes + len(line) > MAX_SHARD_VIEWPORT_BYTES:
+            self.dropped += 1
+            return
+        self.shard_bytes += len(line)
+        self.file.write(line)
+        self.rows += 1
 
     async def flush(self) -> None:
         if self.shard is not None:
             key = viewports_shard_key(self.input.team_id, self.input.run_id, self.input.day, self.shard)
             self.file.close()
-            await database_sync_to_async_pool(object_storage.write)(key, self.buffer.getvalue())
+            self.buffer.seek(0)
+            await database_sync_to_async_pool(object_storage.write_stream)(key, self.buffer)
             self.written.add(self.shard)
+        self.buffer.close()
         self.shard = None
-        self.buffer = io.BytesIO()
+        self.shard_bytes = 0
+        self.buffer = tempfile.TemporaryFile()
         self.file = gzip.GzipFile(fileobj=self.buffer, mode="wb")
 
     async def finish(self) -> None:
@@ -378,6 +390,7 @@ class ViewportFileWriter:
                 self.shard = shard
                 await self.flush()
         self.file.close()
+        self.buffer.close()
 
 
 @activity.defn
@@ -398,7 +411,13 @@ async def load_day_viewports(input: DayViewportsInput) -> None:
                     await writer.add(json.loads(line))
         await writer.finish()
     await database_sync_to_async_pool(object_storage.write)(done_key, b"done")
-    logger.info("export_recordings.day_viewports_loaded", team_id=input.team_id, day=input.day, rows=writer.rows)
+    logger.info(
+        "export_recordings.day_viewports_loaded",
+        team_id=input.team_id,
+        day=input.day,
+        rows=writer.rows,
+        dropped=writer.dropped,
+    )
 
 
 class ViewportReader:
