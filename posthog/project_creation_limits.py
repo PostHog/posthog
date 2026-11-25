@@ -7,7 +7,12 @@ project outside that API, such as partner provisioning, calls these functions di
 from enum import StrEnum
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import Organization, OrganizationMembership, ProductFeature
+from posthog.models.organization import Organization, ProductFeature
+from posthog.models.user import User
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
@@ -66,10 +71,14 @@ def organization_project_limit_reached(organization: Organization) -> ProjectLim
     )
 
 
-def membership_can_create_projects(organization: Organization, level: OrganizationMembership.Level) -> bool:
+def member_can_create_projects(user: User, organization: Organization) -> bool:
     """Admins and owners can create projects. Members can only when the organization allows it and
-    has the entitlement to configure that. Without the entitlement, members can never create one."""
-    if level >= OrganizationMembership.Level.ADMIN:
+    has the entitlement to configure that. Without the entitlement, members can never create one.
+
+    The caller checks that the user is a member of the organization."""
+    if authorization.check(
+        resource=Resource.organization(organization.id), action=Action.EDIT, subject=Subject(user_id=user.pk)
+    ):
         return True
 
     # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).

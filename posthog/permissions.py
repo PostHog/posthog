@@ -37,7 +37,7 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, membership_can_create_projects
+from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
@@ -1672,7 +1672,7 @@ class UserCanCreateProjectPermission(BasePermission):
             return True
 
         membership = get_required_organization_membership(request, organization)
-        return membership_can_create_projects(organization, membership.effective_level)
+        return member_can_create_projects(cast(User, membership.user), organization)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:

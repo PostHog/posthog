@@ -38,7 +38,7 @@ from posthog.project_creation_limits import (
     PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
     PROJECT_LIMIT_MESSAGES,
     ProjectLimit,
-    membership_can_create_projects,
+    member_can_create_projects,
     organization_project_limit_reached,
 )
 from posthog.tasks.email import send_provisioning_welcome
@@ -208,7 +208,7 @@ class ProjectCreationRefusedError(Exception):
 
 def _assert_user_can_create_project(user: User, organization: Organization) -> None:
     membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
-    if membership is None or not membership_can_create_projects(organization, membership.effective_level):
+    if membership is None or not member_can_create_projects(user, organization):
         raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
 
 

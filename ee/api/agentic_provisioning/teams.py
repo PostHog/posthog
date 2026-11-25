@@ -16,12 +16,14 @@ from posthog.models.user import User
 from posthog.project_creation_limits import (
     PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
     PROJECT_LIMIT_MESSAGES,
-    membership_can_create_projects,
+    member_can_create_projects,
     organization_project_limit_reached,
 )
 from posthog.scopes.checks import scopes_not_covered
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 from ee.api.agentic_provisioning.tokens import ensure_team_in_token_scopes, user_can_access_team
 
@@ -60,7 +62,7 @@ def _token_can_rename_project(access_token: OAuthAccessToken) -> bool:
 
 
 def _user_can_administer_team(user: User, team: Team) -> bool:
-    return UserAccessControl(user=user, team=team).check_access_level_for_object(team, required_level="admin")
+    return authorization.check(resource=Resource.project(team.id), action=Action.EDIT, subject=Subject(user_id=user.pk))
 
 
 def _find_project_mapping(
@@ -137,7 +139,7 @@ def assert_user_can_create_project(user: User, organization: Organization) -> No
     """Raise ProjectCreationRefusedError unless the user may create a project in the organization
     and the organization is under its project limit."""
     membership = OrganizationMembership.objects.filter(organization_id=organization.id, user=user).first()
-    if membership is None or not membership_can_create_projects(organization, membership.effective_level):
+    if membership is None or not member_can_create_projects(user, organization):
         raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
 
     reached_limit = organization_project_limit_reached(organization)
