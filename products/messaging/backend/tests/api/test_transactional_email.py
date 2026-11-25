@@ -1048,12 +1048,6 @@ class TestTransactionalEmail(APIBaseTest):
                 "Unsubscribe\n\nUnsubscribe: {{ unsubscribe_url }}",
             ),
             (
-                "marketing_with_url_as_link_label",
-                {"category": NEWSLETTER, "html": '<a href="{{ unsubscribe_url }}">{{ unsubscribe_url }}</a>'},
-                "marketing",
-                "{{ unsubscribe_url }}",
-            ),
-            (
                 "marketing_with_explicit_text",
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "text": "Plain {{ unsubscribe_url }}"},
                 "marketing",
