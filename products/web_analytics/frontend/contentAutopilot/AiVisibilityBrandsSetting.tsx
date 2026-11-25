@@ -9,10 +9,17 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 
-import type { AEOBrandApi, BrandKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import type {
+    AEOBrandApi,
+    BrandKindEnumApi,
+    BrandStatusEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { BRANDS_PAGE_SIZE, aiVisibilityBrandsLogic } from './aiVisibilityBrandsLogic'
+import { QuillAiVisibilityBrandsSetting } from './QuillAiVisibilityBrandsSetting'
 
 const KIND_OPTIONS: { value: BrandKindEnumApi; label: string }[] = [
     { value: 'own', label: 'Your brand' },
@@ -20,11 +27,33 @@ const KIND_OPTIONS: { value: BrandKindEnumApi; label: string }[] = [
     { value: 'publisher', label: 'Publisher' },
     { value: 'unknown', label: 'Not labeled' },
 ]
+const STATUS_OPTIONS: { value: BrandStatusEnumApi; label: string }[] = [
+    { value: 'suggested', label: 'To review' },
+    { value: 'confirmed', label: 'Confirmed' },
+    { value: 'ignored', label: 'Ignored' },
+]
+const ALIASES_TOOLTIP = 'Names an answer can use for this brand. Rankings count an answer that uses any of them.'
 
 /** Reviews the brand catalog the daily runs fill from cited sites. Confirmed competitors drive the Rankings tab. */
 export const AiVisibilityBrandsSetting = (): JSX.Element => {
     const { brands, brandsLoading, brandsError, status, search, page, updatingIds } = useValues(aiVisibilityBrandsLogic)
     const { setStatus, setSearch, setPage, labelBrand, updateBrand, loadBrands } = useActions(aiVisibilityBrandsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const emptyText =
+        status === 'suggested'
+            ? 'Nothing to review. The daily run adds the sites answers cite for the first time.'
+            : 'No brands here yet.'
+
+    if (todayRailNav) {
+        return (
+            <QuillAiVisibilityBrandsSetting
+                statusOptions={STATUS_OPTIONS}
+                kindOptions={KIND_OPTIONS}
+                aliasesTooltip={ALIASES_TOOLTIP}
+                emptyText={emptyText}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-3" data-attr="ai-visibility-brands-setting">
@@ -33,11 +62,7 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                     value={status}
                     onChange={setStatus}
                     size="small"
-                    options={[
-                        { value: 'suggested', label: 'To review' },
-                        { value: 'confirmed', label: 'Confirmed' },
-                        { value: 'ignored', label: 'Ignored' },
-                    ]}
+                    options={STATUS_OPTIONS}
                     data-attr="ai-visibility-brands-status"
                 />
                 <LemonInput
@@ -71,11 +96,7 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                     onForward: () => setPage(page + 1),
                     onBackward: () => setPage(page - 1),
                 }}
-                emptyState={
-                    status === 'suggested'
-                        ? 'Nothing to review. The daily run adds the sites answers cite for the first time.'
-                        : 'No brands here yet.'
-                }
+                emptyState={emptyText}
                 columns={[
                     {
                         title: 'Brand',
@@ -104,8 +125,7 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                     {
                         title: 'Other names',
                         key: 'aliases',
-                        tooltip:
-                            'Names an answer can use for this brand. Rankings count an answer that uses any of them.',
+                        tooltip: ALIASES_TOOLTIP,
                         render: (_, brand) => (
                             <LemonInputSelect
                                 mode="multiple"

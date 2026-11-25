@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 
@@ -8,23 +11,42 @@ import { contentAutopilotLogic } from './contentAutopilotLogic'
 export const ContentAutopilotSitePicker = (): JSX.Element | null => {
     const { profile, siteProfiles } = useValues(contentAutopilotLogic)
     const { selectProfile } = useActions(contentAutopilotLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // A project tracks one site. Projects that added more before that keep a picker to reach and delete them.
     if (!profile || siteProfiles.length < 2) {
         return null
     }
+    const options = siteProfiles.map((siteProfile) => ({
+        value: siteProfile.id,
+        label: siteProfile.name || siteProfile.domain,
+    }))
     return (
         <div className="flex flex-wrap items-center gap-2" data-attr="content-autopilot-site-picker">
-            <LemonSelect
-                size="small"
-                aria-label="Site"
-                value={profile.id}
-                onChange={selectProfile}
-                options={siteProfiles.map((siteProfile) => ({
-                    value: siteProfile.id,
-                    label: siteProfile.name || siteProfile.domain,
-                }))}
-            />
+            {todayRailNav ? (
+                <Select<string> value={profile.id} onValueChange={(id) => id && selectProfile(id)}>
+                    <SelectTrigger aria-label="Site">
+                        <SelectValue>
+                            {(id: string | null) => options.find((option) => option.value === id)?.label}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        {options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            ) : (
+                <LemonSelect
+                    size="small"
+                    aria-label="Site"
+                    value={profile.id}
+                    onChange={selectProfile}
+                    options={options}
+                />
+            )}
         </div>
     )
 }

@@ -4,11 +4,13 @@ import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 
 import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
+import { QuillContentAutopilotSiteSettingsCard } from './QuillContentAutopilotSiteSettingsCard'
 
 const SETUP_STEPS: GuidedWizardStep<ContentAutopilotOnboardingStep>[] = [
     { step: 'site', label: 'Site' },
@@ -28,6 +30,7 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
     } = useValues(contentAutopilotLogic)
     const { cancelOnboarding, deleteProfile, discoverSite, saveProfile, setOnboardingStep } =
         useActions(contentAutopilotLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const saveDisabledReason = !profileDraft.domain.trim()
         ? 'Enter a site URL'
         : splitHasNoValues(profileDraft.sourceUrls)
@@ -48,6 +51,20 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
             },
             secondaryButton: { children: 'Keep site' },
         })
+    }
+
+    if (!onboarding && todayRailNav) {
+        return (
+            <QuillContentAutopilotSiteSettingsCard
+                siteLabel={profile ? profile.name || profile.domain : null}
+                draft={profileDraft}
+                deleting={deletedProfileLoading}
+                saving={savedProfileLoading}
+                saveDisabledReason={saveDisabledReason}
+                onDelete={() => profile && deleteProfile(profile.id)}
+                onSave={saveProfile}
+            />
+        )
     }
 
     if (!onboarding) {
