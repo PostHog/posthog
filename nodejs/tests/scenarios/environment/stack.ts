@@ -94,10 +94,8 @@ const STACK_UNITS = {
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
-// Compose recreates a running container whose definition differs, and the definition holds the absolute
-// paths of the worktree that runs `up`. From a second worktree that restarts the Postgres every lane shares.
-const COMPOSE_UP = ' up --pull always -d '
-const COMPOSE_UP_KEEPING_CONTAINERS = ' up --no-recreate -d '
+const RECREATING_COMPOSE_UP = ' up --pull always -d '
+const KEEPING_COMPOSE_UP = ' up --pull always --no-recreate -d '
 
 export class StackNotReadyError extends Error {
     constructor(message: string) {
@@ -110,12 +108,12 @@ export function keepRunningContainers(mprocsYaml: string): string {
     const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
     const compose = config.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    if (shell.split(COMPOSE_UP).length !== 2) {
+    if (shell.split(RECREATING_COMPOSE_UP).length !== 2 || shell.split(/ up -/).length !== 2) {
         throw new StackNotReadyError(
-            `The dev config hogli generated has no docker-compose proc that runs \`docker compose${COMPOSE_UP.trimEnd()}\` once, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
+            `The dev config hogli generated has no docker-compose proc that runs \`docker compose${RECREATING_COMPOSE_UP.trimEnd()}\` as its only \`up\`, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
         )
     }
-    compose!.shell = shell.replace(COMPOSE_UP, COMPOSE_UP_KEEPING_CONTAINERS)
+    compose!.shell = shell.replace(RECREATING_COMPOSE_UP, KEEPING_COMPOSE_UP)
     return stringify(config, { lineWidth: 0 })
 }
 
@@ -155,11 +153,21 @@ export async function startStack(
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
-    writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
-    const kept = await runningServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal)
-    if (kept.length > 0) {
+    const running = await runningServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal).catch(
+        (error: Error) => {
+            signal.throwIfAborted()
+            process.stderr.write(
+                `Could not list the running dev services, so the start keeps every existing container as it is: ${error.message}\n`
+            )
+            return null
+        }
+    )
+    if (running?.length !== 0) {
+        writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
+    }
+    if (running?.length) {
         process.stderr.write(
-            `Keeping the running dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
+            `Keeping the dev services that run as they are: ${running.join(', ')}. Stopped ones start as they are too. A change to their compose definition is not applied until they are recreated.\n`
         )
     }
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
@@ -168,7 +176,12 @@ export async function startStack(
 
 export type MigratedTable = { url: string; table: string }
 
-export async function untilMigrated(tables: MigratedTable[], withinMs: number, intervalMs: number): Promise<void> {
+export async function untilMigrated(
+    tables: MigratedTable[],
+    withinMs: number,
+    intervalMs: number,
+    signal: AbortSignal
+): Promise<void> {
     const deadline = performance.now() + withinMs
     for (;;) {
         const missing = await Promise.all(
@@ -182,6 +195,7 @@ export async function untilMigrated(tables: MigratedTable[], withinMs: number, i
                 }, url).catch((error: Error) => error.message)
             )
         )
+        signal.throwIfAborted()
         const problems = missing.filter((problem): problem is string => problem !== null)
         if (problems.length === 0) {
             return
@@ -191,7 +205,7 @@ export async function untilMigrated(tables: MigratedTable[], withinMs: number, i
                 `Postgres was not ready with its migrations within ${withinMs / 1000} seconds: ${problems.join('; ')}. Check \`docker ps\` for a restarted posthog-db-1 and the migrate procs in hogli's log.`
             )
         }
-        await sleep(intervalMs)
+        await sleep(intervalMs, undefined, { signal })
     }
 }
 

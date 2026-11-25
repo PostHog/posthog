@@ -410,7 +410,8 @@ export function createEnvironment({
                 { url: cyclotronUrlOf(planned[0]), table: 'cyclotron_jobs' },
             ],
             MIGRATED_WITHIN_MS,
-            PROBE_INTERVAL_MS
+            PROBE_INTERVAL_MS,
+            signal
         )
         await refuseHeldPorts([...portsOf(planned), EDGE])
         const groups = consumerGroupsOf(planned)

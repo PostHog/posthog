@@ -1164,9 +1164,10 @@ describe('scenario environment', () => {
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
-                const composeUp = / up (.*?) -d /.exec(fs.readFileSync(flags.custom, 'utf8'))
-                if (composeUp?.[1] !== '--no-recreate') {
-                    fail('The config at ' + flags.custom + ' runs docker compose up ' + (composeUp?.[1] ?? 'nowhere') + ', which recreates the running containers')
+                const ups = [...fs.readFileSync(flags.custom, 'utf8').matchAll(/ up (-.*?) -d /g)].map((up) => up[1])
+                const keeps = stack.containers?.length ? '--pull always --no-recreate' : '--pull always'
+                if (ups.join() !== keeps) {
+                    fail('The config at ' + flags.custom + ' runs docker compose up ' + (ups.join(', then ') || 'nowhere') + ', not up ' + keeps)
                 }
                 fs.writeFileSync(
                     stateFile,
@@ -1198,6 +1199,13 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             if (args[0] === 'ps') {
+                const lists = ['--filter', 'label=com.docker.compose.project=posthog', '--filter', 'status=running', '--format', '{{.Label "com.docker.compose.service"}}']
+                if (args.slice(1).join(' ') !== lists.join(' ')) {
+                    process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
+                    process.exit(125)
+                }
+                const { containers = [] } = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
+                process.stdout.write(containers.map((service) => service + '\\n').join(''))
                 process.exit(0)
             }
             const [exec, container, rpk, noun, verb, group] = args
@@ -1357,6 +1365,7 @@ describe('scenario environment', () => {
             firstStartS?: number
             hangs?: boolean
             ignoresTerm?: boolean
+            containers?: string[]
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1530,7 +1539,13 @@ describe('scenario environment', () => {
             })
         }, 45_000)
 
-        it.each<[string, { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number }, string[]]>([
+        it.each<
+            [
+                string,
+                { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number; containers?: string[] },
+                string[],
+            ]
+        >([
             ['a running stack', { running: true, ready: true }, STACK.templates],
             [
                 'a running stack whose phrocs answers slowly, without starting it again',
@@ -1543,6 +1558,11 @@ describe('scenario environment', () => {
                 STACK.templates,
             ],
             ['a stack hogli cannot reach', { running: false, ready: false }, STACK.templates],
+            [
+                "a stack hogli cannot reach while another worktree's services run, without recreating them",
+                { running: false, ready: false, containers: ['db', 'kafka'] },
+                STACK.templates,
+            ],
             [
                 'a stack hogli cannot reach, whose first start builds for longer than the default wait',
                 { running: false, ready: false, firstStartS: 1800 },

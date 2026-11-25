@@ -31,7 +31,7 @@ describe('keepRunningContainers', () => {
         expect(parse(keepRunningContainers(generatedConfig(shell)))).toEqual({
             procs: {
                 'docker-compose': {
-                    shell: `${COMPOSE} up --no-recreate -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${COMPOSE} logs --tail=100 -f`,
+                    shell: `${COMPOSE} up --pull always --no-recreate -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${COMPOSE} logs --tail=100 -f`,
                     ready_pattern: 'docker-compose ready',
                 },
                 backend: { shell: 'bin/start-backend' },
@@ -42,6 +42,10 @@ describe('keepRunningContainers', () => {
 
     it.each([
         ['an up call it does not know', `${COMPOSE} up --pull missing -d && echo "docker-compose ready"`],
+        [
+            'a second up call',
+            `${COMPOSE} up --pull always -d && ${COMPOSE} up -d personhog-replica && echo "docker-compose ready"`,
+        ],
         ['no docker-compose proc', ''],
     ])('refuses a config with %s, which would recreate the shared containers', (_case, shell) => {
         const config = shell ? generatedConfig(shell) : 'procs:\n  backend:\n    shell: bin/start-backend\n'
@@ -51,8 +55,10 @@ describe('keepRunningContainers', () => {
 })
 
 describe('untilMigrated', () => {
+    const NEVER = new AbortController().signal
+
     it('returns once every table exists', async () => {
-        await expect(untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 1000, 10)).resolves.toBeUndefined()
+        await expect(untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 1000, 10, NEVER)).resolves.toBeUndefined()
     })
 
     it('names the table that is still missing when the migrations do not finish in time', async () => {
@@ -61,11 +67,21 @@ describe('untilMigrated', () => {
                 { url: URL, table: 'cyclotron_jobs' },
                 { url: URL, table: 'scenario_never_migrated' },
             ],
-            50,
-            10
+            0,
+            10,
+            NEVER
         )
 
         await expect(waited).rejects.toThrow(StackNotReadyError)
         await expect(waited).rejects.toThrow('has no table scenario_never_migrated')
+    })
+
+    it('does not let a cancelled run go on, even once the tables exist', async () => {
+        const cancel = new AbortController()
+        cancel.abort()
+
+        await expect(
+            untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 1000, 10, cancel.signal)
+        ).rejects.toMatchObject({ name: 'AbortError' })
     })
 })
