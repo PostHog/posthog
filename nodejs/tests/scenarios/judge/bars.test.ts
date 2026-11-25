@@ -1,5 +1,5 @@
 import type { Named, Step } from '../cards'
-import { BarEvidence, BarResult, CpuPoint, judgeBars } from './bars'
+import { BarEvidence, BarResult, CpuPoint, StepReading, judgeBars, stepReadingsOf } from './bars'
 import type { JournalEntry } from './judge'
 import type { HostSample, MetricSample } from './measurements'
 
@@ -385,5 +385,70 @@ describe('judgeBars', () => {
         const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
 
         expect(pickup).toEqual({ ...expected, limit: seconds })
+    })
+})
+
+describe('stepReadingsOf', () => {
+    const writer = (value: number, passed = true): StepReading => ({
+        ...HELD[0],
+        value,
+        part: 'db:cyclotron',
+        passed,
+    })
+    const pickup = (value: number, key: string, passed = true): StepReading => ({
+        ...HELD[1],
+        value,
+        key,
+        part: `role:cdp-cyclotron-worker-${key}`,
+        passed,
+    })
+    const unread = (bar: 0 | 1, why: string): StepReading => ({
+        ...HELD[bar],
+        value: null,
+        passed: null,
+        unjudged: why,
+    })
+
+    it.each<[string, Partial<BarEvidence>, StepReading[][]]>([
+        [
+            'reads every bar in every step it held',
+            {},
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'reads the step a bar broke in at its breaking value',
+            { samples: scrapedEvery5s(120, lateAfter('email', 60)), writerCpu: cpu({ 0: 40, 1: 80 }) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(80, false), pickup(10, 'email', false)],
+            ],
+        ],
+        [
+            'says a step the drive never reached was not judged, with no value',
+            { drive: { startedAt: T, endedAt: T + MINUTE } },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [unread(0, 'the drive ended before the 10x step'), unread(1, 'the drive ended before the 10x step')],
+            ],
+        ],
+        [
+            'takes the live judge readings where the final writer CPU read failed',
+            {
+                writerCpu: { unread: 'the writer CPU read failed: throttled' },
+                settled: new Map([
+                    [0, [{ ...HELD[0], reading: { value: 40, part: 'db:cyclotron' } }]],
+                    [1, [broke(0, 10, 60, 90)]],
+                ]),
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(90, false), pickup(1, 'hogflow')],
+            ],
+        ],
+    ])('%s', (_story, changes, expected) => {
+        expect(stepReadingsOf(BARS, evidence(changes))).toEqual(expected)
     })
 })

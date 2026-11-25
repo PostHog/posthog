@@ -32,6 +32,8 @@ export type BreakingPoint = StepPoint & { key?: string; value: number; part: str
 
 export type HarnessLimit = { scale: number; by: 'run_host' }
 
+type Read = { key?: string; value: number; part: string }
+
 export type BarResult = {
     name: string
     unit: string
@@ -40,7 +42,11 @@ export type BarResult = {
     unjudged?: string
     harnessLimit?: HarnessLimit
     breakingPoint?: BreakingPoint
+    reading?: Read
 }
+
+export type StepReading = Pick<BarResult, 'name' | 'unit' | 'limit' | 'unjudged'> &
+    ({ value: number; key?: string; part: string; passed: boolean } | { value: null; passed: null })
 
 type Window = { from: number; to: number; last: boolean; idle?: boolean }
 
@@ -244,13 +250,15 @@ function offeredRateOf(evidence: BarEvidence, i: number): number {
 
 type StepVerdict = Pick<BarResult, 'unjudged' | 'harnessLimit' | 'breakingPoint'>
 
+type StepJudgment = { verdict: StepVerdict; reading?: Read }
+
 function judgeStepOf(
     definition: BarDefinition,
     params: unknown,
     evidence: BarEvidence,
     i: number,
     last: boolean
-): StepVerdict {
+): StepJudgment {
     const { scale, offeredUnits } = evidence.steps[i]
     const window = { ...windowOf(evidence, i), last }
     const idle =
@@ -260,24 +268,24 @@ function judgeStepOf(
         )
     const point = (): StepPoint => ({ scale, at: iso(window.from), offeredPerSecond: offeredRateOf(evidence, i) })
     if (window.to <= window.from) {
-        return { unjudged: `the drive ended before the ${scale}x step` }
+        return { verdict: { unjudged: `the drive ended before the ${scale}x step` } }
     }
     const overloaded = hostOverCeiling(evidence, window, scale)
     if (overloaded !== undefined) {
-        return { unjudged: overloaded, harnessLimit: { scale, by: 'run_host' } }
+        return { verdict: { unjudged: overloaded, harnessLimit: { scale, by: 'run_host' } } }
     }
     const reading = definition.read(evidence, { ...window, idle }, params)
     if ('unsourced' in reading) {
-        return { unjudged: reading.unsourced }
+        return { verdict: { unjudged: reading.unsourced } }
     }
     if ('unread' in reading) {
-        return { unjudged: `${reading.unread} in the ${scale}x step`, harnessLimit: { scale, by: 'run_host' } }
+        return {
+            verdict: { unjudged: `${reading.unread} in the ${scale}x step`, harnessLimit: { scale, by: 'run_host' } },
+        }
     }
-    if (reading.passed) {
-        return {}
-    }
-    const { key, value, part } = reading
-    return { breakingPoint: { ...point(), ...(key && { key }), value, part } }
+    const { key, value, part, passed } = reading
+    const read = { ...(key && { key }), value, part }
+    return { verdict: passed ? {} : { breakingPoint: { ...point(), ...read } }, reading: read }
 }
 
 function verdictOf(
@@ -291,7 +299,7 @@ function verdictOf(
     if (live?.breakingPoint) {
         return { breakingPoint: { ...live.breakingPoint, offeredPerSecond: offeredRateOf(evidence, i) } }
     }
-    const nominal = judgeStepOf(definition, params, evidence, i, last)
+    const { verdict: nominal } = judgeStepOf(definition, params, evidence, i, last)
     if (nominal.breakingPoint) {
         return nominal
     }
@@ -306,15 +314,40 @@ export const unsourced = ({ unjudged, harnessLimit }: BarResult): boolean =>
 export function judgeStep(bars: Named[], evidence: BarEvidence, i: number): BarResult[] {
     return bars.map(({ name, params }) => {
         const definition = definitionOf(name)
-        const verdict = verdictOf(definition, params, evidence, i, false)
+        const { verdict, reading } = judgeStepOf(definition, params, evidence, i, false)
         return {
             name,
             unit: definition.unit,
             limit: definition.limit(params),
             passed: Object.keys(verdict).length === 0,
             ...verdict,
+            ...(reading && { reading }),
         }
     })
+}
+
+// Reads every step on its own, where judgeBars stops at the first break, and prefers the reading the verdict used:
+// the live judge's break, then the final evidence, then the live judge's reading when the final evidence was unread.
+export function stepReadingsOf(bars: Named[], evidence: BarEvidence): StepReading[][] {
+    return evidence.steps.map((_step, i) =>
+        bars.map(({ name, params }) => {
+            const definition = definitionOf(name)
+            const bar = { name, unit: definition.unit, limit: definition.limit(params) }
+            const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
+            const nominal = judgeStepOf(definition, params, evidence, i, i === evidence.steps.length - 1)
+            if (live?.breakingPoint) {
+                const { key, value, part } = live.breakingPoint
+                return { ...bar, value, ...(key && { key }), part, passed: false }
+            }
+            if (nominal.reading) {
+                return { ...bar, ...nominal.reading, passed: nominal.verdict.breakingPoint === undefined }
+            }
+            if (live?.reading) {
+                return { ...bar, ...live.reading, passed: live.passed }
+            }
+            return { ...bar, value: null, passed: null, unjudged: nominal.verdict.unjudged }
+        })
+    )
 }
 
 export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {

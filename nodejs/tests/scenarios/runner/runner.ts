@@ -32,7 +32,7 @@ import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
-import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
+import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -678,12 +678,13 @@ export function createRunner(
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )
-                const bars = judgeBars(card.bars, {
+                const barEvidence = {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
-                })
+                }
+                const bars = judgeBars(card.bars, barEvidence)
                 const ramp = card.drive.stopOnBreak
                     ? rampOf({
                           planned: stepsOf(card.drive),
@@ -705,6 +706,7 @@ export function createRunner(
                               },
                               convergence
                           ),
+                          readings: stepReadingsOf(card.bars, barEvidence),
                       })
                     : undefined
                 const verdict = statusOf({
