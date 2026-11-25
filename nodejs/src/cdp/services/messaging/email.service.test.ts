@@ -2342,9 +2342,13 @@ describe('EmailService', () => {
             sesRejects()
             invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
         }
-        const codeSendTracked = (): void => {
+        const codeSendClicksOff = (): void => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
+        }
+        const sensitiveTemplate = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
         }
         const codeSendOpensOff = (): void => {
             sesAcceptsTracked()
@@ -3209,9 +3213,17 @@ describe('EmailService', () => {
                 'a code send that SES accepts with opens on and clicks off',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
-                codeSendTracked,
+                codeSendClicksOff,
                 'sent',
-                '',
+                'clicks_untracked',
+            ],
+            [
+                'a sensitive transactional email, whose click tracking is off by default',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sensitiveTemplate,
+                'sent',
+                'clicks_untracked',
             ],
             [
                 'a code send that SES accepts with opens off',
