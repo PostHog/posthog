@@ -138,15 +138,3 @@ export function createQueryBatchRunner(teamId: number): RunQuery {
             queued.push({ request, resolve, reject })
         })
 }
-
-const runners = new Map<number, RunQuery>()
-
-/** One runner per environment, so the chart cache it keys keeps its results across scene visits. */
-export function queryBatchRunnerFor(teamId: number): RunQuery {
-    let runner = runners.get(teamId)
-    if (!runner) {
-        runner = createQueryBatchRunner(teamId)
-        runners.set(teamId, runner)
-    }
-    return runner
-}

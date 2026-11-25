@@ -12,7 +12,7 @@ import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
 import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
 import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
-import { queryBatchRunnerFor } from './data/queryBatchRunner'
+import { createQueryBatchRunner } from './data/queryBatchRunner'
 import { runSampleQuery } from './fixtures/runSampleQuery'
 import { createChartWidget } from './widgets/chart/createChartWidget'
 import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
@@ -43,10 +43,12 @@ function DashboardV2(): JSX.Element {
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS] &&
         !!currentTeamId
+    // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
+    // when they leave, instead of showing them again after their access changes.
     const widgets = useMemo(
         () =>
             runsRealQueries && currentTeamId
-                ? [createChartWidget({ runQuery: queryBatchRunnerFor(currentTeamId) }), ...NON_CHART_WIDGETS]
+                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
                 : SAMPLE_WIDGETS,
         [runsRealQueries, currentTeamId]
     )
