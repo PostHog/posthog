@@ -561,7 +561,7 @@ class QueryBatch:
         self._unread_space = Condition()
         self._closed = False
         self._deadline = monotonic() + MAX_STREAM_SECONDS
-        self._overflow: list[tuple[int, str, ResolvedQuery]] = []
+        self._overflow: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._shares = _share_keys(team.organization_id, user.pk)
         self._open = _OpenSlot(self._shares)
         if not self._open.acquire():
@@ -1007,15 +1007,6 @@ class QueryBatch:
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
             self._pool.shutdown(wait=False, cancel_futures=True)
-        if not complete and active:
-            # The client went away: stop what is still running in ClickHouse. A worker that was still planning
-            # or waiting for a limiter slot sends its SQL after the first kill, so keep killing until it ends.
-            Thread(
-                target=self._context.copy().run,
-                args=(self._cancel_until_idle, active),
-                daemon=True,
-                name="dashboard-query-batch-cancel",
-            ).start()
         if admitted:
             for future in self._futures:
                 future.cancel()
@@ -1037,6 +1028,16 @@ class QueryBatch:
 
                 for future in remaining:
                     future.add_done_callback(done)
+        # After the slot is arranged, so a thread that cannot start leaves the slot to be freed, not stranded.
+        if not complete and active:
+            # The client went away: stop what is still running in ClickHouse. A worker that was still planning
+            # or waiting for a limiter slot sends its SQL after the first kill, so keep killing until it ends.
+            Thread(
+                target=self._context.copy().run,
+                args=(self._cancel_until_idle, active),
+                daemon=True,
+                name="dashboard-query-batch-cancel",
+            ).start()
 
     def _cancel_until_idle(self, active: tuple[str, ...]) -> None:
         deadline = monotonic() + CANCEL_WINDOW_SECONDS
@@ -1060,7 +1061,7 @@ class QueryBatch:
         for index in sorted(pending):
             yield self._encode({"i": index, "error": _TIMED_OUT})
 
-    def _busy_lines(self, jobs: Sequence[tuple[int, str, ResolvedQuery]]) -> Iterator[bytes]:
+    def _busy_lines(self, jobs: Sequence[tuple[int, str, ResolvedQuery | QueryBatchInput]]) -> Iterator[bytes]:
         message = _TIMED_OUT if self._closed else _BUSY
         for index, _query_id, _query in jobs:
             yield self._encode({"i": index, "error": message})

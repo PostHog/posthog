@@ -349,6 +349,20 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         self.assertFalse(watchdog.is_alive())
 
+    def test_a_batch_whose_cancel_thread_cannot_start_still_frees_its_slot(self) -> None:
+        batch = QueryBatch(
+            team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="no-thread"
+        )
+        batch._watchdog.cancel()
+        self.addCleanup(batch._open.release)
+        batch._admitted = query_batch_module._admit_batch(batch._shares)
+        batch._active.add("running")
+
+        with patch.object(query_batch_module, "Thread", side_effect=RuntimeError), self.assertRaises(RuntimeError):
+            batch._close(False)
+
+        self.assertEqual(query_batch_module._org_batches, {})
+
     def test_a_client_still_reading_a_long_line_is_not_idle(self) -> None:
         # The reader receives 16 bytes per idle window, so a line split into 8-byte slices marks progress twice per
         # window, while the same line handed over whole would take several windows to arrive.
