@@ -19,16 +19,19 @@ import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
 import { liveBreakdownKinds } from '@/model/adapters/live'
 import type { LiveBreakdownKind, LiveEventRow, LiveProjectState } from '@/model/live'
+import { liveTrafficFilterCount } from '@/model/liveTrafficFilters'
 import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LiveDot } from '@/ui/LiveDot'
+import { Pressable44 } from '@/ui/Pressable44'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
-import { iconSizes, layout, type } from '@/ui/tokens'
+import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
@@ -40,19 +43,20 @@ import {
 } from './analytics'
 import { useLiveFeed } from './hooks'
 import { LiveActivityCard } from './LiveActivityCard'
-import { LiveAudienceControl } from './LiveAudienceControl'
 import { LiveBreakdownCard } from './LiveBreakdownCard'
 import { LiveEventSheet } from './LiveEventSheet'
 import { LiveEventsCard } from './LiveEventsCard'
+import { LiveFilterButton, liveNativeFilterButton } from './LiveFilterButton'
+import { LiveFilterSheet } from './LiveFilterSheet'
 import { LiveMapCard } from './LiveMapCard'
 import { LiveMobileMetrics } from './LiveMobileMetrics'
 import { LiveNoTraffic } from './LiveNoTraffic'
 import { LiveRankedTable } from './LiveRankedTable'
 import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
+import { liveFilterValue } from './liveFilterLabels'
 import { statusText } from './liveFormat'
 import { useLivePreference } from './livePreference'
-import { useLiveAudienceNativeMenu } from './useLiveAudienceNativeMenu'
 
 /** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
@@ -69,7 +73,10 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     const toasts = useToasts()
     const [menuOpen, setMenuOpen] = useState(false)
     const allowed = access.state === 'ok'
-    const nativeAudienceMenu = useLiveAudienceNativeMenu(allowed && chrome === 'stack')
+    const { preference, trafficFilters } = useLivePreference()
+    const filterCount = liveTrafficFilterCount(trafficFilters) + Number(preference !== 'all')
+    const [filterProject, setFilterProject] = useState<string | null>(null)
+    const openFilters = (): void => setFilterProject(identity)
     const tab = chrome === 'tab'
     // The tabs layout counts Home opens once per tab switch, because this focus effect also fires when a pushed screen,
     // Settings or the chat sheet closes over Home.
@@ -91,6 +98,8 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                 scrollTitle={scrollTitle}
                 toasts={toasts}
                 internalUsersFilter={internalUsersFilter}
+                filterCount={filterCount}
+                openFilters={openFilters}
             />
         )
     } else if (tab) {
@@ -112,8 +121,10 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                 tab ? null : (
                     <ViewChrome
                         title={scrollTitle.title}
-                        accessory={allowed ? <LiveAudienceControl /> : null}
-                        nativeAccessory={nativeAudienceMenu}
+                        accessory={allowed ? <LiveFilterButton count={filterCount} onPress={openFilters} /> : null}
+                        nativeAccessory={
+                            allowed ? liveNativeFilterButton({ count: filterCount, onPress: openFilters }) : null
+                        }
                         onBack={back}
                         onMore={allowed ? () => setMenuOpen(true) : undefined}
                     />
@@ -121,6 +132,7 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
             }
         >
             {body}
+            {allowed && filterProject === identity ? <LiveFilterSheet onClose={() => setFilterProject(null)} /> : null}
             {tab ? null : (
                 <HeaderMenu
                     visible={menuOpen}
@@ -155,23 +167,50 @@ interface LiveBodyProps {
     scrollTitle: ScrollTitleState
     toasts: Toasts
     internalUsersFilter: boolean | undefined
+    filterCount: number
+    openFilters: () => void
 }
 
-function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: LiveBodyProps): ReactElement {
+function LiveBody({
+    chrome,
+    scope,
+    scrollTitle,
+    toasts,
+    internalUsersFilter,
+    filterCount,
+    openFilters,
+}: LiveBodyProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
     const tab = chrome === 'tab'
     const scroll = useRef<ScrollViewInstance>(null)
-    const { preference } = useLivePreference()
-    const previousPreference = useRef(preference)
+    const { preference, trafficFilters, showFilterBanner, setShowFilterBanner } = useLivePreference()
+    const filterSummary = [
+        preference === 'web' ? 'Web' : preference === 'mobile' ? 'Mobile' : '',
+        trafficFilters.hostname,
+        liveFilterValue('pathPrefix', trafficFilters),
+        trafficFilters.channelType,
+        trafficFilters.referringDomain === '$direct'
+            ? 'Direct entry'
+            : trafficFilters.referringDomain && `Entry from ${trafficFilters.referringDomain}`,
+        liveFilterValue('countryCode', trafficFilters),
+        trafficFilters.deviceType && `${trafficFilters.deviceType} devices`,
+        trafficFilters.excludeBots && 'Bots excluded',
+    ]
+        .filter(Boolean)
+        .join(' · ')
+    const previousFilters = useRef({ preference, trafficFilters })
     useEffect(() => {
-        if (preference !== previousPreference.current) {
-            previousPreference.current = preference
+        if (
+            preference !== previousFilters.current.preference ||
+            trafficFilters !== previousFilters.current.trafficFilters
+        ) {
+            previousFilters.current = { preference, trafficFilters }
             scroll.current?.scrollTo({ y: 0, animated: false })
         }
-    }, [preference])
+    }, [preference, trafficFilters])
     const feed = useLiveFeed(
         (kind) => {
             if (kind === 'refresh_failed') {
@@ -235,7 +274,14 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
             />
         )
     } else if (state === 'quiet' || state === 'not_set_up') {
-        content = <LiveNoTraffic state={state} scope={scope} mobile={mobile} />
+        content = (
+            <LiveNoTraffic
+                state={state}
+                scope={scope}
+                mobile={mobile}
+                onEditFilters={filterCount ? openFilters : undefined}
+            />
+        )
     } else if (nothingYet) {
         content = (
             <View testID="live-loading">
@@ -295,6 +341,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
                         mobileOnly={mobile}
                         webOnly={detectedAudience === 'web'}
                         filterTestAccounts={internalUsersFilter}
+                        trafficFilters={trafficFilters}
                     />
                 )}
                 <LiveActivityCard activity={activity} audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'} />
@@ -368,7 +415,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
                     status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
                     scrollToTop={() => scroll.current?.scrollTo({ y: 0, animated: true })}
                     refreshing={feed.reading && feed.screenActive}
-                    liveAudience
+                    filter={{ active: filterCount > 0, count: filterCount, onPress: openFilters }}
                 />
             ) : null}
             <ScrollView
@@ -400,6 +447,33 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
                         audience={detectedAudience}
                     />
                 )}
+                {showFilterBanner && filterSummary ? (
+                    <View style={styles.filterBanner}>
+                        <Pressable44
+                            onPress={openFilters}
+                            accessibilityLabel={`Edit Live filters. ${filterSummary}`}
+                            style={styles.filterSummary}
+                            pressedBackground={colors.pressed}
+                            hitSlop={0}
+                            testID="live-filter-summary"
+                        >
+                            <FilterIcon size={16} color={colors.blue} />
+                            <Text style={styles.filterSummaryText} numberOfLines={2}>
+                                {filterSummary}
+                            </Text>
+                        </Pressable44>
+                        <Pressable44
+                            onPress={() => setShowFilterBanner(false)}
+                            accessibilityLabel="Hide filter banner"
+                            style={styles.hideFilterBanner}
+                            pressedBackground={colors.pressed}
+                            hitSlop={0}
+                            testID="live-filter-hide-banner"
+                        >
+                            <Text style={styles.hideFilterBannerText}>Hide</Text>
+                        </Pressable44>
+                    </View>
+                ) : null}
                 {content}
             </ScrollView>
             <LiveEventSheet
@@ -491,6 +565,25 @@ const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
+    filterBanner: {
+        flexDirection: 'row',
+        marginBottom: 10,
+        borderRadius: radii.card,
+        backgroundColor: colors.blueHighlight,
+        overflow: 'hidden',
+    },
+    filterSummary: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        minHeight: 44,
+        paddingLeft: 12,
+        paddingVertical: 8,
+    },
+    filterSummaryText: { ...type.metaSmall, color: colors.ink, flex: 1 },
+    hideFilterBanner: { minWidth: 44, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+    hideFilterBannerText: { ...type.buttonSmall, color: colors.blue },
     refreshControl: {
         opacity: 0,
     },

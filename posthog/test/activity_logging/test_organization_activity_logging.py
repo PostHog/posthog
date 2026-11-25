@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, changes_between
+from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
@@ -51,6 +52,28 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
                 after=False,
             )
         ]
+
+    @parameterized.expand(
+        [
+            ("deactivation", {"is_active": False}, True, False),
+            ("reactivation", {"is_active": True}, False, True),
+            ("other_setting", {"members_can_invite": False}, True, True),
+        ]
+    )
+    def test_a_staff_change_names_the_staff_member_unless_it_deactivates_the_organization(
+        self, _name: str, change: dict[str, bool], active_before: bool, names_staff: bool
+    ) -> None:
+        Organization.objects.filter(id=self.organization.id).update(is_active=active_before)
+        organization = Organization.objects.get(id=self.organization.id)
+        staff = User.objects.create(email="staff@example.com", is_staff=True)
+
+        with ActingUserContext(staff):
+            for field, value in change.items():
+                setattr(organization, field, value)
+            organization.save(update_fields=list(change))
+
+        logged = ActivityLog.objects.get(organization_id=self.organization.id, scope="Organization", activity="updated")
+        assert logged.user_id == (staff.id if names_staff else None)
 
     def test_organization_creation_activity_logging(self):
         organization = self.create_organization("Test Organization")

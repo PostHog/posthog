@@ -304,7 +304,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             ("personal_uploader", "personal_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
             ("scorer_only", "personal_key", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
             ("project_uploader", "project_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
-            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_200_OK),
         ]
     )
     def test_read_routes_enforce_credential_scopes(
@@ -329,7 +329,7 @@ class TestOfflineExperimentReads(APIBaseTest):
                 "editor",
                 status.HTTP_403_FORBIDDEN,
             ),
-            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+            ("project_key", "project_key", ["evaluation:write"], "none", status.HTTP_200_OK),
         ]
     )
     def test_tag_updates_require_evaluation_editor_access(
@@ -341,8 +341,9 @@ class TestOfflineExperimentReads(APIBaseTest):
         assert response.status_code == expected_status, response.data
         assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
 
-    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
-        self._authenticate("personal_key", ["evaluation:read"])
+    @parameterized.expand(["personal_key", "project_key"])
+    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self, auth_kind: str) -> None:
+        self._authenticate(auth_kind, ["evaluation:read"])
         for path in self._metadata_paths():
             with self.subTest(path=path):
                 response = self.client.get(path)

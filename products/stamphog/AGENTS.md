@@ -224,7 +224,9 @@ A change to the verification keeps these true:
 - The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
 - A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
 - A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
-- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- Both review paths, the context fetch and `_attest_gates`, and reviewer routing's proof build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- The review re-run and reviewer routing parse a pending check with `attestation_check` and poll it with `all_reported` (`logic/attestation_checks.py`), so both wait on a workflow entry until `verified_result` returns a result.
+- Each verified result records its run. The context fetch and `_attest_gates` store the newest run they verified under `seen_workflow_runs` in the run's output, raised under the run's row lock and never lowered, and they and the attestation poll refuse a result older than the newest any run of the head stored (`seen_on_head`, a writer-pinned read). A writer's job can hide the newer check run, and a context retry rewrites `check_runs`, so the floor is its own key.
 
 ## The manual trigger (the one exception to label mode)
 
@@ -234,6 +236,19 @@ Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, un
 The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
+A request for a head whose covering run is a completed refusal or escalation reviews that head again only on new evidence (`logic/rerun_evidence.py`).
+A gate denial is stored as a GATED WAIT, so it is never re-run this way.
+The evidence is the title, the body, and what people with a trusted association wrote in reviews, the discussion and unresolved threads, plus resolving or reopening a thread, a bot's finding included.
+Bots never count otherwise, stamphog's own verdicts and machine users included, so a verdict posted after the context read, or a new bot finding, cannot unlock a re-run.
+Unlike `decision_fingerprint`, the hash leaves out the engine and the policy, so a deploy never re-rolls a refusal.
+A field that goes into the hash must be one a person changes, or the cap is the only thing between a noisy bot and repeated LLM runs.
+Evidence that a finished review of the head already saw re-runs nothing, and a head gets at most `_EVIDENCE_RERUNS_PER_HEAD` evidence re-runs that did not fail or get superseded, so nobody can re-roll the reviewer by switching between two descriptions.
+Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
+The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
+
+In ALL mode an added trigger label shares this gate (`_review_label_request_in_all_mode`), after every webhook gate, with the `label` trigger and no provenance.
+A label add moves no head, so it retracts nothing. One that starts no run removes the label and says why in the sticky comment, so the next add fires again.
 
 ## The silent trigger (a clean external review)
 
@@ -252,6 +267,8 @@ Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty
 
 FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
 Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
+Stamphog's own judgment, and the state of that judgment, goes out as the stamphog App: the approval and its dismissal, the verdict review, the 👀, the trigger label, and the bot-author and cooldown comments. Coordinating who looks at a PR goes out as the PostHog App: routing's review requests, fork labels and routing comment.
+Routing writes through the PostHog App integration of the repo config's own project on the repository owner (`logic/posthog_app_client.py`). Without one, routing fails and retries. It never writes as stamphog instead.
 When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
 The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
 A silent review that a gate refuses reports the same way, and a withheld WAIT routes in full, because nothing reviews a silent WAIT again. That holds for the verdict task, for the opening event that finds the WAIT already stored, and for a silent WAIT on a head that only got its pinned owners.

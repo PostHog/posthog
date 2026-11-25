@@ -18,6 +18,7 @@ jest.mock('../generated/api', () => ({
 describe('offlineItemInspectorLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        localStorage.clear()
         jest.resetAllMocks()
         jest.mocked(api.aiObservabilityTracesAvailabilityCreate).mockResolvedValue({ available_trace_ids: [] })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsRetrieve).mockResolvedValue(detailItems[0])
@@ -51,6 +52,22 @@ describe('offlineItemInspectorLogic', () => {
                 data: null,
             })
         )
+    })
+
+    it('remembers the payload format when another item is opened', async () => {
+        const props = { teamId: 543, experimentId: detailExperiment.id }
+        const first = offlineItemInspectorLogic({ ...props, itemId: detailItems[0].id })
+        const closeFirst = first.mount()
+        expect(first.values.payloadFormat).toBe('pretty')
+        first.actions.setPayloadFormat('raw')
+        await expectLogic(first).toFinishAllListeners()
+        closeFirst()
+
+        const next = offlineItemInspectorLogic({ ...props, itemId: detailItems[1].id })
+        const closeNext = next.mount()
+        await expectLogic(next).toFinishAllListeners()
+        expect(next.values.payloadFormat).toBe('raw')
+        closeNext()
     })
 
     it('opens a linked result beyond the first result page using its exact version and fetches only its payload', async () => {

@@ -449,7 +449,6 @@ RELATIONSHIP_DECOY_TARGET_NAME = "eval_catalog_accounts"
 RELATIONSHIP_SOURCE_KEY = "customer_ref"
 RELATIONSHIP_TARGET_KEY = "id"
 ACCEPTED_RELATIONSHIP_FIELD = "canonical_customer"
-ACCEPTED_RELATIONSHIP_CONFIDENCE = 0.98
 ACCEPTED_RELATIONSHIP_REASONING = "Validated customer_ref coverage and uniqueness against the canonical customer table."
 
 INJECTION_RELATIONSHIP_SOURCE_NAME = "eval_catalog_support_cases"

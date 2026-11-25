@@ -36,7 +36,7 @@ from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, lock_oauth_connection
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -447,18 +447,23 @@ class OAuthTokenView(StripeProvisioningAPIView):
             capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
             raise SpecError("invalid_request", "refresh_token is required")
 
-        # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
-        # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
-        # the revoke: either we hold the lock and our new tokens land before its sweep, or it
-        # committed first and we see the token already revoked (or the stamp) and reject. Looking
-        # the app up by id first (without locking the token row) keeps the lock order app→token,
-        # matching the revoke, so the two can't deadlock.
+        # Re-read the refresh token under the connection lock (taken by revoke_oauth_session and by
+        # the Stripe integration disconnect) and the app row lock (taken by
+        # revoke_application_sessions), so the rotate-and-mint serializes with every revoke: either
+        # our new tokens land before the revoke's sweep, or the revoke committed first and we see
+        # the token gone or revoked (or the stamp) and reject. Looking the owner up first, without
+        # locking the token row, keeps the order connection, then app, then token, which
+        # lock_oauth_connection requires.
         with transaction.atomic():
-            application_id = (
+            token_owner = (
                 OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
-                .values_list("application_id", flat=True)
+                .values_list("application_id", "user_id")
                 .first()
             )
+            application_id, user_id = token_owner if token_owner else (None, None)
+
+            if application_id and user_id:
+                lock_oauth_connection(user_id=user_id, application_id=application_id)
             locked_app = lock_application(application_id) if application_id else None
             old_refresh = (
                 OAuthRefreshToken.objects.select_related("user", "access_token")
@@ -649,7 +654,7 @@ class ResourcesCreateView(StripeResourceAPIView):
         if project_id:
             try:
                 team, scoped_teams = resolve_or_create_project_team(
-                    project_id, scoped_teams, user, configuration, access_token
+                    project_id, scoped_teams, user, configuration, access_token, data["payment_credentials"]
                 )
             except ProjectIdCollisionError:
                 capture_provisioning_event(

@@ -8,6 +8,7 @@ import { createFuseSearch } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
@@ -397,9 +398,20 @@ export const certificationsLogic = kea<certificationsLogicType>([
         }
     }),
     urlToAction(({ actions }) => ({
-        [urls.dataCatalog()]: (_, searchParams) => {
-            if (searchParams.tab === 'certifications' && typeof searchParams.table === 'string') {
+        [urls.dataCatalog()]: (_, searchParams, hashParams) => {
+            if (searchParams.tab !== 'certifications') {
+                return
+            }
+            if (typeof searchParams.table === 'string') {
                 actions.setFilters({ search: searchParams.table })
+            }
+            if (searchParams[TABLES_FILTER_PARAM] === PROPOSED_TABLES_FILTER) {
+                actions.setFilters({ status: 'proposed' })
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    { ...searchParams, [TABLES_FILTER_PARAM]: undefined },
+                    hashParams
+                )
             }
         },
     })),

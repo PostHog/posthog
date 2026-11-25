@@ -143,6 +143,7 @@ export interface RecommendationsShownProperties {
     source_types: string[]
     data_gap_count: number
     resolved_count: number
+    detected_applied_count: number
     intro_shown: boolean
 }
 

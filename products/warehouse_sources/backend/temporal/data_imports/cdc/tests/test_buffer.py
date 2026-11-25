@@ -1,5 +1,8 @@
 import io
+import uuid
 import random
+import asyncio
+import datetime as dt
 from contextlib import contextmanager
 from typing import cast
 
@@ -12,12 +15,16 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BACKLOG_LISTING_CONCURRENCY,
     BufferFileSpan,
     CDCBufferWriter,
     build_buffer_file_name,
     get_buffer_prefix,
+    measure_buffer_backlog,
+    measures_backlog_this_run,
     parse_buffer_file_name,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import MemoryObjectStore
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
 
 
@@ -302,3 +309,70 @@ class TestCDCBufferWriter:
         writer, _files = self._writer_with_captured_files()
         writer._s3.ls = MagicMock(side_effect=FileNotFoundError)
         assert writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=1) == 0
+
+
+class TestBacklogCadence:
+    @parameterized.expand([(1,), (5,), (10,), (15,), (30,)])
+    def test_a_source_measures_once_per_window_whatever_its_interval(self, interval_minutes: int) -> None:
+        interval = dt.timedelta(minutes=interval_minutes)
+        for _ in range(20):
+            source_id = str(uuid.uuid4())
+            offset = dt.timedelta(seconds=random.randrange(int(interval.total_seconds())))
+            first = dt.datetime(2026, 1, 1, tzinfo=dt.UTC) + offset
+            starts = [first + k * interval for k in range(int(dt.timedelta(days=1) / interval))]
+
+            measured = [start for start in starts if measures_backlog_this_run(source_id, start, interval)]
+
+            assert len(measured) == 48
+            assert {b - a for a, b in zip(measured, measured[1:])} == {dt.timedelta(minutes=30)}
+
+    def test_a_source_slower_than_the_window_measures_every_run(self) -> None:
+        start = dt.datetime(2026, 1, 1, 0, 17, tzinfo=dt.UTC)
+        hourly = dt.timedelta(hours=1)
+
+        assert all(measures_backlog_this_run(str(uuid.uuid4()), start + k * hourly, hourly) for k in range(48))
+
+
+class _ConcurrencyTrackingStore(MemoryObjectStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def _iterdir(self, bucket, delimiter="/", prefix=""):
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            await asyncio.sleep(0)
+            async for entry in super()._iterdir(bucket, delimiter=delimiter, prefix=prefix):
+                yield entry
+        finally:
+            self.in_flight -= 1
+
+
+class TestMeasureBufferBacklog:
+    def test_lists_only_the_given_tables_a_few_at_a_time(self) -> None:
+        store = _ConcurrencyTrackingStore()
+        now = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+
+        def put(schema_id: str, *, size: int, age: dt.timedelta) -> None:
+            key = f"{strip_s3_protocol(get_buffer_prefix(7, schema_id))}/{build_buffer_file_name(1, 1, 0)}"
+            store.objects[key] = b"x" * size
+            store.modified[key] = now - age
+
+        schema_ids = [str(uuid.uuid4()) for _ in range(3 * BACKLOG_LISTING_CONCURRENCY)]
+        for minutes, schema_id in enumerate(schema_ids):
+            put(schema_id, size=10, age=dt.timedelta(minutes=minutes))
+        put(str(uuid.uuid4()), size=1000, age=dt.timedelta(days=1))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.get_s3_client", return_value=store
+        ):
+            backlog = measure_buffer_backlog(7, schema_ids)
+
+        assert (backlog.files, backlog.bytes) == (len(schema_ids), 10 * len(schema_ids))
+        assert (backlog.oldest_written_at, backlog.oldest_schema_id) == (
+            now - dt.timedelta(minutes=len(schema_ids) - 1),
+            schema_ids[-1],
+        )
+        assert 1 < store.max_in_flight <= BACKLOG_LISTING_CONCURRENCY

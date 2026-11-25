@@ -13,6 +13,7 @@ import duckdb
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -296,6 +297,19 @@ class TestIncremental:
         await destination.write(ctx, 0, *[_batch(id=ids) for ids in redelivery])
 
         assert destination.rows("charges") == [(1,), (2,)]
+
+    async def test_bytes_written_counts_the_chunks_an_earlier_attempt_committed(self, destination: LocalDuckDB) -> None:
+        ctx = _ctx("append")
+        batches = [_batch(id=[1], name=["a"]), _batch(id=[2], name=["b"])]
+        batch_ctx = DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False)
+
+        # The first attempt commits the first chunk and then fails, so it records no egress.
+        await destination.writer(ctx).write_batch(_stream(batches[0]), batch_ctx)
+        retried = await destination.writer(ctx).write_batch(_stream(*batches), batch_ctx)
+
+        assert retried == BatchWriteOutcome(
+            rows_written=1, bytes_written=sum(duckdb_compatible_batch(batch).nbytes for batch in batches)
+        )
 
     async def test_a_later_append_run_keeps_only_its_own_receipts(self, destination: LocalDuckDB) -> None:
         first, second = _ctx("append", run_uuid="run-1"), _ctx("append", run_uuid="run-2")

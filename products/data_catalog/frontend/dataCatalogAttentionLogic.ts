@@ -8,11 +8,10 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
-import { dataModelingNodesAttentionCountRetrieve } from 'products/data_modeling/frontend/generated/api'
 import { dataQualityChecksFailingCountRetrieve } from 'products/data_quality/frontend/generated/api'
 
 import type { DataCatalogTab } from './dataCatalogSceneLogic'
-import { dataCatalogPendingReviewRetrieve } from './generated/api'
+import { dataCatalogAttentionRetrieve } from './generated/api'
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const REFRESH_DEBOUNCE_MS = 300
@@ -39,9 +38,13 @@ function isAccessDenied(reason: unknown): boolean {
     return reason instanceof ApiError && reason.status === ACCESS_DENIED_STATUS
 }
 
-function settledCount<T>(result: PromiseSettledResult<T>, read: (value: T) => number, previous: number): number {
+function settledCount<T>(
+    result: PromiseSettledResult<T>,
+    read: (value: T) => number | undefined,
+    previous: number
+): number {
     if (result.status === 'fulfilled') {
-        return read(result.value)
+        return result.value == null ? previous : (read(result.value) ?? previous)
     }
     return isAccessDenied(result.reason) ? 0 : previous
 }
@@ -51,24 +54,27 @@ function withTimeout(): RequestInit {
 }
 
 async function fetchAttentionCounts(projectId: string, previous: AttentionCounts): Promise<AttentionCounts> {
-    const [pendingReview, failingModels, failingChecks] = await Promise.allSettled([
-        dataCatalogPendingReviewRetrieve(projectId, withTimeout()),
-        dataModelingNodesAttentionCountRetrieve(projectId, withTimeout()),
+    const [attention, failingChecks] = await Promise.allSettled([
+        dataCatalogAttentionRetrieve(projectId, withTimeout()),
         dataQualityChecksFailingCountRetrieve(projectId, withTimeout()),
     ])
     return {
-        proposedMetrics: settledCount(pendingReview, (review) => review.metrics, previous.proposedMetrics),
+        proposedMetrics: settledCount(
+            attention,
+            (catalog) => catalog.pending_review?.metrics,
+            previous.proposedMetrics
+        ),
         proposedRelationships: settledCount(
-            pendingReview,
-            (review) => review.relationships,
+            attention,
+            (catalog) => catalog.pending_review?.relationships,
             previous.proposedRelationships
         ),
         proposedCertifications: settledCount(
-            pendingReview,
-            (review) => review.certifications,
+            attention,
+            (catalog) => catalog.pending_review?.certifications,
             previous.proposedCertifications
         ),
-        failingModels: settledCount(failingModels, (models) => models.count, previous.failingModels),
+        failingModels: settledCount(attention, (catalog) => catalog.failing_models, previous.failingModels),
         failingChecks: settledCount(failingChecks, (checks) => checks.count, previous.failingChecks),
     }
 }

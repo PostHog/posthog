@@ -33,6 +33,7 @@ from posthog.settings.dagster import *
 from posthog.settings.demo import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
+from posthog.settings.experiments import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *

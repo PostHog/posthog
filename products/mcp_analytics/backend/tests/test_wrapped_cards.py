@@ -89,11 +89,24 @@ def test_top_tools_and_struggling_tool_leave_out_the_exec_bucket() -> None:
 
     assert [tool.tool for tool in cards.top_tools.tools] == ["get_forecast", "list_alerts", "create_alert"]
     assert cards.reliability.struggling_tool is None, "only two tools have enough calls to rank"
+    assert cards.reliability.most_reliable_tool is None
 
     tools_with_three = (*tools, _row("get_history", 100, errors=1))
-    struggling = _build(_aggregates(tools=tools_with_three)).reliability.struggling_tool
-    assert struggling is not None
-    assert (struggling.tool, struggling.error_rate) == ("list_alerts", 0.2)
+    reliability = _build(_aggregates(tools=tools_with_three)).reliability
+    assert reliability.struggling_tool is not None
+    assert (reliability.struggling_tool.tool, reliability.struggling_tool.error_rate) == ("list_alerts", 0.2)
+    assert reliability.most_reliable_tool is not None
+    assert reliability.most_reliable_tool.tool == "get_forecast", "a 1% tie goes to the tool with more calls"
+
+
+def test_reliability_names_no_struggling_tool_when_every_rate_matches() -> None:
+    tools = (_row("get_forecast", 300), _row("list_alerts", 200), _row("create_alert", 100))
+
+    reliability = _build(_aggregates(tools=tools)).reliability
+
+    assert reliability.struggling_tool is None
+    assert reliability.most_reliable_tool is not None
+    assert (reliability.most_reliable_tool.tool, reliability.most_reliable_tool.calls) == ("get_forecast", 300)
 
 
 @parameterized.expand(
@@ -229,7 +242,19 @@ def test_speed_names_the_quickest_busy_tool_and_the_slowest_tool() -> None:
             Archetype.ROCKET,
             9.5,
         ),
-        ("all_rounder", {"tools": (_row("a", 500), _row("b", 500))}, Archetype.ALL_ROUNDER, None),
+        ("superhero", {"tools": (_row("a", 500), _row("b", 500)), "errors": 2}, Archetype.SUPERHERO, 0.998),
+        (
+            "fast_but_unreliable_is_no_superhero",
+            {"tools": (_row("a", 500), _row("b", 500)), "errors": 100},
+            Archetype.ALL_ROUNDER,
+            None,
+        ),
+        (
+            "reliable_but_slow_is_no_superhero",
+            {"tools": (_row("a", 500), _row("b", 500)), "p95": 1500.0},
+            Archetype.ALL_ROUNDER,
+            None,
+        ),
     ]
 )
 def test_archetype(_name: str, overrides: dict, archetype: Archetype, evidence: float | None) -> None:

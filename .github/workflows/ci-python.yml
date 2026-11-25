@@ -69,7 +69,6 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
-            mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
             schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
             warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
         steps:
@@ -103,7 +102,7 @@ jobs:
                   list-files: 'escape'
                   reuse-checks: Python code quality checks
                   reuse-proof-checks: |
-                      Python code quality (depot-ubuntu-24.04)
+                      Python code quality (depot-ubuntu-24.04-4)
                       lib/api.ts codegen ratchet
                       Warehouse sources checks and tests
                   reuse-blocking-labels: ci-no-reuse
@@ -115,12 +114,6 @@ jobs:
                           - 'posthog/**/*.py'
                           - 'ee/**/*.py'
                           - 'products/**/*.py'
-                      # The files the mypy cache key hashes. A change to them can leave the
-                      # restored cache stale for most modules, for example a django-stubs bump.
-                      mypy_cache_key:
-                          - 'uv.lock'
-                          - '**/pyproject.toml'
-                          - '**/mypy.ini'
                       schema_python:
                           - 'frontend/src/queries/schema.json'
                           - 'posthog/schema.py'
@@ -144,6 +137,10 @@ jobs:
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - '**/pyproject.toml'
+                        # mypy reads a root mypy.ini or .mypy.ini, and the cache-key filter
+                        # that used to list them is gone, so they belong here.
+                        - '**/mypy.ini'
+                        - '**/.mypy.ini'
                         - '**/ruff.toml'
                         - '**/.ruff.toml'
                         - 'uv.lock'
@@ -180,6 +177,7 @@ jobs:
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        - 'hog/release/notices.generated.json'
                         # Formatter inputs can change the generated mobile projection.
                         - 'products/mobile/biome.json'
                         - 'products/mobile/pnpm-lock.yaml'
@@ -204,7 +202,6 @@ jobs:
                         - '**/AGENT_APPROVALS.md'
                         # Real repo files the hogli suite reads, listed under hogli below
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
                         - .github/workflows/ci-security.yaml
                       # Per-tool groups below gate the pytest steps in code-quality, so these
                       # suites skip Python PRs that cannot affect them. A path filter that skips
@@ -228,8 +225,6 @@ jobs:
                         - 'bin/mprocs.yaml'
                         - 'bin/mprocs-e2e.yaml'
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
-                        - '.stamphog/policy.yml'
                         - .github/workflows/ci-security.yaml
                         - 'pyproject.toml'
                         - 'uv.lock'
@@ -297,7 +292,10 @@ jobs:
                         - 'uv.lock'
                         - 'pytest.ini'
                         - 'conftest.py'
-                        - 'tach.toml'
+                        - hoglint.toml
+                        - hoglint.ledger
+                        - hoglint.exceptions.toml
+                        - 'tools/hoglint/**'
                         - .github/workflows/ci-python.yml
                         - .github/actions/setup-python-cached/**
                         - .github/actions/setup-uv/**
@@ -311,12 +309,14 @@ jobs:
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04)
-        # The type check is its own job, so the mypy worker count no longer sizes this runner.
-        # This one keeps the big runner wherever the type check job does, because a cold
-        # dependency set (master, the merge queue, a cache-key change) makes ty, ruff and the
-        # gated pytest suites heavier than a pull request's warm tree.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python code quality (depot-ubuntu-24.04-4)
+        # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
+        # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
+        # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s
+        # to 52 s and the `parallel:` group 64 s to 50 s (n=17 on two vCPU against n=14 on
+        # four), and the job wall 161 s to 132 s. The type check beside it is the only other
+        # job the fan-in gate waits on, so these two jobs are the workflow's wall.
+        runs-on: depot-ubuntu-24.04-4
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -600,18 +600,19 @@ jobs:
     # overlapped with the other checks on that runner (see "Run the python static
     # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
     # Two jobs get two runners, so the type check and the rest of the checks run at
-    # the same time and their walls stop adding up. The cost is one extra 2-vCPU job
+    # the same time and their walls stop adding up. The cost is one extra 4-vCPU job
     # on each pull request that touches Python.
     mypy:
         needs: changes
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 20
 
-        name: Python static typing (depot-ubuntu-24.04)
-        # Same rule as code-quality: a pull request checks a cache from master with one
-        # worker, while master, the merge queue and a dependency change run nearly cold
-        # and need the 16 GB runner for a second worker.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python static typing (depot-ubuntu-24.04-4)
+        # 4 vCPU on every event, for the same reason as the job above: mypy is CPU-bound, and
+        # this job is the other half of the wall the fan-in gate waits on. Over the same runs
+        # the type check went 139 s to 102 s and the job wall 166 s to 133 s. The worker count
+        # below follows this label: the 16 GB runner fits two workers.
+        runs-on: depot-ubuntu-24.04-4
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -681,10 +682,10 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  # Each worker holds its own copy of the build graph, so the worker count follows
-                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
-                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
-                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+                  # Each worker holds its own copy of the build graph, so the worker count
+                  # follows the runner's memory. Keep this in sync with the job's runs-on: the
+                  # 16 GB depot-ubuntu-24.04-4 fits two workers, the 8 GB one fits one.
+                  MYPY_NUM_WORKERS: 2
               run: mypy --version && mypy .
 
             - name: Save mypy cache
@@ -780,7 +781,7 @@ jobs:
               run: python tools/test_warehouse_sources_vendor_selection.py
 
             # A pull request diff that stays inside vendor directories runs only those vendors.
-            # A vendor cannot import another vendor (tach and import-linter enforce that), so the
+            # A vendor cannot import another vendor (hoglint's sources-vendors-* rules enforce that), so the
             # other vendors cannot change. Any other file (the SDK, the conftest.py and other
             # files at the top of the plugin directory, the product, a manifest, this workflow)
             # selects the full run. The hourly run and a manual run have no pull request diff to
@@ -804,33 +805,24 @@ jobs:
                       git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
                   fi | tee -a "$GITHUB_OUTPUT"
 
-            - name: Check module boundaries (tach)
-              run: ./bin/hogli lint:tach
-
-            # tach leaves test files out of its dependency pass. The import-linter contracts
-            # for the vendors also check the vendor tests, and one of them fails a vendor that
-            # imports a sibling vendor.
-            - name: Check vendor imports (import-linter)
-              run: lint-imports
-
-            # hoglint takes over from the two steps above, and runs in shadow until then. A
-            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
-            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
-            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+            # A vendor-only diff does not start Backend CI, so the boundary check runs here too. The
+            # vendor rules read every import, tests included, and fail a vendor that imports a sibling
+            # vendor or anything but the SDK. A finding on a line the pull request adds or edits
+            # becomes a warning annotation, an advisory row on such a line becomes a notice, and the
+            # step summary lists the rest. hoglint's exit decides the step.
+            - name: Check boundaries (hoglint)
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
                   status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
                       timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --base HEAD^1 || true
                   else
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  exit "$status"
 
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
@@ -863,7 +855,6 @@ jobs:
                       test_feature_flag_gated_writes.py
                       test_feature_flag_raw_reads.py
                       test_local_kafka_consumers.py
-                      test_rbac_shadow_resolver_callers.py
                       test_warehouse_source_generated_config_inputs.py
                   )
                   pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"

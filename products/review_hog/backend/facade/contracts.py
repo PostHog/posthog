@@ -25,9 +25,9 @@ from products.review_hog.backend.facade.enums import (
     UrgencyThreshold,
 )
 
-# What the trigger runs. The default 'review' includes the resolution stage when the pull request
-# owner's `resolve_comments` setting is on; the others are the split button's explicit variants.
-# Flash never resolves comments because it must not write code.
+# What the trigger runs. 'review' includes the resolution stage when the pull request owner's
+# `resolve_comments` setting is on, so the API defaults to 'flash': a caller that names no mode must
+# not get a run that writes to the pull request. Flash never resolves comments because it must not write code.
 RUN_MODE_REVIEW = "review"
 RUN_MODE_REVIEW_ONLY = "review_only"
 RUN_MODE_RESOLVE_ONLY = "resolve_only"

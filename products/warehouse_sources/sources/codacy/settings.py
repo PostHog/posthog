@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, frozen
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Parent resource a fan-out endpoint is requested once per. "commit" walks the organization's
 # repositories and then each repository's commits, so it is the only two-level fan-out.
@@ -39,7 +39,7 @@ class CodacyEndpointConfig:
     fan_out: Optional[FanOut] = None
     # Stable datetime field to partition by (never a mutable field like `updated`).
     partition_key: Optional[str] = None
-    sort_mode: Literal["asc", "desc"] = "asc"
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
     extra_params: dict[str, str] = field(default_factory=dict)
     # Hard cap on pages fetched per fan-out parent, to bound runaway pagination.
     # A structured warning is logged if the cap is reached.
@@ -201,12 +201,51 @@ CODACY_ENDPOINTS: dict[str, CodacyEndpointConfig] = {
         primary_keys=["metricName", "date", "repository"],
         partition_key="date",
     ),
+    "branches": CodacyEndpointConfig(
+        name="branches",
+        path="/organizations/{provider}/{organization}/repositories/{repository}/branches",
+        fan_out="repository",
+        primary_keys=["repository", "id"],
+        # Name order is the endpoint's default; set it so the cursor walks a stable order
+        # rather than last-updated, which reshuffles as branches receive commits.
+        extra_params={"sort": "name", "direction": "asc"},
+    ),
+    "sbom_dependencies": CodacyEndpointConfig(
+        name="sbom_dependencies",
+        # One summary row per dependency across the organization's repositories. An empty filter
+        # body returns every dependency.
+        path="/organizations/{provider}/{organization}/sbom/dependencies/search",
+        method="POST",
+        primary_keys=["fullName"],
+    ),
+    "audit_logs": CodacyEndpointConfig(
+        name="audit_logs",
+        # Answers with a bare JSON array and no pagination, filtered server-side by a `from`
+        # epoch-millisecond bound. Business plan only, and the token's user must be an
+        # organization admin or manager.
+        path="/organizations/{provider}/{organization}/audit",
+        # Audit events carry no identifier, so rows are keyed on a hash of their content.
+        primary_keys=["id"],
+        paginated=False,
+        partition_key="timestamp",
+        # The response order is not documented.
+        sort_mode=None,
+    ),
 }
 
 ENDPOINTS = tuple(CODACY_ENDPOINTS.keys())
 
 # Codacy's v3 list endpoints expose no server-side updated-since/created-since filters
-# (pagination is cursor+limit only), so every endpoint is full refresh. The metrics time series
-# does take a date range, but the fan-out interleaves one ascending series per metric into a
-# single table, so the pipeline's watermark could not advance monotonically.
+# (pagination is cursor+limit only), so they are full refresh. The metrics time series does take
+# a date range, but the fan-out interleaves one ascending series per metric into a single table,
+# so the pipeline's watermark could not advance monotonically. The audit log is the exception:
+# its `from` bound filters on the event timestamp.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in CODACY_ENDPOINTS}
+INCREMENTAL_FIELDS["audit_logs"] = [
+    IncrementalField(
+        label="timestamp",
+        type=IncrementalFieldType.DateTime,
+        field="timestamp",
+        field_type=IncrementalFieldType.DateTime,
+    )
+]

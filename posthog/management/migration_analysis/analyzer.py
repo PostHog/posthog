@@ -222,6 +222,7 @@ class RiskAnalyzer:
 
         # Check PostHog policies
         policy_violations = self.check_policies(migration)
+        review_notes = [note for policy in POSTHOG_POLICIES for note in policy.review_notes(migration)]
 
         # Build info messages
         info_messages = []
@@ -243,6 +244,7 @@ class RiskAnalyzer:
             operations=operation_risks,
             combination_risks=combination_risks,
             policy_violations=policy_violations,
+            review_notes=review_notes,
             info_messages=info_messages,
             file_path=file_path,
         )

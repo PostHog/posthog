@@ -68,7 +68,7 @@ from .candidates.base import inlining_could_deny_a_reader, reads_direct_source
 from .candidates.unmaterialize import effective_definition
 from .payloads import payload_from_json
 from .rules import RULES
-from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
+from .suggestions import HUMAN_TRANSITIONS, DeprecateChoice, Transitions, deprecate_choice, transition_to
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -98,13 +98,32 @@ class Acceptor(ABC):
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
 DELETE_VIEW_FIELD = "delete_view"
+MARK_DEPRECATED_FIELD = "mark_deprecated"
+NOTHING_TO_STOP = (
+    "mark_deprecated=false only stops a materialized view's refreshes. "
+    "To leave the view as it is, dismiss the suggestion with not_now instead."
+)
+STOP_ONLY_CONFLICTS = "mark_deprecated=false cannot be combined with keep_materialized or delete_view."
 DELETE_NEEDS_EVERY_DAY_OF_READS = (
     "Some days in the read window have no read data, so a view read only on those days would look unread. "
     "Mark it deprecated instead."
 )
 ALREADY_MARKED_DEPRECATED = (
-    "This suggestion was already accepted by marking the view deprecated. Delete the view from its page instead."
+    "This suggestion was already accepted by marking the view deprecated. Change the view from its page instead."
 )
+ACCEPTED_BY_ANOTHER_REQUEST = "Another request just accepted this suggestion. Reload it to see what changed."
+ALREADY_DELETED = "This suggestion was already accepted by deleting the view."
+ALREADY_STOPPED_REFRESHES = (
+    "This suggestion was already accepted by stopping the view's refreshes without marking it deprecated. "
+    "Change the view from its page instead."
+)
+
+
+ALREADY_ACCEPTED_AS: Mapping[DeprecateChoice, str] = {
+    DeprecateChoice.MARK_DEPRECATED: ALREADY_MARKED_DEPRECATED,
+    DeprecateChoice.ONLY_STOP_REFRESHES: ALREADY_STOPPED_REFRESHES,
+    DeprecateChoice.DELETE: ALREADY_DELETED,
+}
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
@@ -160,11 +179,13 @@ class CertificationAcceptor(Acceptor):
 class DeprecateAcceptor(CertificationAcceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return super().option_fields | {DELETE_VIEW_FIELD}
+        return super().option_fields | {DELETE_VIEW_FIELD, MARK_DEPRECATED_FIELD}
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
     ) -> CreatedAsset:
+        if request.options.mark_deprecated is False:
+            return _only_stop_materializing(suggestion, request)
         if not request.options.delete_view:
             return super().accept(suggestion, payload, request)
         if suggestion.evidence.get("days_with_data", 0) < RULES.window_days:
@@ -196,6 +217,21 @@ def _delete_blocker(team_id: int, saved_query_id: UUID) -> str | None:
     if reads_direct_source(team_id, saved_query_id, direct_access_table_ids(team_id)):
         return READS_DIRECT_SOURCE
     return None
+
+
+def _only_stop_materializing(suggestion: WarehouseSuggestion, request: AcceptRequest) -> UnmaterializationAsset:
+    if request.options.keep_materialized or request.options.delete_view:
+        raise AcceptOptionRefusedError(MARK_DEPRECATED_FIELD, STOP_ONLY_CONFLICTS)
+    definition = _definition(suggestion)
+    if definition is None:
+        raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+    if not saved_query_still_materializes(suggestion.team_id, definition.id):
+        raise AcceptOptionRefusedError(MARK_DEPRECATED_FIELD, NOTHING_TO_STOP)
+    blocker = stop_blocker(suggestion.team_id, definition)
+    if blocker is not None:
+        raise SuggestionOutdatedError(blocker)
+    stop_materializing(suggestion, request)
+    return UnmaterializationAsset(saved_query_id=str(suggestion.subject_id))
 
 
 def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
@@ -310,7 +346,11 @@ UNIQUE_KEY_FIELD = "unique_key"
 class MaterializeAcceptor(Acceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD, DELETE_VIEW_FIELD}
+        return frozenset(field.name for field in fields(AcceptOptions)) - {
+            KEEP_MATERIALIZED_FIELD,
+            DELETE_VIEW_FIELD,
+            MARK_DEPRECATED_FIELD,
+        }
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -474,8 +514,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
     _refuse_options_the_kind_ignores(acceptor, kind, request.options)
     status = WarehouseSuggestionStatus(suggestion.status)
     if status == WarehouseSuggestionStatus.ACCEPTED:
-        if request.options.delete_view and _kept_the_view(suggestion):
-            raise SuggestionOutdatedError(ALREADY_MARKED_DEPRECATED)
+        _refuse_a_different_deprecate_choice(suggestion, request.options)
         return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
     if status != WarehouseSuggestionStatus.PROPOSED:
         raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
@@ -494,6 +533,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         current = WarehouseSuggestion.objects.for_team(team_id).get(id=suggestion_id)
         if current.status != WarehouseSuggestionStatus.ACCEPTED:
             raise
+        _refuse_a_different_deprecate_choice(current, request.options)
         return AcceptOutcome(suggestion=current, newly_accepted=False)
     try:
         created_asset = acceptor.accept(claimed, payload, request)
@@ -534,8 +574,22 @@ def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggesti
         raise AcceptOptionRefusedError(ignored[0], OPTION_NOT_APPLICABLE.format(kind=kind))
 
 
-def _kept_the_view(suggestion: WarehouseSuggestion) -> bool:
-    return "certification_id" in (suggestion.created_asset or {})
+def _refuse_a_different_deprecate_choice(suggestion: WarehouseSuggestion, options: AcceptOptions) -> None:
+    if suggestion.kind != WarehouseSuggestionKind.DEPRECATE:
+        return
+    if suggestion.created_asset is None:
+        raise SuggestionOutdatedError(ACCEPTED_BY_ANOTHER_REQUEST)
+    accepted_choice = deprecate_choice(suggestion.kind, suggestion.created_asset)
+    if accepted_choice is not None and accepted_choice != _requested_deprecate_choice(options):
+        raise SuggestionOutdatedError(ALREADY_ACCEPTED_AS[accepted_choice])
+
+
+def _requested_deprecate_choice(options: AcceptOptions) -> DeprecateChoice:
+    if options.delete_view:
+        return DeprecateChoice.DELETE
+    if options.mark_deprecated is False:
+        return DeprecateChoice.ONLY_STOP_REFRESHES
+    return DeprecateChoice.MARK_DEPRECATED
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:
