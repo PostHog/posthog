@@ -17,11 +17,9 @@ interface SupportTicketsBannerProps {
 
 export function SupportTicketsBanner({ aiEnabled }: SupportTicketsBannerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const selfLearningAvailable =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE] &&
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_SUGGESTION_ORGS]
+    const selfLearningAvailable = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_SUGGESTION_ORGS]
 
-    // The settings endpoint is flag-gated, so its logic mounts only when the flags are on.
+    // Self-learning is gated on this flag, so the settings logic mounts only when it is on.
     return selfLearningAvailable ? (
         <SelfLearningOrFeedbackBanner aiEnabled={aiEnabled} />
     ) : (

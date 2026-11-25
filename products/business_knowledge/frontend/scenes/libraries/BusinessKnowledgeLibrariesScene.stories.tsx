@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -34,7 +33,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28T10:00:00Z',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE],
         pageUrl: urls.businessKnowledgeLibraries(),
         // A scene used by one product: render it in CI, but keep no visual baseline.
         testOptions: { snapshotBrowsers: [] },

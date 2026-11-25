@@ -20,7 +20,6 @@ from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool
-from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 
 logger = structlog.get_logger(__name__)
@@ -125,12 +124,10 @@ class SearchTool(MaxTool):
 
     @classmethod
     async def create_tool_class(cls, *, team, user, node_path=None, state=None, config=None, context_manager=None):
-        flag_enabled = await database_sync_to_async(has_business_knowledge_feature_flag)(team)
-        has_ready = flag_enabled and await database_sync_to_async(has_ready_sources)(team.id)
+        has_ready = await database_sync_to_async(has_ready_sources)(team.id)
         logger.info(
             "search_tool_create",
             team_id=team.id,
-            flag_enabled=flag_enabled,
             has_ready_sources=has_ready,
         )
         instance = cls(

@@ -2656,7 +2656,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         iconType: 'business_knowledge',
         iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
-        flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
         sceneKeys: [
             'BusinessKnowledge',

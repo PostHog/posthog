@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -43,7 +42,6 @@ function safetyTag(verdict: SafetyVerdictEnumApi): JSX.Element {
 }
 
 export function KnowledgeSourceScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const {
         source,
         sourceLoading,
@@ -70,10 +68,6 @@ export function KnowledgeSourceScene(): JSX.Element {
         deleteSource,
         saveSourceLibraries,
     } = useActions(knowledgeSourceLogic)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     if (sourceLoading && !source) {
         return (

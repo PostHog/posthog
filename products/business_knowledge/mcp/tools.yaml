@@ -20,7 +20,6 @@ tools:
         description: >
             Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
             Use after searching knowledge to get more surrounding context for a specific result.
-        feature_flag: product-business-knowledge
     business-knowledge-documents-search:
         operation: business_knowledge_documents_search_list
         enabled: true
@@ -48,7 +47,6 @@ tools:
                     Rerank results with an LLM pass for better relevance. Defaults to true. Falls back to fused rank
                     order when the rerank fails. Pass false for a faster search.
                 default: true
-        feature_flag: product-business-knowledge
     business-knowledge-libraries-create:
         operation: business_knowledge_libraries_create
         enabled: true
@@ -62,7 +60,6 @@ tools:
         description: >
             Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update
             library_ids, then pass the library id to document search, repository search, and file read.
-        feature_flag: product-business-knowledge
     business-knowledge-libraries-destroy:
         operation: business_knowledge_libraries_destroy
         enabled: true
@@ -76,7 +73,6 @@ tools:
         description: >
             Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a
             library id still sees them.
-        feature_flag: product-business-knowledge
     business-knowledge-libraries-list:
         operation: business_knowledge_libraries_list
         enabled: true
@@ -92,7 +88,6 @@ tools:
             List libraries in this project. A library limits document search, repository search, and file read to its
             members. Pass the same library id to all three. The default library is first. Omit a library id on those
             tools to search everything.
-        feature_flag: product-business-knowledge
     business-knowledge-libraries-partial-update:
         operation: business_knowledge_libraries_partial_update
         enabled: true
@@ -107,7 +102,6 @@ tools:
             Rename a library, replace its sources, or replace this environment's repositories in it. Send only the
             fields to change. source_ids replaces every source. repos replaces repositories this environment allows and
             leaves repositories that only another environment allows.
-        feature_flag: product-business-knowledge
     business-knowledge-libraries-retrieve:
         operation: business_knowledge_libraries_retrieve
         enabled: true
@@ -121,7 +115,6 @@ tools:
         description: >
             Get one library by id, including how many sources it has and which selected repositories it includes for
             this environment.
-        feature_flag: product-business-knowledge
     business-knowledge-repositories-file-retrieve:
         operation: business_knowledge_repositories_file_retrieve
         enabled: true
@@ -137,7 +130,6 @@ tools:
             business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
             contents. Pass library_id to read a repository in that library, using the same id as document search and
             repository search. Omit library_id to read any selected repository.
-        feature_flag: product-business-knowledge
     business-knowledge-repositories-search:
         operation: business_knowledge_repositories_search
         enabled: true
@@ -156,7 +148,6 @@ tools:
             the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to
             search repositories in that library, using the same id as document search and file read. Omit library_id to
             search every selected repository.
-        feature_flag: product-business-knowledge
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
         enabled: true
@@ -172,7 +163,6 @@ tools:
         description: >
             List all business knowledge sources in the project, with document/chunk counts, processing status, and
             refresh metadata.
-        feature_flag: product-business-knowledge
         response:
             include:
                 - id
@@ -209,7 +199,6 @@ tools:
             it retrieval-only again. Pass library_ids to replace the libraries this source belongs to. An empty list
             removes it from every library. Omit library_ids to leave membership unchanged. Only the fields you pass are
             changed.
-        feature_flag: product-business-knowledge
     business-knowledge-sources-retrieve:
         operation: business_knowledge_sources_retrieve
         enabled: true
@@ -224,7 +213,6 @@ tools:
         description: >
             Get a single business knowledge source by ID, including processing status, document/chunk counts, and
             refresh metadata.
-        feature_flag: product-business-knowledge
     business-knowledge-sources-text-create:
         operation: business_knowledge_sources_create
         enabled: true
@@ -244,7 +232,6 @@ tools:
             whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped
             at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing
             status.
-        feature_flag: product-business-knowledge
     business-knowledge-sources-url-create:
         operation: business_knowledge_sources_create
         enabled: true
@@ -265,4 +252,3 @@ tools:
             is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is
             re-fetched automatically. Returns the created source with its processing status (initially "processing"
             while the URL is fetched in the background).
-        feature_flag: product-business-knowledge

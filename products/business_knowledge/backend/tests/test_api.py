@@ -710,12 +710,6 @@ class TestKnowledgeDocumentWindowAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
 
-    def test_window_feature_flag_gated(self, _ff) -> None:
-        doc = self._ready_safe_document()
-        _ff.return_value = False
-        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=0")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestKnowledgeDocumentWindowScopes(APIBaseTest):
@@ -842,11 +836,6 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         response = self.client.get(self.url, {"query": "return policy"})
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
-
-    def test_search_feature_flag_gated(self, _ff) -> None:
-        _ff.return_value = False
-        response = self.client.get(self.url, {"query": "anything"})
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
     def test_search_embedding_failure_falls_back_to_fts(self, _embed, _ff) -> None:

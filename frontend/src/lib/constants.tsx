@@ -508,7 +508,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-analytics, gates quarter/year interval selection on insights
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
-    PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_PYLON_IMPORT: 'product-support-pylon-import', // owner: @veryayskiy #team-conversations, Pylon import in Support settings

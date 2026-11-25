@@ -2550,8 +2550,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-documents-search": {
         "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for a question about the user's own company: its product, internal terms, policies, decisions, or internal docs. Do not use it to answer a question from project data, or for how PostHog works unless PostHog is the user's own company; use docs-search for PostHog. Each chunk has matched_by and similarity. Rely on chunks where matched_by is both or semantic. A result with only keyword and context chunks shares words with the query and may not answer it: read it before you use it, and say the knowledge base does not cover the question when it does not. Results are reranked for relevance by default; pass rerank=false for a faster search in fused rank order. Pass library_id to search one library, and pass that same id to repository search and file read. Omit library_id to search every ready source.",
@@ -2566,8 +2565,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-libraries-create": {
         "description": "Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update library_ids, then pass the library id to document search, repository search, and file read.",
@@ -2582,8 +2580,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-libraries-destroy": {
         "description": "Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a library id still sees them.",
@@ -2598,8 +2595,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-libraries-list": {
         "description": "List libraries in this project. A library limits document search, repository search, and file read to its members. Pass the same library id to all three. The default library is first. Omit a library id on those tools to search everything.",
@@ -2614,8 +2610,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-libraries-partial-update": {
         "description": "Rename a library, replace its sources, or replace this environment's repositories in it. Send only the fields to change. source_ids replaces every source. repos replaces repositories this environment allows and leaves repositories that only another environment allows.",
@@ -2630,8 +2625,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-libraries-retrieve": {
         "description": "Get one library by id, including how many sources it has and which selected repositories it includes for this environment.",
@@ -2646,8 +2640,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-repositories-file-retrieve": {
         "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents. Pass library_id to read a repository in that library, using the same id as document search and repository search. Omit library_id to read any selected repository.",
@@ -2662,8 +2655,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-repositories-search": {
         "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Use it for the user's own code, and for company docs kept in a repository instead of in document search. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to search repositories in that library, using the same id as document search and file read. Omit library_id to search every selected repository.",
@@ -2678,8 +2670,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
@@ -2694,8 +2685,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-sources-partial-update": {
         "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Pass library_ids to replace the libraries this source belongs to. An empty list removes it from every library. Omit library_ids to leave membership unchanged. Only the fields you pass are changed.",
@@ -2710,8 +2700,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-sources-retrieve": {
         "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
@@ -2726,8 +2715,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-sources-text-create": {
         "description": "Save durable, reusable company knowledge as a searchable text source — the kind of reference material a team wants every future agent session to draw on. Good fits: product specs, internal docs, runbooks, policies, FAQs, glossaries, architecture/decision records, brand or style guides. Do NOT use this as a scratchpad for the current task or to dump transient material (raw web-search results, random articles, one-off snippets, chat logs) — only persist knowledge the user has asked to keep or that is clearly of lasting value to the whole team. Never store secrets or personal data. Provide a short descriptive name and the raw text (capped at 1 MB); it is chunked, embedded, and made searchable. Returns the created source with its processing status.",
@@ -2742,8 +2730,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "business-knowledge-sources-url-create": {
         "description": "Index a web page as durable, reusable company knowledge that every future agent session can draw on. Use it for authoritative, lasting references the whole team benefits from — public product docs, API references, help-center articles, changelogs, status/policy pages. Do NOT index pages you happened to open while researching the current task, arbitrary search-result links, or pages the user didn't ask to keep — this store is curated team knowledge, not a browsing history. Provide a name and a public HTTP(S) URL; the page is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is re-fetched automatically. Returns the created source with its processing status (initially \"processing\" while the URL is fetched in the background).",
@@ -2758,8 +2745,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "product-business-knowledge"
+        }
     },
     "canvas-builds-retrieve": {
         "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building. A publish or edit response already carries its build status, so call this only when that status was `queued` or `building`.",

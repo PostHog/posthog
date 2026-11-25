@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { Sparkline } from 'lib/components/Sparkline'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -26,14 +24,9 @@ export const scene: SceneExport = {
 }
 
 export function BusinessKnowledgeUsageScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const { usage, usageLoading, usageLoadFailed, days, dailyCounts, dailyLabels } =
         useValues(businessKnowledgeUsageLogic)
     const { setDays, loadUsage } = useActions(businessKnowledgeUsageLogic)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     return (
         <SceneContent>

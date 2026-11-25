@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -125,7 +124,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28T10:00:00Z',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE],
         pageUrl: urls.businessKnowledgePlayground(chat.id),
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: SAVED_CHAT_SELECTORS },
     },

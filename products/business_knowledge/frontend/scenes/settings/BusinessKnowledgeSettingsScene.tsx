@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 import type { SettingId } from 'scenes/settings/types'
@@ -28,13 +26,8 @@ export const scene: SceneExport = {
 }
 
 export function BusinessKnowledgeSettingsScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const { hashParams } = useValues(router)
     const linkedSettingId = SETTING_IDS.find((id) => id === hashParams.selectedSetting)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     return (
         <SceneContent>

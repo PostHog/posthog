@@ -346,8 +346,7 @@ class TestHasMaintainedSources(BaseTest):
         self._create_source(live_chunks=50)
         assert has_maintained_sources(other_team.id) is False
 
-    @patch("products.business_knowledge.backend.logic.has_feature_flag", return_value=True)
-    def test_child_team_resolves_to_canonical_parent(self, _flag: object) -> None:
+    def test_child_team_resolves_to_canonical_parent(self) -> None:
         # A scout can run against a child environment, but knowledge rows are project-scoped under
         # the canonical parent — the facade must resolve the child before reading them, or a child
         # run sees an empty base and drops the section despite a maintained one on the parent.

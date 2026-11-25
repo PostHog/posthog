@@ -80,7 +80,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28T10:00:00Z',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE, FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MCP],
+        featureFlags: [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MCP],
         pageUrl: urls.businessKnowledgeLibrary(library.id),
         // A scene used by one product: render it in CI, but keep no visual baseline.
         testOptions: { snapshotBrowsers: [] },

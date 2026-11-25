@@ -17,7 +17,6 @@ from posthog.models.team import Team
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
-from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.learning.contracts import EvidenceRef
 from products.business_knowledge.backend.learning.providers import LearningEvidenceProvider, get_learning_providers
 from products.business_knowledge.backend.models import (
@@ -438,7 +437,7 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
         if len(items) >= LEARNING_MAX_ITEMS_PER_TICK:
             break
         canonical_team = config.team
-        if not canonical_team.organization.is_ai_data_processing_approved or not logic.has_feature_flag(canonical_team):
+        if not canonical_team.organization.is_ai_data_processing_approved:
             continue
 
         refs = _collect_team_refs(

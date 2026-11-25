@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconMessage, IconSearch } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -24,13 +22,8 @@ export const scene: SceneExport = {
 }
 
 export function BusinessKnowledgePlaygroundScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const { mode } = useValues(businessKnowledgePlaygroundLogic)
     const { setMode } = useActions(businessKnowledgePlaygroundLogic)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     return (
         <SceneContent className="min-h-0 flex-1">

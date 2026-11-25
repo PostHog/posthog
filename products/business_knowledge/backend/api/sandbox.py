@@ -12,7 +12,7 @@ from rest_framework.viewsets import ViewSet
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -36,10 +36,8 @@ class BusinessKnowledgeSandboxViewSet(TeamAndOrgViewSetMixin, ViewSet):
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
-        PostHogFeatureFlagPermission,
         CanonicalTeamTokenPermission,
     ]
-    posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
     http_method_names = ["get", "post", "head", "options"]
