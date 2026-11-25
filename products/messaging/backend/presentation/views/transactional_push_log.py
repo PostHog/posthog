@@ -11,6 +11,9 @@ from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.contracts import PushSendStatus
 from products.messaging.backend.facade.transactional_push_log import (
     PUSH_LOG_RETENTION_DAYS,
@@ -123,7 +126,9 @@ class TransactionalPushLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # A token scope check skips session logins, so this also stops a member without access to people.
-        if not self.user_access_control.check_access_level_for_resource("person", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PERSON, project_id=self.team_id), action=Action.VIEW
+        ):
             raise exceptions.PermissionDenied("You need access to people to see who each push notification went to.")
         query = request.validated_query_data
         with query_concurrency_slots(self.team):
