@@ -23,8 +23,8 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.services.query import run_planned_query
-from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.api.services.query import process_query_dict, run_planned_query
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
@@ -82,13 +82,16 @@ class _QueryBatchMixin:
             return True
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
-    def _batch(self, queries: list[dict], **body: Any) -> Any:
+    def _batch(self, queries: list[dict], headers: dict[str, str] | None = None, **body: Any) -> Any:
         return self.client.post(
-            f"/api/environments/{self.team.pk}/dashboard_v2/query_batch/", {"queries": queries, **body}, format="json"
+            f"/api/environments/{self.team.pk}/dashboard_v2/query_batch/",
+            {"queries": queries, **body},
+            format="json",
+            headers=headers,
         )
 
-    def _lines(self, queries: list[dict], **body: Any) -> list[dict]:
-        response = self._batch(queries, **body)
+    def _lines(self, queries: list[dict], headers: dict[str, str] | None = None, **body: Any) -> list[dict]:
+        response = self._batch(queries, headers, **body)
         cast(Any, self).assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "data", None))
         # Not closed: closing sends request_finished, which closes the test's database connection.
         content = b"".join(cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content))
@@ -343,6 +346,65 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
+
+    def test_each_run_is_tagged_for_the_query_log_with_its_tile_target_and_traceparent(self) -> None:
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        node = json.dumps({"query": _events_node("$pageview")["source"]})
+        queries: list[dict[str, Any]] = [
+            {"target": {"refId": "A", "language": "insight", "query": node}, "time": _LAST_7_DAYS, "tile": "t-1"},
+            {"target": {"refId": "C", "language": "hogql", "query": "select 1"}, "time": _LAST_7_DAYS},
+        ]
+        tags: list[tuple[str | None, str | None]] = []
+
+        def tagged(*args: Any, **kwargs: Any) -> Any:
+            current = get_query_tags()
+            tags.append((current.client_query_id, current.traceparent))
+            return process_query_dict(*args, **kwargs)
+
+        with patch.object(query_batch_module, "process_query_dict", side_effect=tagged):
+            self._lines(queries, headers={"traceparent": traceparent})
+            # A malformed header is dropped rather than written into query_log.
+            self._lines(
+                [{"target": {"refId": "D", "language": "hogql", "query": "select 2"}, "time": _LAST_7_DAYS}],
+                headers={"traceparent": "not a trace"},
+            )
+
+        self.assertEqual([parent for _id, parent in tags], [traceparent, traceparent, None])
+        self.assertCountEqual(
+            [query_id.rsplit("-", 1)[0] for query_id, _parent in tags[:2] if query_id],
+            ["dashboard-v2-batch-none-t_1-A", "dashboard-v2-batch-none-none-C"],
+        )
+
+    def test_a_stale_refresh_runs_under_its_target_query_id_and_traceparent(self) -> None:
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        query = resolve_query(
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.HOGQL, query="select 1"),
+                date_from="now-7d",
+                date_to="now",
+            )
+        )
+        runs: list[tuple[str | None, str | None, str | None]] = []
+
+        def tagged(*args: Any, **kwargs: Any) -> None:
+            current = get_query_tags()
+            runs.append((kwargs.get("query_id"), current.client_query_id, current.traceparent))
+
+        self.assertTrue(query_batch_module._refresh_slots.acquire(blocking=False))
+        # On the refresh pool as in production, since a refresh closes its thread's database connections.
+        with patch.object(query_batch_module, "process_query_dict", side_effect=tagged):
+            query_batch_module._refresh_pool.submit(
+                query_batch_module._refresh_all,
+                team=self.team,
+                user=self.user,
+                dashboard_id=None,
+                queries=[("dashboard-v2-batch-none-t_1-a-0123abcd", query)],
+                shares=(),
+                traceparent=traceparent,
+            ).result(timeout=10)
+
+        query_id = "dashboard-v2-batch-none-t_1-a-0123abcd"
+        self.assertEqual(runs, [(query_id, query_id, traceparent)])
 
 
 _NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)
