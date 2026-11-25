@@ -231,7 +231,7 @@ export function lagOf(rpkDescribe: string): number | null {
 }
 
 export async function groupLag(group: string, docker: string): Promise<number> {
-    const output = await rpk(docker, ['group', 'describe', group])
+    const output = await rpkOrThrow(docker, ['group', 'describe', group])
     const lag = lagOf(output)
     if (lag === null) {
         throw new Error(`Could not read the lag of ${group} from rpk:\n${output}`)
