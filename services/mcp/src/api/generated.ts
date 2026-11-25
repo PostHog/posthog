@@ -90535,24 +90535,6 @@ export namespace Schemas {
       results: PanelQueryCheckResult[];
     }
 
-    export interface PartnerReviewNote {
-      /**
-         * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
-         * @maxLength 4000
-         */
-      note: string;
-    }
-
-    export interface PassRateBucket {
-      /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
-      bucket_start: string;
-      /**
-         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
-         * @nullable
-         */
-      success_rate: number | null;
-    }
-
     export interface PartitionScheme {
       /**
          * Partition mode: `datetime`, `md5` or `numerical`. `auto` or null means detected.
@@ -90697,6 +90679,24 @@ export namespace Schemas {
       repartitions: RepartitionHistoryRow[];
       /** Sync stats for each layout the table had, oldest first. Compare windows to see how a repartition changed sync speed. */
       sync_windows: SyncStatsWindow[];
+    }
+
+    export interface PartnerReviewNote {
+      /**
+         * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
+    export interface PassRateBucket {
+      /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
+         * @nullable
+         */
+      success_rate: number | null;
     }
 
     export interface PatchedAEOBrandUpdateRequest {
