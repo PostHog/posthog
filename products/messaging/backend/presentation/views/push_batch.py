@@ -167,8 +167,8 @@ PUSH_BATCH_RESPONSES: dict[int, ResponseDeclaration] = {
     ),
     503: OpenApiResponse(
         description="The push pipeline did not confirm any notification of the batch. Some may still go out. Send "
-        "the batch again with the same `idempotency_key` for each recipient. With the code `push_busy`, nothing was "
-        "sent because too many pushes are being sent at once"
+        "the batch again with the same `idempotency_key` for each recipient. With the code `push_busy`, this "
+        "request sent nothing because too many pushes are being sent at once"
     ),
 }
 
