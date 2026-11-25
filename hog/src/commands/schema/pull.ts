@@ -10,14 +10,13 @@ import { plural } from '@/core/text'
 import {
     chosenFile,
     configRoot,
-    effectiveSdk,
     fetchDefinitions,
     isLanguage,
     LANGUAGE_INFO,
     LANGUAGE_SDKS,
     LANGUAGES,
     moduleInfo,
-    projectSdk,
+    savedSdk,
     sdkLanguage,
     type Language,
 } from './shared'
@@ -45,7 +44,7 @@ export default defineCommand({
             type: 'string',
             choices: SCHEMA_SDKS,
             description:
-                'The SDK the module wraps. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK, and posthog.json remembers it. Go: hog picks posthog-go 1.x or 2.x from go.mod, and posthog-go or posthog-go-v2 overrides that for this run',
+                'The SDK the module wraps, which posthog.json remembers. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK. Go: posthog-go for 1.x or posthog-go-v2 for 2.x. Without it, hog reads the posthog-go version from go.mod',
         },
         file: {
             type: 'string',
@@ -125,8 +124,7 @@ export default defineCommand({
                     : saved
                       ? dirname(absolutePath(root, saved.output_path))
                       : ctx.runtime.cwd()
-            const sdk = await moduleSdk(ctx, language, flag, saved, folder)
-            const savesChoice = LANGUAGE_SDKS[language]?.savesChoice ?? true
+            const { sdk, record } = await moduleSdk(ctx, language, flag, saved, folder)
             let file: string
             let target: string | undefined
             if (options.file !== undefined) {
@@ -164,18 +162,18 @@ export default defineCommand({
             const definitions = await fetchDefinitions(ctx, language, sdk)
             const outputPath = storedPath(root, file)
             // The module carries the time PostHog generated it, so only the hash says whether the events changed.
-            // A language that does not save its choice relies on the hash alone: PostHog hashes each SDK's
-            // module differently.
+            // An SDK read from go.mod is not recorded, so for Go the hash also tells the SDKs apart: PostHog
+            // hashes the 2.x module differently.
             const unchanged =
                 saved?.output_path === outputPath &&
-                (!savesChoice || effectiveSdk(language, saved.sdk) === effectiveSdk(language, sdk)) &&
+                recordedSdk(language, saved) === record &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
                 await ctx.runtime.writeFile(target ?? file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
-                    sdk: savesChoice ? sdk : undefined,
+                    sdk: record,
                     schema_hash: definitions.schema_hash,
                     updated_at: new Date(ctx.runtime.now()).toISOString(),
                     event_count: definitions.event_count,
@@ -258,28 +256,45 @@ async function confinedOutput(
     return target
 }
 
-// The SDK to generate for: the flag, then what the project says, then the language's own rule for a module
-// that nothing chose an SDK for.
+interface SdkChoice {
+    sdk: SchemaSdk | undefined
+    // What posthog.json records. A flag, a value posthog.json already sets, or an answer is a choice it keeps.
+    // An SDK read from the project is not kept, so the project keeps deciding.
+    record: SchemaSdk | undefined
+}
+
+// The SDK to generate for: the flag, then posthog.json, then what the project says, then the language's own
+// rule for a module that nothing chose an SDK for.
 async function moduleSdk(
     ctx: Context,
     language: Language,
     flag: SchemaSdk | undefined,
     saved: SchemaLanguage | undefined,
     folder: string
-): Promise<SchemaSdk | undefined> {
+): Promise<SdkChoice> {
     const sdks = LANGUAGE_SDKS[language]
     if (!sdks) {
-        return undefined
+        return { sdk: undefined, record: undefined }
     }
-    if (flag) {
-        return flag
+    const chosen = flag ?? savedSdk(language, saved)
+    if (chosen) {
+        return { sdk: chosen, record: chosen }
     }
-    const fromProject = await projectSdk(ctx, language, saved, folder)
-    if (fromProject !== undefined) {
-        return fromProject
+    const detected = await sdks.detect?.(ctx.runtime, folder)
+    if (detected) {
+        return { sdk: detected, record: undefined }
     }
     if (saved || !ctx.prompts || !sdks.prompt) {
-        return sdks.choices[0]
+        const sdk = sdks.choices[0]
+        return { sdk, record: sdks.recordsDefault ? sdk : undefined }
     }
-    return ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
+    const answer = await ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
+    return { sdk: answer, record: answer }
+}
+
+// What posthog.json records for a module, read the way moduleSdk writes it. A TypeScript entry without
+// `sdk`, as posthog-cli writes it, records the default.
+function recordedSdk(language: Language, saved: SchemaLanguage): SchemaSdk | undefined {
+    const sdks = LANGUAGE_SDKS[language]
+    return savedSdk(language, saved) ?? (sdks?.recordsDefault ? sdks.choices[0] : undefined)
 }

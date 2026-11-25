@@ -76,7 +76,7 @@ const SchemaLanguage = z
             .enum(SCHEMA_SDKS)
             .optional()
             .describe(
-                'The SDK the module wraps. TypeScript: `none` generates only the event types; without it, `posthog-js`. Go: `posthog-go-v2` imports posthog-go 2.x; without it, posthog-go 1.x.'
+                'The SDK the module wraps. TypeScript: `none` generates only the event types; without it, `posthog-js`. Go: `posthog-go` for 1.x or `posthog-go-v2` for 2.x; without it, hog reads the posthog-go version from go.mod.'
             ),
         schema_hash: z.string().optional().describe('The hash of the event definitions the module was generated from.'),
         updated_at: z.string().optional().describe('When the module was last generated.'),

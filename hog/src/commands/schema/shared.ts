@@ -75,10 +75,10 @@ function goNextSteps(file: string, sdk: GoSdk): string[] {
 interface LanguageSdks {
     // The first choice is the default.
     choices: readonly SchemaSdk[]
-    // Whether posthog.json keeps the choice. Go reads it from go.mod instead, because a hog released before
-    // the Go choice rejects every posthog.json whose Go entry names an SDK.
-    savesChoice: boolean
-    // Reads the choice from the project, searching up from the module's folder.
+    // Whether posthog.json records the default when nothing chose an SDK. Go leaves it out, so go.mod keeps
+    // deciding.
+    recordsDefault: boolean
+    // Reads the choice from the project, searching up from the module's folder. hog never saves what it read.
     detect?: (runtime: Pick<Runtime, 'exists' | 'readFile'>, folder: string) => Promise<SchemaSdk | undefined>
     // The error for a PostHog that predates a choice. The default has none: such a PostHog generates it
     // anyway, so hog never asks for it.
@@ -92,7 +92,7 @@ interface LanguageSdks {
 export const LANGUAGE_SDKS: Partial<Record<Language, LanguageSdks>> = {
     typescript: {
         choices: TYPESCRIPT_SDKS,
-        savesChoice: true,
+        recordsDefault: true,
         unsupported: {
             none: [
                 'This PostHog instance cannot generate TypeScript types without an SDK yet.',
@@ -119,7 +119,7 @@ export const LANGUAGE_SDKS: Partial<Record<Language, LanguageSdks>> = {
     },
     golang: {
         choices: GO_SDKS,
-        savesChoice: false,
+        recordsDefault: false,
         detect: goModSdk,
         unsupported: {
             'posthog-go-v2': [
@@ -144,14 +144,13 @@ export function sdkLanguage(sdk: SchemaSdk): Language {
     return LANGUAGES.find((language) => LANGUAGE_SDKS[language]?.choices.includes(sdk)) ?? 'typescript'
 }
 
-// The SDK a language's module is generated for. An unset value, or one that belongs to another language,
-// counts as the language's default.
-export function effectiveSdk(language: Language, sdk: SchemaSdk | undefined): SchemaSdk | undefined {
-    const sdks = LANGUAGE_SDKS[language]
-    return sdks ? (sdk !== undefined && sdks.choices.includes(sdk) ? sdk : sdks.choices[0]) : undefined
+// The SDK posthog.json sets for a module. A value that belongs to another language sets nothing.
+export function savedSdk(language: Language, saved: SchemaLanguage | undefined): SchemaSdk | undefined {
+    const sdk = saved?.sdk
+    return sdk !== undefined && LANGUAGE_SDKS[language]?.choices.includes(sdk) ? sdk : undefined
 }
 
-// The SDK the project picks for a module when no flag does: the choice posthog.json keeps, or what the
+// The SDK the project picks for a module when no flag does: the one posthog.json sets, then what the
 // language reads from the project. Undefined when neither says.
 export async function projectSdk(
     ctx: Context,
@@ -159,14 +158,7 @@ export async function projectSdk(
     saved: SchemaLanguage | undefined,
     folder: string
 ): Promise<SchemaSdk | undefined> {
-    const sdks = LANGUAGE_SDKS[language]
-    if (!sdks) {
-        return undefined
-    }
-    if (sdks.savesChoice) {
-        return saved?.sdk !== undefined ? effectiveSdk(language, saved.sdk) : undefined
-    }
-    return sdks.detect?.(ctx.runtime, folder)
+    return savedSdk(language, saved) ?? (await LANGUAGE_SDKS[language]?.detect?.(ctx.runtime, folder))
 }
 
 // The posthog-go major the nearest go.mod requires, searching up from `folder`. Undefined when that go.mod

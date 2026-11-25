@@ -41,6 +41,10 @@ const GO_MOD_REPLACE_ONLY =
 const goRequests = (result: { requests: { url: string }[] }): (string | undefined)[] =>
     result.requests.map((request) => request.url.split('/event_definitions/')[1])
 
+// The `sdk` posthog.json records for the Go module, or undefined when it records none.
+const recordedGoSdk = (result: { files: Record<string, string> }): string | undefined =>
+    (readJson(result.files['/work/posthog.json']!) as { languages: { golang: { sdk?: string } } }).languages.golang.sdk
+
 // The file posthog-cli 0.18 writes, plus a section hog owns.
 const OLD_CONFIG = JSON.stringify({
     errorTracking: { release: { name: 'web' } },
@@ -203,19 +207,33 @@ describe('hog schema', () => {
     })
 
     test.each([
-        ['no go.mod', [], undefined, '', []],
-        ['a go.mod that requires posthog-go 2.x', [], GO_MOD_V2, '?sdk=posthog-go-v2', []],
-        ['a go.mod that requires posthog-go 1.x', [], GO_MOD_V1, '', []],
-        ['a go.mod that requires both majors', [], GO_MOD_BOTH, '', []],
-        ['a go.mod that only replaces posthog-go', [], GO_MOD_REPLACE_ONLY, '', []],
-        ['--sdk posthog-go-v2 over a 1.x go.mod', ['--sdk', 'posthog-go-v2'], GO_MOD_V1, '?sdk=posthog-go-v2', []],
-        ['--sdk posthog-go over a 2.x go.mod', ['--sdk', 'posthog-go'], GO_MOD_V2, '', []],
-        ['a person with no go.mod who picks 2.x', [], undefined, '?sdk=posthog-go-v2', ['posthog-go-v2', '']],
-        ['a person with no go.mod who picks 1.x', [], undefined, '', ['posthog-go', '']],
-        ['a person with a 2.x go.mod, who is not asked', [], GO_MOD_V2, '?sdk=posthog-go-v2', ['']],
+        ['no go.mod', [], undefined, '', [], undefined],
+        ['a go.mod that requires posthog-go 2.x', [], GO_MOD_V2, '?sdk=posthog-go-v2', [], undefined],
+        ['a go.mod that requires posthog-go 1.x', [], GO_MOD_V1, '', [], undefined],
+        ['a go.mod that requires both majors', [], GO_MOD_BOTH, '', [], undefined],
+        ['a go.mod that only replaces posthog-go', [], GO_MOD_REPLACE_ONLY, '', [], undefined],
+        [
+            '--sdk posthog-go-v2 over a 1.x go.mod',
+            ['--sdk', 'posthog-go-v2'],
+            GO_MOD_V1,
+            '?sdk=posthog-go-v2',
+            [],
+            'posthog-go-v2',
+        ],
+        ['--sdk posthog-go over a 2.x go.mod', ['--sdk', 'posthog-go'], GO_MOD_V2, '', [], 'posthog-go'],
+        [
+            'a person with no go.mod who picks 2.x',
+            [],
+            undefined,
+            '?sdk=posthog-go-v2',
+            ['posthog-go-v2', ''],
+            'posthog-go-v2',
+        ],
+        ['a person with no go.mod who picks 1.x', [], undefined, '', ['posthog-go', ''], 'posthog-go'],
+        ['a person with a 2.x go.mod, who is not asked', [], GO_MOD_V2, '?sdk=posthog-go-v2', [''], undefined],
     ])(
         'pull for a new Go module with %s asks PostHog for the right module',
-        async (_name, flags, goMod, query, answers) => {
+        async (_name, flags, goMod, query, answers, recorded) => {
             const person = answers.length > 0
             const result = await runHog(['schema', 'pull', '--language', 'golang', ...flags], {
                 env: person ? TEST_CREDENTIALS : AGENT,
@@ -228,19 +246,47 @@ describe('hog schema', () => {
             expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(goRequests(result)).toEqual([`golang/${query}`])
             expect(result.files['/work/posthog-typed.go']).toBe(`go module ${query}`)
-            const written = readJson(result.files['/work/posthog.json']!) as { languages: { golang: object } }
-            expect(written.languages.golang).not.toHaveProperty('sdk')
+            expect(recordedGoSdk(result)).toBe(recorded)
         }
     )
 
     test.each([
-        ['the go.mod next to the module wins over the one above it', GO_MOD_V2, '?sdk=posthog-go-v2'],
-        ['the go.mod decides, not an sdk saved in posthog.json', GO_MOD_V1, ''],
-    ])('pull for a saved Go module: %s', async (_name, nearestGoMod, query) => {
-        const config = {
-            languages: { golang: { output_path: 'svc/typed.go', schema_hash: 'hash-old', sdk: 'posthog-go-v2' } },
-        }
-        const result = await runHog(['schema', 'pull', '--language', 'golang'], {
+        [
+            'the go.mod next to the module wins over the one above it',
+            {},
+            [],
+            GO_MOD_V2,
+            '?sdk=posthog-go-v2',
+            undefined,
+        ],
+        [
+            'posthog.json sets 2.x over a 1.x go.mod',
+            { sdk: 'posthog-go-v2' },
+            [],
+            GO_MOD_V1,
+            '?sdk=posthog-go-v2',
+            'posthog-go-v2',
+        ],
+        ['posthog.json sets 1.x over a 2.x go.mod', { sdk: 'posthog-go' }, [], GO_MOD_V2, '', 'posthog-go'],
+        [
+            '--sdk replaces what posthog.json sets',
+            { sdk: 'posthog-go-v2' },
+            ['--sdk', 'posthog-go'],
+            GO_MOD_V2,
+            '',
+            'posthog-go',
+        ],
+        [
+            'posthog.json sets a TypeScript SDK, which the go.mod overrides',
+            { sdk: 'none' },
+            [],
+            GO_MOD_V2,
+            '?sdk=posthog-go-v2',
+            undefined,
+        ],
+    ])('pull for a saved Go module: %s', async (_name, sdk, flags, nearestGoMod, query, recorded) => {
+        const config = { languages: { golang: { output_path: 'svc/typed.go', schema_hash: 'hash-old', ...sdk } } }
+        const result = await runHog(['schema', 'pull', '--language', 'golang', ...flags], {
             env: TEST_CREDENTIALS,
             stdoutIsTTY: true,
             files: {
@@ -255,8 +301,7 @@ describe('hog schema', () => {
         expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(goRequests(result)).toEqual([`golang/${query}`])
         expect(result.files['/work/svc/typed.go']).toBe(`go module ${query}`)
-        const written = readJson(result.files['/work/posthog.json']!) as { languages: { golang: object } }
-        expect(written.languages.golang).not.toHaveProperty('sdk')
+        expect(recordedGoSdk(result)).toBe(recorded)
     })
 
     test('pull for Go does not ask a person about a module saved before the SDK choice existed', async () => {
@@ -273,31 +318,65 @@ describe('hog schema', () => {
     })
 
     test.each([
-        ['keeps a 2.x module when go.mod and the events are the same', GO_MOD_V2, 'old'],
-        ['rewrites a 2.x module when go.mod moves to 1.x', GO_MOD_V1, 'go module '],
-    ])('pull for Go %s', async (_name, goMod, content) => {
-        const config = { languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-go-v2' } } }
-        const result = await runHog(['schema', 'pull', '--language', 'golang'], {
+        ['keeps a 2.x module when go.mod and the events are the same', {}, [], GO_MOD_V2, 'old', undefined],
+        ['rewrites a 2.x module when go.mod moves to 1.x', {}, [], GO_MOD_V1, 'go module ', undefined],
+        [
+            'keeps a 2.x module that posthog.json sets when go.mod requires 1.x',
+            { sdk: 'posthog-go-v2' },
+            [],
+            GO_MOD_V1,
+            'old',
+            'posthog-go-v2',
+        ],
+        [
+            'records --sdk for a 2.x module that go.mod already chose',
+            {},
+            ['--sdk', 'posthog-go-v2'],
+            GO_MOD_V2,
+            'go module ?sdk=posthog-go-v2',
+            'posthog-go-v2',
+        ],
+    ])('pull for Go %s', async (_name, sdk, flags, goMod, content, recorded) => {
+        const config = JSON.stringify({
+            languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-go-v2', ...sdk } },
+        })
+        const result = await runHog(['schema', 'pull', '--language', 'golang', ...flags], {
             env: AGENT,
-            files: { '/work/posthog.json': JSON.stringify(config), '/work/go.mod': goMod, '/work/typed.go': 'old' },
+            files: { '/work/posthog.json': config, '/work/go.mod': goMod, '/work/typed.go': 'old' },
             respond: goDefinitions,
         })
 
         expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.files['/work/typed.go']).toBe(content)
+        if (content === 'old') {
+            expect(result.files['/work/posthog.json']).toBe(config)
+        } else {
+            expect(recordedGoSdk(result)).toBe(recorded)
+        }
     })
 
     test.each([
         [
             'a 2.x module is up to date when go.mod requires 2.x',
+            {},
             GO_MOD_V2,
             '?sdk=posthog-go-v2',
             'up_to_date',
             EXIT_SUCCESS,
         ],
-        ['a 2.x module is outdated when go.mod requires 1.x', GO_MOD_V1, '', 'outdated', EXIT_FAILURE],
-    ])('status for Go: %s', async (_name, goMod, query, status, exitCode) => {
-        const config = JSON.stringify({ languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-go-v2' } } })
+        ['a 2.x module is outdated when go.mod requires 1.x', {}, GO_MOD_V1, '', 'outdated', EXIT_FAILURE],
+        [
+            'a 2.x module that posthog.json sets is up to date when go.mod requires 1.x',
+            { sdk: 'posthog-go-v2' },
+            GO_MOD_V1,
+            '?sdk=posthog-go-v2',
+            'up_to_date',
+            EXIT_SUCCESS,
+        ],
+    ])('status for Go: %s', async (_name, sdk, goMod, query, status, exitCode) => {
+        const config = JSON.stringify({
+            languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-go-v2', ...sdk } },
+        })
         const result = await runHog(['schema', 'status'], {
             env: AGENT,
             files: { '/work/posthog.json': config, '/work/go.mod': goMod, '/work/typed.go': 'old' },
