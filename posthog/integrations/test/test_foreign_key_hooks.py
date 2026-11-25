@@ -117,7 +117,7 @@ FOREIGN_KEYS: dict[tuple[str, str], tuple[Any, Fields]] = {
     ("slack_app.SlackThreadTaskMapping", "integration"): (models.CASCADE, _slack_thread_task_mapping),
     ("slack_app.SlackUserProfileCache", "integration"): (models.CASCADE, lambda team, user: {"slack_user_id": "U1"}),
     ("slack_app.SlackSettings", "default_integration"): (
-        models.CASCADE,
+        models.SET_NULL,
         lambda team, user: {"slack_workspace_id": "T1"},
     ),
     ("signals.SignalTeamConfig", "issue_tracking_integration"): (models.SET_NULL, lambda team, user: {"team": team}),
