@@ -39,7 +39,7 @@
         bottom: 15%;
         width: 2px;
         content: '';
-        background: var(--color-accent);
+        background: var(--dv2-interaction-color);
         border-radius: 1px;
     }
 }
@@ -54,7 +54,7 @@
 
 .DashboardV2Tabs__tab--drop-target {
     border-radius: var(--radius);
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--dv2-interaction-color);
     outline-offset: 2px;
 }
 

@@ -13,5 +13,5 @@ export const markdownSpec: WidgetSpec<MarkdownConfig> = {
     ],
     size: { w: 8, h: 8, minW: 3, minH: 4 },
     configSchema: markdownConfigSchema,
-    appearance: { background: true },
+    appearance: { background: true, backgroundColor: true },
 }
