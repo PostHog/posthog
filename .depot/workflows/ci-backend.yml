@@ -1654,7 +1654,7 @@ jobs:
                       echo "::error::The rerun of the failures the quarantine masked did not pass, so the shard treats them as a real break. The rerun output above shows which test or setup step failed."
                       exit 1
                   fi
-                  # The runner accepts pytest's exit code 5, so it passes when --lf selects nothing, and a test that skips exits 0, so check that every masked failure passed.
+                  # A test that skips exits 0, so check that every masked failure passed.
                   if ! python .github/scripts/junit_node_ids.py unpassed --expected "$rerun_dir/failed.txt" "${rerun_reports[@]}"; then
                       echo "::error::The rerun did not pass the masked failures listed above. A test that skips or never runs does not clear its failure."
                       exit 1

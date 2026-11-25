@@ -47,10 +47,22 @@ cd "$repo_root/products/$product"
 if grep -q '"backend:test:setup"' package.json 2>/dev/null; then
     npm run --silent backend:test:setup
 fi
+# pytest-split can hand a shard no tests when a product has fewer tests than shards, so a
+# split leg accepts pytest's exit code 5 (no tests collected). A full-product run does not:
+# a product that collects nothing has lost its tests, and that must fail the job.
+split_leg=false
+for arg in "$@"; do
+    if [[ "$arg" == --splits* || "$arg" == --group* ]]; then
+        split_leg=true
+    fi
+done
 status=0
 pytest -c ../../pytest.ini --rootdir ../.. "${ignore_args[@]}" -v --tb=short "$@" . || status=$?
-if [ "$status" -eq 5 ]; then
-    echo "No tests collected in products/$product"
+if [ "$status" -eq 5 ] && [ "$split_leg" = true ]; then
+    echo "No tests collected in this shard of products/$product"
     exit 0
+fi
+if [ "$status" -eq 5 ]; then
+    echo "::error::No tests collected in products/$product" >&2
 fi
 exit "$status"

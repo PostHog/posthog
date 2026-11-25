@@ -27,19 +27,20 @@ def fake_repo(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    "product,expected_ids",
+    "product,split_args,expected_returncode,expected_ids",
     [
-        ("foo", ["products/foo/backend/tests/test_a.py::test_it", "products/foo/scripts/test_b.py::test_it"]),
-        ("empty", []),
+        ("foo", [], 0, ["products/foo/backend/tests/test_a.py::test_it", "products/foo/scripts/test_b.py::test_it"]),
+        ("empty", [], 5, []),
+        ("empty", ["--splits", "2", "--group", "1"], 0, []),
     ],
 )
 def test_runner_collects_every_test_outside_the_owned_paths(
-    fake_repo: Path, product: str, expected_ids: list[str]
+    fake_repo: Path, product: str, split_args: list[str], expected_returncode: int, expected_ids: list[str]
 ) -> None:
     env = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
     env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
     result = subprocess.run(
-        ["bash", str(fake_repo / ".github" / "scripts" / RUNNER.name), product, "--collect-only", "-qq"],
+        ["bash", str(fake_repo / ".github" / "scripts" / RUNNER.name), product, *split_args, "--collect-only", "-qq"],
         cwd=fake_repo,
         env=env,
         capture_output=True,
@@ -47,6 +48,6 @@ def test_runner_collects_every_test_outside_the_owned_paths(
         check=False,
     )
 
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == expected_returncode, result.stdout + result.stderr
     collected = sorted(line for line in result.stdout.splitlines() if "::" in line)
     assert collected == expected_ids
