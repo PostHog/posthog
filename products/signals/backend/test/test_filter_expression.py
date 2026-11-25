@@ -128,3 +128,39 @@ class TestFilterExpression(SimpleTestCase):
         with self.assertRaises(FilterValidationError) as raised:
             FilterExpression(expression, self.fields)
         self.assertEqual((raised.exception.code, raised.exception.start, raised.exception.end), (code, start, end))
+
+    @parameterized.expand(
+        [
+            ("one_condition", "project_name = 'Core'", ("project_name = 'Core'",)),
+            (
+                "and",
+                "project_name = 'Core' AND priority IN (1, 2) AND has(label_names, 'bug')",
+                ("project_name = 'Core'", "priority IN (1, 2)", "has(label_names, 'bug')"),
+            ),
+            (
+                "parenthesized_operands",
+                "(project_name = 'Core' OR priority = 1) AND ( NOT has(label_names, 'internal') )",
+                ("project_name = 'Core' OR priority = 1", "NOT has(label_names, 'internal')"),
+            ),
+            (
+                "nested_and",
+                "priority = 1 AND (project_name IS NULL AND priority = 2)",
+                ("priority = 1", "project_name IS NULL", "priority = 2"),
+            ),
+            ("or", "project_name = 'Core' OR priority = 1", None),
+            ("not", "NOT has(label_names, 'internal')", ("NOT has(label_names, 'internal')",)),
+            (
+                "not_of_and",
+                "NOT (project_name = 'Core' AND priority = 1)",
+                ("NOT (project_name = 'Core' AND priority = 1)",),
+            ),
+            ("blank", "  ", None),
+            ("leading_bom", "\ufeffproject_name = 'Core' AND priority = 1", None),
+        ]
+    )
+    def test_conditions(self, _name: str, expression: str, expected: tuple[str, ...] | None) -> None:
+        conditions = FilterExpression(expression, self.fields).conditions()
+
+        self.assertEqual(conditions, expected)
+        for condition in conditions or ():
+            self.assertIsNotNone(FilterExpression(condition, self.fields).predicate())
