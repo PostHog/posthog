@@ -26,6 +26,11 @@
             ],
             "description": "Optional issue display name."
         },
+        "resolved_until": {
+            "description": "What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.\n\n* `next_occurrence` - Next occurrence\n* `new_release` - New release",
+            "enum": ["next_occurrence", "new_release"],
+            "type": "string"
+        },
         "severity": {
             "anyOf": [
                 {

@@ -388,6 +388,9 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.description !== undefined) {
                 body['description'] = params.description
             }
+            if (params.resolved_until !== undefined) {
+                body['resolved_until'] = params.resolved_until
+            }
             const result = await context.api.request<Schemas.ErrorTrackingIssueRead>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,

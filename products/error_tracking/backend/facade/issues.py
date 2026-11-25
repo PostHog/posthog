@@ -74,6 +74,7 @@ def bulk_update_issues(
     assignee: dict[str, Any] | None,
     user: Any,
     was_impersonated: bool,
+    resolved_until: contracts.IssueResolvedUntil | None = None,
 ) -> int:
     return _mutations.bulk_update_issues(
         team_id,
@@ -83,6 +84,7 @@ def bulk_update_issues(
         assignee=assignee,
         user=user,
         was_impersonated=was_impersonated,
+        resolved_until=resolved_until,
     )
 
 

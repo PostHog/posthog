@@ -483,6 +483,13 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
+    resolved_until: zod
+        .enum(['next_occurrence', 'new_release'])
+        .describe('\* `next_occurrence` - Next occurrence\n\* `new_release` - New release')
+        .optional()
+        .describe(
+            'What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.\n\n\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'
+        ),
 })
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -499,6 +506,13 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
+    resolved_until: zod
+        .enum(['next_occurrence', 'new_release'])
+        .describe('\* `next_occurrence` - Next occurrence\n\* `new_release` - New release')
+        .optional()
+        .describe(
+            'What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.\n\n\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'
+        ),
 })
 
 export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -588,6 +602,13 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe('Assignment target. Required when action is assign; null unassigns.'),
+    resolved_until: zod
+        .enum(['next_occurrence', 'new_release'])
+        .describe('\* `next_occurrence` - Next occurrence\n\* `new_release` - New release')
+        .optional()
+        .describe(
+            'What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.\n\n\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'
+        ),
 })
 
 /**

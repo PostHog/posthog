@@ -142,14 +142,24 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
+def _to_issue_release(release) -> contracts.ErrorTrackingIssueRelease:
+    return contracts.ErrorTrackingIssueRelease(
+        id=release.id, version=release.version, project=release.project, created_at=release.created_at
+    )
+
+
 def _to_issue(
     issue,
     integrations: dict[int, IntegrationRecord] | None = None,
     tags: list[contracts.ErrorTrackingIssueTag] | None = None,
+    releases: dict[UUID, Any] | None = None,
 ) -> contracts.ErrorTrackingIssue:
     references = list(issue.external_issues.all())
     if integrations is None:
         integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
+    if releases is None:
+        releases = logic.get_releases_by_id(issue.team_id, [issue.latest_release_id] if issue.latest_release_id else [])
+    latest_release = releases.get(issue.latest_release_id) if issue.latest_release_id else None
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
@@ -165,6 +175,9 @@ def _to_issue(
         ],
         cohort=_to_issue_cohort(issue),
         tags=tags,
+        resolved_at=issue.resolved_at if issue.status == ErrorTrackingIssue.Status.RESOLVED else None,
+        resolved_until=issue.resolved_until if issue.status == ErrorTrackingIssue.Status.RESOLVED else None,
+        latest_release=_to_issue_release(latest_release) if latest_release else None,
     )
 
 
@@ -262,7 +275,11 @@ def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.E
     issues_page = select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page)
     references = [reference for issue in issues_page.results for reference in issue.external_issues.all()]
     integrations = external_references.get_reference_integrations(team_id, references) if references else {}
-    return issues_page.map(lambda issue: _to_issue(issue, integrations))
+    releases = logic.get_releases_by_id(
+        team_id,
+        (issue.latest_release_id for issue in issues_page.results if issue.latest_release_id is not None),
+    )
+    return issues_page.map(lambda issue: _to_issue(issue, integrations, releases=releases))
 
 
 def issue_exists(team_id: int) -> bool:

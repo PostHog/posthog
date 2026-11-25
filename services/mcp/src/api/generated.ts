@@ -45880,6 +45880,18 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * * `next_occurrence` - Next occurrence
+     * * `new_release` - New release
+     */
+    export type ResolvedUntilEnum = typeof ResolvedUntilEnum[keyof typeof ResolvedUntilEnum];
+
+
+    export const ResolvedUntilEnum = {
+      NextOccurrence: 'next_occurrence',
+      NewRelease: 'new_release',
+    } as const;
+
     export interface ErrorTrackingIssueBulkRequest {
       /** Which mutation to apply to every listed issue.
        *
@@ -45896,6 +45908,11 @@ export namespace Schemas {
       status?: ErrorTrackingIssueWritableStatusEnum;
       /** Assignment target. Required when action is assign; null unassigns. */
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
+      /** What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.
+       *
+       * * `next_occurrence` - Next occurrence
+       * * `new_release` - New release */
+      resolved_until?: ResolvedUntilEnum;
     }
 
     export interface ErrorTrackingIssueCohortRead {
@@ -46438,6 +46455,17 @@ export namespace Schemas {
       source: string;
     }
 
+    export interface ErrorTrackingIssueReleaseRead {
+      /** ID of the release. */
+      id: string;
+      /** Version of the release, as the build reported it. */
+      version: string;
+      /** Project the release belongs to. */
+      project: string;
+      /** When the release was created. Releases are ordered by it. */
+      created_at: string;
+    }
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -46457,6 +46485,18 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
       /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
       tags?: ErrorTrackingIssueTagRead[];
+      /**
+         * When the issue was resolved. Null unless the status is resolved, and for issues resolved before this was recorded.
+         * @nullable
+         */
+      resolved_at: string | null;
+      /** What reopens the issue while it is resolved. next_occurrence: any new exception. new_release: only an exception from a release newer than latest_release, or an exception without a release. Null unless the status is resolved. A resolved issue with null reopens on the next exception.
+       *
+       * * `next_occurrence` - Next occurrence
+       * * `new_release` - New release */
+      resolved_until: ResolvedUntilEnum | null;
+      /** The newest release, by creation time, that an exception of this issue came from. An issue resolved until a new release stays resolved for exceptions from this release or older ones. Null when no exception of the issue had a release. */
+      latest_release: ErrorTrackingIssueReleaseRead | null;
     }
 
     export interface ErrorTrackingIssueRedirectResponse {
@@ -46831,6 +46871,11 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+      /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
+       *
+       * * `next_occurrence` - Next occurrence
+       * * `new_release` - New release */
+      resolved_until?: ResolvedUntilEnum;
     }
 
     export interface ErrorTrackingIssuesListQueryRequest {
@@ -94237,6 +94282,11 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+      /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
+       *
+       * * `next_occurrence` - Next occurrence
+       * * `new_release` - New release */
+      resolved_until?: ResolvedUntilEnum;
     }
 
     /**

@@ -5,6 +5,7 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -78,6 +79,15 @@ class InvalidIssueStatusError(Exception):
 
 
 _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS = ("status", "severity", "name", "description")
+# ClickHouse does not store these, so they never decide a sync. They are still re-read under the lock,
+# because `update_issue` saves the whole row and cymbal writes the latest release concurrently.
+_LOCKED_ISSUE_STATE_FIELDS = (
+    *_CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS,
+    "resolved_at",
+    "resolved_until",
+    "latest_release_id",
+    "latest_release_created_at",
+)
 
 
 def _get_issue(team_id: int, issue_id: UUID | str, *, select_related: tuple[str, ...] = ()) -> ErrorTrackingIssue:
@@ -109,7 +119,7 @@ def _refresh_under_lock(issue: ErrorTrackingIssue) -> None:
     locked = _lock_issues(issue.team_id, [issue.id])
     if not locked:
         raise ErrorTrackingIssueNotFoundError
-    for field in _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS:
+    for field in _LOCKED_ISSUE_STATE_FIELDS:
         setattr(issue, field, getattr(locked[0], field))
 
 
@@ -128,6 +138,29 @@ def _has_clickhouse_visible_state_change(issue: ErrorTrackingIssue, fields: dict
     return any(
         field in fields and fields[field] != getattr(issue, field) for field in _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS
     )
+
+
+def _resolved_at_for(status: str | None) -> datetime | None:
+    return timezone.now() if status == ErrorTrackingIssue.Status.RESOLVED else None
+
+
+def _resolved_until_after(
+    *, status_before: str, status_after: str, resolved_until_before: str | None, requested: str | None
+) -> str | None:
+    if status_after != ErrorTrackingIssue.Status.RESOLVED:
+        return None
+    if requested is not None:
+        return requested
+    # A status write that does not name a mode keeps the mode of an issue that is already resolved.
+    if status_before == ErrorTrackingIssue.Status.RESOLVED:
+        return resolved_until_before
+    return ErrorTrackingIssue.ResolvedUntil.NEXT_OCCURRENCE
+
+
+def _resolved_until_change(before: str | None, after: str | None) -> Change | None:
+    if after is None or after == before:
+        return None
+    return Change(type="ErrorTrackingIssue", field="resolved_until", before=before, after=after, action="changed")
 
 
 def _stamp_issue_state(*, team_id: int, issue_ids: list[UUID]) -> None:
@@ -154,6 +187,7 @@ def update_issue(
     # (first_seen, assignment, external issues, cohorts) without a second read.
     issue = get_issue(issue_id=issue_id, team_id=team_id)
     operation = ChangeOperation.for_user(team_id, user)
+    resolved_at = _resolved_at_for(fields.get("status"))
 
     with transaction.atomic():
         _refresh_under_lock(issue)
@@ -168,11 +202,22 @@ def update_issue(
         severity_updated = "severity" in fields and severity_after != severity_before
         name_updated = "name" in fields and name_after != name_before
         description_updated = "description" in fields and fields["description"] != description_before
+        resolved_until_before = issue.resolved_until
+        resolved_until_after = _resolved_until_after(
+            status_before=status_before,
+            status_after=fields.get("status", status_before),
+            resolved_until_before=resolved_until_before,
+            requested=fields.get("resolved_until"),
+        )
+        resolved_until_change = _resolved_until_change(resolved_until_before, resolved_until_after)
         state_updated = _has_clickhouse_visible_state_change(issue, fields)
 
         for key in ("status", "severity", "name", "description"):
             if key in fields:
                 setattr(issue, key, fields[key])
+        if status_updated:
+            issue.resolved_at = resolved_at
+        issue.resolved_until = resolved_until_after
 
         issue_changes: list[IssueChange] = []
         if status_updated:
@@ -214,6 +259,8 @@ def update_issue(
             changes.append(
                 Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
             )
+        if resolved_until_change is not None:
+            changes.append(resolved_until_change)
 
         if state_updated:
             issue.state_updated_at = timezone.now()
@@ -250,6 +297,7 @@ def update_issue(
         "severity": severity_updated,
         "name": name_updated,
         "description": description_updated,
+        "resolved_until": resolved_until_change is not None,
     }
     return IssueUpdateOutcome(issue=issue, changed_fields=tuple(key for key, changed in updated.items() if changed))
 
@@ -270,14 +318,19 @@ def transition_issue_status_by_automation(
     after the automation decided is never overwritten.
     """
     operation = ChangeOperation.for_automation(team_id, automation_id)
+    resolved_at = _resolved_at_for(status)
     with transaction.atomic():
         locked = _lock_issues(team_id, [issue_id], select_related=("team",))
         if not locked or locked[0].status != expected:
             return False
         issue = locked[0]
         issue.status = status
+        issue.resolved_at = resolved_at
+        issue.resolved_until = _resolved_until_after(
+            status_before=expected, status_after=status, resolved_until_before=issue.resolved_until, requested=None
+        )
         issue.state_updated_at = timezone.now()
-        issue.save(update_fields=["status", "state_updated_at"])
+        issue.save(update_fields=["status", "resolved_at", "resolved_until", "state_updated_at"])
         record_issue_changes(operation, [IssueChange(issue=issue, data=StatusChanged(previous=Status(expected)))])
         log_activity(
             organization_id=issue.team.organization_id,
@@ -472,10 +525,13 @@ def bulk_update_issues(
     assignee: dict[str, Any] | None,
     user: User,
     was_impersonated: bool,
+    resolved_until: str | None = None,
 ) -> int:
     changed_issue_ids: list[UUID] = []
+    clickhouse_issue_ids: list[UUID] = []
     issue_changes: list[IssueChange] = []
     operation = ChangeOperation.for_user(team_id, user, bulk=True)
+    resolved_at = _resolved_at_for(status) if action == "set_status" else None
 
     with transaction.atomic():
         issues = _lock_issues(team_id, issue_ids, select_related=("team__organization",))
@@ -483,11 +539,41 @@ def bulk_update_issues(
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:
                 raise InvalidIssueStatusError
+            if resolved_until is not None and new_status != ErrorTrackingIssue.Status.RESOLVED:
+                raise InvalidIssueStatusError
             transitions = []
+            mode_only_issue_ids: list[UUID] = []
+            # Every changed issue ends with this mode: the requested one, the default for a newly resolved
+            # issue, or none for an issue that is no longer resolved. An issue that is already resolved
+            # keeps its mode unless the request names one.
+            new_resolved_until = (
+                (resolved_until or ErrorTrackingIssue.ResolvedUntil.NEXT_OCCURRENCE)
+                if new_status == ErrorTrackingIssue.Status.RESOLVED
+                else None
+            )
             for issue in issues:
-                if issue.status == new_status:
+                status_updated = issue.status != new_status
+                resolved_until_change = (
+                    _resolved_until_change(issue.resolved_until, new_resolved_until)
+                    if status_updated or resolved_until is not None
+                    else None
+                )
+                if not status_updated and resolved_until_change is None:
                     continue
                 changed_issue_ids.append(issue.id)
+                changes = []
+                if status_updated:
+                    changes.append(
+                        Change(
+                            type="ErrorTrackingIssue",
+                            action="changed",
+                            field="status",
+                            before=issue.status,
+                            after=new_status,
+                        )
+                    )
+                if resolved_until_change is not None:
+                    changes.append(resolved_until_change)
                 log_activity(
                     organization_id=issue.team.organization_id,
                     team_id=team_id,
@@ -496,19 +582,13 @@ def bulk_update_issues(
                     item_id=issue.id,
                     scope="ErrorTrackingIssue",
                     activity="updated",
-                    detail=Detail(
-                        name=issue.name,
-                        changes=[
-                            Change(
-                                type="ErrorTrackingIssue",
-                                action="changed",
-                                field="status",
-                                before=issue.status,
-                                after=new_status,
-                            )
-                        ],
-                    ),
+                    detail=Detail(name=issue.name, changes=changes),
                 )
+                issue.resolved_until = new_resolved_until
+                if not status_updated:
+                    mode_only_issue_ids.append(issue.id)
+                    continue
+                clickhouse_issue_ids.append(issue.id)
                 if new_status in STATUS_CHANGE_EVENTS:
                     transitions.append(
                         prepare_issue_lifecycle_event(
@@ -521,13 +601,21 @@ def bulk_update_issues(
                         )
                     )
                 previous_status = Status(issue.status)
-                # The queryset update below writes the same status; the snapshot reads it from this instance.
+                # The queryset update below writes the same values; the snapshot reads them from this instance.
                 issue.status = new_status
+                issue.resolved_at = resolved_at
                 issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
             produce_issue_lifecycle_events_on_commit(transitions)
-            if changed_issue_ids:
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
-                    status=new_status, state_updated_at=timezone.now()
+            if clickhouse_issue_ids:
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=clickhouse_issue_ids).update(
+                    status=new_status,
+                    resolved_at=resolved_at,
+                    resolved_until=new_resolved_until,
+                    state_updated_at=timezone.now(),
+                )
+            if mode_only_issue_ids:
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=mode_only_issue_ids).update(
+                    resolved_until=new_resolved_until
                 )
         elif action == "assign":
             transitions = []
@@ -539,11 +627,12 @@ def bulk_update_issues(
                     transitions.append(outcome.transition)
                     issue_changes.append(outcome.change)
                     changed_issue_ids.append(issue.id)
+                    clickhouse_issue_ids.append(issue.id)
             produce_issue_lifecycle_events_on_commit(transitions)
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
         record_issue_changes(operation, issue_changes)
 
-    sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
+    sync_issues_to_clickhouse(issue_ids=clickhouse_issue_ids, team_id=team_id)
     return len(changed_issue_ids)
 
 

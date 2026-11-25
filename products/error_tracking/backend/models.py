@@ -1,6 +1,7 @@
 import time
 import dataclasses
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -83,6 +84,11 @@ class ErrorTrackingIssue(UUIDTModel):
         PENDING_RELEASE = "pending_release", "Pending release"
         SUPPRESSED = "suppressed", "Suppressed"
 
+    class ResolvedUntil(models.TextChoices):
+        NEXT_OCCURRENCE = "next_occurrence", "Next occurrence"
+        # Exceptions from the issue's latest release or older ones leave the issue resolved.
+        NEW_RELEASE = "new_release", "New release"
+
     class Severity(models.TextChoices):
         LOW = "low", "Low"
         MEDIUM = "medium", "Medium"
@@ -96,6 +102,16 @@ class ErrorTrackingIssue(UUIDTModel):
     severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+    # When the issue was last resolved. Has meaning only while the status is resolved.
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    # What reopens the issue while it is resolved. Null while the issue is not resolved, and for issues
+    # resolved before it was recorded, which reopen on the next exception.
+    resolved_until = models.TextField(choices=ResolvedUntil, null=True, blank=True)
+    # The newest release, by release creation time, that an exception of this issue came from. Cymbal
+    # keeps it current. An issue resolved until a new release stays resolved for exceptions from this
+    # release or older ones.
+    latest_release_id = models.UUIDField(null=True, blank=True)
+    latest_release_created_at = models.DateTimeField(null=True, blank=True)
 
     objects = ErrorTrackingIssueManager()
 
@@ -139,18 +155,18 @@ class ErrorTrackingIssue(UUIDTModel):
             )
             if locked is None:
                 return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.STALE_ISSUES)
-            target_status, locked_source_statuses = locked
-            if not locked_source_statuses:
+            target, locked_sources = locked
+            target_status = target.status
+            if not locked_sources:
                 return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
                 team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
             ):
                 return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS)
 
-            existing_source_issue_ids = list(locked_source_statuses)
-            reopened = _target_reopens_on_merge(
-                target_status=target_status, source_statuses=locked_source_statuses.values()
-            )
+            existing_source_issue_ids = list(locked_sources)
+            reopened = _target_reopens_on_merge(target=target, sources=locked_sources.values())
+            latest = _latest_release_on_merge([target, *locked_sources.values()])
 
             locked_source_fingerprints = list(
                 ErrorTrackingIssueFingerprintV2.objects.select_for_update()
@@ -180,11 +196,19 @@ class ErrorTrackingIssue(UUIDTModel):
             target_updates: dict[str, object] = {"state_updated_at": timezone.now()}
             if reopened:
                 target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
+                target_updates["resolved_at"] = None
+                target_updates["resolved_until"] = None
+            if latest is not None and latest is not target:
+                target_updates["latest_release_id"] = latest.latest_release_id
+                target_updates["latest_release_created_at"] = latest.latest_release_created_at
             ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(**target_updates)
             # Sync the in-memory row to the locked truth, so a caller can snapshot the issue for
             # the reopened notification without reading it back, and never reports a status a
             # concurrent write moved before the lock.
             self.status = ErrorTrackingIssue.Status.ACTIVE if reopened else target_status
+            if reopened:
+                self.resolved_at = None
+                self.resolved_until = None
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
@@ -319,43 +343,77 @@ def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue
     return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
 
 
+@dataclasses.dataclass(frozen=True)
+class _LockedMergeIssue:
+    status: str
+    resolved_until: str | None
+    latest_release_id: UUID | None
+    latest_release_created_at: datetime | None
+
+
 def _lock_merge_issues(
     *, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]
-) -> tuple[str, dict[UUID, str]] | None:
+) -> tuple[_LockedMergeIssue, dict[UUID, _LockedMergeIssue]] | None:
     """Row-lock the target and the sources that still exist, tolerating a partially stale selection.
 
     Returns None when the target issue itself is gone (nothing to merge into). Otherwise returns the
-    target's locked status, and the subset of source ids that still exist mapped to their locked
-    status — sources that disappeared before the lock (already merged, deleted, or lost to a
+    target's locked state, and the subset of source ids that still exist mapped to their locked
+    state — sources that disappeared before the lock (already merged, deleted, or lost to a
     concurrent merge) are dropped so the merge proceeds with what remains, instead of rejecting the
-    whole request. Every status comes from the locked row, so a write that landed between the
+    whole request. Every state comes from the locked row, so a write that landed between the
     caller's read and the lock cannot be read as stale.
     """
-    locked_statuses = {
-        issue.id: issue.status
+    locked = {
+        issue.id: _LockedMergeIssue(
+            status=issue.status,
+            resolved_until=issue.resolved_until,
+            latest_release_id=issue.latest_release_id,
+            latest_release_created_at=issue.latest_release_created_at,
+        )
         for issue in ErrorTrackingIssue.objects.select_for_update()
         .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
         .order_by("id")
     }
-    target_status = locked_statuses.get(target_issue_id)
-    if target_status is None:
+    target = locked.get(target_issue_id)
+    if target is None:
         return None
 
-    return target_status, {
-        issue_id: locked_statuses[issue_id] for issue_id in source_issue_ids if issue_id in locked_statuses
-    }
+    return target, {issue_id: locked[issue_id] for issue_id in source_issue_ids if issue_id in locked}
 
 
-def _target_reopens_on_merge(*, target_status: str, source_statuses: Iterable[str]) -> bool:
+def _target_reopens_on_merge(*, target: _LockedMergeIssue, sources: Iterable[_LockedMergeIssue]) -> bool:
     """Decide whether the merge target must go back to active.
 
     An active source carries a recurrence of the error, so a dormant target is not resolved
     any more. Suppressed targets stay suppressed, which is the same rule ingestion applies
-    when a fingerprint links straight to an existing issue.
+    when a fingerprint links straight to an existing issue. A target resolved until a new
+    release, with a latest release, also keeps ingestion's release rule: a source seen only in
+    that release or older ones carries no recurrence. A source with no release history reopens
+    it, as an exception without a release would.
     """
-    if target_status in (ErrorTrackingIssue.Status.ACTIVE, ErrorTrackingIssue.Status.SUPPRESSED):
+    if target.status in (ErrorTrackingIssue.Status.ACTIVE, ErrorTrackingIssue.Status.SUPPRESSED):
         return False
-    return any(status == ErrorTrackingIssue.Status.ACTIVE for status in source_statuses)
+    active_sources = [source for source in sources if source.status == ErrorTrackingIssue.Status.ACTIVE]
+    if (
+        target.status != ErrorTrackingIssue.Status.RESOLVED
+        or target.resolved_until != ErrorTrackingIssue.ResolvedUntil.NEW_RELEASE
+        or target.latest_release_created_at is None
+    ):
+        return bool(active_sources)
+    return any(
+        source.latest_release_created_at is None or source.latest_release_created_at > target.latest_release_created_at
+        for source in active_sources
+    )
+
+
+def _latest_release_on_merge(issues: Iterable[_LockedMergeIssue]) -> _LockedMergeIssue | None:
+    """The merged issue's latest release is the newest that any of the merged issues was seen in."""
+    with_release = [
+        (issue.latest_release_created_at, issue) for issue in issues if issue.latest_release_created_at is not None
+    ]
+    if not with_release:
+        return None
+    return max(with_release, key=lambda dated: dated[0])[1]
 
 
 def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:
