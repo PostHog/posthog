@@ -130,8 +130,10 @@ def _revoked_link_page(request: HttpRequest) -> HttpResponse:
 
 
 def _issued_at(token: str) -> datetime | None:
-    # The plugin server already checked this token's signature, so its claims can be read without the key.
+    # The plugin server verified this exact token, signature and age included, before any caller gets here, so its
+    # claims can be read without the key. Django does not hold the key, which belongs to the plugin server.
     try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         issued_at = jwt.decode(token, options={"verify_signature": False}).get("iat")
     except jwt.InvalidTokenError:
         return None

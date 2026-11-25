@@ -1,5 +1,6 @@
 import json
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
@@ -502,9 +503,6 @@ class TestMessagePreferencesViews(BaseTest):
         self, entry_point, _minted, iat_offset_seconds, expected_status, mock_validate
     ):
         erased_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
-        mock_validate.return_value = mock_response(
-            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
-        )
         token = jwt.encode(
             {
                 "team_id": self.team.id,
@@ -515,20 +513,32 @@ class TestMessagePreferencesViews(BaseTest):
             "test-signing-key",
             algorithm="HS256",
         )
+
+        def plugin_server_verdict(submitted: str):
+            claims = jwt.decode(submitted, options={"verify_signature": False})
+            if submitted != token or time.time() - claims["iat"] > 60 * 24 * 3600:
+                return mock_response(400, {"error": "Invalid token"})
+            return mock_response(200, {"valid": True, "team_id": claims["team_id"], "identifier": claims["identifier"]})
+
+        mock_validate.side_effect = plugin_server_verdict
         with time_machine.travel(erased_at, tick=False):
             erase_recipient(self.team.id, self.recipient.identifier.upper(), confirm_complaints=False)
 
         page_url = reverse("message_preferences", kwargs={"token": token})
-        if entry_point == "page_view":
-            response = self.client.get(page_url)
-        elif entry_point == "one_click_unsubscribe":
-            response = self.client.post(page_url + "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"})
-        else:
-            response = self.client.post(
-                reverse("message_preferences_update"), {"token": token, "preferences[]": [f"{self.category.id}:true"]}
-            )
+        with time_machine.travel(erased_at + timedelta(minutes=5), tick=False):
+            if entry_point == "page_view":
+                response = self.client.get(page_url)
+            elif entry_point == "one_click_unsubscribe":
+                response = self.client.post(page_url + "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"})
+            else:
+                response = self.client.post(
+                    reverse("message_preferences_update"),
+                    {"token": token, "preferences[]": [f"{self.category.id}:true"]},
+                )
 
         self.assertEqual(response.status_code, expected_status)
+        if expected_status == 400:
+            self.assertContains(response, "This link no longer works", status_code=400)
         self.assertEqual(
             MessageRecipientPreference.objects.filter(team=self.team, identifier=self.recipient.identifier).exists(),
             expected_status == 200,
@@ -1210,7 +1220,13 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
     def test_erase_recipient_deletes_the_address_in_any_case(self):
-        for identifier in ("Erased@Example.com", "erased@example.com", " erased@example.com ", "kept@example.com"):
+        for identifier in (
+            "Erased@Example.com",
+            "erased@example.com",
+            " erased@example.com ",
+            "\terased@example.com\n",
+            "kept@example.com",
+        ):
             MessageRecipientPreference.objects.create(
                 team=self.team,
                 identifier=identifier,
@@ -1226,7 +1242,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         repeat = self._erase_recipient({"identifier": "erased@example.com"})
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"preferences_deleted": 3, "suppressions_deleted": 1})
+        self.assertEqual(first.json(), {"preferences_deleted": 4, "suppressions_deleted": 1})
         self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
         self.assertEqual(
             sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),

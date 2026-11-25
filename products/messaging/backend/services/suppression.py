@@ -5,7 +5,6 @@ from django.db.models import Case, F, Q, QuerySet, TextField, Value, When
 from django.db.models.functions import Coalesce, Greatest, Least, Now
 from django.utils import timezone
 
-from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.messaging.backend.models.email_hard_bounce import (
@@ -155,26 +154,29 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     """
     with transaction.atomic():
         rows = MessageSuppression.objects.for_team(team_id)
-        locked = lock_confirming_complaints(
+        locked = _lock_confirming_complaints(
             rows.filter(identifier__in=identifiers, suppressed=True, deleted=False), confirm_complaints
         )
-        _remove(rows.filter(id__in=[row.id for row in locked]))
-    return sorted(row.identifier for row in locked)
+        _remove(rows.filter(id__in=[row_id for row_id, _ in locked]))
+    return sorted(identifier for _, identifier in locked)
 
 
-@frozen
-class LockedSuppression:
-    id: UUID
-    identifier: str
+def hard_delete_suppressions(team_id: int, identifier: str, confirm_complaints: bool) -> int:
+    """Delete every row the team holds for `identifier`, removed ones included, and return how many.
 
-
-def lock_confirming_complaints(rows: QuerySet[MessageSuppression], confirm_complaints: bool) -> list[LockedSuppression]:
-    """Lock `rows` for the current transaction, and return them.
-
-    Raises `ComplaintConfirmationRequired` when an active spam complaint is among them and `confirm_complaints` is
-    false. The lock stops a complaint that lands during the check from being changed unconfirmed. A row inserted
-    after the lock is not checked, so callers change only the rows returned.
+    Raises `ComplaintConfirmationRequired`, and deletes nothing, when the address is actively suppressed for a spam
+    complaint and `confirm_complaints` is false.
     """
+    with transaction.atomic():
+        rows = MessageSuppression.objects.for_team(team_id)
+        locked = _lock_confirming_complaints(rows.filter(identifier=identifier), confirm_complaints)
+        deleted, _ = rows.filter(id__in=[row_id for row_id, _ in locked]).delete()
+    return deleted
+
+
+def _lock_confirming_complaints(rows: QuerySet[MessageSuppression], confirm_complaints: bool) -> list[tuple[UUID, str]]:
+    # The lock stops a complaint that lands during the check from being changed unconfirmed. A row inserted after
+    # the lock is not checked, so callers change only the rows returned.
     locked = list(
         rows.order_by("identifier")
         .select_for_update()
@@ -187,7 +189,7 @@ def lock_confirming_complaints(rows: QuerySet[MessageSuppression], confirm_compl
     )
     if complaints and not confirm_complaints:
         raise ComplaintConfirmationRequired(complaints)
-    return [LockedSuppression(id=row_id, identifier=identifier) for row_id, identifier, *_ in locked]
+    return [(row_id, identifier) for row_id, identifier, *_ in locked]
 
 
 def _remove(rows: QuerySet[MessageSuppression]) -> None:

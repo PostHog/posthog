@@ -1336,6 +1336,7 @@ rules:
                         |MCPOAuthState
                         |MCPServerInstallation
                         |MessageCategory
+                        |MessageRecipientErasure
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Node

@@ -11,7 +11,7 @@ from products.messaging.backend.models.message_recipient_erasure import MessageR
 class TestDeleteExpiredRecipientErasures(BaseTest):
     def test_deletes_only_erasures_older_than_every_link_they_revoke(self):
         now = timezone.now()
-        for identifier_hash, age_days in (("expired", 61), ("live", 59)):
+        for identifier_hash, age_days in (("expired", 62), ("live", 60.5)):
             MessageRecipientErasure.objects.for_team(self.team.id).create(
                 team_id=self.team.id, identifier_hash=identifier_hash, erased_at=now - timedelta(days=age_days)
             )

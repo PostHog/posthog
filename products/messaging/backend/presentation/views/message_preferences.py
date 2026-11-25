@@ -74,7 +74,7 @@ class RemoveOptOutRequestSerializer(serializers.Serializer):
 class EraseRecipientRequestSerializer(serializers.Serializer):
     identifier = serializers.CharField(
         max_length=512,
-        help_text="The email address to erase. Matches stored addresses in any case.",
+        help_text="The email address to erase. Matches stored addresses in any case and ignores surrounding whitespace.",
     )
     confirm_complaints = serializers.BooleanField(
         required=False,
@@ -89,7 +89,7 @@ class ErasedRecipientSerializer(serializers.Serializer):
         help_text="Number of preference records deleted for the address. 0 when there were none."
     )
     suppressions_deleted = serializers.IntegerField(
-        help_text="Number of suppression list entries deleted for the address. 0 when there were none."
+        help_text="Number of suppression records deleted for the address, including removed ones. 0 when there were none."
     )
 
 

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import UUID
 
 from django.utils import timezone
@@ -56,4 +57,6 @@ def close_stale_provider_import_runs() -> None:
 @shared_task(ignore_result=True, name="products.messaging.backend.tasks.delete_expired_recipient_erasures")
 def delete_expired_recipient_erasures() -> None:
     """Delete erasure records once every preference link they revoke has expired, so the address hashes go too."""
-    MessageRecipientErasure.objects.unscoped().filter(erased_at__lt=timezone.now() - PREFERENCE_LINK_MAX_AGE).delete()
+    # A day of margin, so a link the plugin server verified just before it expired still finds its record.
+    cutoff = timezone.now() - PREFERENCE_LINK_MAX_AGE - timedelta(days=1)
+    MessageRecipientErasure.objects.unscoped().filter(erased_at__lt=cutoff).delete()
