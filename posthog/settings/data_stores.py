@@ -910,6 +910,10 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Batch reservations and the transactional email throttles read and write throttle history here. A read from
+# a lagging replica would miss the units that an earlier send charged and let a batch past its limit.
+# Keep default's key prefix and primary: other throttles count single requests through default and must see
+# the units their batches reserved here.
 CACHES["throttle_history"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
