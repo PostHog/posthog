@@ -102,6 +102,9 @@ class OpenAIConfig:
         "gpt-5.4",
         "gpt-5.2",
         "gpt-5.1",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
         "o4-mini",
         "o3",
         "o3-mini",
@@ -394,7 +397,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level
+                    selected_effort = OpenAIConfig.reasoning_effort(model_id, request.reasoning_level)
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(
