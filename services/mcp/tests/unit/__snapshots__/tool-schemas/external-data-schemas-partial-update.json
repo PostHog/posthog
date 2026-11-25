@@ -128,6 +128,19 @@
             ],
             "description": "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again."
         },
+        "new_column_policy": {
+            "anyOf": [
+                {
+                    "description": "* `include` - Include\n* `exclude` - Exclude",
+                    "enum": ["include", "exclude"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when `enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. Not supported for sources whose tables have a fixed schema, such as Stripe.\n\n* `include` - Include\n* `exclude` - Exclude"
+        },
         "primary_key_columns": {
             "anyOf": [
                 {
