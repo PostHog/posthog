@@ -109,9 +109,11 @@ describe('weekly MCP tool health report', () => {
     })
 
     it('reads current and previous query rows into tool records', async () => {
-        const tools = await fetchFailingTools(async () => ({
-            results: [['survey-get', '1', '120', '30', '7', '12', '8', '5', '3', null]],
-        }))
+        const tools = await fetchFailingTools(
+            async () => ({ results: [['survey-get', '1', '120', '30', '7', '12', '8', '5', '3', null]] }),
+            new Date('2026-10-26T13:50:00Z'),
+            ['survey-get']
+        )
         assert.deepEqual(tools, [
             {
                 tool: 'survey-get',
@@ -134,10 +136,21 @@ describe('weekly MCP tool health report', () => {
             periodEnds.push(period_end)
             return { results: [] }
         }
-        await fetchFailingTools(query, new Date('2026-10-26T13:50:00Z'))
-        await fetchFailingTools(query, new Date('2026-10-29T09:00:00Z'))
+        await fetchFailingTools(query, new Date('2026-10-26T13:50:00Z'), ['survey-get'])
+        await fetchFailingTools(query, new Date('2026-10-29T09:00:00Z'), ['survey-get'])
         const monday = Date.parse('2026-10-26T00:00:00Z') / 1000
         assert.deepEqual(periodEnds, [monday, monday])
+    })
+
+    it('binds the registered tool names and budgets one query row per tool per week', async () => {
+        await fetchFailingTools(
+            async (_, { known_tools, row_limit }) => {
+                assert.deepEqual([known_tools, row_limit], [['survey-get', 'execute-sql'], 4])
+                return { results: [] }
+            },
+            new Date('2026-10-26T13:50:00Z'),
+            ['survey-get', 'execute-sql']
+        )
     })
 
     it('marks a qualifying tool new when it was below threshold last week', () => {
@@ -300,7 +313,18 @@ describe('weekly MCP tool health report', () => {
 
         it('keys the report on the week and team so a later re-run returns the first report', () => {
             const thursday = new Date('2026-10-29T09:00:00Z')
-            assert.equal(signalReport(thursday, SURVEYS, []).idempotency_key, 'mcp-tool-health:2026-10-26:team-surveys')
+            assert.equal(
+                signalReport(thursday, SURVEYS, []).idempotency_key,
+                signalReport(NOW, SURVEYS, []).idempotency_key
+            )
+        })
+
+        it('changes a weekly report key when a batch contains different tools', () => {
+            const different = { ...SURVEYS, items: [{ ...TOOL, tool: 'survey-list' }] }
+            assert.notEqual(
+                signalReport(NOW, different, []).idempotency_key,
+                signalReport(NOW, SURVEYS, []).idempotency_key
+            )
         })
 
         it('backs the report with one piece of evidence per failing tool', () => {
@@ -358,7 +382,10 @@ describe('weekly MCP tool health report', () => {
         })
 
         it('files all 51 tools once across API-sized reports with stable weekly keys', async () => {
-            const items = Array.from({ length: 51 }, (_, i) => ({ ...TOOL, tool: `survey-tool-${i}` }))
+            const items = Array.from({ length: 51 }, (_, i) => ({
+                ...TOOL,
+                tool: `survey-tool-${String(i).padStart(2, '0')}`,
+            }))
             const byKey = new Map()
             const replay = async (now) =>
                 fileTeamSignals([{ ...SURVEYS, items }], {
@@ -377,13 +404,7 @@ describe('weekly MCP tool health report', () => {
                 })
             await replay(NOW)
             await replay(new Date('2026-10-29T09:00:00Z'))
-            assert.deepEqual(
-                [...byKey],
-                [
-                    ['mcp-tool-health:2026-10-26:team-surveys', items.slice(0, 50).map(({ tool }) => tool)],
-                    ['mcp-tool-health:2026-10-26:team-surveys:2', [items[50].tool]],
-                ]
-            )
+            assert.deepEqual([...byKey.values()], [items.slice(0, 50).map(({ tool }) => tool), [items[50].tool]])
         })
 
         it('keeps the summary under the API limit without dropping evidence', () => {
@@ -409,6 +430,70 @@ describe('weekly MCP tool health report', () => {
                 },
             })
             assert.deepEqual(reports, [{ owner: SURVEYS.owner, reportId: 'second-part' }])
+        })
+
+        it('reuses the same evidence batches when a partial retry changes the ranking', async () => {
+            const tools = Array.from({ length: 51 }, (_, i) => ({
+                ...TOOL,
+                tool: `tool-${String(i).padStart(2, '0')}`,
+            }))
+            const byKey = new Map()
+            const file = async (body) => {
+                const existing = byKey.get(body.idempotency_key)
+                if (existing) {
+                    return { report_id: body.idempotency_key, idempotent_replay: true }
+                }
+                if (byKey.size === 0 && body.evidence.length === 50) {
+                    throw new Error('503')
+                }
+                byKey.set(
+                    body.idempotency_key,
+                    body.evidence.map(({ source_id }) => source_id)
+                )
+                return { report_id: body.idempotency_key }
+            }
+            const options = { now: NOW, membersOf: async () => ['reviewer'], file }
+            await fileTeamSignals([{ ...SURVEYS, items: tools }], options)
+            await fileTeamSignals([{ ...SURVEYS, items: [tools.at(-1), ...tools.slice(0, -1)] }], options)
+            assert.deepEqual(
+                [...byKey.values()].flat().sort(),
+                tools.map(({ tool }) => tool)
+            )
+        })
+
+        it('counts only new Signals reports against the per-run filing budget', async () => {
+            const teams = Array.from({ length: 22 }, (_, i) => ({ ...SURVEYS, owner: `team-${i}` }))
+            const attempts = []
+            await fileTeamSignals(teams, {
+                now: NOW,
+                membersOf: async () => ['reviewer'],
+                file: async (body) => {
+                    const idempotent_replay = attempts.length === 0
+                    attempts.push(body.idempotency_key)
+                    return { report_id: body.idempotency_key, idempotent_replay }
+                },
+            })
+            assert.equal(attempts.length, 21)
+        })
+
+        it('offers each team its first report before filing overflow parts', async () => {
+            const items = Array.from({ length: 51 }, (_, i) => ({ ...TOOL, tool: `tool-${i}` }))
+            const owners = []
+            await fileTeamSignals(
+                [
+                    { ...SURVEYS, items },
+                    { ...SURVEYS, owner: 'team-other' },
+                ],
+                {
+                    now: NOW,
+                    membersOf: async () => ['reviewer'],
+                    file: async (body) => {
+                        owners.push(body.tags[1])
+                        return { report_id: body.idempotency_key }
+                    },
+                }
+            )
+            assert.deepEqual(owners, ['team-surveys', 'team-other', 'team-surveys'])
         })
 
         it('leaves deactivated role members out of the reviewers', async () => {

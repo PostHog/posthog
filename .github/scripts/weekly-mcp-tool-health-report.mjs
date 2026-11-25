@@ -4,13 +4,14 @@
 // server already captures, ranked by failed calls, with owner attribution through
 // packages/owners-yaml. Each tool maps to the YAML file that defines it, so the team that owns
 // the definition sees its own failing tools without the MCP team relaying them: each owning team
-// also gets one Signals inbox report, suggested to the members of the PostHog role named after
+// also gets Signals inbox reports, suggested to the members of the PostHog role named after
 // its GitHub team. Unowned tools stay in the Slack digest only.
 //
 //   GHA cron ──> HogQL over $mcp_tool_call ──> owners.yaml ──> Slack digest
 //                                                         └──> Signals inbox report per team
 
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
@@ -56,6 +57,7 @@ const ROLE_FOR_TEAM = {
 const MAX_SIGNAL_REVIEWERS = 10
 const MAX_SIGNAL_EVIDENCE = 50
 const MAX_SIGNAL_SUMMARY_LENGTH = 20000
+const MAX_NEW_SIGNAL_REPORTS = 20
 // Each request can spend about 8.5 minutes on retries, so no team starts or files past this budget,
 // and the job's timeout-minutes leaves room for the query and one last slow reviewer lookup.
 const SIGNALS_BUDGET_MS = 10 * 60_000
@@ -68,7 +70,6 @@ const MIN_USERS = 5
 const MIN_BACKEND_ERRORS = 5
 const MIN_BACKEND_USERS = 3
 const MIN_RATE_INCREASE = 5
-const QUERY_ROW_LIMIT = 1000
 const SLACK_TOOL_ROWS = 99
 const SLACK_TABLE_CHARACTERS = 10000
 
@@ -111,6 +112,7 @@ const TOOL_HEALTH_QUERY = `
                 AND timestamp >= toDateTime({period_end}, 'UTC') - INTERVAL ${2 * REPORT_WINDOW_DAYS} DAY
                 AND timestamp < toDateTime({period_end}, 'UTC')
         )
+        WHERE tool IN {known_tools}
         GROUP BY tool, is_current
     )
     WHERE tool NOT IN ('exec', '.', '..')
@@ -119,7 +121,7 @@ const TOOL_HEALTH_QUERY = `
             (errors >= {min_errors} AND errors * 100 >= calls * {min_error_rate_pct} AND users >= {min_users})
             OR (backend_errors >= {min_backend_errors} AND backend_users >= {min_backend_users})
         )
-    LIMIT ${QUERY_ROW_LIMIT}`
+    LIMIT {row_limit}`
 
 const TOOL_HEALTH_VALUES = {
     min_errors: MIN_ERRORS,
@@ -135,14 +137,22 @@ function weekStart(date) {
     )
 }
 
-async function fetchFailingTools(runHogql = hogql, now = new Date()) {
+function knownToolNames() {
+    const schemas = ['tool-definitions.json', 'generated-tool-definitions.json']
+    return [
+        ...new Set(
+            schemas.flatMap((schema) => Object.keys(JSON.parse(readFileSync(`services/mcp/schema/${schema}`, 'utf8'))))
+        ),
+    ]
+}
+
+async function fetchFailingTools(runHogql = hogql, now = new Date(), knownTools = knownToolNames()) {
     const result = await runHogql(TOOL_HEALTH_QUERY, {
         ...TOOL_HEALTH_VALUES,
         period_end: weekStart(now).getTime() / 1000,
+        known_tools: knownTools,
+        row_limit: 2 * knownTools.length,
     })
-    if (result.results.length >= QUERY_ROW_LIMIT) {
-        throw new Error('MCP tool health query reached its row limit.')
-    }
     return result.results.map(
         ([
             tool,
@@ -469,6 +479,9 @@ function toolLine(now, item) {
 
 function signalReport(now, { owner, items, part = 1, parts = 1 }, reviewerUuids) {
     const week = weekStart(now).toISOString().slice(0, 10)
+    const membership = createHash('sha256')
+        .update(JSON.stringify(items.map(({ tool }) => tool).sort()))
+        .digest('hex')
     const count = items.length === 1 ? '1 MCP tool is' : `${items.length} MCP tools are`
     const partLabel = parts > 1 ? ` (part ${part} of ${parts})` : ''
     const headline = `${count} failing for AI agents, and the ${teamLabel(owner)} team owns their definitions.`
@@ -494,7 +507,7 @@ function signalReport(now, { owner, items, part = 1, parts = 1 }, reviewerUuids)
             'Each tool crossed a weekly reporting threshold. The error breakdown and tool quality link give the owning team somewhere to start investigating.',
         repository: GITHUB_REPOSITORY,
         tags: ['mcp-tool-health', owner],
-        idempotency_key: `mcp-tool-health:${week}:${owner}${part === 1 ? '' : `:${part}`}`,
+        idempotency_key: `mcp-tool-health:${week}:${owner}:${membership}`,
         ...(reviewers.length > 0 ? { suggested_reviewers: reviewers } : {}),
     }
 }
@@ -552,39 +565,68 @@ async function fileTeamSignals(
     { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf, file = fileInboxReport }
 ) {
     const filed = []
-    for (const team of teams) {
-        if (Date.now() > deadline) {
-            console.warn(`signals delivery budget spent before filing ${team.owner}`)
+    const reviewers = new Map()
+    let newReports = 0
+    const batches = teams.flatMap(({ owner, items }) => {
+        // Stable tool order keeps changes in error rankings from moving evidence between reports.
+        const sorted = items.toSorted((a, b) => a.tool.localeCompare(b.tool))
+        const parts = Math.ceil(sorted.length / MAX_SIGNAL_EVIDENCE)
+        return Array.from({ length: parts }, (_, index) => ({
+            owner,
+            items: sorted.slice(index * MAX_SIGNAL_EVIDENCE, (index + 1) * MAX_SIGNAL_EVIDENCE),
+            part: index + 1,
+            parts,
+        }))
+    })
+    // Give each team a report before spending quota on additional parts.
+    batches.sort((a, b) => a.part - b.part)
+    for (const batch of batches) {
+        const { owner, part } = batch
+        if (newReports >= MAX_NEW_SIGNAL_REPORTS) {
+            console.warn(
+                `Signals filing limit reached before ${owner} part ${part}. Retry after the daily quota resets.`
+            )
             break
         }
-        let uuids
-        try {
-            uuids = await membersOf(team.owner)
-        } catch (err) {
-            console.warn(`signals reviewer lookup for ${team.owner} failed: ${err.message}`)
+        if (Date.now() > deadline) {
+            console.warn(`signals delivery budget spent before filing ${owner} part ${part}`)
+            break
+        }
+        if (!reviewers.has(owner)) {
+            try {
+                const uuids = await membersOf(owner)
+                reviewers.set(owner, uuids)
+                if (uuids.length === 0) {
+                    console.warn(`no active role members found for ${owner}, filing without reviewers`)
+                }
+            } catch (err) {
+                console.warn(`signals reviewer lookup for ${owner} failed: ${err.message}`)
+                reviewers.set(owner, null)
+            }
+        }
+        const uuids = reviewers.get(owner)
+        if (!uuids) {
             continue
         }
-        if (uuids.length === 0) {
-            console.warn(`no active role members found for ${team.owner}, filing without reviewers`)
+        if (Date.now() > deadline) {
+            console.warn(`signals delivery budget spent before filing ${owner} part ${part}`)
+            break
         }
-
-        const parts = Math.ceil(team.items.length / MAX_SIGNAL_EVIDENCE)
-        for (let part = 1; part <= parts; part++) {
-            if (Date.now() > deadline) {
-                console.warn(`signals delivery budget spent before filing ${team.owner} part ${part}`)
-                return filed
+        try {
+            const result = await file(signalReport(now, batch, uuids))
+            if (!result.report_id) {
+                console.warn(`Signals did not file ${owner} part ${part} (${result.skipped_reason ?? 'no report ID'})`)
+                continue
             }
-            const start = (part - 1) * MAX_SIGNAL_EVIDENCE
-            const items = team.items.slice(start, start + MAX_SIGNAL_EVIDENCE)
-            try {
-                const result = await file(signalReport(now, { ...team, items, part, parts }, uuids))
-                console.info(
-                    `${team.owner}: inbox report ${result.report_id} (${result.report_status ?? result.skipped_reason})`
-                )
-                filed.push({ owner: team.owner, reportId: result.report_id })
-            } catch (err) {
-                console.warn(`signals report for ${team.owner} part ${part} failed: ${err.message}`)
+            if (!result.idempotent_replay) {
+                newReports++
             }
+            console.info(
+                `${owner}: inbox report ${result.report_id} (${result.report_status ?? result.skipped_reason})`
+            )
+            filed.push({ owner, reportId: result.report_id })
+        } catch (err) {
+            console.warn(`signals report for ${owner} part ${part} failed: ${err.message}`)
         }
     }
     return filed

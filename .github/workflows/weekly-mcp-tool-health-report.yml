@@ -60,6 +60,8 @@ jobs:
                       **/product.yaml
                       products/*/mcp/*.yaml
                       services/mcp/definitions/*.yaml
+                      services/mcp/schema/tool-definitions.json
+                      services/mcp/schema/generated-tool-definitions.json
                       services/mcp/src/tools/index.ts
                   sparse-checkout-cone-mode: false
 
