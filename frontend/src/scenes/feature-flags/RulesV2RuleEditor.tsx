@@ -303,6 +303,7 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
                             propertyFilters={properties}
                             onChange={(next) => updateRule(index, { ...rule, targeting: { properties: next } })}
                             taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                            allowNonCapturedPersonProperties
                             hasRowOperator={false}
                             logicalRowDivider
                             sendAllKeyUpdates

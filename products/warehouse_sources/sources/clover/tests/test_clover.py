@@ -83,7 +83,14 @@ class TestCloverTransport(SimpleTestCase):
     @parameterized.expand(ENDPOINTS)
     @mock.patch(NOW_PATCH, return_value=1000)
     def test_each_table_reads_the_collection_and_preserves_fields(self, endpoint: str, now: mock.MagicMock) -> None:
-        record = {"id": "row1", "createdTime": 1, "customerSince": 1, "name": "example"}
+        record = {
+            "id": "row1",
+            "createdTime": 1,
+            "customerSince": 1,
+            "timestamp": 1,
+            "item": {"id": "item1"},
+            "name": "example",
+        }
         pages = (
             [response([{"id": "order1", "createdTime": 1}]), response([record])]
             if endpoint == "line_items"
@@ -109,6 +116,9 @@ class TestCloverTransport(SimpleTestCase):
         if endpoint == "line_items":
             self.assertEqual(imported[0]["order_id"], "order1")
             self.assertEqual(result.primary_keys, ["order_id", "id"])
+        elif endpoint == "item_stocks":
+            self.assertEqual(imported[0]["item_id"], "item1")
+            self.assertEqual(result.primary_keys, ["item_id"])
         else:
             self.assertEqual(result.primary_keys, ["id"])
 
@@ -134,18 +144,23 @@ class TestCloverTransport(SimpleTestCase):
         self.assertEqual(imported, [{"id": "next"}])
         self.assertEqual(params(requests[0])["offset"], [str(offset)])
 
+    @parameterized.expand(
+        [("payments", "createdTime"), ("authorizations", "createdTime"), ("cash_events", "timestamp")]
+    )
     @mock.patch(NOW_PATCH, return_value=FILTER_WINDOW_MS * 2 + 1)
-    def test_backfill_windows_cover_history_without_overlapping(self, now: mock.MagicMock) -> None:
-        records = [{"id": str(i), "createdTime": i * FILTER_WINDOW_MS} for i in range(3)]
+    def test_backfill_windows_cover_history_without_overlapping(
+        self, endpoint: str, field: str, now: mock.MagicMock
+    ) -> None:
+        records = [{"id": str(i), field: i * FILTER_WINDOW_MS} for i in range(3)]
         with http_responses([response([record]) for record in records]) as requests:
-            imported = rows(source("payments", manager()))
+            imported = rows(source(endpoint, manager()))
         self.assertEqual([row["id"] for row in imported], ["0", "1", "2"])
         self.assertEqual(
             [params(request)["filter"] for request in requests],
             [
-                ["createdTime>=0", f"createdTime<={FILTER_WINDOW_MS - 1}"],
-                [f"createdTime>={FILTER_WINDOW_MS}", f"createdTime<={FILTER_WINDOW_MS * 2 - 1}"],
-                [f"createdTime>={FILTER_WINDOW_MS * 2}", f"createdTime<={FILTER_WINDOW_MS * 2 + 1}"],
+                [f"{field}>=0", f"{field}<={FILTER_WINDOW_MS - 1}"],
+                [f"{field}>={FILTER_WINDOW_MS}", f"{field}<={FILTER_WINDOW_MS * 2 - 1}"],
+                [f"{field}>={FILTER_WINDOW_MS * 2}", f"{field}<={FILTER_WINDOW_MS * 2 + 1}"],
             ],
         )
         self.assertTrue(all(params(request)["offset"] == ["0"] for request in requests))
@@ -203,6 +218,22 @@ class TestCloverTransport(SimpleTestCase):
         with http_responses([response([{"id": "row", "createdTime": timestamp}])]):
             with self.assertRaisesRegex(ValueError, "timestamp|outside"):
                 rows(source("orders", manager()))
+
+    @parameterized.expand(
+        [
+            ("missing", {"quantity": 1.0}),
+            ("null", {"item": None, "quantity": 1.0}),
+            ("no_id", {"item": {}, "quantity": 1.0}),
+            ("empty_id", {"item": {"id": ""}, "quantity": 1.0}),
+            ("not_an_object", {"item": "item1", "quantity": 1.0}),
+        ]
+    )
+    def test_item_stocks_without_an_item_id_fail_instead_of_writing_a_null_key(
+        self, name: str, record: dict[str, Any]
+    ) -> None:
+        with http_responses([response([record])]):
+            with self.assertRaisesRegex(ValueError, "no item id"):
+                rows(source("item_stocks", manager()))
 
     def test_changed_collection_envelope_fails_instead_of_erasing_a_table(self) -> None:
         bad_response = response([])

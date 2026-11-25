@@ -96,7 +96,9 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
 from products.experiments.backend.warehouse_native_sources import (
     WAREHOUSE_NATIVE_NODE_KIND,
+    refuse_anonymous_warehouse_native_reader,
     validate_experiment_warehouse_native_sources,
+    validate_warehouse_native_sources_for_runner,
     warehouse_native_exposure_config,
 )
 from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
@@ -204,6 +206,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             metric_uses_warehouse_native_source(self.query.metric)
             or warehouse_native_exposure_config(self.experiment.exposure_criteria) is not None
         )
+        if self.is_warehouse_native_query:
+            refuse_anonymous_warehouse_native_reader(self.user)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -590,7 +594,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self.experiment.only_count_matured_users:
             raise ExposedHogQLError(
                 "Warehouse-native metrics cannot exclude participants whose conversion window has not elapsed yet. "
-                "Turn that setting off in the experiment settings."
+                "Open the experiment settings and save them again to turn the setting off."
             )
         connection_id = self._validate_warehouse_native_sources(self.user)
         criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
@@ -647,11 +651,21 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             user=user,
         )
 
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        if self.is_warehouse_native_query:
+            refuse_anonymous_warehouse_native_reader(self.user)
+
     def validate_query_runner_access(self, user: User) -> bool:
         # A cached result is shared by every user of the team, so the connection access check runs before
         # the cache lookup, not only when the statement runs.
         if self.is_warehouse_native_query:
-            self._validate_warehouse_native_sources(user)
+            validate_warehouse_native_sources_for_runner(
+                exposure_criteria=self.experiment.exposure_criteria,
+                metrics=[self.metric.model_dump(mode="json")],
+                team=self.team,
+                user=user,
+            )
         return True
 
     def query_status_labels(self) -> list[str] | None:

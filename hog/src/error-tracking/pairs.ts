@@ -39,9 +39,12 @@ export async function readPairs(
 ): Promise<OwnedPair[]> {
     const worker = commandWorker(ctx)
     const bundles = selection.artifacts.filter(isBundle)
+    // A bundle can name any file as its map, and hog rewrites, uploads and may delete that map, so the
+    // worker leaves alone a map outside the selected paths.
     const answers = await worker.readPairs(
         bundles.map((artifact) => artifact.path),
-        options.publicPathPrefix
+        options.publicPathPrefix,
+        selection.roots.map((root) => resolve(selection.cwd, root.path))
     )
 
     const seen = new Set<string>()
@@ -54,6 +57,10 @@ export async function readPairs(
         }
         if ('skipped' in answer) {
             skipped.push({ path: artifact.path, reason: answer.skipped })
+            continue
+        }
+        if ('outside' in answer) {
+            skipped.push({ path: artifact.display, reason: 'its sourcemap is outside the selected paths' })
             continue
         }
 

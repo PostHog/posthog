@@ -21,6 +21,8 @@ from products.aeo.backend.facade.contracts import DEFAULT_DATE_FROM, MAX_WINDOW_
 # Hours are left out because the checks run once a day.
 _RELATIVE_DAY = re.compile(r"-?[0-9]*[dwmqyDWMQY](Start|End)?")
 _FORMAT_HELP = "Use a date such as 2026-11-01 or a relative day such as -30d."
+# AI answer engines ran no checks before this, and a far earlier date overflows the previous window.
+_EARLIEST_DAY = dt.date(2000, 1, 1)
 
 
 @frozen
@@ -53,6 +55,8 @@ def resolve_window(
     today = now.astimezone(tz).date()
     window_from = _parse_day(date_from or default_date_from, tz, now, field="date_from")
     window_to = min(_parse_day(date_to, tz, now, field="date_to"), today) if date_to else today
+    if window_from < _EARLIEST_DAY:
+        raise InvalidDateRangeError("date_from", f"date_from must be on or after {_EARLIEST_DAY.isoformat()}.")
     if window_from > window_to:
         raise InvalidDateRangeError("date_from", "date_from must not be after date_to or after today.")
     days = (window_to - window_from).days + 1
@@ -76,6 +80,9 @@ def _parse_day(value: str, tz: ZoneInfo, now: dt.datetime, *, field: str) -> dt.
     if not _RELATIVE_DAY.fullmatch(value):
         try:
             parser.isoparse(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             raise InvalidDateRangeError(field, f"'{value}' is not a valid {field}. {_FORMAT_HELP}")
-    return relative_date_parse(value, tz, now=now).date()
+    try:
+        return relative_date_parse(value, tz, now=now).date()
+    except (ValueError, OverflowError):
+        raise InvalidDateRangeError(field, f"'{value}' is not a valid {field}. {_FORMAT_HELP}")
