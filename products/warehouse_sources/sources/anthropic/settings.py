@@ -47,6 +47,13 @@ class AccessFamily(Enum):
     # Claude Enterprise custom-role reads: an Admin API key created in claude.ai carrying
     # `read:members`. Anthropic exposes no separate role scope.
     RBAC_ROLES = "rbac_roles"
+    # Claude Enterprise spend limit reads: an Admin API key created in claude.ai carrying
+    # `read:spend_limits`. A Claude Console organization answers 400 for these routes.
+    SPEND_LIMITS = "spend_limits"
+    # The dimensional cost and token usage reports: a Claude Console Admin API key or a key carrying
+    # `read:analytics`. A key that reaches the per-seat analytics tables may still be denied here, and
+    # the reverse, so the family gets its own probe.
+    ANALYTICS_USAGE_COST = "analytics_usage_cost"
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -118,6 +125,10 @@ class AnthropicEndpointConfig:
     data_selector: str = "data"
     # Set where the endpoint needs a credential the Claude Console Admin API key is not.
     access_family: Optional[AccessFamily] = None
+    # `anthropic-beta` header value a beta endpoint requires on every request.
+    beta: Optional[str] = None
+    # Query param that carries `bucket_width` on a RANGE analytics endpoint.
+    bucket_width_param: str = "bucket_width"
     should_sync_default: bool = True
 
 
@@ -193,6 +204,21 @@ _ANALYTICS_REPORT_LOOKBACK_SECONDS = 60 * 60 * 24 * 7
 # source maps them to their own messages in `get_non_retryable_errors`.
 RBAC_GROUPS_PATH = "/v1/organizations/rbac_groups"
 RBAC_ROLES_PATH = "/v1/organizations/rbac_roles"
+SPEND_LIMITS_PATH = "/v1/organizations/spend_limits"
+ANALYTICS_COST_PATH = "/v1/organizations/analytics/cost"
+ANALYTICS_USAGE_PATH = "/v1/organizations/analytics/usage"
+
+SPEND_LIMIT_READS_BETA = "spend-limit-reads-2026-09-26"
+ANALYTICS_USAGE_COST_BETA = "analytics-usage-cost-2026-08-24"
+
+# Dimensions the cost and token usage reports break each day out by, at the report's limit of five.
+# `actor_type` stands in for `actor`: the report returns a separate row for each identity it cannot
+# render, all with a null actor, so a per-identity grain would have no unique key. The per-seat
+# reports above already carry the per-user breakdown.
+_ANALYTICS_DIMENSIONS = ["actor_type", "api_key_id", "workspace_id", "model", "product"]
+# The cost report also splits each row by cost component and token type. These two do not count
+# toward the five-dimension limit.
+_ANALYTICS_COST_DIMENSIONS = [*_ANALYTICS_DIMENSIONS, "cost_type", "token_type"]
 
 ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
     # The organization the key belongs to, as one row. It carries no timestamp, so the table is not
@@ -509,6 +535,72 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         data_selector="summaries",
         default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
         access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    # Spend limits: the limits configured at each scope, and the limit each member resolves to with
+    # their spend so far. Both need an Admin API key created in claude.ai for a Claude Enterprise
+    # organization, so they stay off by default and `get_endpoint_permissions` reports whether the
+    # configured key can reach them. Neither endpoint filters by time, so both are full refresh.
+    "spend_limits": AnthropicEndpointConfig(
+        name="spend_limits",
+        path=SPEND_LIMITS_PATH,
+        pagination=PaginationType.PAGE_TOKEN,
+        primary_keys=["id"],
+        partition_key="created_at",
+        access_family=AccessFamily.SPEND_LIMITS,
+        beta=SPEND_LIMIT_READS_BETA,
+        should_sync_default=False,
+    ),
+    # One row per (member, period). A row carries no id or timestamp of its own, so `id` is
+    # synthesized from the member and the period (see anthropic.py) and the table is not partitioned.
+    "spend_limits_effective": AnthropicEndpointConfig(
+        name="spend_limits_effective",
+        path=f"{SPEND_LIMITS_PATH}/effective",
+        pagination=PaginationType.PAGE_TOKEN,
+        primary_keys=["id"],
+        access_family=AccessFamily.SPEND_LIMITS,
+        should_sync_default=False,
+    ),
+    # Cost and token usage broken out by dimension, one request per UTC day like the per-seat reports.
+    # These are beta endpoints that draw on the organization's report rate limit, so they stay off by
+    # default.
+    "analytics_cost": AnthropicEndpointConfig(
+        name="analytics_cost",
+        path=ANALYTICS_COST_PATH,
+        pagination=PaginationType.PAGE,
+        # `id` is synthesized from the day and every requested dimension (see anthropic.py).
+        primary_keys=["id"],
+        partition_key="starting_at",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("starting_at")],
+        analytics_window=AnalyticsWindowKind.RANGE,
+        analytics_max_history_days=ANALYTICS_REPORT_MAX_HISTORY_DAYS,
+        bucket_width="1d",
+        bucket_width_param="time_bucket_width",
+        group_by=_ANALYTICS_COST_DIMENSIONS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_REPORT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS_USAGE_COST,
+        beta=ANALYTICS_USAGE_COST_BETA,
+        should_sync_default=False,
+    ),
+    "analytics_usage": AnthropicEndpointConfig(
+        name="analytics_usage",
+        path=ANALYTICS_USAGE_PATH,
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="starting_at",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("starting_at")],
+        analytics_window=AnalyticsWindowKind.RANGE,
+        analytics_max_history_days=ANALYTICS_REPORT_MAX_HISTORY_DAYS,
+        bucket_width="1d",
+        bucket_width_param="time_bucket_width",
+        group_by=_ANALYTICS_DIMENSIONS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_REPORT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS_USAGE_COST,
+        beta=ANALYTICS_USAGE_COST_BETA,
         should_sync_default=False,
     ),
 }

@@ -19,6 +19,8 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 
 NOW = datetime(2026, 1, 31, 12, 30, tzinfo=UTC)
 END = int(datetime(2026, 1, 31, 11, tzinfo=UTC).timestamp())
+DAY_END = int(datetime(2026, 1, 30, tzinfo=UTC).timestamp())
+DAY = 24 * 3600
 
 
 @pytest.fixture
@@ -53,16 +55,21 @@ def driver(config: EmbraceSourceConfig) -> SourceDriver:
 
 
 @pytest.mark.parametrize(
-    ("region", "host", "endpoint", "metric"),
+    ("region", "host", "endpoint", "metric", "step"),
     [
-        ("default", "api.embrace.io", "sessions", "hourly_sessions_total"),
-        ("us", "api-us1.embrace.io", "crashes", "hourly_crashes_total"),
-        ("eu", "api-eu1.embrace.io", "network_4xx", "hourly_network4xx_total"),
-        ("eu", "api-eu1.embrace.io", "network_5xx", "hourly_network5xx_total"),
+        ("default", "api.embrace.io", "sessions", "hourly_sessions_total", 3600),
+        ("us", "api-us1.embrace.io", "crashes", "hourly_crashes_total", 3600),
+        ("eu", "api-eu1.embrace.io", "network_4xx", "hourly_network4xx_total", 3600),
+        ("eu", "api-eu1.embrace.io", "network_5xx", "hourly_network5xx_total", 3600),
+        ("default", "api.embrace.io", "daily_users", "daily_users_total", DAY),
+        ("us", "api-us1.embrace.io", "crash_free_users", "hourly_crashed_free_users", 3600),
+        ("eu", "api-eu1.embrace.io", "exceptions", "hourly_exception_total", 3600),
+        ("default", "api.embrace.io", "web_vitals", "hourly_web_vital_total", 3600),
+        ("default", "api.embrace.io", "web_vital_p75", "hourly_web_vital_p75", 3600),
     ],
 )
 def test_query_request_and_series_identity(
-    region: Literal["default", "us", "eu"], host: str, endpoint: str, metric: str
+    region: Literal["default", "us", "eu"], host: str, endpoint: str, metric: str, step: int
 ) -> None:
     config = EmbraceSourceConfig(api_token="test-token", app_id='app"\\name', region=region)
     labels = {"__name__": metric, "app_id": config.app_id, "device_model": "example-device"}
@@ -80,7 +87,7 @@ def test_query_request_and_series_identity(
     assert request.param("query") == metric + "{app_id=" + json.dumps(config.app_id) + "}"
     assert request.param("start") == str(END - 7200)
     assert request.param("end") == str(END)
-    assert request.param("step") == "3600"
+    assert request.param("step") == str(step)
     assert [row["value"] for row in rows] == [2.0, 4.0, 1.0, 3.0]
     assert rows[0]["series_id"] == rows[2]["series_id"] == rows[3]["series_id"]
     assert rows[0]["series_id"] != rows[1]["series_id"]
@@ -96,13 +103,28 @@ def test_non_finite_samples(config: EmbraceSourceConfig, value: str) -> None:
     assert rows[0]["value"] is None
 
 
-@pytest.mark.parametrize("incremental", [True, False])
+@pytest.mark.parametrize(
+    ("endpoint", "step", "end", "incremental", "expected_start", "expected_calls"),
+    [
+        ("sessions", 3600, END, True, END - 26 * 3600, 2),
+        ("sessions", 3600, END, False, END - 719 * 3600, 30),
+        ("daily_users", DAY, DAY_END, True, DAY_END - DAY, 1),
+        ("daily_users", DAY, DAY_END, False, DAY_END - 29 * DAY, 2),
+    ],
+)
 @time_machine.travel(NOW, tick=False)
 def test_windows_full_refresh_and_incremental(
-    config: EmbraceSourceConfig, manager: MagicMock, incremental: bool
+    config: EmbraceSourceConfig,
+    manager: MagicMock,
+    endpoint: str,
+    step: int,
+    end: int,
+    incremental: bool,
+    expected_start: int,
+    expected_calls: int,
 ) -> None:
     inputs = MagicMock(spec=SourceInputs)
-    inputs.schema_name = "sessions"
+    inputs.schema_name = endpoint
     inputs.team_id = 1
     inputs.job_id = "test-job"
     inputs.api_version = "v1"
@@ -119,16 +141,16 @@ def test_windows_full_refresh_and_incremental(
         resource = EmbraceSource().source_for_pipeline(config, manager, inputs)
         batches = list(cast(Iterable[Any], resource.items()))
     assert resource.sort_mode == "desc"
-    assert send.call_count == (2 if incremental else 30)
+    assert send.call_count == expected_calls
     params = [parse_qs(urlparse(call.args[0].url).query) for call in send.call_args_list]
-    assert int(params[0]["end"][0]) == END
+    assert {page["step"][0] for page in params} == {str(step)}
+    assert int(params[0]["end"][0]) == end
     for newer, older in zip(params, params[1:]):
-        assert int(newer["start"][0]) - int(older["end"][0]) == 3600
-    expected_start = END - (26 if incremental else 719) * 3600
+        assert int(newer["start"][0]) - int(older["end"][0]) == step
     assert int(params[-1]["start"][0]) == expected_start
-    assert all(int(page["end"][0]) - int(page["start"][0]) <= 23 * 3600 for page in params)
+    assert all(int(page["end"][0]) - int(page["start"][0]) <= 23 * step for page in params)
     assert len(batches) == send.call_count
-    assert manager.save_state.call_args.args[0] == EmbraceResumeConfig(start=expected_start, end=expected_start - 3600)
+    assert manager.save_state.call_args.args[0] == EmbraceResumeConfig(start=expected_start, end=expected_start - step)
     manager.clear_state.assert_not_called()
     assert resource.on_complete is not None
     resource.on_complete()
@@ -195,12 +217,15 @@ def test_auth_errors(config: EmbraceSourceConfig, status: int, message: str) -> 
     assert any(pattern in str(raised.value) for pattern in EmbraceSource().get_non_retryable_errors())
 
 
+@pytest.mark.parametrize(("endpoint", "point"), [("sessions", END), ("daily_users", DAY_END)])
 @time_machine.travel(NOW, tick=False)
-def test_validation_accepts_no_samples_and_uses_one_point(config: EmbraceSourceConfig) -> None:
+def test_validation_accepts_no_samples_and_uses_one_point(
+    config: EmbraceSourceConfig, endpoint: str, point: int
+) -> None:
     with scripted_network([ScriptedResponse(json=matrix([]))]) as network:
-        assert validate_credentials(config, 1, "sessions", "v1") == (True, None)
+        assert validate_credentials(config, 1, endpoint, "v1") == (True, None)
     assert len(network.requests_log) == 1
-    assert network.requests_log[0].param("start") == network.requests_log[0].param("end") == str(END)
+    assert network.requests_log[0].param("start") == network.requests_log[0].param("end") == str(point)
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])

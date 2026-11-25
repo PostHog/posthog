@@ -1389,7 +1389,10 @@ class TestUpdateLastSyncedAt:
 
         assert get_job.call_count == 2
         update_keys.assert_called_once()
-        assert update_keys.call_args.kwargs["extra_model_fields"] == {"last_synced_at": job.created_at}
+        assert update_keys.call_args.kwargs["extra_model_fields"] == {
+            "last_synced_at": job.created_at,
+            "last_checked_at": job.created_at,
+        }
         close.assert_called_once()
         sleep.assert_called_once_with(2)
 

@@ -390,11 +390,15 @@ def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, erro
         ),
         ([pull(), pull(author=42, head_repository="fork/posthog")], prover.Identified(123, MERGE_BASE, "npm")),
         ([], None),
+        # A person's pull request gets no proof, and the result still names it.
+        ([pull(author=42)], prover.Ineligible(123)),
         ([pull(), pull()], "2 pull requests by an allowed author"),
         ([pull()] * 100, "more pull requests contain this commit"),
     ],
 )
-def test_identify(tmp_path: Path, pulls: list[dict], expected: prover.Identified | str | None) -> None:
+def test_identify(
+    tmp_path: Path, pulls: list[dict], expected: prover.Identified | prover.Ineligible | str | None
+) -> None:
     if isinstance(expected, str):
         with pytest.raises(Refused, match=expected):
             prover.identify(cli.identify_request(environment(tmp_path)), FakeGitHub(*pulls))
@@ -406,7 +410,7 @@ def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def refuse(*_: object) -> None:
-        raise Refused("##[set-output name=eligible]true")
+        raise Refused("##[set-output name=eligible]true", pr=123)
 
     monkeypatch.setattr(prover, "identify", refuse)
     env = {
@@ -420,7 +424,7 @@ def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
     stopped, refusal, resumed = capsys.readouterr().out.splitlines()
     assert refusal == "Refused: ##[set-output name=eligible]true"
     assert resumed == f"::{stopped.removeprefix('::stop-commands::')}::"
-    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\nlane=\nrefused=true\n"
+    assert (tmp_path / "output").read_text() == "pr=123\nmerge_base=\neligible=false\nlane=\nrefused=true\n"
 
 
 def test_a_replayed_command_gets_no_runner_file_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -489,20 +493,22 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     ("author", "files", "expected"),
     [
         (SDK_UPGRADER_BOT_USER_ID, ("uv.lock", "pyproject.toml"), prover.Identified(123, MERGE_BASE, "python_sdk")),
-        (SDK_UPGRADER_BOT_USER_ID, ("package.json", "pnpm-lock.yaml"), None),
-        (RENOVATE_BOT_USER_ID, ("pyproject.toml", "uv.lock"), None),
+        (SDK_UPGRADER_BOT_USER_ID, ("package.json", "pnpm-lock.yaml"), prover.Ineligible(123)),
+        (RENOVATE_BOT_USER_ID, ("pyproject.toml", "uv.lock"), prover.Ineligible(123)),
         (RENOVATE_BOT_USER_ID, ("package.json", "Dockerfile"), prover.Identified(123, MERGE_BASE, "npm")),
         (SDK_UPGRADER_BOT_USER_ID, ("uv.lock", "package.json"), "changes npm and Python dependency files"),
     ],
 )
 def test_identify_picks_the_lane_from_the_changed_files(
-    tmp_path: Path, author: int, files: tuple[str, ...], expected: prover.Identified | str | None
+    tmp_path: Path, author: int, files: tuple[str, ...], expected: prover.Identified | prover.Ineligible | str
 ) -> None:
     request = cli.identify_request(environment(tmp_path))
     github = FakeGitHub(pull(author=author), pusher=author, files=files)
     if isinstance(expected, str):
-        with pytest.raises(Refused, match=expected):
+        with pytest.raises(Refused, match=expected) as refused:
             prover.identify(request, github)
+        # stamphog takes a signed result only when it names the pull request, a refusal included.
+        assert refused.value.pr == 123
     else:
         assert prover.identify(request, github) == expected
 

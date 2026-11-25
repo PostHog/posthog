@@ -40,7 +40,7 @@ export interface notebookPanelLogicActions {
         }
     ) => {
         id: string
-        silent?: boolean | undefined
+        silent?: boolean
     }
     setDroppedResource: (resource: string | NotebookNodeResource | null) => {
         resource: string | NotebookNodeResource | null

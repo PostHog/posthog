@@ -36,7 +36,7 @@ async def test_a_start_that_never_returns_still_fails_its_run() -> None:
     failed: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
-    async def start(inputs: StartRunInputs) -> str:
+    async def start(inputs: StartRunInputs) -> str | None:
         # The row exists, but the worker gives up before Temporal records the result.
         started.append(inputs.run_id)
         raise ApplicationError("worker lost", non_retryable=True)
@@ -65,13 +65,49 @@ async def test_a_start_that_never_returns_still_fails_its_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_deleted_team_ends_its_run_without_stages_or_failure() -> None:
+    calls: list[str] = []
+
+    @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
+    async def start(inputs: StartRunInputs) -> str | None:
+        return None
+
+    @temporalio.activity.defn(name="llma-eval-suggestions-measure")
+    async def measure(inputs: StageInputs) -> int:
+        calls.append("measure")
+        return 0
+
+    @temporalio.activity.defn(name="llma-eval-suggestions-fail-run")
+    async def fail(inputs: FailRunInputs) -> None:
+        calls.append("fail-run")
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=QUEUE,
+            workflows=[EvalSuggestionsTeamWorkflow],
+            activities=[start, measure, fail],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            published = await env.client.execute_workflow(
+                TEAM_WORKFLOW_NAME,
+                TeamRunInputs(team_id=1, trigger="scheduled", include_paid=True),
+                id=str(uuid.uuid4()),
+                task_queue=QUEUE,
+            )
+
+    assert published == 0
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_a_failed_paid_stage_still_publishes_the_free_cards(caplog: pytest.LogCaptureFixture) -> None:
     # The warning must really be emitted: a logger call the stdlib rejects would fail the workflow task.
     caplog.set_level(logging.WARNING)
     calls: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
-    async def start(inputs: StartRunInputs) -> str:
+    async def start(inputs: StartRunInputs) -> str | None:
         return inputs.run_id
 
     def stage(name: str, result: int = 0, error: bool = False):

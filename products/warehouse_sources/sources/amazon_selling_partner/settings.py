@@ -15,8 +15,35 @@ INVENTORY_SUMMARIES_PATH = "/fba/inventory/v1/summaries"
 MARKETPLACE_PARTICIPATIONS_PATH = "/sellers/v1/marketplaceParticipations"
 REPORTS_PATH = "/reports/2021-06-30/reports"
 REPORT_DOCUMENTS_PATH = "/reports/2021-06-30/documents"
+PAYOUTS_PATH = "/finances/transfers/2024-06-01/payouts"
+VENDOR_PURCHASE_ORDERS_PATH = "/vendor/orders/v1/purchaseOrders"
+INBOUND_PLANS_PATH = "/inbound/fba/2024-03-20/inboundPlans"
+FULFILLMENT_ORDERS_PATH = "/fulfillment/outbound/2026-07-04/orders"
+ORDER_METRICS_PATH = "/sales/v1/orderMetrics"
+INVOICES_PATH = "/finances/invoices/2026-06-25/invoices"
+REPLENISHMENT_OFFERS_PATH = "/replenishment/2022-11-07/offers/search"
 
 ORDERS_PAGE_SIZE = 100
+INBOUND_PLANS_PAGE_SIZE = 30
+VENDOR_PURCHASE_ORDERS_PAGE_SIZE = 100
+# getPurchaseOrders rejects a creation range over 7 days and keeps purchase orders for 6 months.
+VENDOR_PURCHASE_ORDERS_WINDOW_DAYS = 7
+VENDOR_PURCHASE_ORDERS_HISTORY_DAYS = 180
+# A purchase order moves from New to Acknowledged to Closed in the weeks after Amazon places it.
+VENDOR_PURCHASE_ORDERS_LOOKBACK_SECONDS = 60 * 24 * 60 * 60
+# A payout moves from STARTED to PAID or FAILED in the days after Amazon creates it.
+PAYOUTS_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+# getOrderMetrics rejects a Day interval that starts more than 2 years ago.
+ORDER_METRICS_HISTORY_DAYS = 729
+# A day's totals change as Amazon cancels and refunds its orders in the following weeks.
+ORDER_METRICS_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+# getInvoiceHeaders rejects an issue-date range over 90 days. Amazon documents no invoice retention,
+# so a sync reads the invoices issued in the last 2 years.
+INVOICES_WINDOW_DAYS = 90
+INVOICES_HISTORY_DAYS = 730
+REPLENISHMENT_OFFERS_PAGE_SIZE = 100
+# listOffers rejects an offset above 9000.
+REPLENISHMENT_OFFERS_MAX_OFFSET = 9000
 # BUYER and RECIPIENT are left out: they carry PII and need restricted roles on the app.
 ORDERS_INCLUDED_DATA = "FULFILLMENT,PROCEEDS,EXPENSE,PROMOTION,CANCELLATION,PACKAGES,TAX,PAYMENT"
 # listTransactions answers with an empty page when postedAfter and postedBefore are over 180 days apart.
@@ -45,6 +72,13 @@ VENDOR_INVENTORY = "vendor_inventory"
 VENDOR_NET_PURE_PRODUCT_MARGIN = "vendor_net_pure_product_margin"
 VENDOR_FORECASTS = "vendor_forecasts"
 VENDOR_REAL_TIME_SALES = "vendor_real_time_sales"
+PAYOUTS = "payouts"
+INBOUND_PLANS = "inbound_plans"
+FULFILLMENT_ORDERS = "fulfillment_orders"
+VENDOR_PURCHASE_ORDERS = "vendor_purchase_orders"
+ORDER_METRICS = "order_metrics"
+INVOICES = "invoices"
+REPLENISHMENT_OFFERS = "replenishment_offers"
 
 
 @frozen
@@ -138,8 +172,18 @@ MARKETPLACE_CURRENCIES: dict[str, str] = {
     "A1VC38T7YXB528": "JPY",
 }
 
-SELLER_ENDPOINTS = (ORDERS, ORDER_ITEMS, TRANSACTIONS, INVENTORY_SUMMARIES)
-ENDPOINTS = (*SELLER_ENDPOINTS, *VENDOR_REPORTS)
+SELLER_ENDPOINTS = (
+    ORDERS,
+    ORDER_ITEMS,
+    TRANSACTIONS,
+    INVENTORY_SUMMARIES,
+    PAYOUTS,
+    INBOUND_PLANS,
+    FULFILLMENT_ORDERS,
+)
+# Tables that both seller and vendor accounts can sync, one marketplace at a time.
+MARKETPLACE_ENDPOINTS = (ORDER_METRICS, INVOICES, REPLENISHMENT_OFFERS)
+ENDPOINTS = (*SELLER_ENDPOINTS, *VENDOR_REPORTS, VENDOR_PURCHASE_ORDERS, *MARKETPLACE_ENDPOINTS)
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     ORDERS: ["orderId"],
@@ -151,6 +195,14 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     VENDOR_NET_PURE_PRODUCT_MARGIN: ["marketplaceId", "asin", "startDate"],
     VENDOR_FORECASTS: ["marketplaceId", "asin", "startDate"],
     VENDOR_REAL_TIME_SALES: ["marketplaceId", "asin", "startTime"],
+    PAYOUTS: ["id"],
+    INBOUND_PLANS: ["inboundPlanId"],
+    FULFILLMENT_ORDERS: ["orderId"],
+    VENDOR_PURCHASE_ORDERS: ["purchaseOrderNumber"],
+    ORDER_METRICS: ["marketplaceId", "startTime"],
+    INVOICES: ["marketplaceId", "invoiceIdentifier"],
+    # Vendor offers have no SKU, and a seller can enroll several SKUs of one ASIN.
+    REPLENISHMENT_OFFERS: ["marketplaceId", "asin", "sku"],
 }
 
 PARTITION_KEYS: dict[str, str] = {
@@ -161,6 +213,12 @@ PARTITION_KEYS: dict[str, str] = {
     VENDOR_INVENTORY: "startDate",
     VENDOR_NET_PURE_PRODUCT_MARGIN: "startDate",
     VENDOR_REAL_TIME_SALES: "startTime",
+    PAYOUTS: "creationDate",
+    INBOUND_PLANS: "createdAt",
+    FULFILLMENT_ORDERS: "receiveTime",
+    VENDOR_PURCHASE_ORDERS: "purchaseOrderDate",
+    ORDER_METRICS: "startTime",
+    INVOICES: "issueDate",
 }
 
 
@@ -172,6 +230,16 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     VENDOR_INVENTORY: [incremental_field("startDate", IncrementalFieldType.Date)],
     VENDOR_NET_PURE_PRODUCT_MARGIN: [incremental_field("startDate", IncrementalFieldType.Date)],
     VENDOR_REAL_TIME_SALES: [incremental_field("startTime")],
+    PAYOUTS: [incremental_field("creationDate")],
+    FULFILLMENT_ORDERS: [incremental_field("statusUpdateTime")],
+    VENDOR_PURCHASE_ORDERS: [incremental_field("purchaseOrderDate")],
+    ORDER_METRICS: [incremental_field("startTime")],
+    INVOICES: [incremental_field("lastUpdatedDate")],
 }
 
-DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS}
+DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS,
+    PAYOUTS: PAYOUTS_LOOKBACK_SECONDS,
+    VENDOR_PURCHASE_ORDERS: VENDOR_PURCHASE_ORDERS_LOOKBACK_SECONDS,
+    ORDER_METRICS: ORDER_METRICS_LOOKBACK_SECONDS,
+}

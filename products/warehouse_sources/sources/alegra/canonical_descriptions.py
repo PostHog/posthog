@@ -166,4 +166,52 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "total": "Total amount of the journal entry.",
         },
     },
+    "users": {
+        "description": "Users of the Alegra account, such as staff and sellers who create documents.",
+        "docs_url": "https://developer.alegra.com/reference/get_users",
+        "columns": {
+            "id": "Unique identifier of the user.",
+            "username": "Username of the user.",
+            "name": "First name of the user.",
+            "lastName": "Last name of the user.",
+            "email": "Email address of the user.",
+            "role": "Role of the user in the account.",
+            "status": "User status: active or inactive.",
+            "position": "Position of the user, such as owner.",
+        },
+    },
+    "payment_terms": {
+        "description": "Payment terms that set how many days a customer or supplier has to pay a document.",
+        "docs_url": "https://developer.alegra.com/reference/get_terms",
+        "columns": {
+            "id": "Unique identifier of the payment term.",
+            "name": "Name of the payment term.",
+            "days": "Number of days until payment is due.",
+        },
+    },
+    "price_lists": {
+        "description": "Price lists that set item prices for sales documents.",
+        "docs_url": "https://developer.alegra.com/reference/get_price-lists",
+        "columns": {
+            "id": "Unique identifier of the price list.",
+            "name": "Name of the price list.",
+            "type": "Price list type: amount sets a fixed price, percentage discounts the normal price.",
+            "percentage": "Discount percentage on the normal price. Present only for percentage price lists.",
+            "status": "Price list status: active or inactive.",
+        },
+    },
+    "remissions": {
+        "description": "Remissions (delivery notes) that record goods sent to a customer before an invoice.",
+        "docs_url": "https://developer.alegra.com/reference/get_remissions",
+        "columns": {
+            "id": "Unique identifier of the remission.",
+            "date": "Remission date.",
+            "dueDate": "Remission due date.",
+            "status": "Remission status: open, closed, or void.",
+            "client": "Customer that receives the goods.",
+            "items": "Items in the remission with quantity, price, and taxes.",
+            "total": "Total amount of the remission.",
+            "warehouse": "Warehouse that the goods leave from.",
+        },
+    },
 }

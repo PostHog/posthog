@@ -151,6 +151,7 @@ describe('buildToolDomainsBlock', () => {
             'publish',
             'record',
             'refresh',
+            'remove',
             'rename',
             'reset',
             'restore',

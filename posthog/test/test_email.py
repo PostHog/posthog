@@ -1,6 +1,7 @@
 import hashlib
 import smtplib
 import datetime
+import traceback
 import contextlib
 import dataclasses
 from decimal import Decimal
@@ -32,6 +33,7 @@ from posthog.email import (
     EmailMessage,
     WorkflowsEmailError,
     _send_email,
+    _send_email_now,
     _send_via_http,
     _send_via_smtp,
     get_email_team_and_org_context,
@@ -578,6 +580,151 @@ class TestEmail(BaseTest):
             self.assertEqual(mock_capture.call_args.kwargs["properties"]["provider"], "workflows")
         else:
             self.assertTrue(record is None or record.sent_at is None)
+
+    @parameterized.expand(
+        [
+            ("flag_off_sends_over_smtp", False, None, None, 1, "sent"),
+            ("workflows_accepts", True, 202, None, 0, "sent"),
+            ("workflows_accepts_while_the_relay_is_down", True, 202, "relay_down", 0, "sent"),
+            ("workflows_refusal_retries_and_never_uses_smtp", True, 400, None, 0, "retries"),
+            ("workflows_may_have_queued_retries", True, 503, None, 0, "retries"),
+            ("undeliverable_address_is_dropped", True, 422, "recipient_unreachable", 0, "dropped"),
+        ]
+    )
+    @patch("posthog.email.posthoganalytics.feature_enabled")
+    @patch("posthog.email.requests.post")
+    def test_smtp_email_routes_through_workflows_by_flag(
+        self,
+        _name: str,
+        flag_on: bool,
+        workflows_status: int | None,
+        condition: str | None,
+        expected_smtp_sends: int,
+        outcome: str,
+        mock_post: MagicMock,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_flag.return_value = flag_on
+        mock_post.return_value = MagicMock(
+            status_code=workflows_status,
+            text="error",
+            json=MagicMock(return_value={"message_id": "m1", "code": condition}),
+        )
+
+        with (
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.open",
+                side_effect=TimeoutError("relay down") if condition == "relay_down" else None,
+            ),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(
+                campaign_key="smtp_routing",
+                subject="Subject",
+                template_name="async_migration_error",
+                reply_to="Support <a@b.com>, c@bücher.de, d@example.com.",
+            )
+            message.add_recipient("test@posthog.com")
+            if outcome == "retries":
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            else:
+                # The default synchronous send runs the Celery task eagerly, so this also checks its result.
+                undeliverable = message.send(send_async=False)
+                self.assertEqual(undeliverable, ["test@posthog.com"] if outcome == "dropped" else [])
+
+        self.assertEqual(len(mail.outbox), expected_smtp_sends)
+        self.assertEqual(mock_post.call_count, 1 if flag_on else 0)
+        if flag_on:
+            payload = mock_post.call_args.kwargs["json"]
+            self.assertEqual(payload["template_key"], "async_migration_error")
+            self.assertEqual(payload["subject"], "Subject")
+            self.assertIn("<html", payload["html"])
+            # Addresses the send API would refuse are left out instead of failing the email.
+            self.assertEqual(payload["reply_to"], ["a@b.com"])
+        record = MessagingRecord.objects.get(campaign_key="smtp_routing")
+        self.assertEqual(record.sent_at is not None, outcome == "sent")
+
+    @parameterized.expand(
+        [
+            ("smtp_accepts_the_rest", None, 1),
+            ("smtp_permanently_rejects_the_rest", smtplib.SMTPDataError(554, b"rejected"), 0),
+        ]
+    )
+    @patch("posthog.email.requests.post")
+    def test_a_workflows_failure_does_not_hold_back_the_rest_of_the_batch(
+        self, _name: str, smtp_error: Exception | None, expected_smtp_sends: int, mock_post: MagicMock
+    ) -> None:
+        mock_post.return_value = MagicMock(status_code=503, text="unavailable", json=MagicMock(return_value={}))
+        with (
+            patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=smtp_error, return_value=1)
+            if smtp_error
+            else contextlib.nullcontext(),
+            patch(
+                "posthog.email.posthoganalytics.feature_enabled",
+                side_effect=lambda _key, distinct_id, **_kwargs: distinct_id == "routed@posthog.com",
+            ),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(
+                campaign_key="batch_routing", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("routed@posthog.com")
+            message.add_recipient("smtp@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), expected_smtp_sends)
+
+    @patch.object(_send_email, "apply_async")
+    @patch("posthog.email.requests.post")
+    def test_a_failed_commit_after_workflows_accepts_retries_through_workflows(
+        self, mock_post: MagicMock, mock_apply_async: MagicMock
+    ) -> None:
+        mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        original_save = MessagingRecord.save
+
+        def save_failing_once_sent(record: MessagingRecord, *args: Any, **kwargs: Any) -> None:
+            if record.sent_at is not None:
+                raise OperationalError("connection lost during commit")
+            original_save(record, *args, **kwargs)
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(campaign_key="lost_commit", subject="Subject", template_name="async_migration_error")
+            message.add_recipient("commit@posthog.com")
+            with (
+                patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
+                patch.object(MessagingRecord, "save", autospec=True, side_effect=save_failing_once_sent),
+            ):
+                message.send(send_async=False)
+            # The flag is off by the time the retry runs, which must still replay through Workflows and not use SMTP.
+            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=False):
+                _send_email_now(**mock_apply_async.call_args.kwargs["kwargs"])
+
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="lost_commit").sent_at)
+
+    @patch("posthog.email.requests.post", side_effect=requests.exceptions.InvalidHeader("Bearer phs_secret_value"))
+    def test_a_network_error_from_workflows_never_carries_the_api_key(self, _post: MagicMock) -> None:
+        with (
+            patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_secret_value", POSTHOG_HOST="https://us.posthog.com"
+            ),
+        ):
+            message = EmailMessage(campaign_key="header_leak", subject="Subject", template_name="async_migration_error")
+            message.add_recipient("leak@posthog.com")
+            with self.assertRaises(WorkflowsEmailError) as raised:
+                message.send(send_async=False, retry=False)
+
+        self.assertNotIn("phs_secret_value", "".join(traceback.format_exception(raised.exception)))
 
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")

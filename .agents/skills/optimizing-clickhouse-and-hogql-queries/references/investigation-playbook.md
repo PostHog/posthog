@@ -110,8 +110,9 @@ These tags tell you what triggered the query without reverse-engineering the SQL
 | `lc_access_method`, `lc_api_key_label`                                    | Whether it came from the web, OAuth, or a named API key    |
 | `lc_user_id`                                                              | Who triggered it                                           |
 
-The full `log_comment` (raw, on `system.query_log`) additionally carries `http_referer`, `scene`, and
-`source_file`/`source_line`. These tags are defined in `posthog/clickhouse/query_tagging.py`
+The full `log_comment` additionally carries `http_referer`, `scene`, and `source_file`/`source_line`.
+`system.query_log` keeps it raw, and the archive's `log_comment` column keeps it for one month without `timings` and `query`.
+These tags are defined in `posthog/clickhouse/query_tagging.py`
 (`QueryTags`).
 
 To reverse-engineer SQL, grep the PostHog codebase for the `lc_query__kind` value (e.g. `TrendsQuery`)

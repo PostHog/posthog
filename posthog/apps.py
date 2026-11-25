@@ -82,8 +82,7 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
-        posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.enable_full_ai_capture = True  # ty: ignore[invalid-assignment]
         # Retained trial data still needs privacy when new launches are disabled.
         before_send = default_before_send(
             private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,
@@ -92,10 +91,8 @@ class PostHogConfig(AppConfig):
         if before_send is not None:
             posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]
 
-        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
-        # the metrics API and ignores this attr; once posthoganalytics is bumped to
-        # >=7.23 it's picked up by setup(), so metrics get a real service.name
-        # instead of 'unknown_service'.
+        # Config for the SDK's `client.metrics` API, picked up by setup() so metrics
+        # get a real service.name instead of 'unknown_service'.
         posthoganalytics.metrics = {  # ty: ignore[invalid-assignment]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.

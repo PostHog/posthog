@@ -140,8 +140,21 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         allow_null=True, help_text="This project's repository exception. Null when the repository follows the project."
     )
     review_drafts = serializers.BooleanField(
-        help_text="Whether draft pull requests in this repository get their automatic review when they open. "
-        "Authors who turned off reviews of their drafts still get none."
+        help_text="Whether draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready. Authors who turned off reviews of their drafts still get none."
+    )
+    review_pushes = serializers.BooleanField(
+        help_text="Whether later pushes to a ready pull request in this repository get automatic reviews, as the "
+        "push gate allows."
+    )
+    deep_review_gated_prs = serializers.BooleanField(
+        help_text="Whether a pull request gets one Deep automatic review: instead of the Standard review when "
+        "auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds "
+        "a must-fix issue."
+    )
+    auto_approval = serializers.BooleanField(
+        help_text="Whether auto-approval reviews this repository in this project. Only then can its size, "
+        "restricted-path and tier rules make an automatic review a Deep review."
     )
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
@@ -175,7 +188,8 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
     folded = serializers.IntegerField(
         help_text="With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out "
-        "because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise."
+        "because this project reviews them with no exception, no draft reviews, no Deep reviews of pull requests "
+        "that need a person and no own choice. 0 otherwise."
     )
     folded_preview = serializers.ListField(
         child=serializers.CharField(),
@@ -212,6 +226,9 @@ def _entry_data(entry: ReviewRepositoryOverviewEntry) -> dict[str, Any]:
         "repository_id": entry.repository_id,
         "exception": exception,
         "review_drafts": entry.review_drafts,
+        "review_pushes": entry.review_pushes,
+        "deep_review_gated_prs": entry.deep_review_gated_prs,
+        "auto_approval": entry.auto_approval,
         "my_choice": entry.my_choice,
         "my_choice_id": entry.my_choice_id,
         "my_result": decision_data(entry.my_result),

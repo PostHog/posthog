@@ -785,7 +785,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 [
                     expect.objectContaining({
                         message:
-                            "Batch resolver failed: Sending to a realtime cohort isn't available here yet. Use a different audience.",
+                            "Batch resolver failed: Sending to a real-time cohort isn't available here yet. Use a different audience.",
                     }),
                 ],
                 'hog_flow'

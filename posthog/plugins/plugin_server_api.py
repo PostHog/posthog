@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import timedelta
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import requests
 import structlog
@@ -55,11 +55,6 @@ def reload_hog_flows_on_workers(team_id: int, hog_flow_ids: list[str]):
 def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
     logger.info(f"Reloading evaluations {evaluation_ids} on workers")
     publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
-
-
-def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
-    logger.info(f"Reloading taggers {tagger_ids} on workers")
-    publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
 
 
 def reload_provider_keys_on_workers(team_id: int, provider_key_ids: list[str]):
@@ -139,6 +134,23 @@ def create_hog_flow_scheduled_invocation(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
+    )
+
+
+WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> requests.Response:
+    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": sorted({run["team_id"] for run in runs})})
+    return internal_requests.post(
+        CDP_API_URL + "/api/hog_flows/scheduled_invocations",
+        json={"runs": runs},
+        headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
 
@@ -320,6 +332,37 @@ def send_accepted_transactional_email(
             "Content-Type": "application/json",
             "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind='code_send')}",
         },
+        timeout=timeout,
+    )
+
+
+def send_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="template_batch"),
+        payload,
+        timeout,
+    )
+
+
+def send_accepted_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="code_send_batch"),
+        payload,
+        timeout,
+    )
+
+
+def _post_transactional_email_batch(path: str, token: str, payload: dict, timeout: float) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + path,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
         timeout=timeout,
     )
 

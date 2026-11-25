@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import type { OrganizationType } from '~/types'
+
 import supportedLanguagesJson from '../../shared/supported_languages.json'
 
 const STORAGE_KEY = 'posthog-translate-language'
@@ -115,7 +117,7 @@ export interface messageActionsMenuLogicMeta {
         textToTranslate: (content: any, isTooLong: boolean) => any
         content: (arg: any) => any
         currentLanguageLabel: (targetLanguage: string) => string
-        dataProcessingAccepted: (currentOrganization: null | import('~/types').OrganizationType) => boolean
+        dataProcessingAccepted: (currentOrganization: OrganizationType | null) => boolean
     }
 }
 

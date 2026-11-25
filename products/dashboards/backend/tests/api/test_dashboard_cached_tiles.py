@@ -99,10 +99,14 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.flag_patcher.start()
         self.addCleanup(self.flag_patcher.stop)
         self.flag_on_for_project: int | None = self.team.pk
+        self.dashboard_v2_users: set[str] | None = None
         self.dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash", "filters": {"date_from": "-14d"}})
 
     def _flag_enabled(self, flag: str, distinct_id: str, **kwargs: Any) -> bool:
         groups = kwargs.get("groups") or {}
+        if flag == "dashboard-v2-users":
+            email = (kwargs.get("person_properties") or {}).get("email")
+            return self.dashboard_v2_users is None or email in self.dashboard_v2_users
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
     def _add_insight_tile(self, event: str, query: dict | None = None) -> tuple[int, int]:
@@ -126,8 +130,8 @@ class TestDashboardCachedTiles(APIBaseTest):
             {"tile_ids": ",".join(str(tile_id) for tile_id in tile_ids), **(params or {})},
         )
 
-    def _statuses(self, tile_ids: list[int]) -> list[tuple[int, str]]:
-        response = self._cached_tiles(tile_ids)
+    def _statuses(self, tile_ids: list[int], params: dict[str, str] | None = None) -> list[tuple[int, str]]:
+        response = self._cached_tiles(tile_ids, params)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return [(tile["id"], tile["status"]) for tile in response.json()["results"]]
 
@@ -146,6 +150,7 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.assertEqual(warm["status"], "hit")
         self.assertEqual(warm["insight"]["result"], per_tile["result"])
         self.assertEqual(warm["insight"]["last_refresh"], per_tile["last_refresh"])
+        self.assertEqual(warm["insight"]["query_scan"], per_tile["query_scan"])
         self.assertNotIn("hogql", warm["insight"])
 
     @parameterized.expand([("blocking",), ("force_cache",)])
@@ -163,6 +168,19 @@ class TestDashboardCachedTiles(APIBaseTest):
             (1, 1),
         )
         assert _without_run_ids(payload) == self.snapshot
+
+    def test_frames_format_leaves_tiles_without_frames_as_they_are(self) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        result = self._per_tile(insight_id, "force_cache")["result"]
+
+        response = self._cached_tiles([tile_id], {"format": "frames"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        [tile] = response.json()["results"]
+        self.assertEqual((tile["status"], tile["format"]), ("hit", "result"))
+        self.assertNotIn("frames", tile)
+        self.assertEqual(tile["insight"]["result"], result)
 
     def test_dashboard_filter_override_reads_its_own_cache_entry(self) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
@@ -233,10 +251,16 @@ class TestDashboardCachedTiles(APIBaseTest):
         self._per_tile(insight_id, "blocking")
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_flag_off_for_the_project_returns_404(self) -> None:
+    @parameterized.expand(
+        [
+            ("project_not_on_the_flag", lambda test: setattr(test, "flag_on_for_project", test.team.pk + 1)),
+            ("member_not_in_the_audience", lambda test: setattr(test, "dashboard_v2_users", set())),
+        ]
+    )
+    def test_flag_off_returns_404(self, _name: str, arrange: Any) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
         self._per_tile(insight_id, "blocking")
-        self.flag_on_for_project = self.team.pk + 1
+        arrange(self)
 
         response = self._cached_tiles([tile_id])
 
@@ -298,7 +322,10 @@ class TestDashboardCachedTiles(APIBaseTest):
 
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(self) -> None:
+    @parameterized.expand([("result", {}), ("frames", {"format": "frames"})])
+    def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(
+        self, _name: str, params: dict[str, str]
+    ) -> None:
         # Raw SQL tiles, because their cache keys look up warehouse names in Postgres.
         tiles = [
             self._add_insight_tile(event, _sql_count_query(event))
@@ -307,12 +334,12 @@ class TestDashboardCachedTiles(APIBaseTest):
         for insight_id, _ in tiles:
             self._per_tile(insight_id, "blocking")
         tile_ids = [tile_id for _, tile_id in tiles]
-        self._statuses(tile_ids)
+        self._statuses(tile_ids, params)
 
         with CaptureQueriesContext(connection) as one_tile, _count_redis_round_trips() as one_tile_redis:
-            self.assertEqual(self._statuses(tile_ids[:1]), [(tile_ids[0], "hit")])
+            self.assertEqual(self._statuses(tile_ids[:1], params), [(tile_ids[0], "hit")])
         with CaptureQueriesContext(connection) as four_tiles, _count_redis_round_trips() as four_tile_redis:
-            self.assertEqual(self._statuses(tile_ids), [(tile_id, "hit") for tile_id in tile_ids])
+            self.assertEqual(self._statuses(tile_ids, params), [(tile_id, "hit") for tile_id in tile_ids])
 
         self.assertEqual(len(four_tiles.captured_queries), len(one_tile.captured_queries))
         self.assertEqual(
@@ -321,4 +348,59 @@ class TestDashboardCachedTiles(APIBaseTest):
                 for redis in (one_tile_redis, four_tile_redis)
             ],
             [(1, 1), (1, 1)],
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on_with_param_omits_results", True, {"omit_tile_results": "true"}, False),
+            ("flag_on_without_param_keeps_results", True, {}, True),
+            ("flag_off_ignores_param", False, {"omit_tile_results": "true"}, True),
+        ]
+    )
+    def test_dashboard_get_omits_tile_results_only_when_asked_under_the_flag(
+        self, _name: str, flag_on: bool, params: dict[str, str], expect_result: bool
+    ) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        cached = self._per_tile(insight_id, "blocking")
+        if not flag_on:
+            self.flag_on_for_project = self.team.pk + 1
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "filters_override": '{"date_from": "-14d"}', **params},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(tile["id"], tile_id)
+        self.assertEqual(tile["insight"]["name"], "$pageview")
+        self.assertEqual(tile["insight"]["query"], cached["query"])
+        self.assertEqual(tile["insight"]["result"] is not None, expect_result)
+        self.assertEqual(tile["insight"]["is_cached"], expect_result)
+        self.assertEqual(tile["insight"]["last_refresh"] is not None, expect_result)
+        if flag_on:
+            self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
+
+    def test_dashboard_get_without_results_still_masks_restricted_insights(self) -> None:
+        insight_id, _ = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(insight_id), access_level="none"
+        )
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "omit_tile_results": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(
+            tile["insight"], {"id": insight_id, "short_id": tile["insight"]["short_id"], "user_access_level": "none"}
         )

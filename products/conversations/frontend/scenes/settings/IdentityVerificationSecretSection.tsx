@@ -5,18 +5,21 @@ import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillIdentityVerificationSecret } from '../../components/QuillIdentityVerificationSecret/QuillIdentityVerificationSecret'
 import { signingSecretLogic } from './signingSecretLogic'
 
 export function IdentityVerificationSecretSection(): JSX.Element {
     const { signingSecret, signingSecretLoading, signingSecretLoadFailed } = useValues(signingSecretLogic)
     const { rotateSigningSecret, loadSigningSecret, expirePreviousSecret } = useActions(signingSecretLogic)
     const { isTeamTokenResetAvailable } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const secret = signingSecret?.secret ?? null
     // Null once the window lapses: the API only reports an active grace window.
@@ -51,6 +54,22 @@ export function IdentityVerificationSecretSection(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillIdentityVerificationSecret
+                secret={secret}
+                previousSecretValidUntil={previousSecretValidUntil}
+                loading={signingSecretLoading}
+                showSkeleton={signingSecretLoading && !signingSecret}
+                loadFailed={signingSecretLoadFailed}
+                canManageSecret={isTeamTokenResetAvailable}
+                onRetry={() => loadSigningSecret()}
+                onRotate={openRotateDialog}
+                onExpirePrevious={openExpirePreviousDialog}
+            />
+        )
     }
 
     return (

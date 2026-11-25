@@ -61,12 +61,15 @@ class GenesysCloudEndpointConfig:
     # "user_analytics" endpoints read the user details query in time windows;
     # "listing" endpoints page through a plain GET entity listing by page number;
     # "scan" endpoints page through a GET listing by cursor;
-    # "fan_out" endpoints read a child listing once per row of a parent listing endpoint.
-    kind: Literal["analytics", "user_analytics", "listing", "scan", "fan_out"]
+    # "fan_out" endpoints read a child listing once per row of a parent listing endpoint;
+    # "unpaged" endpoints return every entity in one GET, read once per entry in param_sets.
+    kind: Literal["analytics", "user_analytics", "listing", "scan", "fan_out", "unpaged"]
     path: str
     # Permission a Genesys Cloud role must grant for the OAuth client to read this endpoint.
     permission: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    # Unpaged endpoints: one request per entry, each merged into params.
+    param_sets: tuple[dict[str, Any], ...] = ({},)
     # Extra body keys for the conversation details query (filters).
     query_body: dict[str, Any] = field(default_factory=dict)
     # Emit one row per participant instead of one row per conversation.
@@ -228,6 +231,40 @@ GENESYS_CLOUD_ENDPOINTS: dict[str, GenesysCloudEndpointConfig] = {
         parent_id_param="evaluatorUserId",
         page_size=EVALUATIONS_PAGE_SIZE,
         skipped_error_codes=("quality.query.invalid.user",),
+    ),
+    # expand=publishHistory adds the published version ids, which are the form ids that evaluations reference.
+    "evaluation_forms": GenesysCloudEndpointConfig(
+        name="evaluation_forms",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/quality/forms/evaluations",
+        permission="quality:evaluationForm:view",
+        params={"expand": "publishHistory"},
+    ),
+    "flows": GenesysCloudEndpointConfig(
+        name="flows",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/flows",
+        permission="architect:flow:view",
+        params={"sortBy": "id", "sortOrder": "asc"},
+    ),
+    # The listing returns either active or deactivated definitions, and status history can point at both.
+    "presence_definitions": GenesysCloudEndpointConfig(
+        name="presence_definitions",
+        primary_keys=["id"],
+        kind="unpaged",
+        path="/api/v2/presence/definitions",
+        permission="presence:presenceDefinition:view",
+        params={"localeCode": "ALL"},
+        param_sets=({"deactivated": "false"}, {"deactivated": "true"}),
+    ),
+    "outbound_campaigns": GenesysCloudEndpointConfig(
+        name="outbound_campaigns",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/outbound/campaigns",
+        permission="outbound:campaign:view",
     ),
 }
 

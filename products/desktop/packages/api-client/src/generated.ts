@@ -217,6 +217,7 @@ export namespace Schemas {
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
+        optimizeCrossJoins: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -227,6 +228,7 @@ export namespace Schemas {
         propertyGroupsMode: PropertyGroupsMode | null;
         pushDownPredicates: boolean | null;
         s3TableUseInvalidColumns: boolean | null;
+        sessionFilterGlobalJoin: boolean | null;
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
@@ -4552,6 +4554,7 @@ export namespace Schemas {
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
+        limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         offset?: (number | null) | undefined;
@@ -5078,6 +5081,7 @@ export namespace Schemas {
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
         metric: MetricChartSettings | null;
+        movingAverageIntervals: number | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -5085,6 +5089,7 @@ export namespace Schemas {
         seriesBreakdownColumn: string | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showMovingAverage: boolean | null;
         showNullsAsZero: boolean | null;
         showPieTotal: boolean | null;
         showTotalRow: boolean | null;
@@ -5993,13 +5998,23 @@ export namespace Schemas {
     /**
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build
+     * * `unsupported_criteria` - Unsupported criteria
+     * * `action_criteria` - Action criteria
+     * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+     * * `members_over_limit` - Members over limit
+     * * `test_account_filter` - Test account filter
      */
     export type CohortRealtimeUnavailableReasonEnum =
         | "history_over_limit"
-        | "too_large_to_build";
+        | "too_large_to_build"
+        | "unsupported_criteria"
+        | "action_criteria"
+        | "includes_non_realtime_cohort"
+        | "members_over_limit"
+        | "test_account_filter";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
@@ -6020,10 +6035,15 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
+         * * `unsupported_criteria` - Unsupported criteria
+         * * `action_criteria` - Action criteria
+         * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+         * * `members_over_limit` - Members over limit
+         * * `test_account_filter` - Test account filter
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
@@ -6230,6 +6250,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter2 = {
@@ -6321,6 +6342,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter3 = {
@@ -6417,6 +6439,7 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionRateInputType = "manual" | "automatic";
@@ -8888,6 +8911,10 @@ export namespace Schemas {
          */
         key: string;
     };
+    export type ErrorTrackingIssueTagsFilter = Partial<{
+        has: Array<string> | null;
+        hasNot: Array<string> | null;
+    }>;
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8949,6 +8976,7 @@ export namespace Schemas {
         groupTypeIndex?: (number | null) | undefined;
         issueId?: (string | null) | undefined;
         issueTag?: (ErrorTrackingIssueTagFilter | null) | undefined;
+        issueTags?: (ErrorTrackingIssueTagsFilter | null) | undefined;
         kind?: string | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -9453,7 +9481,7 @@ export namespace Schemas {
         | "critical";
     export type ErrorTrackingIssueTagRead = {
         /**
-         * Key of the tag. Pass it as `issueTag.key` to filter the issue list.
+         * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
          */
         key: string;
         /**
@@ -10738,6 +10766,7 @@ export namespace Schemas {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10797,7 +10826,8 @@ export namespace Schemas {
         | "baseline_variant"
         | "other_running_experiment_count"
         | "assigned_outside_count"
-        | "other_draft_experiment_count";
+        | "other_draft_experiment_count"
+        | "filters_test_accounts";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10869,6 +10899,7 @@ export namespace Schemas {
          * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+         * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10938,6 +10969,7 @@ export namespace Schemas {
          * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+         * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -11052,6 +11084,110 @@ export namespace Schemas {
          * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
          */
         aggregation_group_type_index: number | null;
+        /**
+         * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+         */
+        variant: string | null;
+        /**
+         * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null when the flag buckets by device ID, because a request without a device ID skips the earlier sets that need the bucketing hash and can reach this set anyway.
+         */
+        reachable: boolean | null;
+    };
+    export type ExperimentHealthExposureSetup = {
+        /**
+         * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+         */
+        event: string | null;
+        /**
+         * The name of the action that the exposure criteria count. Null when they count an event.
+         */
+        action: string | null;
+        /**
+         * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+         */
+        activation: string | null;
+    };
+    /**
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist
+     */
+    export type StatsMethodEnum = "bayesian" | "frequentist";
+    /**
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant
+     */
+    export type ExperimentHealthMultipleVariantHandlingEnum =
+        | "exclude"
+        | "first_seen";
+    export type ExperimentHealthAnalysisSetup = {
+        /**
+         * The statistical method of the results.
+         *
+         * * `bayesian` - Bayesian
+         * * `frequentist` - Frequentist
+         */
+        stats_method: StatsMethodEnum;
+        /**
+         * The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95.
+         */
+        confidence_level: number;
+        /**
+         * Whether the frequentist test uses sequential testing. Null for the Bayesian method.
+         */
+        sequential_testing: boolean | null;
+        /**
+         * Whether the experiment leaves sequential testing unset, so the project's default applies.
+         */
+        sequential_testing_from_project_default: boolean;
+        /**
+         * Whether the results apply CUPED variance reduction to the metrics that support it.
+         */
+        cuped: boolean;
+        /**
+         * The days before exposure that CUPED reads. Null when CUPED is off.
+         */
+        cuped_lookback_days: number | null;
+        /**
+         * Whether the experiment leaves CUPED unset, so the project's default applies.
+         */
+        cuped_from_project_default: boolean;
+        /**
+         * Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies.
+         */
+        cuped_lookback_days_from_project_default: boolean;
+        /**
+         * The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their metric type. Empty when CUPED is off.
+         */
+        metrics_without_cuped_support: Array<string>;
+        /**
+         * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+         */
+        filters_test_accounts: boolean | null;
+        /**
+         * How many of the project's test account filters the results apply. 0 when they count test accounts.
+         */
+        test_account_filter_count: number;
+        /**
+         * What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
+         *
+         * * `exclude` - Exclude from analysis
+         * * `first_seen` - Use first seen variant
+         */
+        multiple_variant_handling:
+            | ExperimentHealthMultipleVariantHandlingEnum
+            | NullEnum;
+        /**
+         * Whether a user counts only after their conversion or retention window is complete.
+         */
+        only_count_matured_users: boolean;
+        /**
+         * The variant that the others are compared against.
+         */
+        baseline_variant: string;
+        /**
+         * The variants that the results leave out.
+         */
+        excluded_variants: Array<string>;
     };
     export type ExperimentHealthSetup = {
         /**
@@ -11089,6 +11225,14 @@ export namespace Schemas {
          * The flag's 'Persist flag across authentication steps' setting.
          */
         ensure_experience_continuity: boolean;
+        /**
+         * What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table.
+         */
+        exposure: ExperimentHealthExposureSetup | null;
+        /**
+         * What the results calculation reads besides the metrics, with the project's defaults applied.
+         */
+        analysis: ExperimentHealthAnalysisSetup;
     };
     export type ExperimentHealth = {
         /**
@@ -11931,6 +12075,10 @@ export namespace Schemas {
         live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         */
+        last_checked_at: string | null;
+        /**
          * The latest error that occurred when syncing this schema.
          */
         latest_error: string | null;
@@ -12618,12 +12766,14 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
         | "transactional_emails"
-        | "transactional_email_keys";
+        | "transactional_email_keys"
+        | "transactional_push";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -12867,6 +13017,22 @@ export namespace Schemas {
         ran_at: string;
     };
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = "test_sender_live";
+    export type HogFlowWarning = {
+        /**
+         * test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+         *
+         * * `test_sender_live` - Test sender live
+         */
+        code: HogFlowWarningCodeEnum & unknown;
+        /**
+         * What to tell the user, with the link that fixes it.
+         */
+        message: string;
+    };
+    /**
      * Mixin for serializers to add user access control fields
      */
     export type HogFlow = {
@@ -12976,6 +13142,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -13024,6 +13194,10 @@ export namespace Schemas {
          * Whether someone turned suggestions on for this workflow. Read on the list only.
          */
         suggestions_enabled: boolean | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -13067,6 +13241,7 @@ export namespace Schemas {
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
          * * `transactional_email_keys` - Transactional email keys
+         * * `transactional_push` - Transactional push notifications
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -13149,6 +13324,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -13668,6 +13847,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from an action.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from an action.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13783,6 +13966,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from events.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from events.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13878,6 +14065,10 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        /**
+         * A conversion goal counted from a data warehouse table.
+         */
+        use_in_recommendations?: (boolean | null) | undefined;
         /**
          * A conversion goal counted from a data warehouse table.
          */
@@ -15242,8 +15433,22 @@ export namespace Schemas {
         message: string;
         action?: (OrganizationMemberNoticeAction | null) | undefined;
     };
+    export type OrganizationExternalProjectLink = {
+        id: string;
+        /**
+         * Name shown for the project in the project switcher.
+         */
+        name: string;
+        /**
+         * Full URL of the project on the other PostHog instance.
+         */
+        url: string;
+    };
     export type Organization = {
         id: string;
+        /**
+         * Name of the organization.
+         */
         name: string;
         slug: string;
         logo_media_id?: (string | null) | undefined;
@@ -15275,6 +15480,10 @@ export namespace Schemas {
         member_notice?: (OrganizationMemberNotice | null) | undefined;
         member_count: number;
         is_ai_data_processing_approved?: (boolean | null) | undefined;
+        /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         */
+        is_ai_data_processing_locked: boolean | null;
         is_ai_training_opted_in?: (boolean | null) | undefined;
         /**
          * When True, the AI training opt-out setting cannot be modified through the UI or API.
@@ -15312,6 +15521,10 @@ export namespace Schemas {
          * A warning when the current request's IP address is not in the saved allowlist.
          */
         ip_restrictions_warning: string | null;
+        /**
+         * Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.
+         */
+        external_project_links: Array<OrganizationExternalProjectLink>;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
@@ -16688,6 +16901,7 @@ export namespace Schemas {
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
         last_run: HogFlowLastRun | null;
+        warnings: Array<HogFlowWarning>;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -17322,6 +17536,16 @@ export namespace Schemas {
          */
         id: string;
     };
+    export type TeamCustomerAnalyticsRoleDefaultPinnedProperties = {
+        /**
+         * Organization role whose members inherit these properties.
+         */
+        role_id: string;
+        /**
+         * Ordered account properties shown to members of this role.
+         */
+        pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+    };
     export type TeamCustomerAnalyticsConfig = Partial<{
         activity_event: unknown;
         signup_pageview_event: unknown;
@@ -17330,6 +17554,7 @@ export namespace Schemas {
         payment_event: unknown;
         account_group_type_index: number | null;
         default_pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+        role_default_pinned_properties: Array<TeamCustomerAnalyticsRoleDefaultPinnedProperties>;
     }>;
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;
@@ -17731,8 +17956,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         flags_persistence_default?: (boolean | null) | undefined;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
         /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          */
@@ -17806,7 +18029,7 @@ export namespace Schemas {
          */
         available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
-         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**
@@ -19549,6 +19772,7 @@ export namespace Endpoints {
                 filters_override: string;
                 format: "json" | "txt";
                 include_dashboards: boolean;
+                omit_tile_results: boolean;
                 variables_override: string;
             }>;
             path: { id: number; project_id: string };
@@ -20039,7 +20263,11 @@ export namespace Endpoints {
                 name: string;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops" | "transactional_emails";
+                origin_product:
+                    | "broadcasts"
+                    | "loops"
+                    | "transactional_emails"
+                    | "transactional_push";
                 search: string;
                 source_record: string;
                 status: "active" | "archived" | "draft";

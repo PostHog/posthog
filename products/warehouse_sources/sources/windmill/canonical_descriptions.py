@@ -191,4 +191,71 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "resource": "Resource the action targeted, if any.",
         },
     },
+    "script_versions": {
+        "description": "Deployment history of each script: one row per deployed version.",
+        "docs_url": WINDMILL_DOCS + "/versioning",
+        "columns": {
+            "script_path": "Path of the script the version belongs to.",
+            "script_hash": "Hash that identifies this version of the script.",
+            "deployment_msg": "Message entered when the version was deployed, if any.",
+            "created_at": "Timestamp when the version was deployed.",
+            "created_by": "Username that deployed the version.",
+        },
+    },
+    "flow_versions": {
+        "description": "Deployment history of each flow: one row per deployed version.",
+        "docs_url": WINDMILL_DOCS + "/versioning",
+        "columns": {
+            "flow_path": "Path of the flow the version belongs to.",
+            "id": "Identifier of this flow version.",
+            "deployment_msg": "Message entered when the version was deployed, if any.",
+            "created_at": "Timestamp when the version was deployed.",
+            "created_by": "Username that deployed the version.",
+        },
+    },
+    "app_versions": {
+        "description": "Deployment history of each app: one row per deployed version.",
+        "docs_url": WINDMILL_DOCS + "/versioning",
+        "columns": {
+            "app_path": "Path of the app the version belongs to.",
+            "version": "Identifier of this app version.",
+            "deployment_msg": "Message entered when the version was deployed, if any.",
+            "created_at": "Timestamp when the version was deployed.",
+            "created_by": "Username that deployed the version.",
+        },
+    },
+    "assets": {
+        "description": "Data assets that scripts, flows and jobs in the workspace read or write.",
+        "docs_url": WINDMILL_DOCS + "/assets",
+        "columns": {
+            "path": "Path of the asset, such as an S3 object key, a resource path or a database table.",
+            "kind": "Kind of asset (s3object, resource, ducklake, datatable, etc.).",
+            "usages": "Scripts, flows and jobs that use the asset, with the access type and the time each use was detected.",
+            "metadata": "Extra details, such as the resource type for a resource asset.",
+        },
+    },
+    "workers": {
+        "description": "Workers that pinged the Windmill instance in the last 5 minutes.",
+        "docs_url": WINDMILL_DOCS + "/worker_groups",
+        "columns": {
+            "worker": "Name of the worker (primary key).",
+            "worker_instance": "Host instance the worker runs on.",
+            "last_ping": "Seconds since the worker last pinged the instance.",
+            "started_at": "Timestamp when the worker started.",
+            "ip": "IP address of the worker.",
+            "jobs_executed": "Number of jobs the worker has run since it started.",
+            "custom_tags": "Worker tags the worker listens to.",
+            "worker_group": "Worker group the worker belongs to.",
+            "wm_version": "Windmill version the worker runs.",
+        },
+    },
+    "queue_metrics": {
+        "description": "Queue samples per worker tag over the last 14 days: the number of waiting jobs and the wait time.",
+        "docs_url": WINDMILL_DOCS + "/worker_groups",
+        "columns": {
+            "id": "Metric name: queue_count_<tag> for waiting jobs, queue_delay_<tag> for the wait time.",
+            "created_at": "Timestamp of the sample.",
+            "value": "Sampled value: a job count, or the wait time in seconds.",
+        },
+    },
 }

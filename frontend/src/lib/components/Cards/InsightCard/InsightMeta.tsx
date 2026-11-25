@@ -14,7 +14,6 @@ import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRe
 import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -26,6 +25,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -529,7 +529,12 @@ function InsightMetaBody({
                           ? urls.sqlEditor({ insightShortId: short_id, dashboard: dashboardId ?? undefined })
                           : urls.insightEdit(short_id, dashboardId)
                   ),
-                  overrideWarning: getOverrideWarningPropsForButton(insight.query, filtersOverride, variablesOverride),
+                  overrideWarning: getOverrideWarningPropsForButton(
+                      insight.query,
+                      filtersOverride,
+                      variablesOverride,
+                      tileFiltersOverride
+                  ),
               }
             : null,
         rename: canEditInsight && rename ? rename : null,
@@ -679,6 +684,7 @@ function InsightMetaBody({
                         <QuillInsightMetaContent
                             {...metaContentProps}
                             infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                            onCopyLink={showEditingControls ? copyInsightLink : undefined}
                         />
                     }
                     menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
@@ -798,6 +804,8 @@ export interface InsightMetaContentProps {
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
     warehouseSyncTooltip?: JSX.Element | null
+    /** Shows a copy link icon beside the title while the card is hovered. */
+    onCopyLink?: () => void
 }
 
 export function InsightMetaContent({

@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { enclosingColumns, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
 import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
+import { htmlSentAsWritten } from '../renderEmailHtml'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailHtmlCodeField } from './EmailHtmlCodeField'
@@ -17,6 +18,7 @@ import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailSidesField } from './fields/EmailSidesField'
 import { EmailWeightField } from './fields/EmailWeightField'
+import { numberOrUnset } from './fields/numberOrUnset'
 
 const DEFAULT_TEXT_PADDING: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
 const NO_PADDING: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -46,6 +48,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     const set = (patch: Partial<EmailBlockStyle>): void => setBlockStyle(editor, pos, patch)
     const page = resolvePageStyle(editor.state.doc.attrs.page)
     const columns = enclosingColumns(editor)
+    const sentAsWritten = type === 'emailHtml' && htmlSentAsWritten(editor.getJSON()) !== null
 
     let fields: JSX.Element | null = null
     switch (type) {
@@ -57,7 +60,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
             fields = (
                 <>
                     <EmailTextFields editor={editor} nodeType={type} level={node.attrs.level} style={style} set={set} />
-                    <EmailBoxFields style={style} set={set} defaultPadding={DEFAULT_TEXT_PADDING} />
+                    <EmailBoxFields key={`box-${pos}`} style={style} set={set} defaultPadding={DEFAULT_TEXT_PADDING} />
                 </>
             )
             break
@@ -148,7 +151,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             prefix={<span className="text-xs text-secondary">↔</span>}
                             value={style.innerPaddingX ?? ('' as unknown as number)}
                             placeholder="24"
-                            onChange={(innerPaddingX) => set({ innerPaddingX })}
+                            onChange={(next) => set({ innerPaddingX: numberOrUnset(next) })}
                         />
                         <LemonInput
                             type="number"
@@ -159,10 +162,11 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             prefix={<span className="text-xs text-secondary">↕</span>}
                             value={style.innerPaddingY ?? ('' as unknown as number)}
                             placeholder="12"
-                            onChange={(innerPaddingY) => set({ innerPaddingY })}
+                            onChange={(next) => set({ innerPaddingY: numberOrUnset(next) })}
                         />
                     </EmailFieldRow>
                     <EmailSidesField
+                        key={`border-${pos}`}
                         label="Border"
                         value={
                             style.borderSides ??
@@ -196,6 +200,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     ) : null}
                     <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={{ top: 12, right: 0, bottom: 12, left: 0 }}
@@ -264,6 +269,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={NO_PADDING}
@@ -302,6 +308,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         onChange={(width) => set({ width })}
                     />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={DEFAULT_TEXT_PADDING}
@@ -331,7 +338,15 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         html={String(node.attrs.html ?? '')}
                         onChange={(html) => setBlockAttribute(editor, pos, 'html', html)}
                     />
-                    <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+                    {sentAsWritten ? null : (
+                        <EmailBoxFields
+                            key={`box-${pos}`}
+                            style={style}
+                            set={set}
+                            defaultPadding={NO_PADDING}
+                            showBorder={false}
+                        />
+                    )}
                 </>
             )
             break
@@ -345,7 +360,9 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                 <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
             ) : null}
             {type !== 'emailColumns' ? fields : null}
-            {type !== 'emailColumns' ? <EmailVisibilityFields editor={editor} pos={pos} /> : null}
+            {type !== 'emailColumns' && !(sentAsWritten && !node.attrs.emailVisibility) ? (
+                <EmailVisibilityFields editor={editor} pos={pos} />
+            ) : null}
             {columns ? (
                 <>
                     {type !== 'emailColumns' ? <LemonDivider className="my-1" /> : null}

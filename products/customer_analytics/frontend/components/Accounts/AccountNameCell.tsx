@@ -3,9 +3,11 @@ import type { MouseEventHandler } from 'react'
 import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { AccountLogo } from './AccountLogo'
+import { QuillAccountNameCell } from './QuillAccountNameCell'
 
 export interface AccountNameCellProps {
     accountId?: string
@@ -24,6 +26,21 @@ export function AccountNameCell({
     onClick,
     target,
 }: AccountNameCellProps): JSX.Element {
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillAccountNameCell
+                accountId={accountId}
+                name={name}
+                externalId={externalId}
+                logoDomain={logoDomain}
+                onClick={onClick}
+                target={target}
+            />
+        )
+    }
+
     return (
         <div className="flex items-center gap-2 min-w-40" data-account-id={accountId}>
             {logoDomain !== undefined ? <AccountLogo domain={logoDomain} name={name} /> : null}

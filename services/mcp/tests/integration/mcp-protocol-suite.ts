@@ -1541,6 +1541,33 @@ export function defineResourceCatalogTests(
             expect(malformed).toEqual([])
         })
 
+        it.each([
+            ['?resources=none', {}, []],
+            ['', { 'x-posthog-mcp-resources': 'docs' }, []],
+            ['?resources=apps', {}, ['ui://']],
+        ])(
+            'lists resources for %s with headers %j by URI scheme %j and still reads apps',
+            async (search, headers, schemes) => {
+                const url = new URL('/mcp', harness.baseUrl)
+                url.search = search
+                const transport = new StreamableHTTPClientTransport(url, {
+                    fetch: harness.fetch,
+                    requestInit: { headers: { Authorization: `Bearer ${harness.token}`, ...headers } },
+                })
+                const filtered = new Client({ name: 'resource-filter-test', version: '0.0.0' }, { capabilities: {} })
+                try {
+                    await filtered.connect(transport as ConnectableTransport)
+                    const { resources } = await filtered.listResources()
+                    const read = await filtered.readResource({ uri: 'ui://posthog/debug.html' })
+
+                    expect([...new Set(resources.map((r) => r.uri.split('//')[0] + '//'))]).toEqual(schemes)
+                    expect(read.contents[0]?.uri).toBe('ui://posthog/debug.html')
+                } finally {
+                    await safeClose(filtered)
+                }
+            }
+        )
+
         // Reading two different resources in sequence — catches a regression
         // where one read mutates shared catalog state and corrupts the next
         // lookup.

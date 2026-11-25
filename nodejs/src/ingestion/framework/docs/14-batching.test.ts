@@ -139,7 +139,7 @@ describe('Batching Pipelines', () => {
         type BatchStore = { store: string }
         let seenInAfter: string | undefined
 
-        const pipeline = newBatchingPipeline<Event, Event, NoCtx, BatchStore>(
+        const pipeline = newBatchingPipeline<Event, Event & BatchStore, NoCtx, BatchStore>(
             (builder) =>
                 builder.pipe(function attachStore(input) {
                     return Promise.resolve(

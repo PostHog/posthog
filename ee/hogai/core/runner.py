@@ -76,6 +76,11 @@ from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPa
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
 
+# The SDK drops AI events once a client's AI queue is full. Each run has its own client, and the
+# queue fills while capture is slow, so it must hold every event of a long run. The SDK default
+# of 1,000 events is smaller than the longest runs.
+AI_EVENT_QUEUE_SIZE = 3000
+
 
 class SubagentCallbackHandler(MaxCallbackHandler):
     """
@@ -220,6 +225,7 @@ class BaseAgentRunner(ABC):
                     flush_at=1,
                     before_send=ai_event_truncator,
                     capture_trace_context=True,
+                    capture_ai_max_queue_size=AI_EVENT_QUEUE_SIZE,
                 )
 
             # Local deployment or hobby

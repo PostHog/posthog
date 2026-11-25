@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -399,7 +400,7 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        instanceSocialProviders: (preflight: PreflightStatus | null) => SSOProvider[]
+        instanceSocialProviders: (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet) => SSOProvider[]
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -761,13 +762,14 @@ export const loginLogic = kea<loginLogicType>([
                     : null,
         ],
         instanceSocialProviders: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus | null): SSOProvider[] => {
+            (s) => [s.preflight, s.featureFlags],
+            (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet): SSOProvider[] => {
                 const order = Object.keys(SSO_PROVIDER_NAMES)
                 return (
                     (Object.entries(preflight?.available_social_auth_providers ?? {}) as [SSOProvider, boolean][])
                         // SAML and OIDC are domain-configured and never render as a social button.
                         .filter(([provider, available]) => available && provider !== 'saml' && provider !== 'oidc')
+                        .filter(([provider]) => !isSocialProviderHeldBack(provider, featureFlags))
                         .map(([provider]) => provider)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                 )

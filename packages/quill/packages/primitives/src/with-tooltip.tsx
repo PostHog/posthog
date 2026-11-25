@@ -5,7 +5,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 /**
  * Where the tooltip listens for the pointer.
  * - `self`: the element is the trigger. Use it only for elements that stay hoverable when disabled,
- *   such as `Button`, which keeps `focusableWhenDisabled` on.
+ *   such as `Button`, which keeps `focusableWhenDisabled` on, or a container whose disabled controls
+ *   ignore the pointer, such as a number field or slider root.
  * - `block` / `inline`: a wrapper element is the trigger. Disabled menu items, checkboxes and switches
  *   ignore the pointer, so the wrapper has to catch it for them.
  */
@@ -29,14 +30,17 @@ export function withTooltip(
         target,
         delay,
         side,
+        align,
         focusable = false,
     }: {
         target: TooltipTarget
         delay?: number
         side?: React.ComponentProps<typeof TooltipContent>['side']
+        align?: React.ComponentProps<typeof TooltipContent>['align']
         /**
-         * Puts a `block` or `inline` wrapper in the tab order. A disabled control leaves the tab
-         * order, so the wrapper is the only way a keyboard user can open its reason.
+         * Puts the trigger in the tab order while there is content: the wrapper for `block` and
+         * `inline`, the element itself for `self`. A disabled control leaves the tab order, so the
+         * trigger is the only way a keyboard user can open its reason.
          */
         focusable?: boolean
     }
@@ -46,7 +50,7 @@ export function withTooltip(
     return (
         <Tooltip disabled={!hasContent}>
             {target === 'self' ? (
-                <TooltipTrigger render={element} delay={delay} />
+                <TooltipTrigger render={element} delay={delay} {...(tabIndex !== undefined && { tabIndex })} />
             ) : (
                 <TooltipTrigger
                     delay={delay}
@@ -63,7 +67,20 @@ export function withTooltip(
                     {element}
                 </TooltipTrigger>
             )}
-            {hasContent && <TooltipContent side={side}>{content}</TooltipContent>}
+            {hasContent && (
+                <TooltipContent side={side} align={align}>
+                    {content}
+                </TooltipContent>
+            )}
         </Tooltip>
     )
+}
+
+/** Opens at the control's start edge, so a reason on a wide field or card sits beside where it starts. */
+export function withDisabledReason(
+    element: React.ReactElement,
+    reason: React.ReactNode,
+    options: Omit<Parameters<typeof withTooltip>[2], 'align'>
+): React.ReactElement {
+    return withTooltip(element, reason, { ...options, align: 'start' })
 }

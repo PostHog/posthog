@@ -19,10 +19,13 @@ from products.warehouse_sources.sources.amazon_selling_partner.amazon_selling_pa
     SELLER_ONLY_MESSAGE,
     UNAVAILABLE_MESSAGE,
     VENDOR_ONLY_MESSAGE,
+    VENDOR_ORDERS_MESSAGE,
     AmazonSellingPartnerResumeConfig,
     VendorReportError,
+    date_windows,
     parse_marketplace_ids,
     probe_endpoint_permissions,
+    purchase_order_windows,
     report_windows,
     to_iso8601,
     transaction_windows,
@@ -52,6 +55,13 @@ ORDERS_PATH = "/orders/2026-01-01/orders"
 TRANSACTIONS_PATH = "/finances/2024-06-19/transactions"
 SUMMARIES_PATH = "/fba/inventory/v1/summaries"
 PARTICIPATIONS_PATH = "/sellers/v1/marketplaceParticipations"
+PAYOUTS_PATH = "/finances/transfers/2024-06-01/payouts"
+INBOUND_PLANS_PATH = "/inbound/fba/2024-03-20/inboundPlans"
+FULFILLMENT_ORDERS_PATH = "/fulfillment/outbound/2026-07-04/orders"
+PURCHASE_ORDERS_PATH = "/vendor/orders/v1/purchaseOrders"
+ORDER_METRICS_PATH = "/sales/v1/orderMetrics"
+INVOICES_PATH = "/finances/invoices/2026-06-25/invoices"
+OFFERS_PATH = "/replenishment/2022-11-07/offers/search"
 
 TOKEN = ScriptedResponse(
     json={"access_token": "Atza|access", "refresh_token": "Atzr|refresh", "token_type": "bearer", "expires_in": 3600}
@@ -397,6 +407,575 @@ class TestTransactions:
             return invalid_input if request.param("nextToken") else _transactions_page(["t"], "next")
 
         result = _driver().run("transactions", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+
+def _payouts_page(ids: list[str], next_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"payouts": [{"id": id, "creationDate": "2026-09-02T00:00:00Z"} for id in ids]}
+    if next_token:
+        body["nextToken"] = next_token
+    return ScriptedResponse(json=body)
+
+
+def _inbound_plans_page(ids: list[str], next_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"inboundPlans": [{"inboundPlanId": id, "createdAt": "2026-09-02T00:00:00Z"} for id in ids]}
+    if next_token:
+        body["pagination"] = {"nextToken": next_token}
+    return ScriptedResponse(json=body)
+
+
+def _fulfillment_orders_page(orders: list[dict[str, Any]], next_token: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"orders": orders, "pagination": {"nextToken": next_token} if next_token else {}})
+
+
+def _fulfillment_order(order_id: str) -> dict[str, Any]:
+    return {"orderId": order_id, "receiveTime": "2026-09-02T00:00:00Z", "lineItems": []}
+
+
+class TestSinglePageTokenTables:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "pages", "token_param", "first_page_params"),
+        [
+            (
+                "payouts",
+                PAYOUTS_PATH,
+                # listPayouts can answer with an empty page that still carries a token.
+                [_payouts_page(["p1"], "n2"), _payouts_page([], "n3"), _payouts_page(["p3"])],
+                "nextToken",
+                {"createdAfter": None},
+            ),
+            (
+                "inbound_plans",
+                INBOUND_PLANS_PATH,
+                [_inbound_plans_page(["p1"], "n2"), _inbound_plans_page([], "n3"), _inbound_plans_page(["p3"])],
+                "paginationToken",
+                {"pageSize": "30", "sortBy": "CREATION_TIME", "sortOrder": "ASC"},
+            ),
+            (
+                "fulfillment_orders",
+                FULFILLMENT_ORDERS_PATH,
+                [
+                    _fulfillment_orders_page([_fulfillment_order("p1")], "n2"),
+                    _fulfillment_orders_page([], "n3"),
+                    _fulfillment_orders_page([_fulfillment_order("p3")]),
+                ],
+                "pageToken",
+                {"updatedAfter": EARLIEST_START},
+            ),
+        ],
+    )
+    def test_full_refresh_walks_every_page_through_empty_ones(
+        self,
+        endpoint: str,
+        path: str,
+        pages: list[ScriptedResponse],
+        token_param: str,
+        first_page_params: dict[str, str | None],
+    ) -> None:
+        result = _driver().run(endpoint, route({TOKEN_PATH: [TOKEN], path: pages}))
+
+        assert result.raised is None
+        api_requests = _api_requests(result)
+        assert [request.path for request in api_requests] == [path] * 3
+        assert [request.param(token_param) for request in api_requests] == [None, "n2", "n3"]
+        assert {name: api_requests[0].param(name) for name in first_page_params} == first_page_params
+        rows = result.rows
+        primary_key = {"payouts": "id", "inbound_plans": "inboundPlanId", "fulfillment_orders": "orderId"}[endpoint]
+        assert [row[primary_key] for row in rows] == ["p1", "p3"]
+        assert result.saved_states == [
+            AmazonSellingPartnerResumeConfig(next_token="n2"),
+            AmazonSellingPartnerResumeConfig(next_token="n3"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "page", "incremental_field", "param"),
+        [
+            ("payouts", PAYOUTS_PATH, _payouts_page(["p"]), "creationDate", "createdAfter"),
+            (
+                "fulfillment_orders",
+                FULFILLMENT_ORDERS_PATH,
+                _fulfillment_orders_page([_fulfillment_order("p")]),
+                "statusUpdateTime",
+                "updatedAfter",
+            ),
+        ],
+    )
+    def test_incremental_sends_the_watermark(
+        self, endpoint: str, path: str, page: ScriptedResponse, incremental_field: str, param: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            route({TOKEN_PATH: [TOKEN], path: [page]}),
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert _api_requests(result)[0].param(param) == "2026-03-04T05:06:07Z"
+
+    def test_resumes_from_the_saved_page_token(self) -> None:
+        result = _driver().run(
+            "payouts",
+            route({TOKEN_PATH: [TOKEN], PAYOUTS_PATH: [_payouts_page(["p9"])]}),
+            resume_state=AmazonSellingPartnerResumeConfig(next_token="tok9"),
+        )
+
+        assert _api_requests(result)[0].param("nextToken") == "tok9"
+        assert [row["id"] for row in result.rows] == ["p9"]
+
+    def test_recipient_personal_data_is_dropped_from_fulfillment_orders(self) -> None:
+        packing_slip = {
+            "packaging": {"packingSlip": {"templateName": "slip", "templateAttributes": {"note": "For Sam"}}}
+        }
+        order = {
+            **_fulfillment_order("A"),
+            "destination": {
+                "deliveryAddress": {
+                    "name": "Sam Example",
+                    "addressLine1": "1 Example Street",
+                    "phone": "555-0100",
+                    "email": "sam@example.com",
+                    "city": "Seattle",
+                    "postalCode": "98101",
+                    "countryCode": "US",
+                },
+                "deliveryNotes": "Leave by the blue door",
+                "dropOffLocation": {"type": "FRONT_DOOR", "attributes": {"gateCode": "4321"}},
+            },
+            "fulfillmentConfiguration": {"services": packing_slip},
+            "lineItems": [
+                {"lineItemId": "l1", "fulfillmentConfiguration": {"services": json.loads(json.dumps(packing_slip))}}
+            ],
+            "shipments": [
+                {
+                    "packages": [
+                        {"packageId": "1", "tracking": {"dropOffLocation": {"attributes": {"gateCode": "4321"}}}}
+                    ]
+                }
+            ],
+        }
+
+        result = _driver().run(
+            "fulfillment_orders",
+            route({TOKEN_PATH: [TOKEN], FULFILLMENT_ORDERS_PATH: [_fulfillment_orders_page([order])]}),
+        )
+
+        assert result.raised is None
+        serialized = json.dumps(result.rows)
+        for personal in (
+            "Sam Example",
+            "1 Example Street",
+            "555-0100",
+            "sam@example.com",
+            "blue door",
+            "4321",
+            "For Sam",
+        ):
+            assert personal not in serialized
+        address = result.rows[0]["destination"]["deliveryAddress"]
+        assert address == {"city": "Seattle", "postalCode": "98101", "countryCode": "US"}
+        assert result.rows[0]["destination"]["dropOffLocation"] == {"type": "FRONT_DOOR"}
+
+
+def _purchase_orders_page(numbers: list[str], next_token: str | None = None) -> ScriptedResponse:
+    payload: dict[str, Any] = {
+        "orders": [
+            {
+                "purchaseOrderNumber": number,
+                "purchaseOrderState": "Acknowledged",
+                "orderDetails": {"purchaseOrderDate": "2026-10-01T00:00:00Z", "items": [{"itemSequenceNumber": "1"}]},
+            }
+            for number in numbers
+        ]
+    }
+    if next_token:
+        payload["pagination"] = {"nextToken": next_token}
+    return ScriptedResponse(json={"payload": payload})
+
+
+class TestVendorPurchaseOrders:
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        ("incremental_field", "last_value", "expected_start"),
+        [
+            (None, None, NOW - timedelta(days=180)),
+            ("purchaseOrderDate", datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 1, tzinfo=UTC)),
+            # Amazon keeps 6 months, so an older watermark starts at that floor instead of a rejected range.
+            ("purchaseOrderDate", datetime(2025, 1, 1, tzinfo=UTC), NOW - timedelta(days=180)),
+        ],
+    )
+    def test_walks_7_day_windows_from_the_start_in_ascending_order(
+        self, incremental_field: str | None, last_value: datetime | None, expected_start: datetime
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            return _purchase_orders_page([request.param("createdAfter") or ""])
+
+        result = _driver().run(
+            "vendor_purchase_orders",
+            respond,
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        windows = purchase_order_windows(expected_start, NOW)
+        api_requests = _api_requests(result)
+        assert [(r.param("createdAfter"), r.param("createdBefore")) for r in api_requests] == [
+            (to_iso8601(w.created_after), to_iso8601(w.created_before)) for w in windows
+        ]
+        assert api_requests[-1].param("createdBefore") == "2026-10-15T11:57:00Z"
+        assert all(
+            r.param("sortOrder") == "ASC" and r.param("limit") == "100" and r.param("includeDetails") == "true"
+            for r in api_requests
+        )
+        assert len(result.rows) == len(windows)
+        assert result.saved_states == [
+            AmazonSellingPartnerResumeConfig(
+                window_start=to_iso8601(w.created_after), window_end=to_iso8601(w.created_before)
+            )
+            for w in windows[1:]
+        ]
+
+    def test_pages_inside_a_window_and_lifts_order_details_into_the_row(self) -> None:
+        result = _driver().run(
+            "vendor_purchase_orders",
+            route(
+                {
+                    TOKEN_PATH: [TOKEN],
+                    PURCHASE_ORDERS_PATH: [_purchase_orders_page(["PO1"], "n2"), _purchase_orders_page(["PO2"])],
+                }
+            ),
+            incremental_field="purchaseOrderDate",
+            db_incremental_field_last_value=NOW - timedelta(days=2),
+        )
+
+        assert result.raised is None
+        api_requests = _api_requests(result)
+        assert [r.param("nextToken") for r in api_requests] == [None, "n2"]
+        assert api_requests[0].param("createdAfter") == api_requests[1].param("createdAfter")
+        assert result.rows[0] == {
+            "purchaseOrderNumber": "PO1",
+            "purchaseOrderState": "Acknowledged",
+            "purchaseOrderDate": "2026-10-01T00:00:00Z",
+            "items": [{"itemSequenceNumber": "1"}],
+        }
+        assert result.saved_states[0] == AmazonSellingPartnerResumeConfig(
+            window_start="2026-10-13T12:00:00Z", window_end="2026-10-15T11:57:00Z", next_token="n2"
+        )
+
+    def test_resume_reuses_the_saved_window_with_its_token_then_continues(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return TOKEN if request.path == TOKEN_PATH else _purchase_orders_page(["PO"])
+
+        result = _driver().run(
+            "vendor_purchase_orders",
+            respond,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                window_start="2026-10-01T00:00:00Z", window_end="2026-10-08T00:00:00Z", next_token="n2"
+            ),
+        )
+
+        assert [
+            (r.param("createdAfter"), r.param("createdBefore"), r.param("nextToken")) for r in _api_requests(result)
+        ] == [
+            ("2026-10-01T00:00:00Z", "2026-10-08T00:00:00Z", "n2"),
+            ("2026-10-08T00:00:00Z", "2026-10-15T00:00:00Z", None),
+            ("2026-10-15T00:00:00Z", "2026-10-15T11:57:00Z", None),
+        ]
+
+
+def _participations(*marketplace_ids: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "payload": [
+                {"marketplace": {"id": id}, "participation": {"isParticipating": True}} for id in marketplace_ids
+            ]
+        }
+    )
+
+
+def _order_metrics(marketplace_id: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "payload": [
+                {
+                    "interval": "2026-10-14T00:00Z--2026-10-15T00:00Z",
+                    "unitCount": 3,
+                    "orderItemCount": 2,
+                    "orderCount": 1,
+                    "averageUnitPrice": {"amount": "5.00", "currencyCode": "USD"},
+                    "totalSales": {"amount": "15.00", "currencyCode": marketplace_id},
+                }
+            ]
+        }
+    )
+
+
+def _invoices_page(ids: list[str], next_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {
+        "invoices": [
+            {"invoiceIdentifier": id, "issueDate": "2026-09-02T00:00:00Z", "lastUpdatedDate": "2026-09-03T00:00:00Z"}
+            for id in ids
+        ]
+    }
+    if next_token:
+        body["nextToken"] = next_token
+    return ScriptedResponse(json=body)
+
+
+def _offers_page(asins: list[str], total: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "offers": [{"asin": asin, "marketplaceId": "A", "programType": "SUBSCRIBE_AND_SAVE"} for asin in asins],
+            "pagination": {"totalResults": total},
+        }
+    )
+
+
+def _marketplace_of(request: RecordedRequest) -> str | None:
+    if request.method == "POST":
+        return request.json()["filters"]["marketplaceId"]
+    return request.param("marketplaceIds") or request.param("marketplaceId")
+
+
+INVALID_MARKETPLACE = ScriptedResponse(
+    status=400, json={"errors": [{"code": "InvalidInput", "message": "Invalid marketplace", "details": ""}]}
+)
+
+
+class TestMarketplaceTables:
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        ("incremental_field", "last_value", "expected_interval"),
+        [
+            (None, None, "2024-10-16T00:00:00Z--2026-10-15T12:00:00Z"),
+            ("startTime", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z--2026-10-15T12:00:00Z"),
+            # Amazon rejects a Day interval that starts over 2 years back, so an old watermark starts at that floor.
+            ("startTime", "2020-01-01T00:00:00Z", "2024-10-16T00:00:00Z--2026-10-15T12:00:00Z"),
+        ],
+    )
+    def test_order_metrics_read_each_discovered_marketplace_by_utc_day(
+        self, incremental_field: str | None, last_value: str | None, expected_interval: str
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.path == PARTICIPATIONS_PATH:
+                return _participations("A", "B")
+            return _order_metrics(request.param("marketplaceIds") or "")
+
+        result = _driver().run(
+            "order_metrics", respond, incremental_field=incremental_field, db_incremental_field_last_value=last_value
+        )
+
+        assert result.raised is None
+        metric_requests = [r for r in _api_requests(result) if r.path == ORDER_METRICS_PATH]
+        assert [
+            (r.param("marketplaceIds"), r.param("interval"), r.param("granularity"), r.param("granularityTimeZone"))
+            for r in metric_requests
+        ] == [("A", expected_interval, "Day", "UTC"), ("B", expected_interval, "Day", "UTC")]
+        assert [(row["marketplaceId"], row["startTime"], row["endTime"]) for row in result.rows] == [
+            ("A", "2026-10-14T00:00:00Z", "2026-10-15T00:00:00Z"),
+            ("B", "2026-10-14T00:00:00Z", "2026-10-15T00:00:00Z"),
+        ]
+        assert result.saved_states == [
+            AmazonSellingPartnerResumeConfig(marketplace_id="B"),
+            AmazonSellingPartnerResumeConfig(completed_marketplaces=["A", "B"]),
+        ]
+
+    @pytest.mark.parametrize(
+        ("last_value", "expected_modified_after"),
+        [(None, None), (datetime(2026, 9, 1, tzinfo=UTC), "2026-09-01T00:00:00Z")],
+    )
+    def test_invoices_walk_90_day_issue_windows_of_each_marketplace(
+        self, last_value: datetime | None, expected_modified_after: str | None
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.param("fromIssueDate") == "2026-10-05T12:00:00Z" and request.param("nextToken") is None:
+                return _invoices_page([f"{request.param('marketplaceId')}-1"], "n2")
+            if request.param("nextToken") == "n2":
+                return _invoices_page([f"{request.param('marketplaceId')}-2"])
+            return _invoices_page([])
+
+        result = _driver("A,B").run(
+            "invoices",
+            respond,
+            incremental_field="lastUpdatedDate" if last_value else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        windows = date_windows(NOW - timedelta(days=730), NOW, 90)
+        assert len(windows) == 9
+        api_requests = _api_requests(result)
+        expected: list[tuple[str, str, str, str | None]] = [
+            (marketplace, to_iso8601(window.start), to_iso8601(window.end), None)
+            for marketplace in ("A", "B")
+            for window in windows
+        ]
+        last_window = (to_iso8601(windows[-1].start), to_iso8601(windows[-1].end))
+        expected.insert(9, ("A", *last_window, "n2"))
+        expected.append(("B", *last_window, "n2"))
+        assert [
+            (r.param("marketplaceId"), r.param("fromIssueDate"), r.param("toIssueDate"), r.param("nextToken"))
+            for r in api_requests
+        ] == expected
+        assert {r.param("invoicesModifiedAfter") for r in api_requests} == {expected_modified_after}
+        assert [(row["marketplaceId"], row["invoiceIdentifier"]) for row in result.rows] == [
+            ("A", "A-1"),
+            ("A", "A-2"),
+            ("B", "B-1"),
+            ("B", "B-2"),
+        ]
+        assert (
+            AmazonSellingPartnerResumeConfig(
+                marketplace_id="A", window_start=last_window[0], window_end=last_window[1], next_token="n2"
+            )
+            in result.saved_states
+        )
+
+    def test_invoices_resume_at_the_saved_window_and_token_then_continue(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return TOKEN if request.path == TOKEN_PATH else _invoices_page(["I"])
+
+        result = _driver("A,B").run(
+            "invoices",
+            respond,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="B",
+                window_start="2026-07-01T00:00:00Z",
+                window_end="2026-09-29T00:00:00Z",
+                next_token="n7",
+            ),
+        )
+
+        assert [
+            (r.param("marketplaceId"), r.param("fromIssueDate"), r.param("toIssueDate"), r.param("nextToken"))
+            for r in _api_requests(result)
+        ] == [
+            ("B", "2026-07-01T00:00:00Z", "2026-09-29T00:00:00Z", "n7"),
+            ("B", "2026-09-29T00:00:00Z", "2026-10-15T11:57:00Z", None),
+        ]
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_offsets", "expected_rows"),
+        [
+            (None, [0, 100, 200], 230),
+            (AmazonSellingPartnerResumeConfig(marketplace_id="A", next_token="200"), [200], 30),
+            (AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"]), [], 0),
+        ],
+    )
+    def test_replenishment_offers_page_by_offset_in_the_post_body(
+        self, resume_state: AmazonSellingPartnerResumeConfig | None, expected_offsets: list[int], expected_rows: int
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            offset = request.json()["pagination"]["offset"]
+            return _offers_page([f"B{offset + i:03d}" for i in range(100 if offset < 200 else 30)], total=230)
+
+        result = _driver("A").run("replenishment_offers", respond, resume_state=resume_state)
+
+        assert result.raised is None
+        api_requests = _api_requests(result)
+        assert all(r.method == "POST" for r in api_requests)
+        assert [r.json()["pagination"] for r in api_requests] == [
+            {"offset": offset, "limit": 100} for offset in expected_offsets
+        ]
+        assert all(
+            {k: v for k, v in r.json().items() if k != "pagination"}
+            == {
+                "filters": {"marketplaceId": "A", "programTypes": ["SUBSCRIBE_AND_SAVE"]},
+                "sort": {"order": "ASC", "key": "ASIN"},
+            }
+            for r in api_requests
+        )
+        assert len(result.rows) == expected_rows
+        if expected_offsets:
+            assert result.saved_states[-1] == AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"])
+
+    def test_replenishment_offers_stop_at_the_largest_offset_amazon_accepts(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            offset = request.json()["pagination"]["offset"]
+            return _offers_page([f"B{offset + i:05d}" for i in range(100)], total=20000)
+
+        result = _driver("A").run("replenishment_offers", respond)
+
+        assert result.raised is None
+        assert _api_requests(result)[-1].json()["pagination"]["offset"] == 9000
+        assert len(result.rows) == 9100
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "page"),
+        [
+            ("order_metrics", ORDER_METRICS_PATH, _order_metrics("B")),
+            ("invoices", INVOICES_PATH, _invoices_page(["I"])),
+            ("replenishment_offers", OFFERS_PATH, _offers_page(["X"], total=1)),
+        ],
+    )
+    def test_a_discovered_marketplace_the_api_rejects_is_skipped(
+        self, endpoint: str, path: str, page: ScriptedResponse
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.path == PARTICIPATIONS_PATH:
+                return _participations("NON_AMAZON", "B")
+            return INVALID_MARKETPLACE if _marketplace_of(request) == "NON_AMAZON" else page
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        requested = [_marketplace_of(r) for r in _api_requests(result) if r.path == path]
+        # The rejected marketplace costs one request, not one per window.
+        assert requested.count("NON_AMAZON") == 1
+        assert "B" in requested
+        assert len(result.rows) >= 1
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "marketplace_ids", "resume_state"),
+        [
+            ("replenishment_offers", OFFERS_PATH, "A", None),
+            (
+                "invoices",
+                INVOICES_PATH,
+                None,
+                AmazonSellingPartnerResumeConfig(
+                    marketplace_id="A",
+                    window_start="2026-07-01T00:00:00Z",
+                    window_end="2026-09-29T00:00:00Z",
+                    next_token="expired",
+                ),
+            ),
+        ],
+    )
+    def test_a_rejection_that_is_not_an_uncovered_discovered_marketplace_fails_the_sync(
+        self,
+        endpoint: str,
+        path: str,
+        marketplace_ids: str | None,
+        resume_state: AmazonSellingPartnerResumeConfig | None,
+    ) -> None:
+        result = _driver(marketplace_ids).run(
+            endpoint,
+            route({TOKEN_PATH: [TOKEN], PARTICIPATIONS_PATH: [_participations("A")], path: [INVALID_MARKETPLACE]}),
+            resume_state=resume_state,
+        )
 
         assert isinstance(result.raised, requests.HTTPError)
 
@@ -1017,6 +1596,23 @@ PARTICIPATING_IN_A = ScriptedResponse(
             None,
             {"orders": None, "inventory_summaries": SELLER_ONLY_MESSAGE, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
             [ORDERS_PATH, PARTICIPATIONS_PATH, REPORTS_PATH],
+        ),
+        (
+            {PAYOUTS_PATH, INBOUND_PLANS_PATH},
+            None,
+            {
+                "payouts": SELLER_ONLY_MESSAGE,
+                "inbound_plans": SELLER_ONLY_MESSAGE,
+                "fulfillment_orders": SELLER_ONLY_MESSAGE,
+                "vendor_purchase_orders": None,
+            },
+            [PAYOUTS_PATH, INBOUND_PLANS_PATH, PURCHASE_ORDERS_PATH],
+        ),
+        (
+            {PURCHASE_ORDERS_PATH},
+            None,
+            {"payouts": None, "fulfillment_orders": None, "vendor_purchase_orders": VENDOR_ORDERS_MESSAGE},
+            [PAYOUTS_PATH, INBOUND_PLANS_PATH, PURCHASE_ORDERS_PATH],
         ),
     ],
 )

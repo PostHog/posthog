@@ -2,11 +2,11 @@ import json
 import builtins
 import dataclasses
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
-from functools import lru_cache
-from typing import Any, Union, cast
+from functools import wraps
+from typing import Any, Concatenate, ParamSpec, TypeVar, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -84,6 +84,7 @@ from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, Q
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.feature_flag_usage_insights import feature_flag_generated_insight_q
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -295,6 +296,31 @@ def log_and_report_insight_activity(
                 organization=organization,
                 request=request,
             )
+
+
+_Owner = TypeVar("_Owner")
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def memoize_last_call(
+    method: Callable[Concatenate[_Owner, _P], _R],
+) -> Callable[Concatenate[_Owner, _P], _R]:
+    # functools.lru_cache on a method keeps one cache for all instances, so serializers that run at the same
+    # time on different threads evict each other's entry and compute again. This keeps the last call per instance.
+    cache_attr = f"_memoized_last_call_{method.__qualname__.replace('.', '_')}"
+
+    @wraps(method)
+    def wrapper(self: _Owner, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        key = (args, tuple(sorted(kwargs.items())))
+        last = getattr(self, cache_attr, None)
+        if last is not None and last[0] == key:
+            return last[1]
+        result = method(self, *args, **kwargs)
+        setattr(self, cache_attr, (key, result))
+        return result
+
+    return wrapper
 
 
 def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_control: UserAccessControl) -> Insight:
@@ -513,7 +539,7 @@ class InsightBasicSerializer(
 
         return representation
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
+    @memoize_last_call
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
@@ -1319,33 +1345,8 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
-    def to_representation(self, instance: Insight):
-        representation = super().to_representation(instance)
-
-        # Check if user has access to this insight when viewed in dashboard context
-        if self.context.get("dashboard"):
-            user_access_level = representation.get("user_access_level")
-            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
-                # User doesn't have sufficient access - return minimal insight data
-                return {
-                    "id": instance.id,
-                    "short_id": instance.short_id,
-                    "user_access_level": user_access_level,
-                }
-
-        # the ORM doesn't know about deleted dashboard tiles
-        # when they have just been updated
-        # we store them and can use that list to correct the response
-        # and avoid refreshing from the DB
-        #
-        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
-        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
-        # that opted into receiving the deprecated field.
-        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
-            representation["dashboards"] = [
-                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
-            ]
-
+    def effective_query(self, instance: Insight) -> dict[str, Any] | None:
+        """The insight's query with the dashboard, tile and request overrides applied: what its result is computed with."""
         dashboard: Any = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
@@ -1400,13 +1401,41 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["query"] = query
-        else:
-            representation["query"] = instance.get_effective_query(
-                dashboard=dashboard,
-                dashboard_filters_override=dashboard_filters_override,
-                dashboard_variables_override=dashboard_variables_override,
-            )
+            return query
+        return instance.get_effective_query(
+            dashboard=dashboard,
+            dashboard_filters_override=dashboard_filters_override,
+            dashboard_variables_override=dashboard_variables_override,
+        )
+
+    def to_representation(self, instance: Insight):
+        representation = super().to_representation(instance)
+
+        # Check if user has access to this insight when viewed in dashboard context
+        if self.context.get("dashboard"):
+            user_access_level = representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                # User doesn't have sufficient access - return minimal insight data
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
+
+        # the ORM doesn't know about deleted dashboard tiles
+        # when they have just been updated
+        # we store them and can use that list to correct the response
+        # and avoid refreshing from the DB
+        #
+        # `after_dashboard_changes` is only set (even to an empty list) when this request itself
+        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
+        # that opted into receiving the deprecated field.
+        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
+            representation["dashboards"] = [
+                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
+            ]
+
+        representation["query"] = self.effective_query(instance)
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
@@ -1419,8 +1448,12 @@ class InsightSerializer(InsightBasicSerializer):
 
         return representation
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
+    @memoize_last_call
     def insight_result(self, insight: Insight) -> InsightResult:
+
+        # The caller reads results separately, such as a dashboard first load that reads them through cached_tiles.
+        if self.context.get("omit_insight_results"):
+            return InsightResult(result=None, last_refresh=None, cache_key=None, is_cached=False, timezone=None)
 
         dashboard: Any = self.context.get("dashboard")
 
@@ -1679,7 +1712,7 @@ class InsightSerializer(InsightBasicSerializer):
             timezone=self.context["get_team"]().timezone,
         )
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
+    @memoize_last_call
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Any) -> Any:
         dashboard_tile: Any = self.context.get("dashboard_tile", None)
 
@@ -2604,8 +2637,6 @@ class InsightViewSet(
                     queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
-                    from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
-
                     queryset = queryset.exclude(feature_flag_generated_insight_q())
             elif key == "date_from":
                 queryset = queryset.filter(

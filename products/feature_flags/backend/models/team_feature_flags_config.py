@@ -26,6 +26,16 @@ class PropertyMatchingVersion(models.IntegerChoices):
     EXPLICIT = 2, "Explicit"
 
 
+# Settings that the flags service and local-evaluation SDKs read from the team metadata and flag
+# definitions caches, mapped to the value each takes for a team with no config row. A cache blob
+# written before a setting existed also reads as this value.
+CACHED_SETTING_DEFAULTS: dict[str, bool | int] = {
+    "minimal_flag_called_events": False,
+    "property_matching_version": PropertyMatchingVersion.LEGACY,
+    "null_counts_as_not_set": False,
+}
+
+
 class TeamFeatureFlagsConfig(models.Model):
     """Internal-only team-level feature flags settings, written by staff and never by customers.
 
@@ -57,6 +67,12 @@ class TeamFeatureFlagsConfig(models.Model):
         default=PropertyMatchingVersion.LEGACY,
         db_default=PropertyMatchingVersion.LEGACY,
     )
+
+    # When True, a property whose value is JSON null counts as not set for is_set and is_not_set.
+    # HogQL treats a null value the same way. False keeps the flags service's behavior for teams
+    # that already depend on a null value counting as set. Staff set it per team through the staff
+    # team config endpoint.
+    null_counts_as_not_set = models.BooleanField(default=False, db_default=False)
 
     # Raises or lowers this team's flag-count cap. Null means no override, falling back to the
     # global settings.MAX_FEATURE_FLAGS_PER_TEAM. Resolved by

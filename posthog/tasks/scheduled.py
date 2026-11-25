@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -63,6 +64,7 @@ from posthog.tasks.tasks import (
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     report_upcoming_events_deletions,
+    send_delayed_org_usage_reports,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -134,6 +136,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -190,14 +193,6 @@ from products.workflows.backend.facade.tasks import (
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
-
-# Organizations with delayed data ingestion that need delayed usage report re-runs
-# This is a temporary solution until we switch event usage queries from timestamp to created_at
-DELAYED_ORGS_EU: list[str] = [
-    "018beddd-5eb1-0000-7953-5a5b982e80bf",
-    "01975ab3-7ec5-0000-9751-a89cbc971419",
-]
-DELAYED_ORGS_US: list[str] = []
 
 
 def estimate_crontab_interval_seconds(schedule: crontab) -> int:
@@ -297,6 +292,14 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
@@ -467,6 +470,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune expired signals scratchpad entries",
     )
 
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
+    )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -596,11 +607,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send usage reports for specific orgs with delayed data ingestion
-    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
-    if delayed_orgs:
+    if get_instance_region() in ("US", "EU"):
         sender.add_periodic_task(
-            crontab(hour="10", minute="00"),
-            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            crontab(hour="12", minute="00"),
+            send_delayed_org_usage_reports.s(),
             name="send delayed org usage reports",
         )
 
