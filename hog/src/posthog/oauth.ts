@@ -217,12 +217,15 @@ export class OAuthLogin implements AccessKey {
         return this
     }
 
+    // Refresh and revoke send the refresh token, so they never follow a redirect to another address.
     private async refresh(runtime: Runtime): Promise<OAuthLogin> {
-        const response = await oauthPost(runtime, this.host, 'oauth/token/', {
-            grant_type: 'refresh_token',
-            refresh_token: this.refreshToken,
-            client_id: HOG_CLIENT_ID,
-        })
+        const response = await oauthPost(
+            runtime,
+            this.host,
+            'oauth/token/',
+            { grant_type: 'refresh_token', refresh_token: this.refreshToken, client_id: HOG_CLIENT_ID },
+            { redirect: 'manual' }
+        )
         if (response.ok) {
             const body = parseOrThrow(TokenResponse, response.json, {
                 code: 'unexpected_response',
@@ -265,11 +268,13 @@ export class OAuthLogin implements AccessKey {
     async logout(runtime: Runtime): Promise<LogoutOutcome> {
         let revoked = false
         try {
-            const response = await oauthPost(runtime, this.host, 'oauth/revoke/', {
-                token: this.refreshToken,
-                token_type_hint: 'refresh_token',
-                client_id: HOG_CLIENT_ID,
-            })
+            const response = await oauthPost(
+                runtime,
+                this.host,
+                'oauth/revoke/',
+                { token: this.refreshToken, token_type_hint: 'refresh_token', client_id: HOG_CLIENT_ID },
+                { redirect: 'manual' }
+            )
             revoked = response.ok
         } catch {
             revoked = false
