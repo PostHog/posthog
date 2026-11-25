@@ -144,6 +144,17 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             ("reviewed_by", self.user.id)
         ]
         assert audit.get(item_id=replacement.data["id"], activity="created").is_system is False
+        other_key = self._issue("Review cleanup", ["llm_analytics:write"])
+        self._use(other_key)
+        assert self.client.delete(f"{reviews}{replacement.data['id']}/").status_code == 204
+        deleted = ActivityLog.objects.get(
+            team_id=self.team.id, scope="TraceReview", item_id=replacement.data["id"], activity="deleted"
+        )
+        assert deleted.credential_id == other_key["id"]
+        assert deleted.detail is not None
+        assert [(change["field"], change["before"]) for change in deleted.detail["changes"]] == [
+            ("reviewed_by_project_key_id", key["id"])
+        ]
 
     def test_project_key_edits_preserve_the_human_reviewer_on_retries_and_audit_real_changes(self) -> None:
         key = self._issue("Review editor", ["llm_analytics:write"])
@@ -208,6 +219,45 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         assert human_edit.status_code == 200, human_edit.data
         assert human_edit.data["reviewed_by"]["id"] == self.user.id
         assert human_edit.data["reviewed_by_project_key_id"] is None
+        human_log = logs.get(user=self.user, activity="updated")
+        assert human_log.detail is not None
+        assert [(change["field"], change["before"]) for change in human_log.detail["changes"]] == [
+            ("reviewed_by_project_key_id", key["id"])
+        ]
+
+    def test_audit_identifies_the_previous_project_key_reviewer(self) -> None:
+        original_key = self._issue("First reviewer", ["llm_analytics:write"])
+        other_key = self._issue("Second reviewer", ["llm_analytics:write"])
+        self._use(original_key)
+        reviews = f"{self.project_url}/llm_analytics/trace_reviews/"
+        review = self.client.post(reviews, {"trace_id": "key-authored", "comment": "First review"}, format="json")
+        assert review.status_code == 201, review.data
+        url = f"{reviews}{review.data['id']}/"
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="TraceReview", item_id=review.data["id"])
+        self._use(other_key)
+        retry = self.client.patch(url, {"comment": "First review"}, format="json")
+        assert retry.status_code == 200, retry.data
+        assert retry.data["reviewed_by_project_key_id"] == original_key["id"]
+        assert not logs.filter(activity="updated").exists()
+
+        edited = self.client.patch(url, {"comment": "Second review"}, format="json")
+        assert edited.status_code == 200, edited.data
+        assert edited.data["reviewed_by_project_key_id"] == other_key["id"]
+        edit = logs.get(activity="updated", credential_id=other_key["id"])
+        assert edit.detail is not None
+        assert {change["field"]: change.get("before") for change in edit.detail["changes"]} == {
+            "comment": None,
+            "reviewed_by_project_key_id": original_key["id"],
+        }
+
+        self.client.credentials()
+        self.client.force_login(self.user)
+        assert self.client.delete(url).status_code == 204
+        deleted = logs.get(activity="deleted", user=self.user)
+        assert deleted.detail is not None
+        assert [(change["field"], change["before"]) for change in deleted.detail["changes"]] == [
+            ("reviewed_by_project_key_id", other_key["id"])
+        ]
 
     @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
     def test_dataset_history_identifies_the_writer_of_each_version(self, _flag: MagicMock) -> None:

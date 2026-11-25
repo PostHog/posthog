@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import is_service_auth
@@ -39,17 +40,19 @@ def log_project_key_activity(
     item_id: UUID,
     activity: Literal["created", "updated", "deleted"],
     changes: list[Change] | None = None,
+    previous_project_key_id: str | None = None,
 ) -> None:
-    if is_service_auth(request):
+    user = attribution_user(request)
+    if user is None or previous_project_key_id is not None:
         log_activity(
             organization_id=team.organization_id,
             team_id=team.id,
-            user=None,
+            user=user,
             item_id=item_id,
             scope=scope,
             activity=activity,
             detail=Detail(changes=changes),
-            was_impersonated=False,
+            was_impersonated=user is not None and is_impersonated(request),
             strict=True,
         )
 

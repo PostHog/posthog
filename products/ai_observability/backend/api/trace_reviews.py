@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -43,6 +43,21 @@ from products.ai_observability.backend.score_definition_configs import (
 from products.ai_observability.backend.score_validation import validate_score_value
 
 TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
+
+
+def _previous_reviewer_changes(review: TraceReview, action: Literal["changed", "deleted"]) -> list[Change]:
+    if review.reviewed_by_project_key_id is not None:
+        return [
+            Change(
+                type="TraceReview",
+                action=action,
+                field="reviewed_by_project_key_id",
+                before=review.reviewed_by_project_key_id,
+            )
+        ]
+    if review.reviewed_by_id is not None:
+        return [Change(type="TraceReview", action=action, field="reviewed_by", before=review.reviewed_by_id)]
+    return []
 
 
 class TraceReviewScoreSerializer(serializers.ModelSerializer):
@@ -447,33 +462,39 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         instance = get_object_or_404(TraceReview.objects.select_for_update(), team=team, pk=instance.pk, deleted=False)
         queue_change = self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
+        key_id = project_key_id(request)
+        previous_key_id = instance.reviewed_by_project_key_id
+        changes: list[Change] = []
         if review_user is None:
-            changes = []
             if "comment" in validated_data and validated_data["comment"] != instance.comment:
                 changes.append(Change(type="TraceReview", action="changed", field="comment"))
             if resolved_scores is not None and not self._scores_match(instance, resolved_scores):
                 changes.append(Change(type="TraceReview", action="changed", field="scores"))
             else:
                 resolved_scores = None
-            review_changed = bool(changes)
-            if review_changed and instance.reviewed_by_id is not None:
-                changes.append(
-                    Change(type="TraceReview", action="changed", field="reviewed_by", before=instance.reviewed_by_id)
-                )
-            if queue_change:
-                changes.append(queue_change)
-            if changes:
-                log_project_key_activity(
-                    request, team=team, scope="TraceReview", item_id=instance.pk, activity="updated", changes=changes
-                )
-            if not review_changed:
-                return instance
+        save_review = review_user is not None or bool(changes)
+        if save_review and previous_key_id != key_id:
+            changes.extend(_previous_reviewer_changes(instance, "changed"))
+        if queue_change:
+            changes.append(queue_change)
+        if changes:
+            log_project_key_activity(
+                request,
+                team=team,
+                scope="TraceReview",
+                item_id=instance.pk,
+                activity="updated",
+                changes=changes,
+                previous_project_key_id=previous_key_id,
+            )
+        if not save_review:
+            return instance
 
         if "comment" in validated_data:
             instance.comment = validated_data["comment"]
 
         instance.reviewed_by = review_user
-        instance.reviewed_by_project_key_id = project_key_id(request)
+        instance.reviewed_by_project_key_id = key_id
         instance.save(update_fields=["comment", "reviewed_by", "reviewed_by_project_key_id", "updated_at"])
 
         if resolved_scores is not None:
@@ -688,13 +709,14 @@ class TraceReviewViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMix
             review.deleted = True
             review.deleted_at = timezone.now()
             review.save(update_fields=["deleted", "deleted_at", "updated_at"])
-            changes = (
-                [Change(type="TraceReview", action="deleted", field="reviewed_by", before=review.reviewed_by_id)]
-                if review.reviewed_by_id is not None
-                else None
-            )
             log_project_key_activity(
-                request, team=self.team, scope="TraceReview", item_id=review.pk, activity="deleted", changes=changes
+                request,
+                team=self.team,
+                scope="TraceReview",
+                item_id=review.pk,
+                activity="deleted",
+                changes=_previous_reviewer_changes(review, "deleted") or None,
+                previous_project_key_id=review.reviewed_by_project_key_id,
             )
 
         report_user_action(
