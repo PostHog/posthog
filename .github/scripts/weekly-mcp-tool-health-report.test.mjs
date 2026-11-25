@@ -54,7 +54,7 @@ export const TOOL_MAP = {
 }
 `
 
-const TEAM = { owner: 'team-surveys', channel: '#team-surveys', rows: [['row']] }
+const TEAM = { owner: 'team-surveys', channel: '#team-surveys', rows: [[{ type: 'raw_text', text: 'row' }]] }
 
 // A slice's heading, a team post's digest link, or the index's header row.
 function lastNote(blocks) {
@@ -126,6 +126,18 @@ describe('weekly MCP tool health report', () => {
                 topError: '',
             },
         ])
+    })
+
+    it('queries the same completed UTC week when rerun later in the week', async () => {
+        const periodEnds = []
+        const query = async (_, { period_end }) => {
+            periodEnds.push(period_end)
+            return { results: [] }
+        }
+        await fetchFailingTools(query, new Date('2026-10-26T13:50:00Z'))
+        await fetchFailingTools(query, new Date('2026-10-29T09:00:00Z'))
+        const monday = Date.parse('2026-10-26T00:00:00Z') / 1000
+        assert.deepEqual(periodEnds, [monday, monday])
     })
 
     it('marks a qualifying tool new when it was below threshold last week', () => {
@@ -204,6 +216,16 @@ describe('weekly MCP tool health report', () => {
         const items = [{ tool: 'survey-get', change: 'Recurring' }]
         const ownerFor = () => ({ owner: 'team-surveys', slack: '#team-surveys' })
         assert.deepEqual(slackReport(new Date('2026-10-26T00:00:00Z'), items, [], ownerFor).teamDigests, [])
+    })
+
+    it('keeps oversized team Slack tables under the character limit', () => {
+        const rows = Array.from({ length: 80 }, () => [{ type: 'raw_text', text: 'x'.repeat(160) }])
+        const blocks = teamReport(new Date('2026-10-26T00:00:00Z')).teamBlocks({ ...TEAM, rows })
+        const characters = blocks
+            .find(({ type }) => type === 'table')
+            .rows.flat()
+            .reduce((sum, entry) => sum + entry.text.length, 0)
+        assert.ok(characters <= 10000, `Slack table has ${characters} characters`)
     })
 
     for (const { label, enabled, digestChannel = '#team-context-and-mcp', expected } of [
@@ -327,6 +349,60 @@ describe('weekly MCP tool health report', () => {
                 file: async () => ({ report_id: 'r1' }),
             })
             assert.deepEqual(reports, [])
+        })
+
+        it('files all 51 tools once across API-sized reports with stable weekly keys', async () => {
+            const items = Array.from({ length: 51 }, (_, i) => ({ ...TOOL, tool: `survey-tool-${i}` }))
+            const byKey = new Map()
+            const replay = async (now) =>
+                fileTeamSignals([{ ...SURVEYS, items }], {
+                    now,
+                    membersOf: async () => ['reviewer'],
+                    file: async (body) => {
+                        if (body.evidence.length > 50) {
+                            throw new Error('Signals accepts at most 50 evidence items')
+                        }
+                        byKey.set(
+                            body.idempotency_key,
+                            body.evidence.map(({ source_id }) => source_id)
+                        )
+                        return { report_id: body.idempotency_key }
+                    },
+                })
+            await replay(NOW)
+            await replay(new Date('2026-10-29T09:00:00Z'))
+            assert.deepEqual(
+                [...byKey],
+                [
+                    ['mcp-tool-health:2026-10-26:team-surveys', items.slice(0, 50).map(({ tool }) => tool)],
+                    ['mcp-tool-health:2026-10-26:team-surveys:2', [items[50].tool]],
+                ]
+            )
+        })
+
+        it('keeps the summary under the API limit without dropping evidence', () => {
+            const items = Array.from({ length: 50 }, (_, index) => ({
+                ...TOOL,
+                tool: `survey-tool-${index}-${'long-name-'.repeat(6)}`,
+                topError: 'x'.repeat(160),
+            }))
+            const report = signalReport(NOW, { ...SURVEYS, items }, [])
+            assert.deepEqual([report.summary.length <= 20000, report.evidence.length], [true, 50])
+        })
+
+        it('keeps filing a team’s other reports when one part fails', async () => {
+            const items = Array.from({ length: 51 }, (_, i) => ({ ...TOOL, tool: `survey-tool-${i}` }))
+            const reports = await fileTeamSignals([{ ...SURVEYS, items }], {
+                now: NOW,
+                membersOf: async () => ['reviewer'],
+                file: async (body) => {
+                    if (body.evidence.length !== 1) {
+                        throw new Error('503')
+                    }
+                    return { report_id: 'second-part' }
+                },
+            })
+            assert.deepEqual(reports, [{ owner: SURVEYS.owner, reportId: 'second-part' }])
         })
 
         it('leaves deactivated role members out of the reviewers', async () => {

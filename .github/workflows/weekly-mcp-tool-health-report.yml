@@ -6,8 +6,9 @@ name: Weekly MCP tool health report
 # resolver, which is why the sparse checkout includes the ownership and tool definition files.
 # Each owning team's new and worsening findings go to that team's channel when
 # vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is 'true'. Otherwise, they stay in the digest thread.
-# Each owning team gets one Signals inbox report for all its qualifying tools, suggested to
+# Each owning team gets Signals inbox reports for all its qualifying tools, suggested to
 # members of the PostHog role named after its GitHub team. Unowned tools stay in the digest.
+# The report covers the completed UTC week so reruns keep the same reporting dates.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project that records MCP tool calls.
