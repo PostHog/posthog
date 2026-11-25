@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { MessageTemplate } from './MessageTemplate'
+import { messageTemplateLogic } from './messageTemplateLogic'
 
 const TEMPLATE_ID = 'tmpl-1'
 
@@ -311,5 +312,30 @@ describe('MessageTemplate', () => {
         answer()
         await rendered
         await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+    })
+
+    it('keeps the open editor while it saves', async () => {
+        let releaseSave = (): void => {}
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                    await new Promise<void>((resolve) => (releaseSave = resolve))
+                    return [200, { ...ORDER_RECEIPT, name: 'Renamed' }]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        const logic = messageTemplateLogic({ id: TEMPLATE_ID })
+        const subject = await screen.findByText('Subject')
+        act(() => logic.actions.setTemplateValue('name', 'Renamed'))
+
+        fireEvent.click(screen.getByText('Save'))
+        await waitFor(() => expect(logic.values.savedTemplateLoading).toBe(true))
+        expect(subject).toBeInTheDocument()
+
+        await act(async () => releaseSave())
+        await waitFor(() => expect(logic.values.templateChanged).toBe(false))
+        expect(subject).toBeInTheDocument()
     })
 })

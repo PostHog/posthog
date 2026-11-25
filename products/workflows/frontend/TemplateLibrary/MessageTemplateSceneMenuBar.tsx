@@ -31,9 +31,8 @@ export function MessageTemplateSceneMenuBar({
     canEditTags,
     ...props
 }: MessageTemplateSceneMenuBarProps): JSX.Element {
-    const { template, originalTemplate, templateChanged, isTemplateSubmitting, templateLoading } = useValues(
-        messageTemplateLogic(props)
-    )
+    const { template, originalTemplate, templateChanged, isTemplateSubmitting, templateLoading, savedTemplateLoading } =
+        useValues(messageTemplateLogic(props))
     const { submitTemplate, resetTemplate, duplicateTemplate, deleteTemplate, saveTags } = useActions(
         messageTemplateLogic(props)
     )
@@ -48,7 +47,7 @@ export function MessageTemplateSceneMenuBar({
             <SceneMenuBarMenu label="File" dataAttr="message-template-menubar-file">
                 <SceneMenuBarItem
                     onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
-                    disabled={!!saveDisabledReason || isTemplateSubmitting || templateLoading}
+                    disabled={!!saveDisabledReason || isTemplateSubmitting || templateLoading || savedTemplateLoading}
                     tooltip={saveDisabledReason}
                     data-attr="message-template-menubar-save"
                 >
@@ -103,7 +102,7 @@ export function MessageTemplateSceneMenuBar({
                     <IconScreen />
                     Save as new template
                 </SceneMenuBarItem>
-                {templateChanged && (
+                {templateChanged && !savedTemplateLoading && (
                     <SceneMenuBarItem
                         onClick={() => resetTemplate(originalTemplate)}
                         data-attr="message-template-menubar-discard"

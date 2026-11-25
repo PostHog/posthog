@@ -102,6 +102,8 @@ export interface messageTemplateLogicValues {
     originalTemplate: MessageTemplate
     publishedContent: TemplateContent | null
     savedDraft: TemplateContent | null
+    savedTemplate: MessageTemplate | null
+    savedTemplateLoading: boolean
     section: TemplateSection
     showTemplateErrors: boolean
     template: MessageTemplate
@@ -272,7 +274,7 @@ export interface messageTemplateLogicActions {
     saveTags: (tags: string[]) => {
         tags: string[]
     }
-    saveTemplate: (template: any) => any
+    saveTemplate: (template: MessageTemplate) => MessageTemplate
     saveTemplateFailure: (
         error: string,
         errorObject?: any
@@ -281,11 +283,11 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: MessageTemplate,
-        payload?: any
+        savedTemplate: MessageTemplate,
+        payload?: MessageTemplate
     ) => {
-        template: MessageTemplate
-        payload?: any
+        savedTemplate: MessageTemplate
+        payload?: MessageTemplate
     }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
@@ -750,7 +752,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setDraftState(draft, published)
                 return form
             },
-            saveTemplate: async (template) => {
+        },
+        // Apart from `template`, so a save neither reads as a load nor replaces what is typed while it runs.
+        savedTemplate: {
+            __default: null as MessageTemplate | null,
+            saveTemplate: async (template: MessageTemplate) => {
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
                 // and the tags each save on their own, so a publish never sends them and can't undo a
                 // change made in another tab since this one loaded the template.
@@ -795,6 +801,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // it then compares equal to the loaded stamp and is dropped.
             if (
                 values.templateLoading ||
+                values.savedTemplateLoading ||
                 values.isMakingTransactional ||
                 values.isSavingSensitive ||
                 values.isSavingDraft ||
@@ -882,6 +889,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 !values.draftOutOfDate ||
                 values.externallyEdited ||
                 values.isTemplateSubmitting ||
+                values.savedTemplateLoading ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
             ) {
@@ -925,7 +933,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         confirmDiscardDraft: async (_, breakpoint) => {
             // A draft save that lands after the discard would bring the draft back, so let it finish first.
-            while (values.isSavingDraft) {
+            while (values.isSavingDraft || values.savedTemplateLoading) {
                 await breakpoint(100)
             }
             try {
@@ -1033,6 +1041,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(errors.content.email.from.email)
             }
         },
+        saveTemplate: () => {
+            cache.formWhenSaving = values.template
+        },
         saveTemplateFailure: ({ errorObject }) => {
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
@@ -1047,8 +1058,20 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
+            actions.autoSaveDraft()
         },
-        saveTemplateSuccess: async ({ template }) => {
+        saveTemplateSuccess: async ({ savedTemplate: template }) => {
+            const current = values.template
+            const sent: MessageTemplate = cache.formWhenSaving ?? current
+            // Create leaves the page, so it has nothing to keep.
+            const typedMeanwhile: Partial<Pick<MessageTemplate, 'name' | 'description' | 'content'>> =
+                props.id === 'new'
+                    ? {}
+                    : {
+                          ...(current.name !== sent.name ? { name: current.name } : {}),
+                          ...(current.description !== sent.description ? { description: current.description } : {}),
+                          ...(objectsEqual(current.content, sent.content) ? {} : { content: current.content }),
+                      }
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
@@ -1064,6 +1087,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 router.actions.push(urls.workflows('library'))
             } else if (template.id) {
                 router.actions.replace(templateUrlInSection(template.id, values.section))
+            }
+            // After the navigation, which would otherwise ask to discard them.
+            if (Object.keys(typedMeanwhile).length > 0) {
+                actions.setTemplateValues(typedMeanwhile)
             }
             actions.replayDeferredExternalEdit()
         },

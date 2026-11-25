@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useState } from 'react'
 
 import { IconBolt, IconLock, IconTrash } from '@posthog/icons'
 import {
@@ -21,6 +22,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -88,6 +90,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templateChanged,
         messageLoading,
         templateLoading,
+        savedTemplateLoading,
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
@@ -110,6 +113,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
+    // The editor remounts when the template loads again, and stays the same email until the person leaves the page.
+    const [visitId] = useState(() => uuid())
 
     const testSendLogic = messageTemplateTestSendLogic(props)
     const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
@@ -144,8 +149,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const isLoaded = props.id === 'new' || originalTemplate.id === props.id
     // Only the saved template tells its type, so until it loads the page takes the one its section mostly holds.
     const isLibraryTemplate = isLoaded ? !isTransactional : section !== 'transactional'
-    // Tags look empty until the saved ones load, so editing them earlier would replace those.
-    const canEditTags = !editDisabledReason && isLoaded
     const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
@@ -171,14 +174,22 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
+    const isCreating = props.id === 'new' && savedTemplateLoading
+    // Tags look empty until the saved ones load, so editing them earlier would replace those.
+    const canEditTags = !editDisabledReason && isLoaded && !isCreating
     const editor = (
-        <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
+        <div
+            className="flex flex-col flex-1 gap-2 min-h-0 relative"
+            // Create leaves the page when it lands, so an edit typed meanwhile would have nowhere to go.
+            {...(isCreating ? { inert: '' } : {})}
+        >
             {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
-            {isSyncingExternalEdit && <SpinnerOverlay />}
+            {(isSyncingExternalEdit || isCreating) && <SpinnerOverlay />}
             {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
                 <Spinner className="text-lg" />
             ) : (
                 <EmailTemplater
+                    emailKey={`${visitId}:${props.id}`}
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
@@ -331,7 +342,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit={!editDisabledReason}
+                    canEdit={!editDisabledReason && !isCreating}
                     descriptionAlwaysVisible={!isLibraryTemplate}
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
@@ -379,8 +390,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     (templateChanged ? 'Save your changes before duplicating' : undefined)
                                 }
                                 editDisabledReason={editDisabledReason}
-                                templateChanged={templateChanged && !draftsEnabled}
-                                saving={isTemplateSubmitting || templateLoading}
+                                templateChanged={templateChanged && !draftsEnabled && !savedTemplateLoading}
+                                saving={isTemplateSubmitting || templateLoading || savedTemplateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
                                 onDiscard={() => resetTemplate(originalTemplate)}
                                 onSave={() => void saveWithLatestEmailEdit(submitTemplate)}
@@ -400,7 +411,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 >
                                     Send test
                                 </LemonButton>
-                                {templateChanged && !draftsEnabled && (
+                                {templateChanged && !draftsEnabled && !savedTemplateLoading && (
                                     <LemonButton
                                         data-attr="cancel-message-template"
                                         type="secondary"
@@ -415,7 +426,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     htmlType="submit"
                                     form="template"
                                     onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
-                                    loading={isTemplateSubmitting || templateLoading}
+                                    loading={isTemplateSubmitting || templateLoading || savedTemplateLoading}
                                     disabledReason={saveDisabledReason}
                                     size="small"
                                     sideAction={
@@ -437,7 +448,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                           editDisabledReason ??
                                                                           (!hasDraft
                                                                               ? 'There is no draft to discard'
-                                                                              : isSavingDraft || isDiscardingDraft
+                                                                              : isSavingDraft ||
+                                                                                  isDiscardingDraft ||
+                                                                                  savedTemplateLoading
                                                                                 ? 'Wait for the draft to finish saving'
                                                                                 : undefined),
                                                                       'data-attr': 'message-template-discard-draft',
@@ -528,6 +541,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     type="primary"
                                     size="small"
                                     onClick={() => syncExternalEdit()}
+                                    disabledReason={savedTemplateLoading ? 'Saving your changes' : undefined}
                                     loading={isSyncingExternalEdit}
                                 >
                                     Reload
