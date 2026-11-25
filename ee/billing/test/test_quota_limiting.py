@@ -3748,13 +3748,14 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         with patch(
             "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", side_effect=count_credits
         ):
-            update_all_orgs_billing_quotas(progress_callback=record_progress)
+            result = update_all_orgs_billing_quotas(progress_callback=record_progress)
 
         expected_timestamp = (
             datetime.datetime.fromisoformat(expected_expiry).replace(tzinfo=datetime.UTC).timestamp()
             if expected_expiry
             else None
         )
+        assert str(self.organization.id) in result.discarded_orgs
         assert secondary_after_shared_writes == [secondary_before_run]
         assert count_secondary_reconciles() == secondary_before_run[1] + len(QuotaResource) * len(QuotaLimitingCaches)
         assert get_client().zscore(key, self.team.api_token) == expected_timestamp

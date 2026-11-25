@@ -1458,6 +1458,7 @@ class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
     orgs_with_usage: dict[str, set[str]]  # by resource, the limited and suspended orgs that used any of it
+    discarded_orgs: set[str]  # their decisions were discarded, so the limits they had before still stand
     stats: dict[str, float | int]
 
 
@@ -2140,6 +2141,7 @@ def update_all_orgs_billing_quotas(
         quota_limited_orgs=quota_limited_orgs,
         quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
         orgs_with_usage=orgs_with_usage,
+        discarded_orgs=failed_org_ids,
         stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,

@@ -1,5 +1,7 @@
 import sys
+import json
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -227,16 +229,56 @@ def test_a_confirmed_mismatch_is_not_reported_again_after_billing_had_nothing_to
         assert confirmed == []
 
 
+def test_a_discarded_decision_is_not_a_mismatch() -> None:
+    state = EMPTY
+    for minutes in (0, 15, 30, 45):
+        billing = spine(ENFORCED, usage_through=after(minutes - 5))
+        state, confirmed = compare({}, billing, state, after(minutes), discarded={ORG})
+
+        assert (state["mismatches"], confirmed) == ({}, [])
+
+
+def test_a_discarded_decision_leaves_what_was_seen_as_it_was() -> None:
+    seen, _ = compare(LIMITED, spine(usage_through=after(-5)), EMPTY, T0)
+    discarded, during = compare({}, spine(usage_through=after(10)), seen, after(15), discarded={ORG})
+    _, afterwards = compare(LIMITED, spine(usage_through=after(25)), discarded, after(30))
+
+    assert discarded["mismatches"] == seen["mismatches"]
+    assert during == []
+    assert [mismatch["since"] for mismatch in afterwards] == [T0.isoformat()]
+
+
+def test_a_discarded_decision_keeps_nothing_of_another_organization() -> None:
+    seen, _ = compare(LIMITED, spine(), EMPTY, T0)
+    gone, _ = compare({}, spine(), seen, after(15), discarded={"another"})
+
+    assert gone["mismatches"] == {}
+
+
+def test_a_confirmed_mismatch_is_not_reported_again_after_its_decision_was_discarded() -> None:
+    state = EMPTY
+    for minutes in (0, 15, 30):
+        state, _ = compare(LIMITED, spine(usage_through=after(minutes - 5)), state, after(minutes))
+    state, _ = compare({}, spine(usage_through=after(40)), state, after(45), discarded={ORG})
+
+    for minutes in (60, 75, 90):
+        state, confirmed = compare(LIMITED, spine(usage_through=after(minutes - 5)), state, after(minutes))
+
+        assert confirmed == []
+
+
 RUN = QuotaLimitingRunResult(
     quota_limited_orgs={"events": {"used": 1, "unused": 1}, "recordings": {"unused": 1}},
     quota_limiting_suspended_orgs={"events": {"graced": 1}, "recordings": {}},
     orgs_with_usage={"events": {"used", "graced"}, "recordings": set()},
+    discarded_orgs=set(),
     stats={"orgs_limited": 2},
 )
 USED = QuotaLimitingRunResult(
     quota_limited_orgs={"events": {"used": 1}},
     quota_limiting_suspended_orgs={"events": {}},
     orgs_with_usage={"events": {"used"}},
+    discarded_orgs=set(),
     stats={},
 )
 
@@ -253,16 +295,27 @@ class TestCompareWithSpine:
             patch("posthog.quota_spine_comparison.is_cloud", return_value=True),
             patch("posthog.quota_spine_comparison.get_cached_instance_license", return_value=MagicMock()),
             patch("posthog.quota_spine_comparison.BillingManager") as manager,
-            patch("posthog.quota_spine_comparison.posthoganalytics.capture") as capture,
+            patch("posthog.quota_spine_comparison.get_instance_region", return_value="EU"),
+            patch("posthog.quota_spine_comparison.ph_scoped_capture", self.scoped_capture),
         ):
             self.get_limiting = manager.return_value.get_limiting
             self.get_limiting.return_value = spine()
-            self.capture = capture
+            self.capture = MagicMock()
+            self.event_regions: list[str | None] = []
+            self.delivery_error: Exception | None = None
             yield
+
+    @contextmanager
+    def scoped_capture(self, *, event_region: str | None = None, raise_on_error: bool = False) -> Iterator[MagicMock]:
+        """Stands in for `ph_scoped_capture`: delivers when the block ends, and raises a failure only when asked to."""
+        self.event_regions.append(event_region)
+        yield self.capture
+        if self.delivery_error and raise_on_error:
+            raise self.delivery_error
 
     def test_still_asks_when_it_limits_nobody(self) -> None:
         nobody = QuotaLimitingRunResult(
-            quota_limited_orgs={}, quota_limiting_suspended_orgs={}, orgs_with_usage={}, stats={}
+            quota_limited_orgs={}, quota_limiting_suspended_orgs={}, orgs_with_usage={}, discarded_orgs=set(), stats={}
         )
 
         compare_with_spine(nobody)
@@ -328,16 +381,38 @@ class TestCompareWithSpine:
             groups={"instance": settings.SITE_URL, "organization": "used"},
         )
 
-    def test_a_run_that_dies_while_capturing_captures_again_on_the_next(self) -> None:
+    def test_a_mismatch_whose_event_was_not_delivered_is_captured_again_on_the_next_run(self) -> None:
         self.run_at(0)
         self.run_at(15)
-        self.capture.side_effect = Exception("the worker is going away")
-        with pytest.raises(Exception, match="the worker is going away"):
+        self.delivery_error = Exception("the events did not arrive")
+        with pytest.raises(Exception, match="the events did not arrive"):
             self.run_at(30)
-        self.capture.side_effect = None
+        self.delivery_error = None
         self.run_at(45)
 
         assert self.capture.call_count == 2
+
+    def test_an_event_says_which_region_it_is_from(self) -> None:
+        self.run_at(0)
+
+        assert self.event_regions == ["EU"]
+
+    def test_a_discarded_decision_is_not_compared(self) -> None:
+        self.get_limiting.return_value = spine(row(organization_id="discarded", usage="20", enforced=True))
+        discarded = QuotaLimitingRunResult(
+            quota_limited_orgs={},
+            quota_limiting_suspended_orgs={},
+            orgs_with_usage={},
+            discarded_orgs={"discarded"},
+            stats={},
+        )
+
+        compare_with_spine(discarded)
+
+        assert json.loads(get_client().get(STATE_KEY) or "null") == {
+            "usage_through": RECENTLY.isoformat().replace("+00:00", "Z"),
+            "mismatches": {},
+        }
 
     def test_keeps_its_state_for_a_week(self) -> None:
         with time_machine.travel(T0, tick=False):

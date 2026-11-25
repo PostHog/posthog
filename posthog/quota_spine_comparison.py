@@ -9,7 +9,7 @@ had a full quota run to reach billing's limiting. Until then it may only be a ma
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal, TypedDict
@@ -18,10 +18,11 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
+from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
+from posthog.utils import get_instance_region
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import BillingLimit, BillingLimits
@@ -62,8 +63,8 @@ STATE_KEY = "@posthog/quota-limiting/spine-comparison"
 STATE_TTL = timedelta(days=7)
 MISMATCH_EVENT = "quota limiting spine mismatch"
 NEAR_LIMIT = Decimal("0.01")
-# The analytics client drops what its queue cannot hold, so a backlog is confirmed over several runs.
-CONFIRMED_PER_RUN = 1000
+# One analytics batch: a hanging capture endpoint holds the run for its retries only. A backlog takes several runs.
+CONFIRMED_PER_RUN = 100
 # Billing also holds limits on products that quota limiting has no quota for.
 RESOURCES = frozenset(resource.value for resource in QuotaResource)
 CREDIT_RESOURCES = frozenset(resource.value for resource in GRACE_PERIOD_EXEMPT_RESOURCES)
@@ -127,14 +128,20 @@ def _near_limit(row: BillingLimit) -> bool:
 
 
 def compare(
-    quota: Mapping[Key, QuotaLevel], spine: BillingLimits, previous: State, now: datetime
+    quota: Mapping[Key, QuotaLevel],
+    spine: BillingLimits,
+    previous: State,
+    now: datetime,
+    discarded: Set[str] = frozenset(),
 ) -> tuple[State, list[Mismatch]]:
     """The next state, and the mismatches this run confirmed.
 
     `quota` is from `quota_levels`, `spine` is billing's answer, `previous` is the state this
     returned on the run before. A mismatch that goes away is forgotten, so it starts over if it
-    returns, and so does one whose levels or label change. A run confirms `CONFIRMED_PER_RUN` at
-    most, and the rest wait for the next.
+    returns, and so does one whose levels or label change. The organizations in `discarded` kept
+    their earlier limits when the run threw their decisions away, so they are not compared and
+    what was seen of them stands. A run confirms `CONFIRMED_PER_RUN` at most, and the rest wait
+    for the next.
     """
     reported = spine["usage_through"]
     if reported is None:
@@ -145,9 +152,9 @@ def compare(
     rows = {(row["organization_id"], row["resource"]): row for row in spine["limits"] if row["resource"] in RESOURCES}
     # Billing marks a report processed before limiting has folded it, so trust the one from a run ago.
     folded = datetime.fromisoformat(previous["usage_through"]) if previous["usage_through"] else None
-    mismatches: dict[str, Sighting] = {}
+    mismatches = {name: seen for name, seen in previous["mismatches"].items() if name.split(":")[0] in discarded}
     confirmed: list[Mismatch] = []
-    for key in sorted(quota.keys() | rows.keys()):
+    for key in sorted(key for key in quota.keys() | rows.keys() if key[0] not in discarded):
         organization_id, resource = key
         row = rows.get(key)
         quota_level: QuotaLevel = quota.get(key, "none")
@@ -199,15 +206,16 @@ def compare_with_spine(run: QuotaLimitingRunResult) -> None:
     spine = BillingManager(license).get_limiting(sorted({organization_id for organization_id, _ in quota}))
     redis = get_client()
     previous: State = json.loads(redis.get(STATE_KEY) or "null") or EMPTY
-    state, confirmed = compare(quota, spine, previous, timezone.now())
-    for mismatch in confirmed:
-        posthoganalytics.capture(
-            distinct_id=mismatch["organization_id"],
-            event=MISMATCH_EVENT,
-            properties=dict(mismatch),
-            groups={"instance": settings.SITE_URL, "organization": mismatch["organization_id"]},
-        )
-    # After the captures: a run that dies among them captures them again on the next, and loses none.
+    state, confirmed = compare(quota, spine, previous, timezone.now(), run.discarded_orgs)
+    # The events are delivered before the state says so. A delivery that fails raises, and the next run repeats it.
+    with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
+        for mismatch in confirmed:
+            capture(
+                distinct_id=mismatch["organization_id"],
+                event=MISMATCH_EVENT,
+                properties=dict(mismatch),
+                groups={"instance": settings.SITE_URL, "organization": mismatch["organization_id"]},
+            )
     redis.set(STATE_KEY, json.dumps(state), ex=STATE_TTL)
     decided = sum(map(len, (*run.quota_limited_orgs.values(), *run.quota_limiting_suspended_orgs.values())))
     logger.info(
