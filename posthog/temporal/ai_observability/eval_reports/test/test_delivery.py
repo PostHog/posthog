@@ -2,6 +2,7 @@ from contextlib import nullcontext
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -182,6 +183,19 @@ class TestRenderSectionHtml(SimpleTestCase):
         )
         self.assertIn("<h2>Drop &lt;a href=&quot;https://example.com&quot;&gt;sign in&lt;/a&gt;</h2>", html)
 
+    @parameterized.expand(
+        [
+            ("external_link", "[Sign in](https://evil.example/login)"),
+            ("lookalike_domain", f"[Sign in]({settings.SITE_URL}.evil.example/login)"),
+            ("autolink", "<https://evil.example/login>"),
+            ("image", "![](https://evil.example/pixel.png)"),
+        ]
+    )
+    def test_drops_non_posthog_links_and_images(self, _name: str, content: str):
+        html = _render_section_html("Summary", content, project_id=1, citation_map={})
+        self.assertNotIn("<a ", html)
+        self.assertNotIn("<img", html)
+
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
         self.assertIn("<strong>Pass rate</strong>", html)
@@ -223,6 +237,24 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_renders_agent_chosen_title(self):
         result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
         self.assertIn("*Cost spike in gpt-5.2*", result)
+
+    def test_escapes_slack_markup_in_title(self):
+        result = _render_section_mrkdwn(
+            "Drop <!channel> <https://evil.example|sign in>", "Body", project_id=1, citation_map={}
+        )
+        self.assertIn("*Drop &lt;!channel&gt; &lt;https://evil.example|sign in&gt;*", result)
+
+    def test_drops_agent_links_and_slack_markup_from_body(self):
+        result = _render_section_mrkdwn(
+            "Summary",
+            "<!channel> [Sign in](https://evil.example/login) ![chart](https://evil.example/p.png) <https://evil.example|x>",
+            project_id=1,
+            citation_map={},
+        )
+        self.assertNotIn("<", result)
+        self.assertNotIn("evil.example/login", result)
+        self.assertNotIn("p.png", result)
+        self.assertIn("Sign in", result)
 
     def test_converts_bold(self):
         result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})

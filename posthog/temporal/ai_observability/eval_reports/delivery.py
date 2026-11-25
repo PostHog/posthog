@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from html import escape
 from urllib.parse import quote, urlencode
 
+from django.conf import settings
+
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
@@ -18,7 +20,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.slack.formatting import channel_id_from_target
+from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn, markdown_links_to_labels
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -35,10 +37,18 @@ logger = structlog.get_logger(__name__)
 # also started the section with its own `## Executive summary` heading we strip it
 # to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
 _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
+_RE_MARKDOWN_IMAGE = re.compile(r"!\[([^\]\n]*)\]\([^)\n]*\)")
 
-# html=False escapes any raw HTML in the markdown source. The agent writes the markdown, but it reads
-# customer trace content, so a prompt injection can steer what it writes.
-_md = MarkdownIt("commonmark", {"html": False}).enable("table")
+
+# The agent writes the markdown, but it reads customer trace content, so a prompt injection can steer
+# what it writes. html=False escapes raw HTML, images are off so nothing loads a remote URL, and links
+# render only when they point at PostHog, which is where every citation link goes.
+class _PostHogLinksMarkdownIt(MarkdownIt):
+    def validateLink(self, url: str) -> bool:
+        return url.startswith(settings.SITE_URL.rstrip("/") + "/")
+
+
+_md = _PostHogLinksMarkdownIt("commonmark", {"html": False}).enable("table").disable("image")
 _slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
@@ -299,9 +309,13 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
+    # Same threat as in the email: the agent's own `<!channel>`, `<url|label>`, images and links go, and
+    # only the citation links added below stay clickable. `>` stays so blockquotes still render.
+    content = content.replace("&", "&amp;").replace("<", "&lt;")
+    content = markdown_links_to_labels(_RE_MARKDOWN_IMAGE.sub(r"\1", content))
     content = _linkify_citations(content, project_id, citation_map)
     mrkdwn_content = _slack_converter.convert(content)
-    return f"*{title}*\n{mrkdwn_content}"
+    return f"*{escape_slack_mrkdwn(title)}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
