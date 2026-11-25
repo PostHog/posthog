@@ -498,10 +498,8 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
-            "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
-            "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
-            "reduced to its domain, and an internationalized domain is stored as punycode."
+            f"Domains to block from /flags requests, up to {MAX_LISTED_HOSTS}. A domain also covers its subdomains. "
+            "It is compared with the Origin header, or with Referer when Origin is missing or names no domain."
         ),
     )
     blocked_ips = serializers.ListField(
@@ -509,10 +507,8 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
-            f"up to {MAX_LISTED_IPS}. Ranges can be /{MIN_LISTED_IPV4_PREFIX} or narrower for IPv4 and "
-            f"/{MIN_LISTED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
-            "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
+            f"IP addresses or CIDR ranges to block from /flags requests, up to {MAX_LISTED_IPS}. The widest ranges "
+            f"are /{MIN_LISTED_IPV4_PREFIX} for IPv4 and /{MIN_LISTED_IPV6_PREFIX} for IPv6."
         ),
     )
     allowed_hosts = serializers.ListField(
@@ -520,14 +516,10 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"Domains allowed to make feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
-            "When the list is not empty, a request gets no flags unless its Origin domain, or its Referer "
-            "domain when Origin is missing or names no domain, is in it. A request with neither header, such as "
-            "one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and "
-            "Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers "
-            "its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a "
-            "request must pass both lists. Entries are normalized the same way as blocked_hosts, and a domain "
-            "that hosts other people's sites, such as vercel.app, is rejected."
+            f"Domains allowed to make /flags requests, up to {MAX_LISTED_HOSTS}. When not empty, pages whose domain "
+            "is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from "
+            "server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains "
+            "such as vercel.app are rejected. A blocked domain wins."
         ),
     )
     allowed_ips = serializers.ListField(
@@ -535,13 +527,10 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), "
-            f"up to {MAX_LISTED_IPS}. When the list is not empty, a request from any other address gets no "
-            "flags, including requests from server-side SDKs and from browsers. Only the client address that "
-            "PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that "
-            "address gets no flags. Behind a reverse proxy, the proxy's address is checked, so the list does not "
-            "work with PostHog's managed reverse proxy. A blocked address wins over an allowed one. When "
-            "allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips."
+            f"IP addresses or CIDR ranges allowed to make /flags requests, up to {MAX_LISTED_IPS}. When not empty, "
+            "every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse "
+            "proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. "
+            "Entries follow the same rules as blocked_ips. A blocked address wins."
         ),
     )
 

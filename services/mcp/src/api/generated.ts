@@ -97226,25 +97226,25 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_hosts?: string[];
       /**
-         * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+         * IP addresses or CIDR ranges to block from /flags requests, up to 100. The widest ranges are /8 for IPv4 and /16 for IPv6.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_ips?: string[];
       /**
-         * Domains allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request gets no flags unless its Origin domain, or its Referer domain when Origin is missing or names no domain, is in it. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts, and a domain that hosts other people's sites, such as vercel.app, is rejected.
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       allowed_hosts?: string[];
       /**
-         * IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. Behind a reverse proxy, the proxy's address is checked, so the list does not work with PostHog's managed reverse proxy. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips.
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
          * @maxItems 1000
          * @items.maxLength 2000
          */
