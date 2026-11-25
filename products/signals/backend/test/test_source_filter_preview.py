@@ -140,8 +140,27 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert passing["field_values"]["project_name"] == "Core"
         assert passing["field_values"]["label_names"] == ["bug"]
         assert passing["field_values"]["assignee_id"] is None
-        excluded = {record["id"]: record["malformed"] for record in preview["excluded"]}
-        assert excluded == {"assigned": False, "other-project": False, "malformed": True}
+        assert passing["failed_conditions"] is None
+        excluded = {record["id"]: (record["malformed"], record["failed_conditions"]) for record in preview["excluded"]}
+        assert excluded == {
+            "assigned": (False, ["assignee_id IS NULL"]),
+            "other-project": (False, ["project_name = 'Core'"]),
+            "malformed": (True, ["project_name = 'Core'"]),
+        }
+
+    def test_preview_lists_failed_conditions_only_for_a_top_level_and(self) -> None:
+        self._linear_issues([_issue("assigned", assignee='{"id": "u1"}')])
+
+        def failed_conditions(expression: str) -> list[str] | None:
+            [excluded] = self._preview(expression)["excluded"]
+            return excluded["failed_conditions"]
+
+        assert failed_conditions("(project_name = 'Web' OR priority = 1) AND assignee_id IS NULL") == [
+            "project_name = 'Web' OR priority = 1",
+            "assignee_id IS NULL",
+        ]
+        assert failed_conditions("project_name = 'Web' OR assignee_id IS NULL") is None
+        assert failed_conditions(" AND ".join(["priority = 2"] * 8 + ["assignee_id IS NULL"])) is None
 
     def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
         """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""
