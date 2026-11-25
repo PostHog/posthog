@@ -14,6 +14,7 @@ from django.utils import timezone
 from posthog.models import User
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.facade.enums import SlackUntaggedMode
 from products.slack_app.backend.facade.types import (
     SlackAppSettings,
     SlackChannelSettings,
@@ -24,7 +25,7 @@ from products.slack_app.backend.facade.types import (
     WorkspaceSettingsError,
 )
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
-from products.slack_app.backend.models import SlackChannel, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.reaction_settings import (
     ReactionSettings,
@@ -146,7 +147,7 @@ def update_channel_settings(
     slack_channel_id: str,
     default_integration_id: int | None,
     default_repository: str | None,
-    untagged_question_mode: UntaggedFollowupMode | None,
+    untagged_question_mode: SlackUntaggedMode | None,
 ) -> SlackChannelSettings:
     """Replace one channel's settings. A None setting falls back to the workspace or personal setting."""
     if not SLACK_CHANNEL_ID.match(slack_channel_id):

@@ -14,6 +14,14 @@ class SlackReactionKind(LabeledStrEnum):
     POLITE = "polite", "Thank-you reaction"
 
 
+class SlackUntaggedMode(LabeledStrEnum):
+    """What PostHog does with a message that does not tag it. The values match the stored mode."""
+
+    AUTO = "auto", "Always pick it up"
+    ASK = "ask", "Ask before picking it up"
+    NEVER = "never", "Never pick it up"
+
+
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"

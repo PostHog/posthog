@@ -121953,10 +121953,10 @@ export namespace Schemas {
      * * `ask` - Ask before picking it up
      * * `never` - Never pick it up
      */
-    export type UntaggedFollowupModeEnum = typeof UntaggedFollowupModeEnum[keyof typeof UntaggedFollowupModeEnum];
+    export type UntaggedQuestionModeEnum = typeof UntaggedQuestionModeEnum[keyof typeof UntaggedQuestionModeEnum];
 
 
-    export const UntaggedFollowupModeEnum = {
+    export const UntaggedQuestionModeEnum = {
       Auto: 'auto',
       Ask: 'ask',
       Never: 'never',
@@ -121980,7 +121980,7 @@ export namespace Schemas {
        * * `auto` - Always pick it up
        * * `ask` - Ask before picking it up
        * * `never` - Never pick it up */
-      untagged_question_mode: UntaggedFollowupModeEnum | null;
+      untagged_question_mode: UntaggedQuestionModeEnum | null;
       /**
          * Name of the person who last changed this channel's settings.
          * @nullable
@@ -122015,7 +122015,7 @@ export namespace Schemas {
        * * `auto` - Always pick it up
        * * `ask` - Ask before picking it up
        * * `never` - Never pick it up */
-      untagged_question_mode: UntaggedFollowupModeEnum | null;
+      untagged_question_mode: UntaggedQuestionModeEnum | null;
     }
 
     export interface SlackAppDefaultProject {

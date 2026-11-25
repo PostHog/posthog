@@ -29,7 +29,7 @@ import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 
-from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupEntry
+from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupEntry, SlackUntaggedMode
 from products.slack_app.backend.facade.types import (
     ChannelJoinResult,
     ChannelOption,
@@ -64,7 +64,7 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.logic.reply_suggestions import (
     report_implementation_button as slack_report_implementation_button,
 )
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
@@ -305,7 +305,7 @@ def update_slack_channel_settings(
     slack_channel_id: str,
     default_integration_id: int | None,
     default_repository: str | None,
-    untagged_question_mode: UntaggedFollowupMode | None,
+    untagged_question_mode: SlackUntaggedMode | None,
 ) -> SlackChannelSettings:
     from products.slack_app.backend.logic import settings_page  # noqa: PLC0415
 

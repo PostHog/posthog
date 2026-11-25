@@ -90,9 +90,9 @@ export interface SlackAppSettingsApi {
  * * `ask` - Ask before picking it up
  * * `never` - Never pick it up
  */
-export type UntaggedFollowupModeEnumApi = (typeof UntaggedFollowupModeEnumApi)[keyof typeof UntaggedFollowupModeEnumApi]
+export type UntaggedQuestionModeEnumApi = (typeof UntaggedQuestionModeEnumApi)[keyof typeof UntaggedQuestionModeEnumApi]
 
-export const UntaggedFollowupModeEnumApi = {
+export const UntaggedQuestionModeEnumApi = {
     Auto: 'auto',
     Ask: 'ask',
     Never: 'never',
@@ -116,7 +116,7 @@ export interface SlackAppChannelSettingsApi {
      * * `auto` - Always pick it up
      * * `ask` - Ask before picking it up
      * * `never` - Never pick it up */
-    untagged_question_mode: UntaggedFollowupModeEnumApi | null
+    untagged_question_mode: UntaggedQuestionModeEnumApi | null
     /**
      * Name of the person who last changed this channel's settings.
      * @nullable
@@ -151,7 +151,7 @@ export interface SlackAppChannelSettingsUpdateApi {
      * * `auto` - Always pick it up
      * * `ask` - Ask before picking it up
      * * `never` - Never pick it up */
-    untagged_question_mode: UntaggedFollowupModeEnumApi | null
+    untagged_question_mode: UntaggedQuestionModeEnumApi | null
 }
 
 export interface PatchedSlackAppPersonalSettingsUpdateApi {

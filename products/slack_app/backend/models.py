@@ -378,7 +378,7 @@ class SlackChannel(UUIDModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="slack_channel_defaults",
+        related_name="+",
         help_text="The Slack install of the project that mentions in this channel route to.",
     )
     default_repository = models.CharField(

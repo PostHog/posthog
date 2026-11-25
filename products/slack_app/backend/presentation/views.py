@@ -22,7 +22,12 @@ from products.slack_app.backend.facade.api import (
     update_slack_personal_settings,
     update_slack_workspace_settings,
 )
-from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupEntry, SlackSetupStepKey
+from products.slack_app.backend.facade.enums import (
+    SlackReactionKind,
+    SlackSetupEntry,
+    SlackSetupStepKey,
+    SlackUntaggedMode,
+)
 from products.slack_app.backend.facade.types import (
     MAX_CHANNELS_TO_JOIN,
     ChannelCatalogBusy,
@@ -31,7 +36,6 @@ from products.slack_app.backend.facade.types import (
     SlackSetupNotFound,
     WorkspaceSettingsError,
 )
-from products.slack_app.backend.models import UntaggedFollowupMode
 
 
 class SlackAppProjectOptionSerializer(serializers.Serializer):
@@ -310,7 +314,7 @@ class SlackAppChannelSettingsSerializer(serializers.Serializer):
         allow_null=True, help_text="Repository, as owner/name, that tasks started in this channel use. Null inherits."
     )
     untagged_question_mode = serializers.ChoiceField(
-        choices=UntaggedFollowupMode.choices,
+        choices=SlackUntaggedMode.choices,
         allow_null=True,
         help_text="What PostHog does with top-level questions in this channel that do not tag it. Null inherits.",
     )
@@ -333,7 +337,7 @@ class SlackAppChannelSettingsUpdateSerializer(serializers.Serializer):
         allow_null=True, max_length=255, help_text="Repository as owner/name. Null inherits."
     )
     untagged_question_mode = serializers.ChoiceField(
-        choices=UntaggedFollowupMode.choices,
+        choices=SlackUntaggedMode.choices,
         allow_null=True,
         help_text="What PostHog does with top-level questions in this channel that do not tag it. Null inherits.",
     )
@@ -445,7 +449,7 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 slack_channel_id=slack_channel_id,
                 default_integration_id=data["default_integration_id"],
                 default_repository=data["default_repository"],
-                untagged_question_mode=UntaggedFollowupMode(mode) if mode else None,
+                untagged_question_mode=SlackUntaggedMode(mode) if mode else None,
             )
         except SlackSetupNotFound as error:
             raise NotFound() from error
