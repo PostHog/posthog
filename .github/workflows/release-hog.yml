@@ -175,7 +175,11 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+            # The runs and jobs of this workflow, to tell a release that is still publishing from a lost tag.
+            actions: read
         outputs:
+            # The tag of a release that is still publishing isn't there yet, so nothing was compared.
+            deferred: ${{ steps.base.outputs.deferred }}
             needed: ${{ steps.changeset.outputs.needed }}
             bump: ${{ steps.gap.outputs.bump }}
             changeset: ${{ steps.changeset.outputs.changeset }}
@@ -193,14 +197,44 @@ jobs:
                   filter: blob:none
                   persist-credentials: false
 
+            # A release's tag appears when its promote job creates the GitHub release, after the version bump
+            # reached master. A run that starts in between finds no tag while the release is still on its way,
+            # so it leaves the comparison to a later run instead of failing master. A missing tag with no
+            # release publishing is a lost release, and still fails.
             - name: Find the last release
               id: base
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PUBLISH_JOBS: >-
+                      ["Test and compile", "Compile hog-worker", "Sign, package and upload",
+                      "Check the signed macOS build runs", "Promote and publish"]
               run: |
                   set -euo pipefail
                   last_tag="hog/v$(jq -r '.version' hog/package.json)"
                   if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
-                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so there is nothing to compare with. If that release is still publishing, re-run the failed jobs after it finishes."
-                      exit 1
+                      publishing=false
+                      for status in queued in_progress waiting pending requested; do
+                          runs=$(gh api "repos/$REPOSITORY/actions/workflows/release-hog.yml/runs?branch=master&status=$status&per_page=100" --jq '.workflow_runs[].id' || true)
+                          for run in $runs; do
+                              [ "$run" = "$GITHUB_RUN_ID" ] && continue
+                              unfinished=$(gh api "repos/$REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+                                  | jq --argjson names "$PUBLISH_JOBS" 'any(.jobs[]; .status != "completed" and (.name | IN($names[])))' || echo false)
+                              if [ "$unfinished" = true ]; then
+                                  publishing=true
+                                  echo "Run $run is still publishing a release"
+                              fi
+                          done
+                      done
+                      if [ "$publishing" != true ]; then
+                          echo "::error::$last_tag, the tag of the last hog release, doesn't exist, and no release is publishing, so there is nothing to compare with. Re-run the failed jobs of the release run that merged the version bump."
+                          exit 1
+                      fi
+                      echo "::warning::$last_tag doesn't exist yet because its release is still publishing, so this run doesn't compare with it. The next run, or a manual run after the release finishes, does."
+                      echo "### Skipped: $last_tag isn't published yet" >> "$GITHUB_STEP_SUMMARY"
+                      echo "A hog release is still publishing, so there is no release to compare with. Re-run this workflow after it finishes if a changeset is waiting." >> "$GITHUB_STEP_SUMMARY"
+                      echo "deferred=true" >> "$GITHUB_OUTPUT"
+                      exit 0
                   fi
                   if ! git merge-base --is-ancestor "$base" HEAD; then
                       echo "::error::$last_tag isn't on master"
@@ -212,6 +246,7 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
             - name: Install pnpm dependencies
+              if: steps.base.outputs.deferred != 'true'
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter='hog...' install --frozen-lockfile
@@ -219,13 +254,16 @@ jobs:
                   # build job, the packages come from the registry and not from a cache other jobs can write.
                   cache: 'false'
 
-            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+            - name: Set up bun
+              if: steps.base.outputs.deferred != 'true'
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   bun-version: ${{ env.BUN_VERSION }}
                   no-cache: true
 
             # Both builds write a metafile listing every source file they compile in.
             - name: Build hog and the CLI library
+              if: steps.base.outputs.deferred != 'true'
               working-directory: hog
               run: |
                   pnpm run build:mcp
@@ -234,6 +272,7 @@ jobs:
             # The approver checks of this release run the checker the last release tag carries, or the pinned
             # one in its place, so its list of release paths is the one that has to cover what the build reads.
             - name: List the release paths of the approver check
+              if: steps.base.outputs.deferred != 'true'
               env:
                   BASE: ${{ steps.base.outputs.commit }}
                   LAST_TAG: ${{ steps.base.outputs.tag }}
@@ -247,6 +286,7 @@ jobs:
 
             - name: Check what the catalog can't deliver
               id: gap
+              if: steps.base.outputs.deferred != 'true'
               working-directory: hog
               env:
                   BASE: ${{ steps.base.outputs.commit }}
@@ -269,6 +309,7 @@ jobs:
             # The release build checks out only what its sparse checkout names, so a compiled file outside
             # it fails the build after the release is approved and its pull request merged.
             - name: Check the release build checks out every compiled file
+              if: steps.base.outputs.deferred != 'true'
               run: |
                   set -euo pipefail
                   outside=$(jq -r '.outsideReleaseCheckout[]' "$RUNNER_TEMP/catalog-gap.json")
@@ -282,6 +323,7 @@ jobs:
             # it would let its author approve the release that ships it. This workflow comes from master, so
             # adding the path there clears it.
             - name: Check HOG_SOURCE_PATHS covers everything the release builds from
+              if: steps.base.outputs.deferred != 'true'
               run: |
                   set -euo pipefail
                   outside=$(jq -r '.outsideSourcePaths[]' "$RUNNER_TEMP/catalog-gap.json")
@@ -295,6 +337,7 @@ jobs:
             # checker stops on a path it can't match literally, which would block publishing. Running the
             # checker on them here fails before approval and names the path.
             - name: Check the approver check accepts every build path
+              if: steps.base.outputs.deferred != 'true'
               working-directory: hog
               env:
                   BASE: ${{ steps.base.outputs.commit }}
@@ -312,6 +355,7 @@ jobs:
             # already make those pull requests owners, and the warning asks for RELEASE_PATHS to catch up.
             - name: Warn about build paths RELEASE_PATHS misses
               id: release-path-gaps
+              if: steps.base.outputs.deferred != 'true'
               run: |
                   set -euo pipefail
                   outside=$(jq -r '.outsideReleasePaths[]' "$RUNNER_TEMP/catalog-gap.json" | grep -E '^[A-Za-z0-9._@+/-]+$' || true)
@@ -331,6 +375,7 @@ jobs:
             # the files gets a line in one generated changeset.
             - name: List the pull requests without a changeset
               id: changeset
+              if: steps.base.outputs.deferred != 'true'
               env:
                   BASE: ${{ steps.base.outputs.commit }}
                   LAST_TAG: ${{ steps.base.outputs.tag }}
@@ -386,7 +431,7 @@ jobs:
         needs: [check-changesets, gap]
         # always(), because gap's own needs include publishing jobs that are skipped when nothing publishes.
         if: >-
-            always() && needs.gap.result == 'success'
+            always() && needs.gap.result == 'success' && needs.gap.outputs.deferred != 'true'
             && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
         runs-on: ubuntu-24.04
         timeout-minutes: 10
@@ -503,7 +548,7 @@ jobs:
         # always(), so a Slack outage doesn't stop the release, while slack_ts stays available. The gap
         # job lists the compiled files whose pull requests own the release, so nothing releases without it.
         if: >-
-            always() && needs.gap.result == 'success'
+            always() && needs.gap.result == 'success' && needs.gap.outputs.deferred != 'true'
             && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
         runs-on: ubuntu-24.04
         timeout-minutes: 30
