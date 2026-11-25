@@ -32,9 +32,11 @@ from posthog.quota_migration import (
     QuotaReconciliationSnapshots,
     SecondaryQuotaStoreUnavailable,
     quota_reads_use_secondary,
+    quota_shadow_read_sampled,
     read_secondary_quota_store,
     reconcile_secondary_quota_sets,
     run_secondary_quota_operation,
+    shadow_read_secondary_quota_store,
     snapshot_quota_stores,
 )
 from posthog.quota_redis import QuotaRedisClient
@@ -311,10 +313,21 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     Each refresh returns every member of the zset, so use `is_team_limited` to check one team.
     """
     key = f"{cache_key.value}{resource.value}"
+    read_copy = partial(_read_limited_team_attributes, key=key)
     if not quota_reads_use_secondary():
-        return _read_limited_team_attributes(get_client(), key)
+        tokens = _read_limited_team_attributes(get_client(), key)
+        if quota_shadow_read_sampled():
+            shadow_read_secondary_quota_store(
+                "read_set",
+                read_copy,
+                lambda copy_tokens: len(set(tokens).symmetric_difference(copy_tokens)),
+                function="list_limited_team_attributes",
+                resource=resource.value,
+                key=key,
+            )
+        return tokens
     try:
-        tokens = read_secondary_quota_store("read_set", partial(_read_limited_team_attributes, key=key), resource=key)
+        tokens = read_secondary_quota_store("read_set", read_copy, resource=key)
     except SecondaryQuotaStoreUnavailable:
         # A raise here would start a refresh thread on every later call, each one captured as an exception.
         return _last_copy_limited_team_attributes.get((resource, cache_key), [])
@@ -354,6 +367,14 @@ def _get_quota_scores_for_teams(team_tokens: Sequence[str]) -> dict[tuple[QuotaR
     return dict(zip(lookups, scores))
 
 
+def _read_score(client: QuotaRedisClient, key: str, token: str) -> float | None:
+    return client.zscore(key, token)
+
+
+def _in_force(score: float | None, now_ts: float) -> bool:
+    return score is not None and score >= now_ts
+
+
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
     """Whether the team's own entry in the resource's zset is still in force.
 
@@ -363,16 +384,26 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     removes them, so the score must be compared with the current time.
     """
     key = f"{cache_key.value}{resource.value}"
+    read_copy = partial(_read_score, key=key, token=team_api_token)
     if quota_reads_use_secondary():
         try:
-            score = read_secondary_quota_store(
-                "read_score", lambda client: client.zscore(key, team_api_token), resource=key
-            )
+            score = read_secondary_quota_store("read_score", read_copy, resource=key)
         except SecondaryQuotaStoreUnavailable:
             return False
     else:
         score = get_client().zscore(key, team_api_token)
-    return score is not None and score >= timezone.now().timestamp()
+    now_ts = timezone.now().timestamp()
+    limited = _in_force(score, now_ts)
+    if quota_shadow_read_sampled():
+        shadow_read_secondary_quota_store(
+            "read_score",
+            read_copy,
+            lambda copy_score: int(_in_force(copy_score, now_ts) != limited),
+            function="is_team_limited",
+            resource=resource.value,
+            key=key,
+        )
+    return limited
 
 
 def _read_scores(client: QuotaRedisClient, keys: Sequence[str], token: str, *, transaction: bool) -> list[float | None]:
@@ -382,23 +413,39 @@ def _read_scores(client: QuotaRedisClient, keys: Sequence[str], token: str, *, t
     return pipe.execute()
 
 
+def _limited_resources(scores: Sequence[float | None], now_ts: float) -> dict[QuotaResource, bool]:
+    return {resource: _in_force(score, now_ts) for resource, score in zip(QuotaResource, scores)}
+
+
 def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:
     """Limited-state for one team across every resource, in one Redis round trip."""
     now_ts = timezone.now().timestamp()
     keys = [f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}" for resource in QuotaResource]
+    # Cluster clients reject transactional pipelines, and these keys hash to different slots.
+    read_copy = partial(_read_scores, keys=keys, token=team_api_token, transaction=False)
     if quota_reads_use_secondary():
         try:
             scores = read_secondary_quota_store(
-                "read_score",
-                # Cluster clients reject transactional pipelines, and these keys hash to different slots.
-                partial(_read_scores, keys=keys, token=team_api_token, transaction=False),
-                resource=QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value,
+                "read_score", read_copy, resource=QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value
             )
         except SecondaryQuotaStoreUnavailable:
             return dict.fromkeys(QuotaResource, False)
     else:
         scores = _read_scores(get_client(), keys, team_api_token, transaction=True)
-    return {resource: score is not None and score >= now_ts for resource, score in zip(QuotaResource, scores)}
+    limited = _limited_resources(scores, now_ts)
+    if quota_shadow_read_sampled():
+        shadow_read_secondary_quota_store(
+            "read_score",
+            read_copy,
+            lambda copy_scores: sum(
+                limited[resource] != copy_limited
+                for resource, copy_limited in _limited_resources(copy_scores, now_ts).items()
+            ),
+            function="get_fresh_team_limited_resources",
+            resource="all",
+            key=QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value,
+        )
+    return limited
 
 
 def _resource_usage(summary: dict[str, Any]) -> float | None:

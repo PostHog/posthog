@@ -741,7 +741,11 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 QUOTA_LIMITING_REDIS_URL = os.getenv("QUOTA_LIMITING_REDIS_URL", None)
 QUOTA_LIMITING_REDIS_CLUSTER_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
-QUOTA_LIMITING_REDIS_READS_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_READS_ENABLED", False, type_cast=str_to_bool)
+# disabled, shadow or live. Any other value reads shared Redis only, as disabled does.
+QUOTA_LIMITING_REDIS_READ_MODE = get_from_env("QUOTA_LIMITING_REDIS_READ_MODE", "disabled")
+QUOTA_LIMITING_REDIS_SHADOW_READ_RATE = min(
+    max(get_from_env("QUOTA_LIMITING_REDIS_SHADOW_READ_RATE", 0.0, type_cast=float), 0.0), 1.0
+)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is

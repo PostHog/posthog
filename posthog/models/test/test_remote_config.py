@@ -476,8 +476,8 @@ class TestRemoteConfig(_RemoteConfigBase):
             self.sync_remote_config()
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
-    @parameterized.expand([("reads_on_shared", False), ("reads_on_copy", True)])
-    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self, _name: str, copy_reads: bool):
+    @parameterized.expand([("reads_on_shared", "disabled"), ("reads_on_copy", "live")])
+    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self, _name: str, read_mode: str):
         """Pairs the bypass-True / bypass-False paths against a stale in-process cache so a
         regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
         the bypass-True case."""
@@ -493,7 +493,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             override_settings(
                 QUOTA_LIMITING_REDIS_URL="redis://quota-secondary.test:6379/0",
                 QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=False,
-                QUOTA_LIMITING_REDIS_READS_ENABLED=copy_reads,
+                QUOTA_LIMITING_REDIS_READ_MODE=read_mode,
             )
         )
         list_shared_limited_team_attributes.clear_cache()
