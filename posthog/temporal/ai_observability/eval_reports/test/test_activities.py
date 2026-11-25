@@ -1,5 +1,6 @@
 import datetime as dt
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
@@ -10,21 +11,22 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
     _count_eval_results_for_reports_with_split_retry,
     _CountEntry,
     _fetch_count_triggered_eval_report_candidate_groups,
+    _load_approved_evaluation_target,
     _load_detector_evaluation_ids,
-    _load_evaluation_target,
     _period_for_scheduled_report,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -80,7 +82,7 @@ class TestEvaluationTargetLoading(BaseTest):
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
         )
 
-        target = _load_evaluation_target(self.team.id, str(evaluation.id))
+        target = _load_approved_evaluation_target(self.team.id, str(evaluation.id))
 
         self.assertEqual(target, "trace")
 
@@ -151,7 +153,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
             return_value=content,
         ) as run_agent,
         patch(
-            "posthog.temporal.ai_observability.eval_reports.activities._load_evaluation_target",
+            "posthog.temporal.ai_observability.eval_reports.activities._load_approved_evaluation_target",
             return_value=evaluation_target,
         ) as load_target,
         patch(
@@ -550,6 +552,48 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(
         assert context.evaluation_prompt == (
             "return target.total_latency_seconds * 1000;" if evaluation_type == "hog" else "test prompt"
         )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revoke_after_prepare", [False, True])
+async def test_report_stops_without_ai_data_processing_approval(team, user, revoke_after_prepare: bool) -> None:
+    def _create_report() -> EvaluationReport:
+        evaluation = Evaluation.objects.create(
+            team=team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        return EvaluationReport.objects.create(
+            team=team,
+            evaluation=evaluation,
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+        )
+
+    report = await sync_to_async(_create_report)()
+    prepare_input = PrepareReportContextInput(report_id=str(report.id), manual=True)
+    context = await prepare_report_context_activity(prepare_input) if revoke_after_prepare else None
+    await Organization.objects.filter(pk=team.organization_id).aupdate(is_ai_data_processing_approved=False)
+
+    with (
+        patch("posthog.temporal.ai_observability.eval_reports.report_agent.run_eval_report_agent") as run_agent,
+        pytest.raises(ApplicationError) as error,
+    ):
+        if context is None:
+            await prepare_report_context_activity(prepare_input)
+        else:
+            await ActivityEnvironment().run(run_eval_report_agent_activity, RunEvalReportAgentInput(**asdict(context)))
+    assert error.value.non_retryable
+    assert error.value.type == "AIDataProcessingNotApproved"
+    run_agent.assert_not_called()
 
 
 class TestCountTriggeredReportChecks(BaseTest):

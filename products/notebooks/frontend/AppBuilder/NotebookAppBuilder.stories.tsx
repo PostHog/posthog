@@ -7,12 +7,14 @@ import { App } from 'scenes/App'
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import {
     buildMarkdownNotebookContent,
+    getMarkdownNotebookMarkdown,
     serializeMarkdownNotebookComponent,
 } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { AccessControlLevel } from '~/types'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -24,16 +26,25 @@ import {
 } from './notebookAppBuilderFixtures'
 
 const SHORT_ID = 'app-builder-demo'
-const buildContent = (variables: NotebookVariable[]): ReturnType<typeof buildMarkdownNotebookContent> =>
+const savedChartRun = '00000000-0000-4000-8000-000000000061'
+const buildContent = (
+    variables: NotebookVariable[],
+    published = false
+): ReturnType<typeof buildMarkdownNotebookContent> =>
     buildMarkdownNotebookContent(
         [
             '# Product weekly review',
-            ...appBuilderDemoCells.map((cell) =>
-                serializeMarkdownNotebookComponent('SQLV2', {
+            ...appBuilderDemoCells.map((cell) => {
+                const result = appBuilderDemoResults(variables)[cell.nodeId]
+                const hasSavedRun = published && cell.nodeId === 'weekly-signups'
+                return serializeMarkdownNotebookComponent('SQLV2', {
                     ...cell,
-                    result: appBuilderDemoResults(variables)[cell.nodeId],
+                    ...(hasSavedRun ? { runId: savedChartRun } : {}),
+                    result: hasSavedRun
+                        ? { ...result, first_page: result.first_page.slice(0, 5), previewOnly: true, has_more: true }
+                        : result,
                 })
-            ),
+            }),
         ].join('\n\n')
     )
 const notebook = {
@@ -48,12 +59,14 @@ const notebook = {
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
+let failNextQuery = false
 
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
         saved = structuredClone(notebook)
+        failNextQuery = false
         runNumber = 0
         results = appBuilderDemoResults(appBuilderDemoVariables)
     },
@@ -82,6 +95,23 @@ const meta: Meta = {
                 '/api/oauth/connected-apps': [],
                 '/api/organizations/:id/product_push_campaign/active': () => [204, null],
                 '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, saved],
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_release': () => [
+                    200,
+                    {
+                        revision: 1,
+                        published_at: '2026-10-18T12:00:00Z',
+                        results_as_of: '2026-10-18T09:00:00Z',
+                        title: notebook.title,
+                        layout,
+                        markdown: getMarkdownNotebookMarkdown(buildContent(appBuilderDemoVariables, true)),
+                        variables: appBuilderDemoVariables,
+                        has_previous: false,
+                    },
+                ],
+                [`/api/projects/:team_id/notebooks/app-builder-demo/sql_v2/runs/${savedChartRun}`]: () => {
+                    const result = appBuilderDemoResults(appBuilderDemoVariables)['weekly-signups']
+                    return [200, { status: 'done', result: { ...result, status: 'ok' }, rows: result.first_page }]
+                },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/stream': () => [503, {}],
                 '/api/projects/:team_id/notebooks/app-builder-demo/kernel/status': {
                     backend: null,
@@ -120,6 +150,36 @@ const meta: Meta = {
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_preview': () => [
+                    200,
+                    { has_previous: true, problems: [], results_as_of: '2026-10-18T09:00:00Z' },
+                ],
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_queries': async ({ request }) => {
+                    const body = (await request.json()) as { variables: NotebookVariable[] }
+                    return [
+                        200,
+                        appBuilderDemoCells.map((cell) => ({
+                            node_id: cell.nodeId,
+                            query: JSON.stringify({ nodeId: cell.nodeId, variables: body.variables }),
+                        })),
+                    ]
+                },
+                '/api/projects/:team_id/query/HogQLQuery': async ({ request }) => {
+                    const body = (await request.json()) as { query: { query: string } }
+                    if (!body.query.query.startsWith('{"nodeId":')) {
+                        return [200, { results: [] }]
+                    }
+                    if (failNextQuery) {
+                        failNextQuery = false
+                        return [400, { detail: 'This query failed.' }]
+                    }
+                    const { nodeId, variables } = JSON.parse(body.query.query) as {
+                        nodeId: string
+                        variables: NotebookVariable[]
+                    }
+                    const result = appBuilderDemoResults(variables)[nodeId]
+                    return [200, { columns: result.columns, types: result.types, results: result.first_page }]
+                },
                 '/api/projects/:team_id/notebooks/app-builder-demo/runs': async ({ request }) => {
                     const body = (await request.json()) as { variables: NotebookVariable[] }
                     saved = { ...saved, variables: body.variables, content: buildContent(body.variables) }
@@ -165,7 +225,25 @@ export const Builder: Story = {
     },
 }
 
+export const PublicationReview: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const review = await canvas.findByRole('button', { name: 'Review and publish' }, { timeout: 60000 })
+        await userEvent.click(review)
+        await waitFor(() => expect(canvas.getByText('Ready to publish')).toBeVisible())
+        expect(canvas.getByText(/Oldest displayed result ran/)).toBeVisible()
+        expect(canvas.getByRole('button', { name: 'Publish release' })).toBeEnabled()
+        await userEvent.click(canvas.getByRole('button', { name: 'Restore previous release' }))
+        const dialog = await within(document.body).findByRole('dialog')
+        await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+        expect(saved.app_revision).toBe(1)
+    },
+}
+
 export const Published: Story = {
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+    },
     parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
     play: async ({ canvasElement }) => {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeNull(), {
@@ -185,46 +263,39 @@ export const Published: Story = {
         expect(appElement.querySelector('.MarkdownNotebook__component-header')).not.toBeInTheDocument()
         fireEvent.click(app.getByLabelText('Region', { exact: true }))
         fireEvent.click(await within(document.body).findByText('Europe', { exact: true }))
+        await waitFor(() => expect(metric('594')).toBeVisible(), { timeout: 10000 })
+        fireEvent.click(app.getByLabelText('Auto-update results'))
         fireEvent.change(app.getByRole('slider', { name: 'Lookback (weeks)' }), { target: { value: '2' } })
-        const staleTags = await app.findAllByText('STALE', { exact: true })
-        expect(staleTags).toHaveLength(3)
-        for (const tag of staleTags) {
-            expect(tag.closest('[data-attr="notebook-app-cell-header"]')).not.toBeNull()
-        }
-        const staleTag = staleTags[0]
-        await userEvent.hover(staleTag)
-        await waitFor(() =>
-            expect(
-                within(document.body).getByText('Inputs changed. Run all to update the charts and calculated values.')
-            ).toBeVisible()
-        )
-        await userEvent.unhover(staleTag)
-        fireEvent.click(appElement.querySelector('[data-attr="notebook-run-all"]') as HTMLElement)
+        expect(metric('594')).toBeVisible()
+        fireEvent.click(app.getByRole('button', { name: 'Apply filters' }))
         await waitFor(() => expect(metric('222')).toBeVisible(), {
             timeout: 60000,
         })
         await waitFor(() => expect(metric('64.9%')).toBeVisible())
-        await waitFor(() => expect(app.queryAllByText('STALE', { exact: true })).toHaveLength(0))
-        await waitFor(
-            () =>
-                expect(saved.content).toEqual(
-                    expect.objectContaining({
-                        content: expect.arrayContaining([
-                            expect.objectContaining({
-                                attrs: expect.objectContaining({ markdown: expect.stringContaining('1-growth-table') }),
-                            }),
-                        ]),
-                    })
-                ),
-            { timeout: 10000 }
-        )
+        failNextQuery = true
+        fireEvent.change(app.getByRole('slider', { name: 'Lookback (weeks)' }), { target: { value: '3' } })
+        fireEvent.click(app.getByRole('button', { name: 'Apply filters' }))
+        await app.findByText(/Could not update results/)
+        expect(metric('222')).toBeVisible()
+
+        const chart = app.getByRole('img', { name: /chart with 2 data series/i }).parentElement!
+        const { left, top, width, height } = chart.getBoundingClientRect()
+        const lastWeek = { clientX: left + width * 0.8, clientY: top + height * 0.5 }
+        fireEvent.mouseMove(chart, lastWeek)
+        await within(document.body).findByText('Filter the app by this value')
+        fireEvent.click(chart, lastWeek)
+        await waitFor(() => expect(app.getByLabelText('Starting week')).toHaveTextContent('October 12, 2026'))
+        fireEvent.click(app.getByRole('button', { name: 'Apply filters' }))
+        await waitFor(() => expect(metric('114')).toBeVisible(), { timeout: 10000 })
+
+        expect(saved.variables).toEqual(appBuilderDemoVariables)
+        expect(saved.content).toEqual(notebook.content)
+        expect(runNumber).toBe(0)
         await userEvent.click(app.getByRole('button', { name: 'Open Signups in selected period in notebook' }))
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
         await waitFor(() =>
-            expect(
-                within(document.activeElement as HTMLElement).getByRole('textbox', { name: 'Output dataframe name' })
-            ).toHaveValue('signup_total')
+            expect(within(document.activeElement as HTMLElement).getByText('1485', { exact: true })).toBeVisible()
         )
     },
 }

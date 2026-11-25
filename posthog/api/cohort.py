@@ -580,6 +580,23 @@ def _coerce_stored_filter_values(filters: Any) -> Any:
     return coerced
 
 
+def _save_keeps_realtime_criteria(cohort: Cohort, filters: Any, will_be_static: bool) -> bool:
+    """Whether a save resends the stored criteria of a realtime cohort that stays dynamic.
+
+    `update()` keeps the stored definition of such a cohort instead of recompiling it, so its leaf hashes, its
+    readiness stamps and its realtime type stay as they are, and the history limit and the size cap that the
+    recompile applies are not checked again. The flag lock lets these saves through for that reason only. Both
+    read this function, because a save the lock admits and `update()` recompiles could clear the stamps that a
+    flag needs. Pass the cohort as stored, before the save changes it.
+    """
+    return (
+        cohort.cohort_type == CohortType.REALTIME
+        and not cohort.is_static
+        and not will_be_static
+        and _criteria_key(filters) == _criteria_key(_coerce_stored_filter_values(cohort.filters))
+    )
+
+
 class PersonValueValidationMixin(BaseModel):
     """Shared value/operator presence and date-value validation for the person and
     person_metadata filter variants. `_filter_noun` names the variant in error messages."""
@@ -2158,6 +2175,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Cohort, self.instance)
         if instance.is_static and cohort_will_be_static:
             return
+        if _save_keeps_realtime_criteria(instance, request_filters, cohort_will_be_static):
+            return
 
         cohort_id = instance.pk
 
@@ -2269,6 +2288,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort._create_in_folder = create_in_folder or None
 
         was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+        keeps_realtime_criteria = "filters" in validated_data and _save_keeps_realtime_criteria(
+            cohort, validated_data["filters"], will_be_static=validated_data.get("is_static", cohort.is_static)
+        )
         held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
         cohort.name = validated_data.get("name", cohort.name)
@@ -2281,7 +2303,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Process bytecode for filters if they're being updated. Static cohorts
         # define membership by an explicit list of person IDs, so their
         # cohort_type must never be overridden by the filter-based calculation.
-        if "filters" in validated_data:
+        if "filters" in validated_data and not keeps_realtime_criteria:
             filters = validated_data["filters"]
             if filters and not cohort.is_static:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
@@ -2289,15 +2311,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
-                    # The editor sends filters on every save. An absolute start date that aged past the limit
-                    # must not take a realtime cohort off realtime on a rename, because flags that target it
-                    # would then match nobody.
-                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
+        elif keeps_realtime_criteria:
+            # `cohort_type` is writable, so without this a request that keeps the criteria could take the
+            # cohort off realtime.
+            cohort.cohort_type = CohortType.REALTIME
 
         # A criteria edit that moves a behavioral leaf of a cohort with realtime on queues a behavioral backfill.
         # The backfill refuses a cohort whose flag calls it can't read. The cohort would then never be ready.
