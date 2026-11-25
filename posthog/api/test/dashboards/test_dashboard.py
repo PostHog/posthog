@@ -645,6 +645,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
+        self.assertIsNotNone(response_data["last_accessed_at"])
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
@@ -1127,7 +1128,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            baseline = 10
+            baseline = 11
             # Each dashboard GET that materializes at least one insight runner performs one
             # property-access-control feature check, memoized across all runners on the dashboard
             # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
