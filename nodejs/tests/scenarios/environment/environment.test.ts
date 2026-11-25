@@ -1336,9 +1336,10 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
             const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
-                const [service, state, policy = 'on-failure', code = '0', afterStart = state] = line.split(' ')
+                const [service, listed, policy = 'on-failure', code = '0', afterStart = listed] = line.split(' ')
                 const id = 'c' + i + ((stack.recreated || []).includes(service) ? 'r' : '')
-                return { id, service, state, policy, code, afterStart }
+                const restarted = (stack.restarted || []).includes(service)
+                return { id, service, state: restarted ? afterStart : listed, policy, code, restarted }
             })
             if (args[0] === 'ps') {
                 const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}']
@@ -1359,10 +1360,7 @@ describe('scenario environment', () => {
                     process.stderr.write('permission denied while trying to connect to the Docker daemon socket\\n')
                     process.exit(1)
                 }
-                const row = (c) => {
-                    const restarted = (stack.restarted || []).includes(c.service)
-                    return [c.id + '0000', c.service, c.policy, restarted ? c.afterStart : c.state, c.code, restarted ? 'restarted' : 'first']
-                }
+                const row = (c) => [c.id + '0000', c.service, c.policy, c.state, c.code, c.restarted ? 'restarted' : 'first']
                 const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
                 process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
                 process.stderr.write(asked.filter(([, c]) => !c).map(([id]) => 'Error: No such object: ' + id + '\\n').join(''))
@@ -1851,6 +1849,13 @@ describe('scenario environment', () => {
                 inspectFails: true,
             })
             await expect(environment.up(NEVER_ABORTED)).rejects.toThrow('permission denied')
+            writeStack({ running: true, ready: true, services, restarted: ['kafka', 'temporal-ui'] })
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
+            writeStack({ running: true, ready: true, services, restarted: ['temporal-ui'], recreated: ['kafka'] })
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                name: 'StackNotReadyError',
+                message: expect.stringContaining('The dev services temporal-ui started again'),
+            })
             writeStack({ running: true, ready: true, services, recreated: ['kafka', 'temporal-ui'] })
             await environment.up(NEVER_ABORTED)
         }, 45_000)
