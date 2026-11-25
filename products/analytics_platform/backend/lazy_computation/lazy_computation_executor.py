@@ -19,6 +19,7 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -1609,6 +1610,8 @@ class LazyComputationExecutor:
                                 is_retryable=not is_non_retryable_error(e),
                                 failure_number=failures + 1,
                             )
+                            if isinstance(e, CancelledError):
+                                raise
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 result = LazyComputationResult(
