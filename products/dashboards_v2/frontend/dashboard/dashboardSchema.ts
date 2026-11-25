@@ -37,7 +37,7 @@ const MAX_TIME_END = 100
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const widgetQuerySchema = z.union([
-    z.strictObject({ language: z.literal('hogql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('hogql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
     z.strictObject({
         language: z.literal('metrics'),
         query: z.looseObject({ kind: z.literal(NodeKind.MetricsQuery) }),
@@ -49,8 +49,8 @@ export const widgetQuerySchema = z.union([
         }),
     }),
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
-    z.strictObject({ language: z.literal('promql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
-    z.strictObject({ language: z.literal('logql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('promql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('logql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
 /**
