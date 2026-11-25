@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 
 import { type LoadedCard, stepsOf } from '../cards'
+import type { ScorecardPair } from '../runner/pair'
 import type { RunVerdict } from '../runner/runner'
 import type { Provenance } from './provenance'
 
@@ -107,10 +108,27 @@ function rampProperties(result: RunVerdict, loaded: Pick<LoadedCard, 'card'>): R
     }
 }
 
+const pairProperties = ({
+    role,
+    attribution,
+    reason,
+    controlRunId,
+    faultedRunId,
+    runs,
+}: ScorecardPair): Record<string, Property> => ({
+    pair_role: role,
+    pair_attribution: attribution,
+    pair_reason: reason,
+    pair_control_run_id: controlRunId,
+    pair_faulted_run_id: faultedRunId,
+    pair_runs: runs,
+})
+
 export function scorecardOf(
     result: RunVerdict,
     { card, profile }: LoadedCard,
-    provenance: Provenance
+    provenance: Provenance,
+    pair?: ScorecardPair
 ): ScorecardProperties {
     const versions = [provenance.runnerVersion, provenance.generatorVersion, provenance.valvesVersion]
     const fingerprint = versions.includes(null)
@@ -156,6 +174,7 @@ export function scorecardOf(
         ...invariantProperties(result),
         ...measurementProperties(result),
         ...(card.drive.stopOnBreak === true ? rampProperties(result, { card }) : {}),
+        ...(pair && pairProperties(pair)),
         admissions: result.admissions,
         bars: result.bars,
         valve_timeline: result.timeline,
