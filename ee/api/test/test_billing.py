@@ -2532,11 +2532,14 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_get_usage_data.assert_called_once()
 
+    @parameterized.expand([("limits_route", "/api/billing//"), ("list_route", "/api/billing/")])
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
-    def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
+    def test_owner_only_billing_rejects_admin_limit_update(
+        self, _name: str, url: str, _mock_feature_enabled, mock_update_billing
+    ):
         response = self.client.patch(
-            "/api/billing//",
+            url,
             data={"custom_limits_usd": {"events": 10}},
             content_type="application/json",
         )

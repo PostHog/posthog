@@ -703,6 +703,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     payment_actions = {"activate", "authorize", "authorize_status"}
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        if self.action is None and request.method == "PATCH":
+            # DRF hands a PATCH to the list route straight to the `patch` method, outside its action, so the request
+            # takes that action's name and permissions here.
+            self.action = "patch"
+            self.permission_classes = self.patch.kwargs["permission_classes"]
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
