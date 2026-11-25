@@ -617,6 +617,15 @@ describe('scenario environment', () => {
                 "since a setting the loader's SES check reads comes from the profile or the server default only",
                 '10',
             ],
+            ...[
+                'CDP_INTAKE_DLQ_DRAIN',
+                'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
+                'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            ].map((name): [string, string, string] => [
+                name,
+                "since the loader's intake check refuses it in a profile, and convergence cannot judge it",
+                'true',
+            ]),
         ])('drops an inherited %s, %s', (name, _reason, value) => {
             const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 

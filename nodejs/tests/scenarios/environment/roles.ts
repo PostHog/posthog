@@ -98,6 +98,9 @@ export function roleSpecs(
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: _sesRefill,
         CDP_SES_RATE_LIMIT_CAPACITY: _sesCapacity,
         CONSUMER_BATCH_SIZE: _batchSize,
+        CDP_INTAKE_DLQ_DRAIN: _drain,
+        CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: _emailTopic,
+        CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: _webhookTopic,
         ...inherited
     } = base
     const poolers = poolerUrls ? poolerUrls.split(',') : []
