@@ -218,7 +218,7 @@ def table_names_as_written(definition: dict, *, keep_table_functions: bool = Fal
     reads a view depends on the view, not on the view's own sources. Table functions are dropped by
     default: they generate rows rather than read them, so they are not upstream of the metric. An
     access check keeps them, because a call such as ``a_view()`` reads that view. Not a substitute
-    for ``referenced_table_names``, which the catalog's denied-table filter needs resolved.
+    for ``referenced_table_names``, which the catalog's denied-table filter also needs resolved.
     """
     collector = _TableReferenceCollector(skip_table_functions=not keep_table_functions)
     collector.visit(_parse_hogql_definition(definition))
@@ -330,6 +330,13 @@ def _validate_hogql(
             "filters": {**filters, "dateRange": {**(filters.get("dateRange") or {}), "date_from": "all"}},
         }
 
+    # The denied-table filter needs the names as written and the tables that the prepared tree reads.
+    # Access control denies a view by its own name, but preparation replaces the view with its body.
+    # The resolved {filters} can read tables of its own, for example through a subquery in a HogQL
+    # property filter. Preparation mutates ast_node, so collect the written names first.
+    collector = _TableReferenceCollector()
+    collector.visit(ast_node)
+
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
     try:
         printable = ast_node
@@ -352,11 +359,6 @@ def _validate_hogql(
         capture_exception(e)
         _fail("Unexpected error resolving the query.", "Simplify the query and try again.")
 
-    # Collect from the prepared tree, not from the parsed query. Preparation replaces each saved view
-    # with its body, and the resolved {filters} can read tables of its own, for example through a
-    # subquery in a HogQL property filter. The catalog's denied-table filter must see every table
-    # that the query reads.
-    collector = _TableReferenceCollector()
     collector.visit(printable)
     return definition, sorted(collector.tables)
 

@@ -225,10 +225,10 @@ class TestValidateMetricDefinition(BaseTest):
                 ["events", "persons"],
             ),
             (
-                "saved_view_resolves_to_the_tables_it_reads",
+                "saved_view_keeps_its_name_and_the_tables_it_reads",
                 "select {filters.interval('day')} as grain, count() from signups_view",
                 {"interval": "week"},
-                ["events"],
+                ["events", "signups_view"],
             ),
         ]
     )
