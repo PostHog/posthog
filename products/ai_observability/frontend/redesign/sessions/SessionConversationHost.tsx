@@ -20,6 +20,8 @@ export interface SessionConversationHostProps {
     /** A turn to open the conversation on, read when the conversation opens. */
     aroundTraceId: string | null
     listNavigation?: SessionListNavigation
+    /** Reads the title and the person again, where the session is not beside a list whose reload does. */
+    onRetryDetails?: () => void
 }
 
 export function SessionConversationHost({
@@ -30,6 +32,7 @@ export function SessionConversationHost({
     person,
     aroundTraceId,
     listNavigation,
+    onRetryDetails,
 }: SessionConversationHostProps): JSX.Element {
     const logic = sessionConversationLogic({ sessionId, timestamp, aroundTraceId })
     const { status, turns, openTraceId, rows, olderEdge, newerEdge } = useValues(logic)
@@ -51,6 +54,7 @@ export function SessionConversationHost({
                 conversationOnly={conversationOnly}
                 onConversationOnlyChange={setConversationOnly}
                 listNavigation={listNavigation}
+                onRetryDetails={onRetryDetails}
             />
             <SessionConversation
                 className="min-h-0 flex-1"

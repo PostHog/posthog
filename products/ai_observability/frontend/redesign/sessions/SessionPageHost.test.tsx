@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -10,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { traceDrawerLogic } from '../trace/traceDrawerLogic'
 import { SessionPageHost } from './SessionPageHost'
 import {
+    SESSION_CELL_URLS,
     SESSION_TURNS_URL,
     makeSessionListItem,
     makeSessionTurnPage,
@@ -38,7 +40,10 @@ describe('SessionPageHost', () => {
         localStorage.clear()
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.restoreAllMocks()
+    })
 
     it('trace param opens around that turn with the drawer', async () => {
         router.actions.push(combineUrl(urls.aiObservabilitySession('session-1'), { trace: 'trace-4' }).url)
@@ -57,6 +62,20 @@ describe('SessionPageHost', () => {
         await waitFor(() => expect(drawer.values.canStepPrevious).toBe(true))
         expect(drawer.values.previousTrace).toBeNull()
         expect(pageRequests).toHaveLength(1)
+    })
+
+    it('a failed title offers a retry that reads it again', async () => {
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        useMocks({ post: { [SESSION_CELL_URLS.titles]: [500, { detail: 'boom' }] } })
+        router.actions.push(urls.aiObservabilitySession('session-1'))
+        const view = render(<SessionPageHost sessionId="session-1" />)
+        await view.findByLabelText("Couldn't load this. Select Retry to try again.")
+        useMocks({ post: sessionCellsMocks() })
+
+        fireEvent.click(view.getByText('Retry'))
+
+        await view.findByText('Why was I charged twice this month?')
+        expect(view.queryByText('Retry')).toBeNull()
     })
 
     it('unknown session shows the not-found state with a way back to the sessions list', async () => {

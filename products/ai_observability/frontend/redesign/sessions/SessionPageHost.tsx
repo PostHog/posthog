@@ -53,6 +53,7 @@ export function SessionPageHost({ sessionId }: SessionPageHostProps): JSX.Elemen
                 title={title}
                 person={person}
                 aroundTraceId={openTraceId}
+                onRetryDetails={reload}
             />
         )
     }
