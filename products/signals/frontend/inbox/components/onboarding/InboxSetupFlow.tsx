@@ -15,9 +15,17 @@ import { InboxSetupScoutsStep } from './InboxSetupScoutsStep'
 import { InboxSetupSourcesStep } from './InboxSetupSourcesStep'
 
 export function InboxSetupFlow(): JSX.Element {
-    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, currentTeamId } =
-        useValues(inboxSetupLogic)
-    const { startSetup, goToStep, activate, retry, reportStepViewed } = useActions(inboxSetupLogic)
+    const {
+        draft,
+        ready,
+        saving,
+        error,
+        activationDisabledReason,
+        activatesWithoutGithub,
+        isFinalStep,
+        currentTeamId,
+    } = useValues(inboxSetupLogic)
+    const { startSetup, goToStep, requestActivation, retry, reportStepViewed } = useActions(inboxSetupLogic)
     useMountedLogic(scoutSuggestionsLogic)
     useEffect(() => {
         startSetup()
@@ -28,6 +36,7 @@ export function InboxSetupFlow(): JSX.Element {
         }
     }, [ready, draft.step, currentTeamId, reportStepViewed])
     const isScoutsStep = draft.step === 'scouts'
+    const activatingWithoutGithub = isFinalStep && activatesWithoutGithub
     return (
         <div className={cn('@container w-full', isScoutsStep && 'h-full')}>
             <div
@@ -81,24 +90,28 @@ export function InboxSetupFlow(): JSX.Element {
                             </LemonButton>
                         )}
                         <LemonButton
-                            type="primary"
+                            type={activatingWithoutGithub ? 'secondary' : 'primary'}
                             className="ml-auto"
-                            status="alt"
+                            status={activatingWithoutGithub ? 'default' : 'alt'}
                             loading={saving}
                             disabledReason={
                                 !ready ? 'Loading your setup' : isFinalStep ? activationDisabledReason : undefined
                             }
                             sideIcon={isFinalStep ? undefined : <IconArrowRight />}
                             onClick={() =>
-                                isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
+                                isFinalStep
+                                    ? requestActivation()
+                                    : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
                             }
                             data-attr="inbox-setup-continue"
                         >
-                            {isFinalStep
-                                ? 'Activate Self-driving'
-                                : draft.step === 'signals'
-                                  ? 'Continue to scouts'
-                                  : 'Continue'}
+                            {activatingWithoutGithub
+                                ? 'Activate without GitHub'
+                                : isFinalStep
+                                  ? 'Activate Self-driving'
+                                  : draft.step === 'signals'
+                                    ? 'Continue to scouts'
+                                    : 'Continue'}
                         </LemonButton>
                     </div>
                 </GuidedWizardPanel>

@@ -1,0 +1,67 @@
+import { useActions, useValues } from 'kea'
+
+import { IconLock } from '@posthog/icons'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxGithubAccessReasons } from './InboxGithubAccessReasons'
+import { InboxSetupGithubConnect } from './InboxSetupGithubConnect'
+
+interface InboxSetupGithubSkipDialogProps {
+    /** False for a person who has to request GitHub access. They request it from the step behind this dialog. */
+    canConnectGithub: boolean
+}
+
+/** Asks before the guided setup activates without GitHub, and shows what GitHub access is used for. */
+export function InboxSetupGithubSkipDialog({ canConnectGithub }: InboxSetupGithubSkipDialogProps): JSX.Element {
+    const { githubSkipConfirmationVisible, githubIntegrations } = useValues(inboxSetupLogic)
+    const { setGithubSkipConfirmationOpen, activate } = useActions(inboxSetupLogic)
+    return (
+        <LemonModal
+            isOpen={githubSkipConfirmationVisible}
+            onClose={() => setGithubSkipConfirmationOpen(false)}
+            title="Activate without GitHub?"
+            width={640}
+            data-attr="inbox-setup-skip-github-dialog"
+            footer={
+                // Bottom-aligned because the connect card grows a notice above its button when GitHub already has an
+                // installation to link, and the two buttons must stay on one line.
+                <div className="flex w-full flex-wrap items-end justify-end gap-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => activate()}
+                        data-attr="inbox-setup-skip-github-confirm"
+                    >
+                        Activate without GitHub
+                    </LemonButton>
+                    {/* The connect card lists a GitHub connection that already exists, and a list does not fit this
+                        row of buttons. A connection exists when GitHub reports it as unavailable, and for the moment
+                        this dialog takes to close after a person links an installation from it. */}
+                    {canConnectGithub && githubIntegrations.length === 0 && (
+                        <div className="min-w-0 whitespace-normal">
+                            <InboxSetupGithubConnect connectDescription="" />
+                        </div>
+                    )}
+                </div>
+            }
+        >
+            <div className="@container flex flex-col gap-3 text-sm text-secondary">
+                <InboxGithubAccessReasons className="grid gap-x-6 gap-y-3 @lg:grid-cols-2" />
+                <p className="m-0 flex items-start gap-1.5">
+                    <IconLock className="mt-0.5 shrink-0 text-base" />
+                    <span>
+                        Read about code access, storage and GitHub permissions in the{' '}
+                        <Link
+                            to="https://posthog.com/docs/self-driving/security"
+                            target="_blank"
+                            data-attr="inbox-setup-github-security"
+                        >
+                            security docs
+                        </Link>
+                        .
+                    </span>
+                </p>
+            </div>
+        </LemonModal>
+    )
+}

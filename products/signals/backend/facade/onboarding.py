@@ -86,7 +86,7 @@ class InboxOnboarding:
         self.user = user
         self.authorize_scouts = authorize_scouts
 
-    def _state(self, config: SignalTeamConfig) -> dict[str, Any]:
+    def _state(self, config: SignalTeamConfig, *, pilot_enabled: bool = False) -> dict[str, Any]:
         state = config.onboarding or {}
         if (
             self.team.parent_team_id
@@ -108,7 +108,8 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
-            "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
+            # A caller that validated a pilot draft has evaluated the pilot flag in this request.
+            "github_optional_available": pilot_enabled or ResearchAccessPolicy.enabled(self.team_id),
             "setup_default_skills": setup_default_skills_for_team(self.team.parent_team_id or self.team_id),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
@@ -167,7 +168,7 @@ class InboxOnboarding:
         return True
 
     def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
-        self._validate_pilot(draft)
+        pilot = self._validate_pilot(draft)
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
@@ -179,7 +180,7 @@ class InboxOnboarding:
             if not state.get("completed_at"):
                 config.onboarding = {**state, "draft": draft}
                 config.save(update_fields=["onboarding", "updated_at"])
-        return self._state(config)
+        return self._state(config, pilot_enabled=pilot)
 
     def complete(self, draft: dict[str, Any]) -> dict[str, Any]:
         # Activation enqueues scout jobs after commit, so the scout write check has to pass before anything is saved.
@@ -197,7 +198,8 @@ class InboxOnboarding:
                 raise InboxOnboardingPermissionError(
                     "Activating this pilot requires task editor access on the parent project."
                 )
-        if pilot:
+        quick = is_quick_setup({"draft": draft})
+        if pilot and quick:
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
@@ -271,7 +273,6 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                quick = pilot or is_quick_setup(config.onboarding)
                 config.onboarding["first_report_scout"] = True
                 config.onboarding["jobs"] = {
                     "scout": "pending",
@@ -287,7 +288,7 @@ class InboxOnboarding:
                     InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
                 transaction.on_commit(lambda: self._report_completion(user, config), robust=True)
                 transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
-        return self._state(config)
+        return self._state(config, pilot_enabled=pilot)
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}

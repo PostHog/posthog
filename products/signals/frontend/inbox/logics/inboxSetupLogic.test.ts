@@ -36,6 +36,8 @@ const draft: InboxOnboardingDraftApi = {
     implementation_priority: 'P1',
 }
 
+const githubIntegration = { id: 1, kind: 'github', config: {}, display_name: 'example', created_at: '', icon_url: '' }
+
 describe('Inbox setup', () => {
     let logic: ReturnType<typeof inboxSetupLogic.build>
     let savedDraft: InboxOnboardingDraftApi | null
@@ -142,18 +144,7 @@ describe('Inbox setup', () => {
                     items: [],
                 }),
                 '/api/projects/:id/integrations/': () => ({
-                    results: githubOptional
-                        ? []
-                        : [
-                              {
-                                  id: 1,
-                                  kind: 'github',
-                                  config: {},
-                                  display_name: 'example',
-                                  created_at: '2026-10-14',
-                                  icon_url: '',
-                              },
-                          ],
+                    results: githubOptional ? [] : [githubIntegration],
                     next: null,
                     count: githubOptional ? 0 : 1,
                 }),
@@ -240,9 +231,7 @@ describe('Inbox setup', () => {
         useMocks({
             get: {
                 '/api/projects/:id/integrations/': () => ({
-                    results: connected
-                        ? [{ id: 1, kind: 'github', config: {}, display_name: 'example', created_at: '', icon_url: '' }]
-                        : [],
+                    results: connected ? [githubIntegration] : [],
                     next: null,
                     count: connected ? 1 : 0,
                 }),
@@ -317,16 +306,7 @@ describe('Inbox setup', () => {
                         '/api/projects/:id/integrations/': async () => {
                             await integrationsLoaded
                             return {
-                                results: [
-                                    {
-                                        id: 1,
-                                        kind: 'github',
-                                        config: {},
-                                        display_name: 'example',
-                                        created_at: '',
-                                        icon_url: '',
-                                    },
-                                ],
+                                results: [githubIntegration],
                                 next: null,
                                 count: 1,
                             }
@@ -516,6 +496,22 @@ describe('Inbox setup', () => {
             ).toHaveLength(1)
         }
     )
+
+    it('keeps the pilot activation mode of a quick setup draft when GitHub is connected', async () => {
+        githubOptional = true
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        useMocks({
+            get: { '/api/projects/:id/integrations/': { results: [githubIntegration], next: null, count: 1 } },
+        })
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        logic.actions.activateQuickSetup()
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(logic.values.hasGithubIntegration).toBe(true)
+        expect(logic.values.savedState?.draft?.activation_mode).toBe('github_optional')
+    })
 
     it.each([
         ['a missing general scout', 'scouts', 'app'],
@@ -1098,6 +1094,60 @@ describe('Inbox setup', () => {
         expect(logic.values.isFinalStep).toBe(true)
         expect(logic.values.activationDisabledReason).toBeUndefined()
     })
+
+    it.each([
+        { pilot: false, connected: false, implementation: false, usageBasedPricing: true },
+        { pilot: true, connected: false, implementation: false, usageBasedPricing: true },
+        { pilot: true, connected: false, implementation: true, usageBasedPricing: true },
+        { pilot: true, connected: false, implementation: true, usageBasedPricing: false },
+        { pilot: true, connected: true, implementation: false, usageBasedPricing: true },
+    ])(
+        'activates guided setup without GitHub only in the pilot: pilot $pilot, GitHub connected $connected, automatic implementation $implementation, usage-based pricing $usageBasedPricing',
+        async ({ pilot, connected, implementation, usageBasedPricing }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing })
+            githubOptional = pilot
+            failCompletion = false
+            // The connected project saved its draft before it connected GitHub.
+            savedDraft = {
+                ...draft,
+                automatic_implementation: implementation,
+                ...(connected ? { activation_mode: 'github_optional' as const } : {}),
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:id/integrations/': {
+                        results: connected ? [githubIntegration] : [],
+                        next: null,
+                        count: connected ? 1 : 0,
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+            // Without usage-based pricing there is no toggle, so a stored value is not the person's choice.
+            const withoutGithub = pilot && !connected && !(usageBasedPricing && implementation)
+            expect(logic.values.githubIsOptional).toBe(pilot && !connected)
+            expect(logic.values.activatesWithoutGithub).toBe(withoutGithub)
+            expect(logic.values.activationDisabledReason).toBe(
+                connected || withoutGithub
+                    ? undefined
+                    : pilot
+                      ? 'Connect GitHub or turn off automatic implementation to continue'
+                      : 'Connect GitHub to continue'
+            )
+            await expectLogic(logic, () => logic.actions.requestActivation()).toFinishAllListeners()
+            // Activation without GitHub waits for the person to confirm it in the dialog.
+            expect(logic.values.githubSkipConfirmationVisible).toBe(withoutGithub)
+            expect(logic.values.completed).toBe(connected)
+            if (withoutGithub) {
+                await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
+                expect(logic.values.githubSkipConfirmationVisible).toBe(false)
+            }
+            expect(logic.values.completed).toBe(connected || withoutGithub)
+            expect(savedDraft?.activation_mode).toBe(withoutGithub ? 'github_optional' : undefined)
+            expect(savedDraft?.automatic_implementation).toBe(withoutGithub ? false : implementation)
+        }
+    )
 
     it.each(['refresh', 'return'] as const)(
         'updates saved source choices on %s without undoing explicit deselection',

@@ -489,6 +489,62 @@ export const GithubOptional: Story = {
     ],
 }
 
+export const GithubOptionalReview: Story = {
+    name: 'Review without GitHub in the GitHub-optional pilot',
+    play: async ({ canvas }) => {
+        const activate = (await canvas.findByText('Activate without GitHub')).closest('button')
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await expect(canvas.getByText(/Without GitHub, reports use your product data only/)).toBeVisible()
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: { ...draft, step: 'github' },
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const GithubOptionalSkipConfirmation: Story = {
+    ...GithubOptionalReview,
+    name: 'Confirming activation without GitHub in the GitHub-optional pilot',
+    play: async ({ canvas, userEvent }) => {
+        const activate = (await canvas.findByText('Activate without GitHub')).closest('button')!
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await userEvent.click(activate)
+        const page = within(document.body)
+        await expect(await page.findByText('Activate without GitHub?')).toBeVisible()
+        await expect(page.getByText('Find root causes')).toBeVisible()
+        await expect(page.getByText('security docs')).toBeVisible()
+    },
+}
+
+export const GithubOptionalReviewWithImplementation: Story = {
+    ...GithubOptionalReview,
+    name: 'Review without GitHub blocked by automatic implementation',
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvas }) => {
+        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'true'))
+        await expect(canvas.getByText(/Automatic implementation opens pull requests/)).toBeVisible()
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: { ...draft, step: 'github', automatic_implementation: true },
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+            },
+        }),
+    ],
+}
+
 export const QuickConnected: Story = {
     ...QuickEntry,
     name: 'Quick setup with GitHub connected',
