@@ -173,6 +173,12 @@ Own and competitor pages come from the brand catalog, and branded prompts from t
 """
 
 _TILE_HEIGHT = 5
+# The rates are already in percent, so they only gain a sign. Changes stay bare, since they are percentage points.
+_PERCENT = {"formatting": {"suffix": "%"}}
+
+
+def _percent_columns(*columns: str) -> dict[str, Any]:
+    return {"tableSettings": {"columns": [{"column": column, "settings": _PERCENT} for column in columns]}}
 
 
 def _sql_tile(
@@ -208,6 +214,7 @@ def build_dashboard_tiles() -> list[dict[str, Any]]:
             x=0,
             y=3,
             w=6,
+            **_percent_columns("visibility", "previous_visibility", "citation_rate", "previous_citation_rate"),
         ),
         _sql_tile(
             "Visibility trend",
@@ -219,7 +226,10 @@ def build_dashboard_tiles() -> list[dict[str, Any]]:
             display="ActionsLineGraph",
             chartSettings={
                 "xAxis": {"column": "week_ending"},
-                "yAxis": [{"column": "visibility"}, {"column": "citation_rate"}],
+                "yAxis": [
+                    {"column": "visibility", "settings": _PERCENT},
+                    {"column": "citation_rate", "settings": _PERCENT},
+                ],
             },
         ),
         _sql_tile(
@@ -230,6 +240,7 @@ def build_dashboard_tiles() -> list[dict[str, Any]]:
             x=0,
             y=8,
             w=12,
+            **_percent_columns("visibility", "previous_visibility"),
         ),
         _sql_tile(
             "Pages to watch",
@@ -239,6 +250,7 @@ def build_dashboard_tiles() -> list[dict[str, Any]]:
             x=0,
             y=13,
             w=12,
+            **_percent_columns("citation_rate", "previous_citation_rate"),
         ),
     ]
 
