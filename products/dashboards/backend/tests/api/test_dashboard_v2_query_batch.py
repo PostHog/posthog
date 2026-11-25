@@ -519,33 +519,47 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("spans", {"kind": "TraceSpansQuery", "dateRange": {"date_from": "-24h"}}),
-            (
-                "aggregation",
-                {
-                    "kind": "TraceSpansAggregationQuery",
-                    "dateRange": {"date_from": "-24h"},
-                    "serviceNames": ["api"],
-                    "includeImpact": True,
-                },
-            ),
+            (kind, access_level)
+            for kind in ("TraceSpansQuery", "TraceSpansAggregationQuery")
+            for access_level in ("none", "viewer")
         ]
     )
-    def test_a_traces_tile_gets_the_tracing_access_check(self, _name: str, query: dict) -> None:
+    def test_a_traces_tile_runs_only_with_tracing_access(self, kind: str, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
+        self.client.force_login(
+            self._create_user("traces-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        )
+        query = {"kind": kind, "dateRange": {"date_from": "-24h"}, "serviceNames": ["posthog-web-django"]}
         target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
 
-        lines = self._lines([{"target": target, "time": _LAST_7_DAYS}])
+        [line] = self._lines([{"target": target, "time": _LAST_7_DAYS}], format="frames")
 
-        self.assertEqual(
-            lines,
-            [
+        if access_level == "viewer":
+            self.assertNotIn("error", line)
+            self.assertEqual(line["result"]["format"], "frames")
+            self.assertIsInstance(line["result"]["frames"], list)
+        else:
+            self.assertEqual(
+                line,
                 {
                     "i": 0,
                     "refId": "traces",
                     "error": "Access control failure. You don't have `viewer` access to the `tracing` resource.",
-                }
-            ],
-        )
+                },
+            )
+
+    def test_a_signed_out_traces_tile_is_refused(self) -> None:
+        self.client.logout()
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        response = self._batch([{"target": target, "time": _LAST_7_DAYS}])
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
         sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"

@@ -194,7 +194,7 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
                     tile('ks-q-hogql', 0, 0, 8, 14, line('HogQL query', SQL.pageviewsOverTime)),
                     tile('ks-q-metrics', 8, 0, 8, 14, metrics('Metrics query', 'sum(rate(http_requests_total[5m]))', { type: 'line' })),
-                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'checkout', { type: 'bar' })),
+                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'posthog-web-django', { type: 'bar' })),
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
                     tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', SQL.revenue, 'currency')),
                     tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', SQL.signups, 'number')),
@@ -309,8 +309,8 @@ export const kitchenSinkDashboard: Dashboard = {
                 tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'line' })),
                 tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
                 section('apm-endpoints', 0, 24, 24, 'Endpoints', [
-                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'checkout', { type: 'bar' })),
-                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'checkout', { type: 'bar', options: { stack: true } })),
+                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'posthog-web-django', { type: 'bar' })),
+                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
                 ]),
             ],
         },

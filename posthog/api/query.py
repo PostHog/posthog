@@ -251,6 +251,8 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "ErrorTrackingIssueEventsQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     "MetricsHistogramQuery": ["metrics:read"],
+    "TraceSpansQuery": ["query:read", "tracing:read"],
+    "TraceSpansAggregationQuery": ["query:read", "tracing:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPDashboardQuery": ["query:read", "mcp_analytics:read"],

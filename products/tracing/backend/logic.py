@@ -79,6 +79,7 @@ _ROW_LIMIT = 5000
 # ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
+DEFAULT_SPAN_LIST_LIMIT = 100
 
 RECENT_TRACES_SPANS_PER_TRACE = 100
 
@@ -569,15 +570,26 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
         return response.results
 
 
+def assert_tracing_viewer(user: "User", team: "Team") -> bool:
+    """The check the tracing API's permission class makes, so `/query` and dashboard batches gate spans the same way."""
+    from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
+
+    return UserAccessControl(user=user, team=team).assert_access_level_for_resource("tracing", "viewer")
+
+
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def validate_query_runner_access(self, user: "User") -> bool:
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # The tracing UI always pages, but a dashboard tile may not, and the query has no LIMIT without one.
+        if self.query.limit is None:
+            self.query.limit = DEFAULT_SPAN_LIST_LIMIT
 
-        raise UserAccessControlError("tracing", "viewer")
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return assert_tracing_viewer(user, self.team)
 
     def _calculate(self) -> TraceSpansQueryResponse:
         flat = self._flat_spans
@@ -637,11 +649,6 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             results.append(row)
 
         return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
-
-    def run(self, *args, **kwargs) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
-        return response
 
     @property
     def _include_events(self) -> bool:

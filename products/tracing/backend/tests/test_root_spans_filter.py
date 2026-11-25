@@ -101,7 +101,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             prefetchSpans=prefetch,
             serviceNames=service_names,
         )
-        return TraceSpansQueryRunner(query, self.team).run().results
+        return TraceSpansQueryRunner(query, self.team).calculate().results
 
     @parameterized.expand(
         [
@@ -161,5 +161,5 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             **query_fields,
         )
         trace_hex = (trace).to_bytes(16, "big").hex().upper()
-        results = TraceSpansQueryRunner(query, self.team).run().results
+        results = TraceSpansQueryRunner(query, self.team).calculate().results
         self.assertEqual({r["name"] for r in results if r["trace_id"] == trace_hex}, expected)

@@ -107,6 +107,10 @@ def _frames(
             return trends_frames(TrendsQuery.model_validate(source), result)
         except ValidationError:
             return None
+    if kind == "TraceSpansAggregationQuery":
+        return span_aggregation_frames(result, as_table=as_table)
+    if kind == "TraceSpansQuery":
+        return span_list_frames(result)
     return None
 
 
@@ -596,3 +600,121 @@ def _wall_clock_ms(days: Sequence[str], timezone: ZoneInfo) -> list[int]:
 
 def _epoch_ms(value: dt.datetime) -> int:
     return int(value.timestamp() * 1000)
+
+
+# Traces. Span durations arrive in nanoseconds and leave in milliseconds, the unit the charts' duration axis reads.
+
+_NANOS_PER_MS = 1_000_000
+# (field, row key, unit). The first is the one a bar chart draws, so an operations chart ranks by traffic.
+_SPAN_AGGREGATE_FIELDS: tuple[tuple[str, str, Optional[str]], ...] = (
+    ("count", "count", None),
+    ("error_count", "error_count", None),
+    ("error_rate", "error_rate", "%"),
+    ("avg_duration", "avg_duration_nano", "ms"),
+    ("p50_duration", "p50_duration_nano", "ms"),
+    ("p95_duration", "p95_duration_nano", "ms"),
+    ("p99_duration", "p99_duration_nano", "ms"),
+    ("sessions", "sessions", None),
+    ("users", "users", None),
+)
+
+
+def span_aggregation_frames(result: Mapping[str, Any], *, as_table: bool = False) -> Optional[list[Frame]]:
+    """A span aggregation as one series per operation, each a single point at the end of the window, so a bar chart
+    draws one bar per operation. As a table, one frame with a row per operation. The comparison window is left out.
+
+    A number the result does not carry, such as `sessions` without `includeImpact`, is left out rather than drawn as 0.
+    """
+    rows = result.get("results")
+    if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
+        return None
+    columns: list[tuple[str, Optional[str], list[Optional[float]]]] = []
+    for name, key, unit in _SPAN_AGGREGATE_FIELDS:
+        values = [_span_aggregate(row, key) for row in rows]
+        if any(value is not None for value in values):
+            columns.append((name, unit, values))
+    date_range = result.get("resolved_date_range")
+    meta = _meta(date_range if isinstance(date_range, Mapping) else None, None, previous=False)
+    services = [str(row.get("service_name") or "") for row in rows]
+    operations = [str(row.get("name") or "") for row in rows]
+    if as_table or meta.date_to is None:
+        return [
+            Frame(
+                name=None,
+                labels={},
+                fields=[
+                    FrameField(name="service", type="string", values=services),
+                    FrameField(name="operation", type="string", values=operations),
+                    *(FrameField(name=name, type="number", values=values, unit=unit) for name, unit, values in columns),
+                ],
+                meta=meta,
+            )
+        ]
+    end = _epoch_ms(meta.date_to)
+    frames: list[Frame] = []
+    for index, (service, operation) in enumerate(zip(services, operations)):
+        labels = {"service": service, "operation": operation}
+        frames.append(
+            Frame(
+                name=f"{service} / {operation}" if service else operation,
+                labels=labels,
+                fields=[
+                    FrameField(name="time", type="time", values=[end]),
+                    *(
+                        FrameField(name=name, type="number", values=[values[index]], unit=unit, labels=labels)
+                        for name, unit, values in columns
+                    ),
+                ],
+                meta=meta,
+            )
+        )
+    return frames
+
+
+def _span_aggregate(row: Mapping[str, Any], key: str) -> Optional[float]:
+    if key == "error_rate":
+        count, errors = row.get("count"), row.get("error_count")
+        if not isinstance(count, int | float) or not isinstance(errors, int | float) or not count:
+            return None
+        return 100 * errors / count
+    value = row.get(key)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return None
+    return value / _NANOS_PER_MS if key.endswith("_nano") else value
+
+
+def span_list_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """Spans as one table frame, a row per span in the runner's order."""
+    rows = result.get("results")
+    if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
+        return None
+
+    def column(key: str) -> list[Any]:
+        return [row.get(key) for row in rows]
+
+    return [
+        Frame(
+            name=None,
+            labels={},
+            fields=[
+                FrameField(name="time", type="time", values=[_time_ms(value) for value in column("timestamp")]),
+                FrameField(name="service", type="string", values=column("service_name")),
+                FrameField(name="operation", type="string", values=column("name")),
+                FrameField(
+                    name="duration",
+                    type="number",
+                    values=[
+                        value / _NANOS_PER_MS if isinstance(value, int | float) else None
+                        for value in column("duration_nano")
+                    ],
+                    unit="ms",
+                ),
+                FrameField(name="status_code", type="number", values=column("status_code")),
+                FrameField(name="kind", type="number", values=column("kind")),
+                FrameField(name="is_root_span", type="boolean", values=column("is_root_span")),
+                FrameField(name="trace_id", type="string", values=column("trace_id")),
+                FrameField(name="span_id", type="string", values=column("span_id")),
+            ],
+            meta=FrameMeta(truncated=result.get("hasMore") is True),
+        )
+    ]
