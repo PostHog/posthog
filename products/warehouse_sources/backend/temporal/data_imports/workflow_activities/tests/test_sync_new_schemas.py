@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import sql_schema_metadata
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
@@ -232,16 +233,29 @@ def test_all_source_non_retryable_error_is_skipped():
     _run_activity(source_mock)
 
 
-def test_undecrypted_integration_secret_error_is_skipped():
-    # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
-    # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
-    # failure and spams error tracking every cycle.
+@pytest.mark.parametrize(
+    "error",
+    [
+        # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
+        # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
+        # failure and spams error tracking every cycle.
+        UndecryptedIntegrationSecretError(),
+        # An SSH server at its limit of new connections closed this one. A retry opens another
+        # session to the same busy server, and the error is not a bug to report.
+        SSHGatewayClosedBeforeBannerError(),
+    ],
+    ids=["undecrypted_integration_secret", "ssh_gateway_closed_before_banner"],
+)
+def test_error_checked_by_type_is_skipped(error):
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError()
+    source_mock.get_schemas.side_effect = error
     source_mock.get_non_retryable_errors.return_value = {}
+    source_mock.get_retryable_errors.return_value = set()
 
-    _run_activity(source_mock)
+    mocks = _run_activity(source_mock)
+
+    assert not mocks["sync_old_schemas_with_new_schemas"].called
 
 
 @pytest.mark.parametrize(

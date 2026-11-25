@@ -9,7 +9,7 @@ import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import { AmbiguousParams, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -125,6 +125,35 @@ export const sesReject: ValveDefinition = {
     },
 }
 
+const AmbiguousDose = z.union([
+    z.object({ accepted: AmbiguousParams.shape.accepted, count: z.number().int().min(1) }).strict(),
+    z.object({ accepted: AmbiguousParams.shape.accepted, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const sesAmbiguous: ValveDefinition = {
+    name: 'ses.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'ses.ambiguous', params: { accepted }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
+export const destAmbiguous: ValveDefinition = {
+    name: 'dest.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal(WEBHOOK_HOST),
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'dest.ambiguous', params: { accepted }, match: { host: target }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
     params: z.object({}).strict(),
@@ -147,6 +176,8 @@ export const VALVES: ValveDefinition[] = [
     destStatus,
     sesThrottle,
     sesReject,
+    sesAmbiguous,
+    destAmbiguous,
 ]
 
 const POLL_MS = 1000

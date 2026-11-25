@@ -18,6 +18,7 @@ class TestCatalogSyncTrigger(SimpleTestCase):
 
         queue_sync.assert_not_called()
 
+    @override_settings(MCP_CATALOG_SYNC_ON_WORKER_READY=True)
     def test_worker_ready_queues_the_sync_once(self) -> None:
         # ready() runs again above and in other tests; the dispatch_uid keeps it to one receiver.
         apps.get_app_config("mcp_store").ready()
@@ -26,3 +27,12 @@ class TestCatalogSyncTrigger(SimpleTestCase):
             worker_ready.send(sender=None)
 
         queue_sync.assert_called_once_with()
+
+    @override_settings(MCP_CATALOG_SYNC_ON_WORKER_READY=False)
+    def test_worker_ready_skips_the_sync_when_disabled(self) -> None:
+        apps.get_app_config("mcp_store").ready()
+
+        with patch(QUEUE_SYNC) as queue_sync:
+            worker_ready.send(sender=None)
+
+        queue_sync.assert_not_called()

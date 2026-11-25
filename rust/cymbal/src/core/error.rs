@@ -2,6 +2,7 @@ use std::error::Error as _;
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_ingestion_response::codes;
 use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
 use common_types::ClickHouseEvent;
@@ -10,6 +11,8 @@ use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+
+use crate::metric_consts::EVENT_PROCESSING_FAILURES;
 
 #[derive(Debug, Error)]
 pub enum ResolveError {
@@ -52,8 +55,22 @@ pub enum UnhandledError {
     SerdeError(#[from] serde_json::Error),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
+    #[error("Poison item: {0}")]
+    Poison(String),
+    #[error("Resolution incomplete ({code}): {message}")]
+    ResolutionIncomplete { code: &'static str, message: String },
     #[error("Unhandled error: {0}")]
     Other(String),
+}
+
+impl UnhandledError {
+    /// True when the failure stays with its event and does not fail the batch.
+    pub fn is_item_failure(&self) -> bool {
+        matches!(
+            self,
+            Self::Poison(_) | Self::SerdeError(_) | Self::ResolutionIncomplete { .. }
+        )
+    }
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -236,6 +253,42 @@ pub enum EventError {
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
+    #[error("Processing failed ({code}): {message}")]
+    ProcessingFailed {
+        code: &'static str,
+        message: String,
+        retriable: bool,
+    },
+}
+
+/// A failure that can come from a dependency still fails the batch, as the response contract requires.
+pub fn contain_failure<T>(
+    operator: &'static str,
+    result: Result<T, UnhandledError>,
+) -> Result<Result<T, EventError>, UnhandledError> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(err) if err.is_item_failure() => {
+            metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => operator).increment(1);
+            let (code, retriable) = match &err {
+                UnhandledError::ResolutionIncomplete { code, .. } => (*code, true),
+                _ => (codes::INVALID_INPUT, false),
+            };
+            if retriable {
+                // An overloaded pool leaves many events unresolved at once, and a warning for
+                // each one would add synchronous log writes to that overload.
+                tracing::debug!(operator, error = %err, "event processing did not complete");
+            } else {
+                tracing::warn!(operator, error = %err, "event processing failed");
+            }
+            Ok(Err(EventError::ProcessingFailed {
+                code,
+                message: err.to_string(),
+                retriable,
+            }))
+        }
+        Err(err) => Err(err),
+    }
 }
 
 impl JsResolveErr {

@@ -13,6 +13,7 @@ class TraceReview(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     trace_id = models.CharField(max_length=255)
     reviewed_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    reviewed_by_project_key_id = models.CharField(max_length=50, null=True)
     comment = models.TextField(null=True, blank=True)
 
     class Meta:

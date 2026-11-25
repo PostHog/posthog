@@ -842,6 +842,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("every_word_converts_cheaply", "funnel analysis", "Search"),
             ("one_word_never_converted", "funnel spy", None),
             ("only_generic_words", "free online tool", None),
+            ("single_word_that_converts", "funnel", None),
+            ("single_word_ranking_on_a_landing_page", "funnel", None, "https://example.com/replay"),
             ("ranks_on_a_landing_page_of_the_ads", "funnel spy", "Replay", "https://www.example.com/replay/"),
             ("landing_page_of_a_paused_campaign", "funnel spy", None, "https://example.com/replay", None, "PAUSED"),
             (

@@ -41,7 +41,8 @@ _TIME_SERIES_DISPLAYS = {
     ChartDisplayType.ACTIONS_UNSTACKED_BAR,
 }
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
-_LEGEND_LABEL = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
+# The label is trimmed after the match: `\s*` around a lazy group backtracks cubically on a run of spaces.
+_LEGEND_LABEL = re.compile(r"\{\{([^{}]+)\}\}")
 _TIME_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
@@ -119,7 +120,7 @@ def legend_name(template: str, labels: Mapping[str, str]) -> str:
     parts: list[str] = []
     size = position = 0
     for match in _LEGEND_LABEL.finditer(template):
-        for part in (template[position : match.start()], labels.get(match.group(1), "")):
+        for part in (template[position : match.start()], labels.get(match.group(1).strip(), "")):
             parts.append(part[: MAX_LEGEND_NAME - size])
             size += len(parts[-1])
         position = match.end()
@@ -206,9 +207,7 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
                 name=f"{name} (previous)" if is_previous else name,
                 labels=_trends_series_labels(series, index),
                 fields=[
-                    FrameField(
-                        name="time", type="time", values=[_wall_clock_ms(day, timezone) for day in series["days"]]
-                    ),
+                    FrameField(name="time", type="time", values=_wall_clock_ms(series["days"], timezone)),
                     FrameField(name="value", type="number", values=list(series["data"])),
                 ],
                 meta=previous if is_previous else current,
@@ -362,13 +361,14 @@ def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Optional[Frame]:
         if label_bytes > MAX_STREAM_LABEL_BYTES:
             return None
         for nanoseconds, line in values:
-            rows.append((int(nanoseconds) // 1_000_000, str(line), labels))
+            rows.append((int(nanoseconds), str(line), labels))
+    # Sorted on nanoseconds, so two lines in the same millisecond keep their order.
     rows.sort(key=lambda row: row[0], reverse=True)
     return Frame(
         name=None,
         labels={},
         fields=[
-            FrameField(name="time", type="time", values=[row[0] for row in rows]),
+            FrameField(name="time", type="time", values=[row[0] // 1_000_000 for row in rows]),
             FrameField(name="line", type="string", values=[row[1] for row in rows]),
             FrameField(name="labels", type="string", values=[row[2] for row in rows]),
         ],
@@ -435,15 +435,19 @@ def pivot_long(frame: Frame) -> list[Frame]:
     [time] = times
     groups: dict[tuple[Optional[str], ...], list[int]] = {}
     label_names = [field.name for field in strings]
+    # Every series repeats the time and number column names too.
+    repeated_names = sum(len(field.name.encode()) for field in (time, *numbers))
     label_bytes = 0
     for row in range(len(time.values)):
         key = tuple(None if field.values[row] is None else str(field.values[row]) for field in strings)
         if key not in groups:
             if len(groups) >= MAX_PIVOT_SERIES or (len(groups) + 1) * (len(numbers) + 1) > MAX_PIVOT_FIELDS:
                 return [frame]
-            label_bytes += sum(
-                len(name.encode()) + len((value or _NO_LABEL).encode()) for name, value in zip(label_names, key)
-            ) * (len(numbers) + 1)
+            label_bytes += (
+                sum(len(name.encode()) + len((value or _NO_LABEL).encode()) for name, value in zip(label_names, key))
+                * (len(numbers) + 1)
+                + repeated_names
+            )
             if label_bytes > MAX_PIVOT_LABEL_BYTES:
                 return [frame]
             groups[key] = []
@@ -518,13 +522,19 @@ def _is_tag(value: Any) -> bool:
     return isinstance(value, list | tuple) and bool(value) and value[0] == "__hx_tag"
 
 
+def _tag_attribute(value: Sequence[Any], key: str) -> tuple[bool, Any]:
+    # After the marker and the tag name come key/value pairs, so a value that reads "href" is never taken for a key.
+    for position in range(2, len(value) - 1, 2):
+        if value[position] == key:
+            return True, value[position + 1]
+    return False, None
+
+
 def _tag_text(value: Any) -> Optional[str]:
     if not _is_tag(value):
         return None
-    if "children" not in value:
-        return ""
-    position = value.index("children") + 1
-    return _children_text(value[position] if position < len(value) else None)
+    found, children = _tag_attribute(value, "children")
+    return _children_text(children) if found else ""
 
 
 def _children_text(children: Any) -> str:
@@ -538,9 +548,9 @@ def _children_text(children: Any) -> str:
 
 
 def _tag_href(value: Any) -> Optional[str]:
-    if _is_tag(value) and len(value) > 1 and value[1] == "a" and "href" in value:
-        position = value.index("href") + 1
-        return str(value[position]) if position < len(value) else None
+    if _is_tag(value) and len(value) > 1 and value[1] == "a":
+        found, href = _tag_attribute(value, "href")
+        return str(href) if found else None
     return None
 
 
@@ -571,9 +581,17 @@ def _datetime(value: dt.datetime | str) -> dt.datetime:
     return value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(value)
 
 
-def _wall_clock_ms(day: str, timezone: ZoneInfo) -> int:
-    # Trends buckets are wall-clock times in the project's timezone, without an offset.
-    return _epoch_ms(dt.datetime.fromisoformat(day).replace(tzinfo=timezone))
+def _wall_clock_ms(days: Sequence[str], timezone: ZoneInfo) -> list[int]:
+    # Trends buckets are wall-clock times in the project's timezone, without an offset. When the clocks go back, the
+    # repeated hour comes round a second time, so a time earlier than one already seen is the later of the two.
+    times: list[int] = []
+    latest: Optional[dt.datetime] = None
+    for day in days:
+        wall_clock = dt.datetime.fromisoformat(day)
+        repeated = latest is not None and wall_clock <= latest
+        times.append(_epoch_ms(wall_clock.replace(tzinfo=timezone, fold=1 if repeated else 0)))
+        latest = wall_clock if latest is None or wall_clock > latest else latest
+    return times
 
 
 def _epoch_ms(value: dt.datetime) -> int:
