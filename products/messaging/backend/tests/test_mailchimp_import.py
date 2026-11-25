@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -20,8 +21,11 @@ from products.messaging.backend.provider_imports.base import (
     ImportStepBlocked,
 )
 from products.messaging.backend.provider_imports.mailchimp import (
+    ALL_DELETED_NOTE,
     DELETED_AUDIENCE_NOTE,
     NO_AUDIENCES_NOTE,
+    NO_AUDIENCES_ROLE_MESSAGE,
+    NO_AUDIENCES_UNCONFIRMED_MESSAGE,
     NOT_EMPTIED_NOTE,
     MailchimpImportProvider,
 )
@@ -751,6 +755,8 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
             "Weekly newsletter (from Mailchimp)": {},
             NOVEDADES: {},
         }
+        account = run.progress["contacts"]["items"][0]
+        assert (account["label"], account["status"]) == ("Mailchimp contacts, Example Co", "listed")
 
     def test_an_account_that_hides_every_audience_changes_no_cohort(self) -> None:
         self._close(self._import_contacts("new_people"))
@@ -766,10 +772,128 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         run.refresh_from_db()
         assert "people_imports" not in run.progress["contacts"]
 
-    def test_an_account_without_audiences_or_audience_cohorts_changes_no_cohort(self) -> None:
+    def _only_account_cohort_left(self) -> int:
         self._close(self._import_contacts("new_people"))
         Cohort.objects.filter(team_id=self.team.id, description__contains=", audience ").update(description="Mine now")
         self.mailchimp.data["lists"] = []
+        return self._cohort("Mailchimp contacts, Example Co").id
+
+    def _contacts_step(self) -> ProviderImportRun:
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        return run
+
+    @parameterized.expand([("owner",), ("admin",)])
+    def test_an_account_without_audiences_empties_its_cohort_every_time(self, role: str) -> None:
+        cohort_id = self._only_account_cohort_left()
+        self._set_role(role)
+        Cohort.objects.filter(id=cohort_id).update(name="Renamed here")
+
+        for _ in range(2):
+            run = self._import_contacts("new_people")
+
+            assert self._staged(run) == {"Renamed here": {}}
+            assert [
+                (item["label"], item["status"], item["url"], item["notes"])
+                for item in run.progress["contacts"]["items"]
+            ] == [("Renamed here", "listed", f"/cohorts/{cohort_id}", [ALL_DELETED_NOTE])]
+            self._close(run)
+
+    def _set_role(self, role: str | None) -> None:
+        account = {"account_id": "acct1", "account_name": "Example Co"}
+        self.mailchimp.data["account"] = account | ({} if role is None else {"role": role})
+
+    @parameterized.expand([("manager",), ("author",), ("viewer",), ("superuser",), ("",), (None,)])
+    def test_a_role_that_may_not_see_every_audience_empties_no_account_cohort(self, role: str | None) -> None:
+        self._only_account_cohort_left()
+        self._set_role(role)
+        run = self._contacts_step()
+
+        with self.assertRaisesMessage(ImportCredentialsInvalid, NO_AUDIENCES_ROLE_MESSAGE):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
+
+    @parameterized.expand(
+        [
+            ("first_error", 1, (500, {}, {}), "HTTP 500. Import again in a few minutes. No cohort changed."),
+            ("first_has_no_total", 1, (200, {"lists": []}, {}), "unexpected response"),
+            ("first_is_short", 1, (200, {"lists": [], "total_items": 1}, {}), "unexpected response"),
+            ("second_error", 2, (500, {}, {}), None),
+            ("second_rate_limited", 2, (429, {}, {}), None),
+            ("second_has_no_total", 2, (200, {"lists": []}, {}), None),
+            ("second_total_not_a_number", 2, (200, {"lists": [], "total_items": False}, {}), None),
+            ("second_total_not_zero", 2, (200, {"lists": [], "total_items": 1}, {}), None),
+            ("second_has_no_list", 2, (200, {"total_items": 0}, {}), None),
+            ("second_lists_an_audience", 2, (200, {"lists": [{"id": "x"}], "total_items": 0}, {}), None),
+            ("second_lists_null", 2, (200, {"lists": None, "total_items": 0}, {}), None),
+        ]
+    )
+    def test_an_empty_audience_list_not_confirmed_empties_no_account_cohort(
+        self, _name: str, changed_from: int, answer: tuple[int, dict, dict], message: str | None
+    ) -> None:
+        self._only_account_cohort_left()
+        run = self._contacts_step()
+        handle = self.mailchimp.handle
+        reads = 0
+
+        def changed(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            nonlocal reads
+            if not path.endswith("/lists"):
+                return handle(path, query, authorization)
+            reads += 1
+            return answer if reads >= changed_from else handle(path, query, authorization)
+
+        with (
+            patch.object(self.mailchimp, "handle", changed),
+            self.assertRaisesRegex(ImportProviderUnavailable, re.escape(message or NO_AUDIENCES_UNCONFIRMED_MESSAGE)),
+        ):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
+
+    @parameterized.expand([("error", 500, {}), ("rejected", 403, {}), ("without_account_id", 200, {"role": "owner"})])
+    def test_an_account_that_cannot_be_read_empties_no_account_cohort(
+        self, _name: str, status: int, body: dict
+    ) -> None:
+        self._only_account_cohort_left()
+        run = self._contacts_step()
+        handle = self.mailchimp.handle
+
+        def changed(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            return (status, body, {}) if path == "/3.0/" else handle(path, query, authorization)
+
+        with (
+            patch.object(self.mailchimp, "handle", changed),
+            self.assertRaisesRegex((ImportProviderUnavailable, ImportCredentialsInvalid), "No cohort changed"),
+        ):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
+
+    def _change_account_cohort(self, **values: Any) -> None:
+        Cohort.objects.filter(id=self._cohort("Mailchimp contacts, Example Co").id).update(**values)
+
+    @parameterized.expand(
+        [
+            ("another_account", lambda test: test._use_account("acct2")),
+            ("account_id_that_starts_the_same", lambda test: test._use_account("acct")),
+            ("account_id_that_goes_on", lambda test: test._use_account("acct10")),
+            ("made_dynamic", lambda test: test._change_account_cohort(is_static=False)),
+            ("deleted_in_posthog", lambda test: test._change_account_cohort(deleted=True)),
+            ("description_edited", lambda test: test._change_account_cohort(description="Mine now")),
+            ("not_made_by_an_import", lambda test: test._forget_imports()),
+        ]
+    )
+    def test_an_account_without_audiences_changes_no_cohort_but_its_own(
+        self, _name: str, change: Callable[["TestMailchimpContacts"], None]
+    ) -> None:
+        self._only_account_cohort_left()
+        change(self)
 
         run = self._import_contacts("new_people")
 
