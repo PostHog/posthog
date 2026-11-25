@@ -129,10 +129,19 @@ ORDER BY `$session_id`, min(timestamp)
 LIMIT {limit}
 """
 
-PERSONS_QUERY = """
-SELECT distinct_id, person.id, person.created_at, person.properties
+# Do not read person.* through person_distinct_ids here: that join reads the team's whole persons table.
+PERSON_IDS_QUERY = """
+SELECT distinct_id, person_id
 FROM person_distinct_ids
 WHERE distinct_id IN {distinct_ids}
+LIMIT 50000
+"""
+
+# A query on persons itself moves the id filter into the deduplication subquery, so it reads only these persons.
+PERSONS_QUERY = """
+SELECT id, created_at, properties
+FROM persons
+WHERE id IN {person_ids}
 LIMIT 50000
 """
 
@@ -298,22 +307,44 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
     for batch_start in range(0, len(sessions), METADATA_BATCH_SIZE):
         batch = sessions[batch_start : batch_start + METADATA_BATCH_SIZE]
         load_viewports(team, batch, viewports)
-        person_rows = execute_hogql_query(
-            parse_select(PERSONS_QUERY),
-            team,
-            placeholders={"distinct_ids": ast.Constant(value=sorted({s.distinct_id for s in batch}))},
-            limit_context=LimitContext.EXPORT,
-            workload=Workload.OFFLINE,
-        ).results
-        for distinct_id, person_id, created_at, properties in person_rows:
-            persons[distinct_id] = {
-                "id": str(person_id),
-                "uuid": str(person_id),
-                "distinct_ids": [distinct_id],
-                "created_at": created_at.isoformat() if created_at else None,
-                "properties": json.loads(properties) if isinstance(properties, str) else properties,
-            }
+        load_persons(team, sorted({s.distinct_id for s in batch}), persons)
     return viewports, persons
+
+
+def load_persons(team: Team, distinct_ids: list[str], persons: dict[str, dict[str, Any]]) -> None:
+    person_ids = {
+        distinct_id: str(person_id)
+        for distinct_id, person_id in run_metadata_query(team, PERSON_IDS_QUERY, distinct_ids=distinct_ids)
+    }
+    if not person_ids:
+        return
+    person_rows = {
+        str(person_id): (created_at, properties)
+        for person_id, created_at, properties in run_metadata_query(
+            team, PERSONS_QUERY, person_ids=sorted(set(person_ids.values()))
+        )
+    }
+    for distinct_id, person_id in person_ids.items():
+        if person_id not in person_rows:
+            continue
+        created_at, properties = person_rows[person_id]
+        persons[distinct_id] = {
+            "id": person_id,
+            "uuid": person_id,
+            "distinct_ids": [distinct_id],
+            "created_at": created_at.isoformat() if created_at else None,
+            "properties": json.loads(properties) if isinstance(properties, str) else properties,
+        }
+
+
+def run_metadata_query(team: Team, query: str, **placeholders: list[str]) -> list[Any]:
+    return execute_hogql_query(
+        parse_select(query),
+        team,
+        placeholders={name: ast.Constant(value=value) for name, value in placeholders.items()},
+        limit_context=LimitContext.EXPORT,
+        workload=Workload.OFFLINE,
+    ).results
 
 
 @frozen
