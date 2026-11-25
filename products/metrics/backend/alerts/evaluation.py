@@ -60,7 +60,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import OnMissingData, PlatformAlertState
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
@@ -297,7 +297,8 @@ def _evaluate(
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
     prior = _breaching_keys(check, config.condition, steps[1:])
-    present = _present_keys(check, steps[1:])
+    # Only Breaching counts the steps a group was missing from, so other alerts skip the second pass.
+    present = _present_keys(check, steps[1:]) if check.on_missing_data == OnMissingData.BREACHING else []
     observations, unknown = _observations(check, config.condition, steps[0], prior=prior, present=present)
     decision = decide_groups(
         check,
