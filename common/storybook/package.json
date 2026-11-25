@@ -15,6 +15,7 @@
         "@babel/runtime": "^7.29.10",
         "@jest/globals": "^30.0.5",
         "@jest/test-sequencer": "^30.0.5",
+        "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^10.6.1",
         "@storybook/addon-docs": "^10.6.1",

@@ -65,8 +65,9 @@ function overviewFacts({
     hasError,
     errorCount,
     totalsPartial,
+    costAndLatencyPartial,
 }: TraceOverview): TraceOverview {
-    return { id, name, createdAt, sessionId, totals, hasError, errorCount, totalsPartial }
+    return { id, name, createdAt, sessionId, totals, hasError, errorCount, totalsPartial, costAndLatencyPartial }
 }
 
 // A reload can list the trace again with newer facts, and opening it on an older prefetched read would paint the

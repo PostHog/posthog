@@ -4,7 +4,7 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ByokModelPickerNotice } from '../../ByokModelPickerNotice'
-import { getModelPickerFooterActions, ModelPicker } from '../../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker, useAddKeyDisabledReason } from '../../ModelPicker'
 import { modelPickerLogic } from '../../modelPickerLogic'
 import { AddKeyModal } from '../../settings/AddKeyModal'
 import { llmProviderKeysLogic } from '../../settings/llmProviderKeysLogic'
@@ -24,6 +24,7 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
     const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
+    const addKeyDisabledReason = useAddKeyDisabledReason()
 
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -38,6 +39,7 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                             fullWidth
                             center
                             onClick={() => setNewKeyModalOpen(true)}
+                            disabledReason={addKeyDisabledReason}
                             data-attr="evaluation-add-api-key"
                         >
                             Add API key
@@ -51,7 +53,8 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                             loading={loading}
                             footerActions={getModelPickerFooterActions(
                                 judgeModelGroups.some((group) => !group.disabledReason),
-                                () => setNewKeyModalOpen(true)
+                                () => setNewKeyModalOpen(true),
+                                addKeyDisabledReason
                             )}
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"

@@ -1,8 +1,18 @@
 import clsx from 'clsx'
 
 import { IconClock } from '@posthog/icons'
-import { Badge, CardDescription, CardTitle, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import {
+    Badge,
+    Button,
+    CardDescription,
+    CardTitle,
+    Spinner,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -31,8 +41,9 @@ export function QuillInsightMetaContent({
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
+    onCopyLink,
 }: InsightMetaContentProps): JSX.Element {
-    const hasTitleIndicator = !!(infoPopover || queryScanTooltip || warehouseSyncTooltip)
+    const hasTitleIndicator = !!(infoPopover || queryScanTooltip || warehouseSyncTooltip || onCopyLink)
     const titleContent = (
         <>
             <span className={clsx(hasTitleIndicator && 'truncate')}>
@@ -86,6 +97,18 @@ export function QuillInsightMetaContent({
                     </TitleIndicator>
                 )}
                 {infoPopover}
+                {onCopyLink && (
+                    <Button
+                        size="icon-xs"
+                        className="CardMeta__copy-link ml-0.5 shrink-0"
+                        onClick={onCopyLink}
+                        tooltip="Copy link to insight"
+                        aria-label="Copy link to insight"
+                        data-attr="insight-card-title-copy-link"
+                    >
+                        <IconLink className="size-3.5" />
+                    </Button>
+                )}
             </CardTitle>
             {showDescription !== false && !!description && (
                 <CardDescription className="leading-4">

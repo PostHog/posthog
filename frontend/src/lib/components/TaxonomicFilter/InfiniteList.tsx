@@ -400,7 +400,7 @@ interface InfiniteListRowProps {
     expandedCount: number
     isExpandable: boolean
     isLoading: boolean
-    showNonCapturedEventOption: boolean
+    showNonCapturedOption: boolean
     trimmedSearchQuery: string
     dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
     popupAnchorElement: HTMLDivElement | null
@@ -467,7 +467,7 @@ export const InfiniteListRow = ({
     expandedCount,
     isExpandable,
     isLoading,
-    showNonCapturedEventOption,
+    showNonCapturedOption,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
     popupAnchorElement,
@@ -520,8 +520,13 @@ export const InfiniteListRow = ({
 
     const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
 
-    if (showNonCapturedEventOption && rowIndex === 0) {
-        const selectNonCapturedEvent = (): void => {
+    if (showNonCapturedOption && rowIndex === 0) {
+        // These data-attr values must not change. Autocapture insights and tests select rows by them.
+        const { dataAttr, label } =
+            listGroupType === TaxonomicFilterGroupType.PersonProperties
+                ? { dataAttr: 'prop-filter-person-property-option-custom', label: 'Use person property:' }
+                : { dataAttr: 'prop-filter-event-option-custom', label: 'Use event name:' }
+        const selectNonCaptured = (): void => {
             if (!itemGroup) {
                 return
             }
@@ -544,16 +549,16 @@ export const InfiniteListRow = ({
                 outlined={false}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                        selectNonCapturedEvent()
+                        selectNonCaptured()
                     }
                 }}
-                onClick={selectNonCapturedEvent}
+                onClick={selectNonCaptured}
                 onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                 icon={<IconPlus className="text-muted size-4" />}
-                data-attr="prop-filter-event-option-custom"
+                data-attr={dataAttr}
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Use event name:</span>
+                    <span className="text-muted">{label}</span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
                 </div>
             </LemonRow>
@@ -940,7 +945,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         totalListCount,
         expandedCount,
         showPopover,
-        showNonCapturedEventOption,
+        showNonCapturedOption,
         showEmptyState,
         showErrorState,
         showLoadingState,
@@ -1019,7 +1024,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     expandedCount,
                                     isExpandable,
                                     isLoading,
-                                    showNonCapturedEventOption,
+                                    showNonCapturedOption,
                                     trimmedSearchQuery,
                                     dataWarehousePopoverFields,
                                     popupAnchorElement,

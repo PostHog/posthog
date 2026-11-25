@@ -6,6 +6,8 @@ use envconfig::Envconfig;
 use sqlx::PgPool;
 use tracing::{info, warn};
 
+use crate::core::symbolication::symbol::miss_breaker::FrameMissBreakerMode;
+
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
 /// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
 /// resolution mode reads it alongside its own service config. Keeping it in
@@ -74,6 +76,29 @@ pub struct ResolverConfig {
     // contents, and skips the write entirely when no row needs a freshness refresh yet.
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
+
+    // When true, frame saves skip the WAL flush wait. Frame rows are a cache rebuilt on the next miss.
+    #[envconfig(default = "true")]
+    pub frame_save_async_commit: bool,
+
+    // `off`, `log` or `enforce`. `FrameMissBreaker` documents what opens it and what it skips.
+    #[envconfig(default = "log")]
+    pub frame_miss_breaker_mode: FrameMissBreakerMode,
+
+    #[envconfig(default = "60")]
+    pub frame_miss_breaker_window_seconds: u64,
+
+    #[envconfig(default = "1000")]
+    pub frame_miss_breaker_min_lookups: u64,
+
+    #[envconfig(default = "0.9")]
+    pub frame_miss_breaker_miss_ratio: f64,
+
+    #[envconfig(default = "300")]
+    pub frame_miss_breaker_cooldown_seconds: u64,
+
+    #[envconfig(default = "100")]
+    pub frame_miss_breaker_probe_lookups: u64,
 
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become

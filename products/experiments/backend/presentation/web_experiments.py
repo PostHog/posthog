@@ -1,31 +1,34 @@
 import re
 import html
 import string
-from typing import Any
+from typing import Any, cast
 
 from django.http import HttpResponse, JsonResponse
-from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import nh3
 from drf_spectacular.utils import extend_schema
-from nanoid import generate
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
+from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import DefaultLimitOffsetPagination, FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
 from posthog.utils_cors import cors_response
 
-from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.web_experiment import WebExperiment
-from products.feature_flags.backend.facade.api import create_flag, update_flag
-from products.feature_flags.backend.facade.filters import replace_variant_distribution
+from products.experiments.backend.facade import web_experiments as web_experiments_facade
+from products.experiments.backend.facade.contracts import (
+    WebExperimentConfig,
+    WebExperimentNotFound,
+    WebExperimentWrite,
+    WebExperimentWriteField,
+)
 
 _EVENT_HANDLER_MESSAGE = "contains disallowed event handlers (onclick, onerror, etc.)"
 _JAVASCRIPT_URL_MESSAGE = "contains disallowed javascript: protocol"
@@ -136,12 +139,16 @@ def validate_no_xss(content: str, field_name: str) -> None:
         raise ValidationError(f"{field_name} {problem}")
 
 
-class WebExperimentsAPISerializer(serializers.ModelSerializer):
+class WebExperimentsAPISerializer(serializers.Serializer):
     """
     Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
     """
 
-    feature_flag_key = serializers.CharField(source="feature_flag.key", read_only=True)
+    id = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(max_length=400)
+    # TODO: a client can set the creation time here. The server should own it, so make this field read-only.
+    created_at = serializers.DateTimeField(required=False)
+    feature_flag_key = serializers.CharField(read_only=True)
 
     variants = serializers.JSONField(
         help_text="""Variants for the web experiment. Example:
@@ -160,56 +167,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             },
         }""",
     )
-
-    class Meta:
-        model = WebExperiment
-        fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
-
-    def to_representation(self, instance):
-        """
-        Override to return variants with actual rollout percentages from the feature flag.
-        """
-        data = super().to_representation(instance)
-
-        # Get corrected variants with actual feature flag rollout percentages
-        data["variants"] = self._get_corrected_variants(instance)
-
-        return data
-
-    def _get_corrected_variants(self, obj):
-        """
-        Returns ALL variants from the feature flag with actual rollout percentages,
-        combined with transforms from the experiment variants where available.
-        """
-        if not obj.feature_flag:
-            return obj.variants or {}
-
-        variants_list = obj.feature_flag.variants
-
-        # If no feature flag variants, fall back to experiment variants
-        if not variants_list:
-            return obj.variants or {}
-
-        # Build result using ALL feature flag variants as the source of truth
-        result_variants = {}
-        experiment_variants = obj.variants or {}
-
-        for variant in variants_list:
-            key = variant.get("key")
-            rollout_percentage = variant.get("rollout_percentage", 0)
-            if key:
-                # Start with feature flag data
-                result_variants[key] = {"rollout_percentage": rollout_percentage}
-
-                # Add experiment-specific data (transforms, etc.) if available
-                if key in experiment_variants:
-                    experiment_data = experiment_variants[key].copy()
-                    # Remove rollout_percentage from experiment data to avoid conflicts
-                    experiment_data.pop("rollout_percentage", None)
-                    # Merge experiment data into result
-                    result_variants[key].update(experiment_data)
-
-        return result_variants
 
     # Validates that the `variants` property in the request follows this known object format.
     # {
@@ -267,105 +224,96 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def create(self, validated_data: dict[str, Any]) -> WebExperiment:
-        create_params = {
-            "name": validated_data.get("name", ""),
-            "description": "",
-            "type": "web",
-            "created_by": self.context["request"].user,
-            "variants": validated_data.get("variants", None),
-        }
-
-        filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": self.get_variants_for_feature_flag(validated_data),
-        }
-
-        team = self.context["get_team"]()
-        feature_flag = create_flag(
-            {
-                "key": self.get_feature_flag_name(validated_data.get("name", "")),
-                "name": f"Feature Flag for Experiment {validated_data['name']}",
-                "filters": filters,
-                "active": False,
-                "creation_context": "web_experiments",
-            },
-            team=team,
-            user=self.context["request"].user,
-            request=self.context["request"],
+    def to_write(self) -> WebExperimentWrite:
+        data = self.validated_data
+        return WebExperimentWrite(
+            fields_set=frozenset(cast(WebExperimentWriteField, name) for name in data),
+            name=data.get("name"),
+            created_at=data.get("created_at"),
+            variants=data.get("variants"),
         )
 
-        # Get team's default stats method setting
-        from posthog.models.team.extensions import get_or_create_team_extension
 
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        default_method = config.default_experiment_stats_method or "bayesian"
-        stats_config = {
-            "method": default_method,
-        }
-
-        experiment = WebExperiment.objects.create(
-            team_id=self.context["team_id"], feature_flag=feature_flag, **create_params, stats_config=stats_config
-        )
-
-        report_user_action(
-            self.context["request"].user,
-            "experiment created",
-            {**experiment.get_analytics_metadata(), "creation_mode": "new"},
-            team=team,
-            request=self.context["request"],
-        )
-
-        return experiment
-
-    def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> WebExperiment:
-        variants = validated_data.get("variants", None)
-        if variants is not None and isinstance(variants, dict):
-            feature_flag = instance.feature_flag
-            filters = replace_variant_distribution(
-                feature_flag.get_filters(),
-                self.get_variants_for_feature_flag(validated_data)["variants"],
-            )
-            update_flag(
-                feature_flag,
-                {"filters": filters},
-                team=self.context["get_team"](),
-                user=self.context["request"].user,
-                request=self.context["request"],
-            )
-
-        instance = super().update(instance, validated_data)
-        return instance
-
-    def get_variants_for_feature_flag(self, validated_data: dict[str, Any]):
-        variant_names = []
-        variants = validated_data.get("variants", None)
-        if variants is not None and isinstance(variants, dict):
-            for variant, transforms in variants.items():
-                variant_names.append({"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)})
-        return {"variants": variant_names}
-
-    def get_feature_flag_name(self, experiment_name: str) -> str:
-        random_id = generate("1234567890abcdef", 10)
-        prefix = experiment_name.replace(" ", "-").lower() + "-web-experiment-feature"
-        feature_flag_key = slugify(f"{prefix}-{random_id}")
-        return feature_flag_key
+# The second base gives this list the schema of the project-wide default paginator, which states no maximum
+# for `limit`.
+class WebExperimentsPagination(FacadeLimitOffsetPagination, DefaultLimitOffsetPagination):
+    pass
 
 
 # Codegen routes an endpoint by its x-product. Only the toolbar calls these routes, through its own
 # client, and "web_experiments" names no product folder, so the generated clients leave them out.
 @extend_schema(extensions={"x-product": "web_experiments"})
-class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
-    queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at", "-id").all()
+    pagination_class = WebExperimentsPagination
+    path_parameters = {
+        "pk": PathParameter(type=int, description="A unique integer value identifying this web experiment."),
+    }
+    # No access control resource maps to a web experiment, so no access rule can name one record.
+    records_have_object_access_rules = False
 
-    def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(deleted=False)
-        return queryset
+    def read_object(self) -> WebExperimentConfig | None:
+        return web_experiments_facade.get_web_experiment(
+            project_id=self.team.project_id, web_experiment_id=self.kwargs["pk"]
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        project_id = self.team.project_id
+
+        def fetch(page: PageRequest) -> Page[WebExperimentConfig]:
+            return web_experiments_facade.list_web_experiments(project_id=project_id, page=page)
+
+        return facade_page_response(self, fetch)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = WebExperimentsAPISerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        web_experiment = web_experiments_facade.create_web_experiment(
+            team=self.team,
+            project_id=self.project_id,
+            user=cast(User, request.user),
+            write=serializer.to_write(),
+            serializer_context=serializer.context,
+        )
+        return Response(self.get_serializer(web_experiment).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=False)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: Request, *, partial: bool) -> Response:
+        web_experiment = self.get_object()
+        serializer = WebExperimentsAPISerializer(
+            web_experiment, data=request.data, partial=partial, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            web_experiment = web_experiments_facade.update_web_experiment(
+                team=self.team,
+                user=cast(User, request.user),
+                web_experiment_id=web_experiment.id,
+                write=serializer.to_write(),
+                serializer_context=serializer.context,
+            )
+        except WebExperimentNotFound:
+            raise NotFound()
+        return Response(self.get_serializer(web_experiment).data)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        web_experiment = self.get_object()
+        try:
+            web_experiments_facade.delete_web_experiment(
+                project_id=self.team.project_id, web_experiment_id=web_experiment.id
+            )
+        except WebExperimentNotFound:
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @csrf_exempt
@@ -401,13 +349,7 @@ def web_experiments(request: Request):
             )
 
         result = WebExperimentsAPISerializer(
-            WebExperiment.objects.filter(team_id=team.id)
-            .exclude(archived=True)
-            .exclude(deleted=True)
-            .filter(status__in=[Experiment.Status.DRAFT, Experiment.Status.RUNNING])
-            .select_related("feature_flag", "created_by")
-            .order_by("-created_at"),
-            many=True,
+            web_experiments_facade.list_toolbar_web_experiments(team_id=team.id), many=True
         ).data
 
         return cors_response(request, JsonResponse({"experiments": result}))

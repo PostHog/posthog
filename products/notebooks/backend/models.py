@@ -82,6 +82,22 @@ class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
+class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey(Notebook, on_delete=models.CASCADE, related_name="+")
+    revision = models.PositiveIntegerField()
+    published_at = models.DateTimeField(auto_now_add=True)
+    results_as_of = models.DateTimeField(null=True, blank=True)
+    sql_rows: JSONField = JSONField(null=True, blank=True)
+    title = models.CharField(max_length=256, blank=True)
+    layout = models.JSONField()
+    markdown = models.TextField(blank=True)
+    variables = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 
@@ -347,6 +363,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Whether `code` went to the connection verbatim instead of being compiled from HogQL. Set,
     # it means `code` is the engine's own dialect and the HogQL parser can't read it.
     send_raw_query = models.BooleanField(default=False, db_default=False)
+    # Null for a kernel run whose inputs predate snapshots; an empty object means it bound no variables.
+    bound_variables: JSONField = JSONField(null=True, blank=True)
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)

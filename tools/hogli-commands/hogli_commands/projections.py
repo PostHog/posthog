@@ -127,6 +127,12 @@ PROJECTIONS: tuple[Projection, ...] = (
         outputs=("frontend/src/lib/scopeDocs.generated.ts",),
     ),
     Projection(
+        name="cli-notices",
+        renderer="posthog/cli_notices_projection.py",
+        inputs=("posthog/cli_notices.py",),
+        outputs=("hog/release/notices.generated.json",),
+    ),
+    Projection(
         name="commands",
         renderer="products/commands/backend/commands_projection.py",
         inputs=("products/commands/backend/logic/schema.py",),

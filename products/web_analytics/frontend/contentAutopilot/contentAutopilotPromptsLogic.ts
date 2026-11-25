@@ -77,11 +77,13 @@ export interface contentAutopilotPromptsLogicActions {
         brandedSegment: BrandedSegmentEnumApi
         tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
-    setDays: (
-        days: 7 | 14 | 30 | 90,
+    setDates: (
+        dateFrom: string,
+        dateTo: string | null,
         tab: AiVisibilityFilterTab
     ) => {
-        days: 7 | 14 | 30 | 90
+        dateFrom: string
+        dateTo: string | null
         tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
@@ -198,7 +200,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
         ],
         actions: [
             contentAutopilotFiltersLogic,
-            ['setDays', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
+            ['setDates', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
         ],
     })),
     actions({
@@ -221,7 +223,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             {
                 loadAeoPrompts: async (_, breakpoint) => {
                     try {
-                        const { days, engine, topic, branded } = values.filters
+                        const { dateFrom, dateTo, engine, topic, branded } = values.filters
                         const response = await aeoPromptsList(String(values.currentTeamIdStrict), {
                             limit: PROMPTS_PAGE_SIZE,
                             offset: (values.promptsPage - 1) * PROMPTS_PAGE_SIZE,
@@ -230,7 +232,12 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                             branded: branded === 'all' ? undefined : branded === 'branded',
                             // The window and the engine only narrow which answers count for needs improvement.
                             ...(values.needsImprovement
-                                ? { needs_improvement: true, days, ...(engine !== null ? { engine } : {}) }
+                                ? {
+                                      needs_improvement: true,
+                                      date_from: dateFrom,
+                                      ...(dateTo !== null ? { date_to: dateTo } : {}),
+                                      ...(engine !== null ? { engine } : {}),
+                                  }
                                 : {}),
                         })
                         breakpoint()
@@ -280,7 +287,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                 setPromptsPage: (_, { page }) => page,
                 setShowArchived: () => 1,
                 setNeedsImprovement: () => 1,
-                setDays: () => 1,
+                setDates: () => 1,
                 setEngine: () => 1,
                 setTopic: () => 1,
                 setBrandedSegment: () => 1,
@@ -382,7 +389,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             })
             actions.loadAeoPrompts()
         },
-        setDays: () => actions.loadAeoPrompts(),
+        setDates: () => actions.loadAeoPrompts(),
         setEngine: () => actions.loadAeoPrompts(),
         setTopic: () => actions.loadAeoPrompts(),
         setBrandedSegment: () => actions.loadAeoPrompts(),

@@ -77,7 +77,7 @@ def _paginator(config: BexioEndpointConfig) -> BasePaginator:
     if config.pagination == "single":
         return SinglePagePaginator()
     if config.pagination == "page":
-        return PageNumberPaginator(base_page=1, page_param="page", total_path="paging.page_count")
+        return PageNumberPaginator(base_page=1, page_param="page", total_path=config.page_count_path)
     return OffsetPaginator(limit=OFFSET_PAGE_SIZE, offset_param="offset", limit_param="limit", total_path=None)
 
 
@@ -88,7 +88,7 @@ def get_resource(
 ) -> EndpointResource:
     params: dict[str, Any] = {}
     if config.pagination == "page":
-        params["limit"] = PAGE_NUMBER_PAGE_SIZE
+        params[config.page_size_param] = PAGE_NUMBER_PAGE_SIZE
 
     endpoint: Endpoint = {"path": config.path, "params": params, "paginator": _paginator(config)}
     if config.data_selector:
@@ -182,6 +182,8 @@ def _fanout_resource(
             db_incremental_field_last_value=None,
             parent_endpoint_extra=_endpoint_extra(parent_config),
             child_endpoint_extra=_endpoint_extra(config),
+            # A single-page child takes no page-size parameter. An offset parent sets its own `limit`.
+            page_size_param=None if config.pagination == "single" else "limit",
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         ),

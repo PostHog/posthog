@@ -20,7 +20,7 @@ SCROLL_DEPTH_LOOKBACK_DAYS = 30
 class ScrollDepthCheck(RollupHealthCheck):
     name = "scroll_depth"
     kind = "scroll_depth"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     schedule = "15 5 * * *"
     active_since_days = 30
     rollup_model = EventsHealthDaily
