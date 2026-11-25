@@ -75,7 +75,6 @@ pub enum ProcessOutcome {
         code: &'static str,
         message: String,
     },
-    /// The event did not finish, but the same event can succeed later.
     Retry {
         code: &'static str,
         message: String,

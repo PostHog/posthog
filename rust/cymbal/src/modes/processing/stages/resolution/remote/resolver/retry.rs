@@ -30,7 +30,6 @@ use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveIte
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
 
-/// A `retry` code of the response contract, for an item that no resolution pod completed.
 const RESOLUTION_UNAVAILABLE: &str = "resolution_unavailable";
 
 pub(super) async fn resolve_work_item(

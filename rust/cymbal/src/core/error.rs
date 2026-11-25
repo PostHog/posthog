@@ -257,7 +257,6 @@ pub enum EventError {
     ProcessingFailed {
         code: &'static str,
         message: String,
-        /// True when the same event can succeed later, so the caller may send it again.
         retriable: bool,
     },
 }
