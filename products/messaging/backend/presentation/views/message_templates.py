@@ -1090,7 +1090,10 @@ SEND_PUSH_RESPONSES: dict[int, ResponseDeclaration] = {
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
     422: OpenApiResponse(description="The Idempotency-Key was already used for a different request"),
     429: OpenApiResponse(description="Rate limited, or the project is over its quota"),
-    503: OpenApiResponse(description="The push pipeline did not confirm the send"),
+    503: OpenApiResponse(
+        description="The push pipeline did not confirm the send. With the code `push_busy`, this request sent "
+        "nothing because too many pushes are being sent at once"
+    ),
 }
 
 
@@ -1105,7 +1108,10 @@ class TransactionalPushUnavailable(exceptions.APIException):
 
 class TransactionalPushBusy(exceptions.APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "Too many push notifications are being sent at once, so nothing was sent. Try again shortly."
+    default_detail = (
+        "Too many push notifications are being sent at once, so this request sent nothing. Try again shortly, with "
+        "the same idempotency key if you used one."
+    )
     default_code = "push_busy"
 
 
