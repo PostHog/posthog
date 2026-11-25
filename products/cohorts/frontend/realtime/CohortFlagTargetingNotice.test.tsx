@@ -85,6 +85,18 @@ describe('CohortFlagTargetingNotice', () => {
             turnOn: false,
             planLimits: true,
         },
+        {
+            name: 'off for a time range realtime cohorts can not follow',
+            realtime: readiness('off', { reason: 'unsupported_time_range' }),
+            turnOn: false,
+            planLimits: false,
+        },
+        {
+            name: 'off for a reason this bundle predates',
+            realtime: readiness('off', { reason: 'added_after_this_bundle' as CohortRealtimeReadinessApi['reason'] }),
+            turnOn: false,
+            planLimits: false,
+        },
         { name: 'building', realtime: readiness('building'), turnOn: false, planLimits: false },
         { name: 'rebuilding', realtime: readiness('rebuilding'), turnOn: false, planLimits: false },
         { name: 'needs_attention', realtime: readiness('needs_attention'), turnOn: false, planLimits: false },

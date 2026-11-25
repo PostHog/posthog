@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
-import { dailyReasonSentence } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableReasonSentence } from './realtimeReadiness'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -77,17 +77,21 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     </div>
                 ),
             }
-        case 'needs_attention':
+        case 'needs_attention': {
+            const unpreparable = unpreparableReasonSentence(realtime)
             return {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
                         {realtime.reason === 'too_large_to_build'
                             ? "Feature flags can't target this cohort yet. The events in its criteria happen too often for PostHog to prepare it automatically. Contact support to have it prepared."
-                            : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
+                            : unpreparable
+                              ? `Feature flags can't target this cohort. ${unpreparable}`
+                              : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
                     </div>
                 ),
             }
+        }
         case 'off':
             if (realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null) {
                 return {
@@ -100,6 +104,16 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     tooltip: (
                         <div>
                             {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
+                        </div>
+                    ),
+                }
+            }
+            if (realtime.reason) {
+                return {
+                    label: <span className="text-secondary">Off</span>,
+                    tooltip: (
+                        <div>
+                            {`Realtime can't be turned on for this cohort, so feature flags can't target it. ${unpreparableReasonSentence(realtime) ?? ''}`.trim()}
                         </div>
                     ),
                 }

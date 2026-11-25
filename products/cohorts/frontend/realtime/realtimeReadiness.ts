@@ -35,3 +35,17 @@ export function dailyReasonSentence(realtime: CohortRealtimeReadinessApi): strin
             return null
     }
 }
+
+/** Why PostHog can't prepare a cohort's criteria in realtime, as a sentence, or null when the reason is not one of those. */
+export function unpreparableReasonSentence(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.reason) {
+        case 'unsupported_time_range':
+            return "One of its event criteria uses a time range realtime cohorts don't support. Use a range of whole days back from today, such as the last 7 days, then save the cohort."
+        default:
+            return null
+    }
+}
+
+/** Whether turning realtime on can work. The server refuses an `off` cohort that has a reason. */
+export const canTurnOnRealtime = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
+    realtime?.state === 'off' && !realtime.reason
