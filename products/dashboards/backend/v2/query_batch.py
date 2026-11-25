@@ -15,7 +15,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
-from datetime import UTC, datetime, timedelta, tzinfo
+from datetime import UTC, datetime, tzinfo
 from functools import partial
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Condition, Event, Lock, Semaphore, Thread, Timer
@@ -29,11 +29,10 @@ from django.utils.timezone import now
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse, DateRange, HogQLFilters, IntervalType
+from posthog.schema import CacheMissResponse, IntervalType
 
-from posthog.hogql.constants import LimitContext, get_default_limit_for_context, get_max_limit_for_context
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.filters import resolve_date_range
 
 from posthog.api.services.query import (
     ExecutionMode,
@@ -51,30 +50,19 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
+from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.models.team import Team
-from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
 from posthog.query_cache.results import decoded_size, prefetched_size
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
-from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
-from products.dashboards.backend.v2.buckets import (
-    BUCKETED_RUNS,
-    UNBOUNDED_RANGE_END,
-    BucketContractError,
-    BucketedQuery,
-    BucketStore,
-    NotBucketable,
-    SpanRows,
-    assemble,
-    check_bucketed,
-    maybe_shadow_check,
-    provenance,
-    raw_provenance,
-    store_key,
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchTargetFormat,
+    ResultFormat,
 )
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.frames import frames_for
@@ -316,8 +304,6 @@ def to_posthog_date(expression: str) -> Optional[str]:
 def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
-    if target.bucketed and target.language != QueryBatchLanguage.HOGQL:
-        raise InvalidTarget("Only HogQL targets can be bucketed.")
     if target.language == QueryBatchLanguage.PROMQL:
         try:
             interval = promql_interval(
@@ -424,6 +410,68 @@ def _line_head(item: QueryBatchInput) -> bytes:
     return SafeJSONRenderer().render(head)[1:-1]
 
 
+@frozen
+class _LineShape:
+    """How one input's result is written: as the runner returned it, or as frames, with the query text that ran."""
+
+    language: QueryBatchLanguage
+    query: dict[str, Any]
+    canonical: str
+    legend: Optional[str]
+    target_format: Optional[QueryBatchTargetFormat]
+    frames: bool
+
+
+def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) -> str:
+    """The query text the runner ran: the HogQL, PromQL or LogQL, or a query target as sorted JSON, with the filters
+    and variables it ran with, so sending it back as a target runs the same query. Relative dates stay relative, so
+    the text is the same on every reload."""
+    language = item.target.language
+    if language in (QueryBatchLanguage.PROMQL, QueryBatchLanguage.LOGQL) or resolved is None:
+        return item.target.query
+    if language == QueryBatchLanguage.HOGQL:
+        return str(resolved.query.get("query", item.target.query))
+    target: dict[str, Any] = {"query": resolved.query, "filters": resolved.filters}
+    if resolved.variables:
+        target["variables"] = resolved.variables
+    return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _line_shape(
+    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat, *, team: Team
+) -> _LineShape:
+    frames = result_format == ResultFormat.FRAMES
+    query = resolved.query if resolved is not None else {}
+    if frames and resolved is not None and resolved.filters:
+        # The runner applies the target's filters, an interval override among them, so frames read the query that ran.
+        try:
+            query = apply_dashboard_filters_to_dict(query, resolved.filters, team)
+        except Exception:
+            logger.warning("dashboard_v2_query_batch_frame_filters_failed", exc_info=True)
+    return _LineShape(
+        language=item.target.language,
+        query=query,
+        canonical=canonical_query(item, resolved),
+        legend=item.target.legend,
+        target_format=item.target.format,
+        frames=frames,
+    )
+
+
+def _provenance(result: dict[str, Any], *, source: str, ms: float) -> dict[str, Any]:
+    """`mode` is `raw` unless the metrics runner read every bucket from precomputed metrics. The runner's own mode is
+    kept as `precompute`."""
+    provenance: dict[str, Any] = {"mode": "raw", "timeline": [{"source": source, "ms": round(ms, 1)}]}
+    runner = result.get("provenance")
+    if isinstance(runner, dict):
+        provenance.update({key: value for key, value in runner.items() if key != "mode" and value is not None})
+        if runner.get("mode") is not None:
+            provenance["precompute"] = runner["mode"]
+            if runner["mode"] == "precomputed":
+                provenance["mode"] = "derived"
+    return provenance
+
+
 def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     # The limit `/query` gives the same query, so a computed miss gets the same timeout there and here.
     if is_async_query(query) or is_insight_actors_query(query) or is_insight_actors_options_query(query):
@@ -485,8 +533,6 @@ def _result_line(
             "provenance": _provenance(result, source="cache" if from_cache else "engine", ms=ms),
         },
     }
-    if result.get("provenance") is not None:
-        line["result"]["provenance"] = result["provenance"]
     if result.get("hasMore") is True:
         line["truncated"] = True
     return line
@@ -510,8 +556,6 @@ class _ServedKey:
     cache_key: str
     swr: bool
     cache_only: bool
-    # A bucketed panel reruns a stale entry that a non-bucketed one serves, so the two never share a hit.
-    bucketed: bool
     query: str
     # The body carries the query text the panel sent, which differs between a PromQL target and its resolved node.
     canonical: str
@@ -526,51 +570,10 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape)
         cache_key=planned.cache_key,
         swr=item.swr,
         cache_only=item.cache_only,
-        bucketed=item.target.bucketed,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
         canonical=shape.canonical,
         legend=shape.legend if shape.frames else None,
         target_format=shape.target_format if shape.frames else None,
-    )
-
-
-def _fetch_span(
-    team: Team,
-    user: User,
-    user_access_control: Optional[UserAccessControl],
-    dashboard_id: Optional[int],
-    query: ResolvedQuery,
-    query_id: Optional[str],
-    start: datetime,
-    end: datetime,
-) -> SpanRows:
-    span = {
-        **query.query,
-        "filters": {
-            **query.query.get("filters", {}),
-            "dateRange": {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
-        },
-    }
-    response = process_query_dict(
-        team,
-        span,
-        variables_override_json=query.variables,
-        limit_context=_limit_context(query.query),
-        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-        user=user,
-        # The snapshot the store key was planned under, so a span never runs with broader access than its key says.
-        user_access_control=user_access_control,
-        query_id=query_id,
-        dashboard_id=dashboard_id,
-    )
-    data = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
-    if data.get("error"):
-        raise BucketContractError(str(data["error"]))
-    return SpanRows(
-        columns=list(data.get("columns") or []),
-        types=list(data.get("types") or []),
-        rows=list(data.get("results") or []),
-        has_more=bool(data.get("hasMore")),
     )
 
 
@@ -703,8 +706,6 @@ class QueryBatch:
         self._result_format = result_format
         self._shapes: dict[int, _LineShape] = {}
         self._user = user
-        # Set by `_read_cache`, which runs before any job: a bucketed run plans with the same access as the read.
-        self._access_control: Optional[UserAccessControl] = None
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
@@ -717,7 +718,6 @@ class QueryBatch:
         self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
         self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
-        self._bucketed: set[int] = set()
         self._logql_budget: Optional[BudgetSpec] = None
         self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -770,7 +770,6 @@ class QueryBatch:
                 continue
             self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
-        self._access_control = user_access_control
         if logql:
             try:
                 assert_can_read_logs(self._team, self._user, user_access_control)
@@ -820,8 +819,6 @@ class QueryBatch:
         self._to_refresh = list(refreshes.values())
         for index in to_run:
             query_id = query_id_for(self._client_query_id, inputs[index])
-            if inputs[index].target.bucketed:
-                self._bucketed.add(index)
             self._jobs.append((index, query_id, resolved[index]))
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
@@ -927,15 +924,12 @@ class QueryBatch:
                         to_run.append(index)
                     continue
                 stale = _is_stale(response)
-                # A bucketed run reruns only the newest buckets, so it is cheaper to run than to serve stale.
-                serve_stale = item.cache_only or (item.swr and not item.target.bucketed)
-                if stale and not serve_stale:
+                if stale and not (item.swr or item.cache_only):
                     # Read and parsed already, so it counts against the read budget. Repeats run without a refetch.
                     self._read_bytes += stored_bytes or len(
                         _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
                     )
                     served[same_entry] = _RUN_FRESH
-                    del response
                     to_run.append(index)
                     continue
                 line = _result_line(
@@ -1109,95 +1103,6 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
-    def _run_bucketed(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
-        """A bucketed HogQL target: finished buckets from the store, the rest from ClickHouse. A query that breaks
-        the contract runs whole, with the reason in its provenance."""
-        if self._cancelled:
-            return {"i": index, "error": _FAILED}
-        try:
-            checked = check_bucketed(query.query["query"])
-            return self._assemble_buckets(index, checked, query, query_id)
-        except (NotBucketable, BucketContractError) as e:
-            BUCKETED_RUNS.labels(outcome="not_bucketable" if isinstance(e, NotBucketable) else "fallback").inc()
-            reason = str(e) if isinstance(e, NotBucketable) else f"bucketed HogQL: {e}"
-            line = self._run(index, query, query_id)
-        except Exception as e:
-            return _error_line(index, e, team=self._team)
-        if "result" in line:
-            line["result"]["provenance"] = raw_provenance(reason)
-        return line
-
-    def _assemble_buckets(
-        self, index: int, checked: BucketedQuery, query: ResolvedQuery, query_id: str
-    ) -> dict[str, Any]:
-        team = self._team
-        if events_retention_months_for_team(team, team.pk) is not None:
-            raise NotBucketable("the project's events retention moves which rows a stored bucket may hold")
-        grid = checked.grid(team.timezone_info)
-        started = now()
-        date_range = query.query["filters"]["dateRange"]
-        resolved = resolve_date_range(HogQLFilters(dateRange=DateRange(**date_range)), team, now=started)
-        if resolved.date_from is None:
-            raise NotBucketable("a bucketed range needs a start")
-        date_to = UNBOUNDED_RANGE_END if resolved.date_to is None else resolved.date_to
-        if resolved.date_to_inclusive:
-            date_to += timedelta(microseconds=1)
-        # Planned without a range, so the key is the same whatever range a panel shows, and still carries the
-        # timezone, modifiers, variables and this user's access restrictions.
-        planned = plan_query_dict(
-            team,
-            {**query.query, "filters": {}},
-            dashboard_filters_json=None,
-            variables_override_json=query.variables,
-            limit_context=_limit_context(query.query),
-            user=self._user,
-            user_access_control=self._access_control,
-            allow_raw_results=False,
-        )
-        if planned is None:
-            raise NotBucketable("the query does not plan")
-        key = store_key(team.pk, planned.cache_key, grid)
-        limit_context = planned.query_runner.limit_context or LimitContext.QUERY
-        # As HogQL prints it: its own LIMIT, held to the context's maximum.
-        row_cap = None if checked.limit is None else min(checked.limit, get_max_limit_for_context(limit_context))
-        limit = get_default_limit_for_context(limit_context) if row_cap is None else row_cap
-        fetch = partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, query_id)
-        answer = assemble(
-            query=checked,
-            grid=grid,
-            date_from=resolved.date_from,
-            date_to=date_to,
-            now=started,
-            store=BucketStore(key, team_id=team.pk),
-            fetch=fetch,
-            limit=limit,
-            row_cap=row_cap,
-        )
-        BUCKETED_RUNS.labels(outcome="far" if answer.far else "served").inc()
-        maybe_shadow_check(
-            answer=answer,
-            grid=grid,
-            query=checked,
-            date_from=resolved.date_from,
-            date_to=date_to,
-            now=started,
-            fetch=partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, None),
-            store_key=key,
-            on_done=connections.close_all,
-        )
-        result = {
-            "results": answer.rows,
-            "columns": answer.columns,
-            "types": answer.types,
-            "hasMore": answer.has_more,
-            "limit": limit,
-            "is_cached": False,
-            "cache_key": key,
-            "last_refresh": started,
-            "provenance": provenance(answer, grid),
-        }
-        return _result_line(index, result, hit=False, stale=False)
-
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)
         if self._cancelled or shape is None:
@@ -1248,8 +1153,6 @@ class QueryBatch:
             with tags_context(team_id=self._team.pk, client_query_id=query_id, traceparent=self._traceparent):
                 if isinstance(query, QueryBatchInput):
                     line = self._run_logql(index, query, self._logql_budget)
-                elif index in self._bucketed:
-                    line = self._run_bucketed(index, query, query_id)
                 else:
                     line = self._run(index, query, query_id)
             index, data = line["i"], self._encode(line)
