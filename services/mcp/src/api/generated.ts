@@ -45021,7 +45021,7 @@ export namespace Schemas {
 
     export interface EraseRecipientRequest {
       /**
-         * The email address to erase. Matches stored addresses in any case.
+         * The email address to erase. Matches stored addresses in any case and ignores surrounding whitespace.
          * @maxLength 512
          */
       identifier: string;
@@ -45032,7 +45032,7 @@ export namespace Schemas {
     export interface ErasedRecipient {
       /** Number of preference records deleted for the address. 0 when there were none. */
       preferences_deleted: number;
-      /** Number of suppression list entries deleted for the address. 0 when there were none. */
+      /** Number of suppression records deleted for the address, including removed ones. 0 when there were none. */
       suppressions_deleted: number;
     }
 

@@ -583,7 +583,9 @@ export const MessagingPreferencesEraseRecipientCreateBody = /* @__PURE__ */ zod.
     identifier: zod
         .string()
         .max(messagingPreferencesEraseRecipientCreateBodyIdentifierMax)
-        .describe('The email address to erase. Matches stored addresses in any case.'),
+        .describe(
+            'The email address to erase. Matches stored addresses in any case and ignores surrounding whitespace.'
+        ),
     confirm_complaints: zod
         .boolean()
         .default(messagingPreferencesEraseRecipientCreateBodyConfirmComplaintsDefault)
