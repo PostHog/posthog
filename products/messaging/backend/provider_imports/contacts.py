@@ -3,6 +3,7 @@
 import re
 import json
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -17,7 +18,7 @@ from products.messaging.backend.provider_imports.base import (
     SavedPage,
 )
 from products.messaging.backend.provider_imports.emails import exact_email
-from products.messaging.backend.services.imported_data import carry_opt_outs
+from products.messaging.backend.services.imported_data import carry_opt_outs, import_opt_outs
 from products.workflows.backend.facade.contracts import ProviderContactsResult
 from products.workflows.backend.facade.people_import import (
     MAX_PEOPLE_IMPORT_ROW_BYTES,
@@ -69,7 +70,7 @@ class ContactList:
     invalid_skipped: int = 0
 
 
-def new_people_step(provider_label: str) -> ImportStepSpec:
+def new_people_step(provider_label: str, feature_flag: str | None = None) -> ImportStepSpec:
     return ImportStepSpec(
         key=NEW_PEOPLE_STEP,
         label="New people from contacts",
@@ -80,6 +81,7 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
         ),
         needs=("contacts",),
         counts_as_events=True,
+        feature_flag=feature_flag,
     )
 
 
@@ -143,6 +145,7 @@ def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
         text = _property_text(value)
         if (
             not text
+            or not name
             or name in row
             or len(name) > MAX_PROPERTY_NAME_LENGTH
             or name.startswith("$")
@@ -168,12 +171,13 @@ def save_contact_lists(
     everyone: ContactList,
     lists: Iterable[ContactList],
     other_spellings: Iterable[str] = (),
+    opt_outs: Mapping[str, Iterable[str]] = MappingProxyType({}),
 ) -> SavedPage:
     """Import `everyone` as people, then fill a cohort for each of `lists`, whose contacts are all in `everyone`.
 
     Only `everyone` sends the events that create and update people, so a contact in several lists counts once.
-    `other_spellings` holds each address the provider spelled more than one way, as from
-    `ContactCollector.other_spellings`.
+    `opt_outs` holds the categories to opt each address out of with this save. `other_spellings` holds each address the
+    provider spelled more than one way, as from `ContactCollector.other_spellings`.
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
@@ -181,6 +185,7 @@ def save_contact_lists(
     # A send matches an opt-out by exact address, and the person may spell it differently from the provider. Last,
     # because it locks preferences until the save commits, and someone unsubscribing then waits. No one becomes a
     # person or joins a cohort before the commit.
+    import_opt_outs(context.team_id, opt_outs, context.created_by_id)
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
@@ -214,8 +219,8 @@ def _save_lists(
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
-            "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
-            "Anyone no longer on a list leaves its cohort."
+            "below hold exactly these contacts, except any who unsubscribed, once PostHog has processed them, usually "
+            "within a few minutes. Anyone no longer on a list leaves its cohort."
         )
     if result.skipped_new_people:
         notes.append(
