@@ -4,6 +4,7 @@ import json
 import uuid
 import smtplib
 import datetime
+from contextlib import nullcontext
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any, cast
@@ -191,7 +192,7 @@ class TestOIDCAuthentication(APILicensedTest):
         email_verified: bool | None = True,
         reauth: bool = False,
         invite_id: str | None = None,
-        started_at_age_seconds: int | None = None,
+        callback_delay_seconds: int = 0,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -229,7 +230,8 @@ class TestOIDCAuthentication(APILicensedTest):
             response._content = json.dumps(data).encode()
             return response
 
-        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
+        callback_clock = time_machine.travel(timezone.now(), tick=False) if callback_delay_seconds else nullcontext()
+        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response), callback_clock as clock:
             response = self.client.get(
                 "/login/oidc/",
                 {
@@ -239,10 +241,8 @@ class TestOIDCAuthentication(APILicensedTest):
                 },
             )
             self.assertEqual(response.status_code, 302)
-            if started_at_age_seconds is not None:
-                session = self.client.session
-                session["oidc_started_at"] = int(datetime.datetime.now().timestamp()) - started_at_age_seconds
-                session.save()
+            if clock is not None:
+                clock.shift(datetime.timedelta(seconds=callback_delay_seconds))
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
                 "iss": self.config.oidc_issuer_url,
@@ -283,7 +283,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.user.save()
         self.client.logout()
 
-        response = self._complete_oidc_login("member@example.com", started_at_age_seconds=30 * 60 + 1)
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 + 1)
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("social_login_failure", response["Location"])
@@ -296,7 +296,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.user.save()
         self.client.logout()
 
-        response = self._complete_oidc_login("member@example.com", started_at_age_seconds=30 * 60 - 1)
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 - 1)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
