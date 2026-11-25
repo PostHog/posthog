@@ -1,4 +1,7 @@
-from posthog.test.base import BaseTest
+import json
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
@@ -7,6 +10,8 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client import sync_execute
 
 
 class TestJSONPropertyPushdown(BaseTest):
@@ -25,6 +30,20 @@ class TestJSONPropertyPushdown(BaseTest):
         extract = self._print(f"SELECT JSONExtractString(properties, 'name') AS name FROM {table}")
         wrapped = self._print(f"SELECT ifNull(properties.name, '') AS name FROM {table}")
         self.assertEqual(extract, wrapped)
+
+    @parameterized.expand(["groups", "persons"])
+    def test_json_extract_string_decodes_escapes(self, table: str):
+        # A rewritten read has to decode JSON escapes, otherwise a value like `a"b` comes back as `a\"b`
+        # and `= 'a"b'` matches nothing while the unrewritten `JSONExtractString` path matches.
+        extract = self._print(f"SELECT JSONExtractString(properties, 'name') AS name FROM {table}")
+        self.assertIn("nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(", extract)
+        self.assertIn("'v'), '')", extract)
+
+    @parameterized.expand(["groups", "persons"])
+    def test_property_access_decodes_escapes(self, table: str):
+        printed = self._print(f"SELECT properties.name AS name FROM {table}")
+        self.assertIn("nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(", printed)
+        self.assertIn("'v'), '')", printed)
 
     def test_json_extract_string_on_a_join_to_groups_is_rewritten(self):
         printed = self._print("SELECT JSONExtractString(group_0.properties, 'probe') FROM events")
@@ -58,3 +77,18 @@ class TestJSONPropertyPushdown(BaseTest):
             dialect="hogql",
         )
         self.assertIn("JSONExtractString", printed)
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestJSONPropertyPushdownValues(ClickhouseTestMixin, BaseTest):
+    """The rewritten read has to return the unescaped value for every JSON escape that can appear in a property."""
+
+    VALUES = ['a"b', "back\\slash", "line1\nline2", "café"]
+
+    def test_rewritten_read_decodes_json_escapes(self):
+        # The exact expression the ClickHouse printer emits for a `persons` / `groups` property read.
+        expression = "nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(%(doc)s, 'name'), '}'), 'v'), '')"
+        for value in self.VALUES:
+            document = json.dumps({"name": value})
+            result = sync_execute(f"SELECT {expression} AS value", {"doc": document})
+            self.assertEqual(result[0][0], value, value)
