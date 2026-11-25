@@ -32,7 +32,12 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.egress.workos_radar import workos_radar_check, workos_radar_report
 from posthog.models.instance_setting import get_instance_setting
-from posthog.turnstile import consume_challenge_nonce, create_challenge_nonce, verify_turnstile_token
+from posthog.turnstile import (
+    TooManyOpenChallenges,
+    consume_challenge_nonce,
+    create_challenge_nonce,
+    verify_turnstile_token,
+)
 from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
 
 from products.security.backend.facade.api import is_signup_risk_exempt
@@ -54,7 +59,7 @@ class SuspiciousAttemptBlocked(APIException):
 
 class ChallengeRequired(APIException):
     status_code = 428
-    default_detail = "Additional verification is required to complete signup."
+    default_detail = "Additional verification is required to continue."
     default_code = "challenge_required"
     default_type = "authentication_error"
 
@@ -237,8 +242,8 @@ def evaluate_auth_attempt(
     ``posthog.tasks.workos_radar.report_attempt_success``.
 
     ``challenge_allowed=False`` is for a caller with no way to show a Turnstile
-    challenge, such as a partner server or the login form. A CHALLENGE verdict then
-    lets the attempt through, so that only a BLOCK verdict refuses it.
+    challenge, such as a partner server. A CHALLENGE verdict then lets the attempt
+    through, so that only a BLOCK verdict refuses it.
 
     A password login runs only when WORKOS_RADAR_LOGIN_MODE is not "off" and the
     address is in the sample. In "shadow" mode the verdict is recorded and never
@@ -265,9 +270,10 @@ def evaluate_auth_attempt(
     short_user_agent = get_short_user_agent(request)
     signals_id = _clean_signals_id(signals_id)
 
-    if turnstile_token and challenge_nonce:
+    # Only an enforced mode issues challenges, so a token sent in any other case is not an answer to one
+    if turnstile_token and challenge_nonce and mode == RadarMode.ENFORCE and challenge_allowed:
         # A resubmit answers the challenge of an earlier attempt, so Radar is not called again
-        challenge_attempt_id = _complete_challenge(email, turnstile_token, challenge_nonce, ip_address)
+        challenge_attempt_id = _complete_challenge(email, turnstile_token, challenge_nonce, ip_address, action)
         attempt = RadarAttempt(
             verdict=RadarVerdict.CHALLENGE,
             attempt_id=challenge_attempt_id or "",
@@ -290,6 +296,15 @@ def evaluate_auth_attempt(
         outcome = "allow"
     if mode == RadarMode.SHADOW and outcome in ("block", "challenge"):
         outcome = "allow"
+    issued_nonce = None
+    if outcome == "challenge" and settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+        try:
+            issued_nonce = create_challenge_nonce(
+                email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id
+            )
+        except TooManyOpenChallenges:
+            logger.warning("workos_radar_open_challenge_limit", action=action.value, email_hash=_hash_email(email))
+            outcome = "block"
 
     _log_radar_event(
         email=email,
@@ -317,14 +332,13 @@ def evaluate_auth_attempt(
         raise SuspiciousAttemptBlocked()
 
     if outcome == "challenge":
-        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY or issued_nonce is None:
             logger.error("workos_radar_challenge_no_site_key", action=action.value, email_hash=_hash_email(email))
             raise SuspiciousAttemptBlocked()
 
-        nonce = create_challenge_nonce(email, ip_address, radar_attempt_id=attempt.attempt_id)
         logger.info("workos_radar_challenge_issued", action=action.value, email_hash=_hash_email(email))
         raise ChallengeRequired(
-            challenge_nonce=nonce,
+            challenge_nonce=issued_nonce,
             turnstile_site_key=settings.CLOUDFLARE_TURNSTILE_SITE_KEY,
         )
 
@@ -354,9 +368,11 @@ def _evaluate_verdict(
     return attempt, (time.perf_counter() - start_time) * 1000
 
 
-def _complete_challenge(email: str, turnstile_token: str, challenge_nonce: str, ip_address: str) -> Optional[str]:
+def _complete_challenge(
+    email: str, turnstile_token: str, challenge_nonce: str, ip_address: str, action: RadarAction
+) -> Optional[str]:
     """Return the ID of the challenged attempt ("" when Radar gave none), or None when the challenge fails."""
-    attempt_id = consume_challenge_nonce(challenge_nonce, email, ip_address)
+    attempt_id = consume_challenge_nonce(challenge_nonce, email, ip_address, action=action.value)
     if attempt_id is None or not verify_turnstile_token(turnstile_token, ip_address):
         return None
     return attempt_id
