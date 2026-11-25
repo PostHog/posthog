@@ -42,7 +42,7 @@ def _saved_metric_access_ref(saved_metric: SavedMetric, team_id: int) -> ObjectA
     )
 
 
-def _list_access(
+def list_access(
     user_access_control: UserAccessControl,
     resource: Literal["experiment", "experiment_saved_metric"],
     *,
@@ -142,7 +142,7 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
         # Experiments carry object-level access controls; drop the ones this user cannot view
         user_access_control = self.user_access_control
         access = (
-            _list_access(user_access_control, "experiment", viewer_id=self.context["request"].user.id)
+            list_access(user_access_control, "experiment", viewer_id=self.context["request"].user.id)
             if user_access_control
             else None
         )
@@ -200,7 +200,7 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
         """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
         if is_service_auth(self.request):
             return None
-        return _list_access(
+        return list_access(
             self.user_access_control,
             "experiment_saved_metric",
             viewer_id=cast(User, self.request.user).id,

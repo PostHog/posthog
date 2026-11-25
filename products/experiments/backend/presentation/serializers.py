@@ -8,13 +8,13 @@ ViewSet remains in experiments.py.
 
 import math
 from copy import deepcopy
-from typing import Annotated, Any, TypeGuard
+from dataclasses import asdict
+from functools import cached_property
+from typing import Annotated, Any, Literal, TypeGuard
 
 from django.db import models
-from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
-from opentelemetry import trace
 from pydantic import (
     Field as PydanticField,
     RootModel as PydanticRootModel,
@@ -39,14 +39,17 @@ from posthog.schema import (
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, replace_tags_on_object
 from posthog.models.team.team import Team
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
+    ExperimentBasic,
+    ExperimentDetail,
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
     ExperimentHealthFindingActionKind,
@@ -57,23 +60,17 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthRuleTest,
     ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
+    ExperimentHoldoutView,
     ExperimentValidationError,
     RunningTimeMode,
 )
 from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
 from products.experiments.backend.facade.experiment_validation import holdout_exists
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    resolve_default_exposure_event,
-)
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
-    experiment_has_legacy_metrics,
     get_experiment_rule,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
@@ -106,8 +103,6 @@ from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-
-tracer = trace.get_tracer(__name__)
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -622,9 +617,37 @@ class ExperimentHealthSerializer(serializers.Serializer):
     )
 
 
-class ExperimentBaseSerializer(
-    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
-):
+class _ObjectAccessLevelField(serializers.SerializerMethodField):
+    """The viewer's access level, which the access control serializer mixin resolves from a reference to the rendered
+    contract, the same way it resolves a model."""
+
+    def __init__(self, resource: Literal["experiment", "experiment_holdout"]) -> None:
+        self.resource = resource
+        super().__init__(help_text="The effective access level the user has for this object")
+
+    def get_attribute(self, instance: ExperimentBasic | ExperimentHoldoutView) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource=self.resource,
+            id=str(instance.id),
+            # Not `instance.team_id`: a project's list holds the experiments of all its environments, and the access
+            # control of the request refuses a reference to a team other than its own.
+            team_id=self.context["get_team"]().id,
+            created_by_id=instance.created_by.id if instance.created_by else None,
+        )
+
+
+class _ExperimentHoldoutViewSerializer(ExperimentHoldoutSerializer):
+    user_access_level = _ObjectAccessLevelField("experiment_holdout")
+
+
+class _FeatureFlagKeyField(serializers.CharField):
+    # The experiment service reads the key from the validated data under the source name, `get_feature_flag_key`.
+    # A read renders a contract, which holds the key as `feature_flag_key`.
+    def get_attribute(self, instance: ExperimentBasic) -> str:
+        return instance.feature_flag_key
+
+
+class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """Shared read-side fields for the full and list experiment serializers.
 
     ``ExperimentSerializer`` (detail + write) and ``ExperimentBasicSerializer`` (list) both
@@ -632,10 +655,14 @@ class ExperimentBaseSerializer(
     for the fields they share. That keeps ``ExperimentApi`` a structural superset of
     ``ExperimentBasicApi`` — which consumers rely on — by construction, not by hand-mirroring
     field definitions across two classes. This base is abstract: subclasses supply their own
-    ``Meta`` (model + fields) and it is never instantiated on its own.
+    ``Meta.fields`` and it is never instantiated on its own. Reads render an ``ExperimentBasic``
+    contract or a subclass of it.
     """
 
-    feature_flag_key = serializers.CharField(
+    id = serializers.IntegerField(label="ID", read_only=True)
+    start_date = serializers.DateTimeField(required=False, allow_null=True)
+    end_date = serializers.DateTimeField(required=False, allow_null=True)
+    feature_flag_key = _FeatureFlagKeyField(
         source="get_feature_flag_key",
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
@@ -644,7 +671,11 @@ class ExperimentBaseSerializer(
     )
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = serializers.SerializerMethodField(read_only=True)
-    holdout = ExperimentHoldoutSerializer(read_only=True)
+    holdout = serializers.SerializerMethodField(read_only=True)
+    exposure_cohort = serializers.IntegerField(source="exposure_cohort_id", read_only=True, allow_null=True)
+    deleted = serializers.BooleanField(required=False, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
     name = serializers.CharField(
         max_length=400,
         help_text="Name of the experiment.",
@@ -736,32 +767,38 @@ class ExperimentBaseSerializer(
         required=False,
         help_text="Organizational tags for this experiment (up to 100, 255 characters each).",
     )
+    user_access_level = _ObjectAccessLevelField("experiment")
+
+    Meta: Any
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # A plain serializer puts the fields of the base classes first. The schema uses the order of Meta.fields.
+        fields = super().get_fields()
+        return {name: fields[name] for name in self.Meta.fields}
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
-    def get_status(self, instance: Experiment) -> str:
-        return instance.status_label
+    def get_status(self, experiment: ExperimentBasic) -> str:
+        return experiment.status
 
     @extend_schema_field(MinimalFeatureFlagSerializer)
-    def get_feature_flag(self, obj):
-        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
+    def get_feature_flag(self, experiment: ExperimentBasic) -> dict[str, Any]:
+        flag = experiment.feature_flag
+        return {**asdict(flag), "evaluation_contexts": list(flag.evaluation_contexts)}
+
+    # One holdout serializer renders every row of a list, because a new model serializer per row builds its fields again.
+    @cached_property
+    def _holdout_serializer(self) -> _ExperimentHoldoutViewSerializer:
+        return _ExperimentHoldoutViewSerializer(context=self.context)
+
+    @extend_schema_field(ExperimentHoldoutSerializer)
+    def get_holdout(self, experiment: ExperimentBasic) -> dict[str, Any] | None:
+        if experiment.holdout is None:
+            return None
+        return self._holdout_serializer.to_representation(experiment.holdout)
 
     @extend_schema_field(serializers.BooleanField())
-    def get_is_legacy(self, obj: Experiment) -> bool:
-        # The list queryset annotates is_legacy_annotation in SQL so the heavy metric columns stay
-        # deferred (see EnterpriseExperimentsViewSet.safely_get_queryset / list_is_legacy_annotation).
-        # On other paths (detail) the metrics are loaded, so fall back to computing it directly.
-        annotated = getattr(obj, "is_legacy_annotation", None)
-        if annotated is not None:
-            return annotated
-        return experiment_has_legacy_metrics(obj)
-
-    def to_representation(self, instance: Experiment) -> dict[str, Any]:
-        data = super().to_representation(instance)
-        if instance.is_rule_linked:
-            self._project_rule_config(data, instance)
-        else:
-            self._project_feature_flag_config(data, instance.feature_flag)
-        return data
+    def get_is_legacy(self, experiment: ExperimentBasic) -> bool:
+        return experiment.is_legacy
 
     @staticmethod
     def _project_rule_config(data: dict[str, Any], experiment: Experiment) -> None:
@@ -857,10 +894,8 @@ class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
     saved_metric = serializers.IntegerField(source="saved_metric_id")
     metadata = serializers.JSONField(required=False)
     created_at = serializers.DateTimeField(read_only=True)
-    query = serializers.JSONField(source="saved_metric.query", read_only=True)
-    name = serializers.CharField(source="saved_metric.name", read_only=True)
-    # The link model has no such attribute, so this serializer renders it as null.
-    # ExperimentSerializer.to_representation sets the value from the served query.
+    query = serializers.JSONField(read_only=True)
+    name = serializers.CharField(read_only=True)
     effective_query = ExperimentMetricDefinitionField(
         read_only=True,
         allow_null=True,
@@ -872,16 +907,6 @@ class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
             "(kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides."
         ),
     )
-
-    def to_representation(self, instance: Any) -> dict[str, Any]:
-        data = super().to_representation(instance)
-        # Refresh action names to show current names instead of stale cached values.
-        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
-        # parent serializer context); None when used standalone, falling back to a per-call query.
-        team = instance.experiment.team
-        actions_by_id = self.context.get("actions_by_id")
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
-        return data
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -898,7 +923,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_null=True,
         help_text="ID of a holdout group to exclude from the experiment.",
     )
-    saved_metrics = ExperimentSavedMetricLinkSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    secondary_metrics = serializers.JSONField(required=False, allow_null=True)
+    saved_metrics = ExperimentSavedMetricLinkSerializer(many=True, read_only=True)
+    filters = serializers.JSONField(required=False)
+    stats_config = serializers.JSONField(required=False, allow_null=True)
+    scheduling_config = serializers.JSONField(required=False, allow_null=True)
+    only_count_matured_users = serializers.BooleanField(required=False)
     saved_metrics_ids = serializers.ListField(
         child=serializers.JSONField(),
         required=False,
@@ -1059,7 +1089,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     )
 
     class Meta:
-        model = Experiment
         fields = [
             "id",
             "name",
@@ -1110,85 +1139,19 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "user_access_level",
             "tags",
         ]
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "feature_flag",
-            "exposure_cohort",
-            "holdout",
-            "saved_metrics",
-            "status",
-            "can_freeze_exposure",
-            "resolved_exposure_event",
-            "health",
-            "user_access_level",
-        ]
 
     @extend_schema_field(serializers.BooleanField())
-    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
-        return obj.can_freeze_exposure
+    def get_can_freeze_exposure(self, experiment: ExperimentDetail) -> bool:
+        return experiment.can_freeze_exposure
 
     @extend_schema_field(serializers.CharField())
-    def get_resolved_exposure_event(self, obj: Experiment) -> str:
-        # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
-        if obj.is_rule_linked:
-            return EXPERIMENT_EXPOSURE_EVENT
-        # A draft has no start_date yet, so resolve against now: that's the event it would get if
-        # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.start_date or timezone.now())
+    def get_resolved_exposure_event(self, experiment: ExperimentDetail) -> str:
+        return experiment.resolved_exposure_event
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
-    def get_health(self, obj: Experiment) -> dict[str, Any] | None:
+    def get_health(self, experiment: ExperimentDetail) -> dict[str, Any] | None:
         # The `health` action serves the findings, so the experiment read stays fast as checks are added.
         return None
-
-    @tracer.start_as_current_span("ExperimentSerializer.to_representation")
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-
-        # Refresh action names in inline metrics (metrics and metrics_secondary).
-        # The columns are nullable, so the keys can be present with a None value. Each call
-        # resolves the experiment's actions in a single query — fine here because this serializer
-        # only ever renders one experiment at a time (detail/launch/archive/…), never a list page.
-        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
-            for i, metric in enumerate(metrics_list):
-                # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
-                if refreshed_metric:
-                    metrics_list[i] = refreshed_metric
-
-        # Note: Action name refresh is handled by ExperimentSavedMetricLinkSerializer.to_representation
-        saved_metrics = data.get("saved_metrics", [])
-        with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
-            span.set_attribute("saved_metric_count", len(saved_metrics))
-            calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
-            for saved_metric in saved_metrics:
-                if saved_metric.get("query"):
-                    # Add fingerprint to saved metric returned from API so that the frontend knows what
-                    # timeseries records to query. Computed on the effective definition (with the link
-                    # overrides), the same dict the daily discovery fingerprints, so the chart read finds
-                    # the rows the daily workflow wrote. The action names are part of the hash, and the
-                    # serialized query carries the refreshed names, so the hash reads the stored query.
-                    calculation_key = calculation_keys.get(saved_metric["id"])
-                    if calculation_key is not None:
-                        saved_metric["query"]["fingerprint"] = calculation_key
-
-                    # Derived from the served query after the fingerprint is stamped, so that the effective
-                    # definition carries the same fingerprint and refreshed action names. Clients send it to
-                    # /query as is. The schema types it as the ExperimentMetric union, so a query outside the
-                    # union (a legacy kind, or a row without a known metric_type) keeps the null default.
-                    served_query = saved_metric["query"]
-                    if (
-                        served_query.get("kind") == "ExperimentMetric"
-                        and served_query.get("metric_type") in METRIC_BUILDERS
-                    ):
-                        saved_metric["effective_query"] = apply_saved_metric_overrides(
-                            served_query, saved_metric.get("metadata")
-                        )
-
-        return data
 
     def validate_saved_metrics_ids(self, value):
         ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
@@ -1479,7 +1442,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Load instance for return (DRF expects model instance)
         instance = Experiment.objects.get(id=experiment_dto.id)
-        self._attempt_set_tags(tags, instance)
+        if tags is not None:
+            replace_tags_on_object(tags, instance)
         return instance
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
@@ -1500,7 +1464,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             allow_unknown_events=allow_unknown_events,
             deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
-        self._attempt_set_tags(tags, updated_instance)
+        if tags is not None:
+            replace_tags_on_object(tags, updated_instance)
         return updated_instance
 
 
@@ -1651,10 +1616,6 @@ class ExperimentWriteSerializer(ExperimentSerializer):
         ),
     )
 
-    class Meta(ExperimentSerializer.Meta):
-        # feature_flag is writable in this schema-only variant, so it must leave read_only_fields.
-        read_only_fields = [field for field in ExperimentSerializer.Meta.read_only_fields if field != "feature_flag"]
-
 
 class ExperimentBasicSerializer(ExperimentBaseSerializer):
     """Lightweight, read-only serializer for the experiment list endpoint.
@@ -1674,7 +1635,6 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
     """
 
     class Meta:
-        model = Experiment
         fields = [
             "id",
             "name",
@@ -1700,22 +1660,6 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "user_access_level",
             "tags",
-        ]
-        # Shared fields take their definitions from ExperimentBaseSerializer, so their types
-        # already match ExperimentSerializer. read_only_fields still has to mirror the full
-        # serializer for the model-derived fields (id/created_at/exposure_cohort/...) so each
-        # field's optionality matches and ExperimentApi stays a structural superset of
-        # ExperimentBasicApi, which consumers rely on.
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "feature_flag",
-            "exposure_cohort",
-            "holdout",
-            "status",
-            "user_access_level",
         ]
 
 

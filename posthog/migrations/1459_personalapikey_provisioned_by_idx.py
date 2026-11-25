@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1457_validate_personalapikey_provisioned_by_fk"),
+        ("posthog", "1458_validate_personalapikey_provisioned_by_fk"),
     ]
 
     operations = [
