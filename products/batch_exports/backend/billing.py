@@ -1,8 +1,15 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Sum
+from django.db.models.functions import Coalesce
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 
 NON_BILLABLE_DESTINATIONS = [
     BatchExportDestination.Destination.HTTP,
@@ -15,7 +22,7 @@ NON_BILLABLE_MODELS = [BatchExport.Model.HOGQL]
 
 # From this instant, rows a batch export delivers bill on the warehouse `rows_synced` meter
 # instead of `rows_exported`. A run that finishes exactly at the cutover bills on `rows_synced`.
-UNIFIED_PIPELINES_PRICING_START = datetime(2027, 2, 1, tzinfo=UTC)
+UNIFIED_PIPELINES_PRICING_START: datetime = datetime(2027, 2, 1, tzinfo=UTC)
 
 
 def exports_bill_as_rows_synced(at: datetime) -> bool:
@@ -46,3 +53,26 @@ def is_billable_run(run: BatchExportRun) -> bool:
     if export.destination.type in NON_BILLABLE_DESTINATIONS:
         return False
     return export.model not in NON_BILLABLE_MODELS
+
+
+def count_billable_rows_exported(team_ids: Sequence[int], since: datetime) -> int:
+    """Sum the rows the teams exported through billable runs that finished at or after `since`."""
+    # Runs are only indexed on their parent foreign keys, so narrow each parent through its own
+    # export ids. One OR across both parents' team_id would scan the whole run history instead.
+    by_parent = (
+        Q(batch_export_id__in=BatchExport.objects.filter(team_id__in=team_ids).values("id")),
+        Q(
+            batch_export_on_demand_id__in=BatchExportOnDemand.objects.unscoped()
+            .filter(team_id__in=team_ids)
+            .values("id")
+        ),
+    )
+    total = 0
+    for parent in by_parent:
+        completed_runs = BatchExportRun.objects.filter(
+            parent, finished_at__gte=since, status=BatchExportRun.Status.COMPLETED
+        )
+        total += exclude_non_billable_runs(completed_runs).aggregate(total=Coalesce(Sum("records_completed"), 0))[
+            "total"
+        ]
+    return total

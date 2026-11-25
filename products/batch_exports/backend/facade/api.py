@@ -41,6 +41,7 @@ from products.batch_exports.backend import (
 )
 from products.batch_exports.backend.billing import (
     UNIFIED_PIPELINES_PRICING_START,
+    count_billable_rows_exported,
     exclude_non_billable_runs,
     exports_bill_as_rows_synced,
 )
@@ -49,7 +50,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
-    BatchExportOnDemand,
     BatchExportRun,
     get_batch_exports_using_integration,
 )
@@ -354,29 +354,6 @@ def _sum_billable_runs_by_team(begin: dt.datetime, end: dt.datetime, field: str)
         .annotate(total=Coalesce(Sum(field), 0))
     )
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
-
-
-def count_billable_rows_exported(team_ids: Sequence[int], since: dt.datetime) -> int:
-    """Sum the rows the teams exported through billable runs that finished at or after `since`."""
-    # Runs are only indexed on their parent foreign keys, so narrow each parent through its own
-    # export ids. One OR across both parents' team_id would scan the whole run history instead.
-    by_parent = (
-        Q(batch_export_id__in=BatchExport.objects.filter(team_id__in=team_ids).values("id")),
-        Q(
-            batch_export_on_demand_id__in=BatchExportOnDemand.objects.unscoped()
-            .filter(team_id__in=team_ids)
-            .values("id")
-        ),
-    )
-    total = 0
-    for parent in by_parent:
-        completed_runs = BatchExportRun.objects.filter(
-            parent, finished_at__gte=since, status=BatchExportRun.Status.COMPLETED
-        )
-        total += exclude_non_billable_runs(completed_runs).aggregate(total=Coalesce(Sum("records_completed"), 0))[
-            "total"
-        ]
-    return total
 
 
 def get_teams_with_active_batch_exports() -> list[contracts.TeamTotal]:
