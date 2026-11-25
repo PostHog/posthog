@@ -283,6 +283,8 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
+const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -303,10 +305,7 @@ const MOCKS: Mocks = {
         },
     },
     post: {
-        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-            200,
-            { results: RESULTS, disclaimer: DISCLAIMER },
-        ],
+        [QUERY_URL]: () => [200, { results: RESULTS, disclaimer: DISCLAIMER }],
     },
 }
 
@@ -350,6 +349,16 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Summary: Story = {}
+
+export const Loading: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [QUERY_URL]: () => new Promise(() => {}) } } },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-recommendations"] .Spinner',
+        },
+    },
+}
 
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
@@ -461,10 +470,7 @@ function withResolved(
     return {
         ...MOCKS,
         post: {
-            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-                200,
-                { results, disclaimer: DISCLAIMER },
-            ],
+            [QUERY_URL]: () => [200, { results, disclaimer: DISCLAIMER }],
         },
     }
 }
