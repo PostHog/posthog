@@ -61,12 +61,10 @@ class OpenAIConfig:
     DECISION_MODELS: frozenset[str] = frozenset({"gpt-6-luna"})
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-6-luna",
         "gpt-5.4",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-nano",
-        "gpt-5-mini",
-        "gpt-5",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4.1",
@@ -92,21 +90,18 @@ class OpenAIConfig:
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
-        "gpt-5-mini",
-        "gpt-5-nano",
+        "gpt-6-luna",
         "o3-mini",
         "o4-mini",
     ]
 
-    DEFAULT_MODEL: str = "gpt-5-mini"
+    DEFAULT_MODEL: str = "gpt-6-luna"
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-6-luna",
         "gpt-5.4",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-nano",
-        "gpt-5-mini",
-        "gpt-5",
         "o4-mini",
         "o3",
         "o3-mini",
@@ -114,7 +109,7 @@ class OpenAIConfig:
 
     @staticmethod
     def supports_reasoning_level(model: str) -> bool:
-        return model.startswith(("gpt-5", "o3", "o4")) and "chat" not in model
+        return model.startswith(("gpt-5", "gpt-6", "o3", "o4")) and "chat" not in model
 
     @staticmethod
     def reasoning_effort(model: str, level: ReasoningLevel) -> ReasoningEffort:

@@ -301,7 +301,7 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }`.
+`"model_configuration": { "provider": "openai", "model": "gpt-6-luna", "provider_key_id": null }`.
 Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
 key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).

@@ -256,6 +256,8 @@ class TestOpenAICompleteReasoningEffort:
             ("original_gpt5_keeps_minimal", "gpt-5-mini", "minimal", "minimal"),
             ("later_gpt5_maps_minimal_to_low", "gpt-5.1", "minimal", "low"),
             ("o_series_maps_minimal_to_low", "o4-mini", "minimal", "low"),
+            ("gpt6_maps_minimal_to_low", "gpt-6-luna", "minimal", "low"),
+            ("gpt6_level_passes_through", "gpt-6-luna", "medium", "medium"),
             ("level_passes_through", "gpt-5.1", "high", "high"),
             ("non_reasoning_model_omits_effort", "gpt-4.1", "high", None),
             ("chat_variant_omits_effort", "gpt-5-chat-latest", "high", None),
