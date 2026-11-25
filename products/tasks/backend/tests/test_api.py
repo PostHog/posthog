@@ -53,6 +53,7 @@ from posthog.temporal.oauth import (
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
 
@@ -5167,10 +5168,9 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], field)
 
-    # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @mock_anti_ssrf_dns_lookup()
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_url_allowed):
+    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_dns_lookup):
         task = self.create_task()
         servers = [
             {
@@ -5202,9 +5202,9 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("imported_mcp_servers", task_run.state)
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @mock_anti_ssrf_dns_lookup()
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_url_allowed):
+    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_dns_lookup):
         task = self.create_task()
         servers = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}]
 
@@ -5344,8 +5344,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
-    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+    @mock_anti_ssrf_dns_lookup()
+    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_dns_lookup):
         task = self.create_task()
         body: dict = {"environment": "cloud", "relayed_mcp_servers": relayed}
         if imported is not None:
@@ -5371,8 +5371,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
-    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+    @mock_anti_ssrf_dns_lookup()
+    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_dns_lookup):
         task = self.create_task()
         body: dict = {"relayed_mcp_servers": relayed}
         if imported is not None:
