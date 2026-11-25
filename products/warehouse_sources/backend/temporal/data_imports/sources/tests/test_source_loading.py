@@ -105,6 +105,16 @@ def test_get_source_imports_only_the_requested_source(empty_registry):
     assert SourceRegistry._loaded is False
 
 
+def test_is_registered_imports_only_the_requested_source(empty_registry):
+    with (
+        patch(f"{_SOURCES}.load_source", side_effect=_register_fake_pypi_source),
+        patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
+    ):
+        assert SourceRegistry.is_registered(ExternalDataSourceType.PYPI) is True
+
+    assert SourceRegistry._loaded is False
+
+
 @pytest.mark.django_db
 def test_load_sources_in_use_imports_only_the_types_that_have_a_live_source():
     team = Team.objects.create(organization=Organization.objects.create(name="org"))
