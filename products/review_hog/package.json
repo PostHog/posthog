@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-review-hog",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/reviewer/tests -v --tb=short",
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh review_hog",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {

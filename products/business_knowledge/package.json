@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-business-knowledge",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short --override-ini='addopts=' || test $? -eq 5"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh business_knowledge"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

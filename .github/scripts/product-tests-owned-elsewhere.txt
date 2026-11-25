@@ -1,0 +1,16 @@
+# Test paths under products/ that the product test job skips, because another job runs them.
+# .github/scripts/run-product-tests.sh passes each one to pytest as --ignore, and
+# `hogli product:lint` exempts them from the orphaned-test check. Globs follow bash rules:
+# `*` matches inside one path segment only.
+
+# ci-python.yml "Warehouse sources checks and tests" runs the vendor plugins.
+products/warehouse_sources/sources
+# The Temporal segment of ci-backend.yml (DJANGO_SEGMENTS.Temporal in turbo-discover.js).
+products/signals/backend/emission
+# ci-dagster.yml runs the DAG tests of every product.
+products/*/dags
+# ci-python.yml runs the stamphog review engine as its own package.
+products/stamphog/packages
+# An eval suite with its own pytest.ini, run by hand. Its conftest changes the posthog
+# client and Django settings at import time, so a product run must not load it.
+products/signals/eval

@@ -342,17 +342,14 @@ class TestDetectTestType:
         assert config.test_type == "playwright"
         assert config.command == ["pnpm", "exec", "playwright", "test", "playwright/e2e"]
 
-    # -- Product directory (Turbo) tests --
+    # -- Product directory tests --
 
-    def test_product_root_uses_turbo(self) -> None:
-        config = detect_test_type("products/alerts")
-        assert config.test_type == "turbo"
-        assert config.command == ["pnpm", "turbo", "run", "backend:test", "--filter=@posthog/products-alerts"]
-
-    def test_product_root_trailing_slash_uses_turbo(self) -> None:
-        config = detect_test_type("products/alerts/")
-        assert config.test_type == "turbo"
-        assert config.command == ["pnpm", "turbo", "run", "backend:test", "--filter=@posthog/products-alerts"]
+    @parameterized.expand([("no_trailing_slash", "products/alerts"), ("trailing_slash", "products/alerts/")])
+    def test_product_root_uses_the_ci_product_runner(self, _name: str, path: str) -> None:
+        config = detect_test_type(path)
+        assert config.test_type == "product"
+        assert config.command == ["bash", ".github/scripts/run-product-tests.sh", "alerts"]
+        assert config.cwd == REPO_ROOT
 
     def test_product_subdirectory_uses_pytest(self) -> None:
         config = detect_test_type("products/error_tracking/backend/test")

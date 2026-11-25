@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-tracing",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh tracing"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

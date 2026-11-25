@@ -10,7 +10,7 @@ https://docs.pytest.org/en/stable/explanation/pythonpath.html
 
 Two files only collide if one session collects both. CI never runs the whole repo at
 once - Core takes posthog/ee, Temporal takes posthog/temporal plus three product
-subtrees, and every other product runs alone under turbo. So this checks each session
+subtrees, and every other product runs alone through the product runner. So this checks each session
 separately. A shared basename across two sessions is fine and always has been; the
 repo has many.
 
@@ -48,7 +48,7 @@ NORECURSEDIRS = ("*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules"
 # The pytest invocations CI actually runs, each one its own sys.modules. Core, Temporal
 # and POE mirror the positional arguments in ci-backend.yml ("Run Core tests" / "Run
 # Temporal tests"); the tool sessions mirror ci-python.yml. Products get one session
-# each because turbo runs them from products/<name>/. Widen a session here when the
+# each because .github/scripts/run-product-tests.sh runs each one on its own. Widen a session here when the
 # workflow widens one, or this stops matching what CI collects.
 CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "core": (("posthog", "ee"), ("posthog/temporal", "posthog/dags", "posthog/test/repo_invariants")),
@@ -86,9 +86,9 @@ def _ini_ignores() -> tuple[str, ...]:
 
 def _sessions() -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
     sessions = dict(CI_SESSIONS)
-    # turbo runs each product on its own. Scoping to products/<name> is a superset of the
-    # per-product backend:test target, which keeps a new product covered without parsing
-    # every package.json.
+    # The product runner runs each product on its own. Scoping to products/<name> is a superset
+    # of what the runner collects, which leaves out the paths other jobs own, and keeps a new
+    # product covered without reading .github/scripts/product-tests-owned-elsewhere.txt.
     for directory in sorted((REPO_ROOT / "products").iterdir()):
         if directory.is_dir() and not directory.name.startswith("."):
             sessions.setdefault(f"product:{directory.name}", ((f"products/{directory.name}",), ()))

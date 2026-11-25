@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Runs the backend tests of one product as one pytest process: every test file under
+# products/<product>/ except the paths in product-tests-owned-elsewhere.txt.
+# CI, its quarantine rerun and `hogli test products/<product>/` all call this script.
+#
+# pytest starts in the product directory because CI's PYTEST_ADDOPTS name paths
+# relative to it: --durations-path ../../.test_durations, --junitxml=junit-product.xml
+# and --cov=backend.
+#
+# Usage: run-product-tests.sh PRODUCT_DIRECTORY [PYTEST_OPTION...]
+#
+# No `set -u`: the bash 3.2 that ships with macOS fails on an empty "${array[@]}".
+set -eo pipefail
+
+if [ "$#" -lt 1 ]; then
+    echo "usage: $0 PRODUCT_DIRECTORY [PYTEST_OPTION...]" >&2
+    exit 2
+fi
+product=$1
+shift
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+if [ ! -d "$repo_root/products/$product" ]; then
+    echo "::error::products/$product does not exist" >&2
+    exit 2
+fi
+
+# pytest resolves --ignore against the working directory, so pass absolute paths.
+ignore_args=()
+# `|| [ -n ... ]` keeps a last line that has no newline. tr drops every space, tab and CR, so
+# the runner sees the same entries as hogli's orphan check, which strips each line.
+while read -r pattern || [ -n "$pattern" ]; do
+    pattern=$(printf '%s' "$pattern" | tr -d '[:space:]')
+    if [ -z "$pattern" ] || [[ "$pattern" == "#"* ]]; then
+        continue
+    fi
+    # shellcheck disable=SC2086 # the pattern may hold a glob, which must expand here
+    for path in "$repo_root"/$pattern; do
+        if [ -e "$path" ]; then
+            ignore_args+=("--ignore=$path")
+        fi
+    done
+done < "$repo_root/.github/scripts/product-tests-owned-elsewhere.txt"
+
+cd "$repo_root/products/$product"
+# A product declares what its tests need outside Python as a backend:test:setup script in its
+# package.json. canvas uses it to install the npm packages of its builder.
+if grep -q '"backend:test:setup"' package.json 2>/dev/null; then
+    npm run --silent backend:test:setup
+fi
+# pytest-split can hand a shard no tests when a product has fewer tests than shards, so a
+# split leg accepts pytest's exit code 5 (no tests collected). A full-product run does not:
+# a product that collects nothing has lost its tests, and that must fail the job.
+split_leg=false
+for arg in "$@"; do
+    if [[ "$arg" == --splits* || "$arg" == --group* ]]; then
+        split_leg=true
+    fi
+done
+status=0
+pytest -c ../../pytest.ini --rootdir ../.. "${ignore_args[@]}" -v --tb=short "$@" . || status=$?
+if [ "$status" -eq 5 ] && [ "$split_leg" = true ]; then
+    echo "No tests collected in this shard of products/$product"
+    exit 0
+fi
+if [ "$status" -eq 5 ]; then
+    echo "::error::No tests collected in products/$product" >&2
+fi
+exit "$status"

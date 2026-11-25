@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-data-modeling",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh data_modeling",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {

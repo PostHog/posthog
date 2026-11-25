@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-billing-alerts",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || test $? -eq 5"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh billing_alerts"
     },
     "dependencies": {
         "kea": "catalog:",

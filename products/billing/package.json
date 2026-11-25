@@ -1,3 +1,6 @@
 {
-    "name": "@posthog/products-billing"
+    "name": "@posthog/products-billing",
+    "scripts": {
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh billing"
+    }
 }

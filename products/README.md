@@ -166,9 +166,8 @@ The lint command validates:
 
 - **Presence**: `backend:test` must exist
 - **Script content** (for `backend:test`):
-  - No `|| true` or `|| exit 0` — these swallow test failures in CI
-  - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
-  - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+  - Exactly `bash ../../.github/scripts/run-product-tests.sh <product_dir>`. CI calls that runner directly and never runs the script, so other pytest options or paths in it would not reach CI
+  - A no-op (e.g., `echo 'No backend tests'`) only when `backend/` contains no test files
 
 The lint does not check the boundaries between products.
 hoglint checks them: run `hoglint check`.
@@ -314,19 +313,23 @@ Breaker state lives in Redis, so one worker tripping the breaker is seen by all 
 
 There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is _fast, contained failure_, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
 
-## Running tests with Turbo
+## Running product tests
 
-Products use Turborepo for selective testing. Only tests affected by your changes run.
+CI runs each product's backend tests as one pytest process:
 
 ```bash
-# Run all product tests
-pnpm turbo run backend:test
-
-# Run specific product tests
-pnpm turbo run backend:test --filter=@posthog/products-visual_review
-
-# Dry-run to see what would execute
-pnpm turbo run backend:test --dry-run=json
+bash .github/scripts/run-product-tests.sh <product_dir>   # e.g. visual_review
 ```
+
+The runner starts pytest in `products/<product_dir>/` and collects every test file under it, except the paths in `.github/scripts/product-tests-owned-elsewhere.txt`, which other CI jobs run.
+Extra arguments go to pytest.
+A product whose tests need setup outside Python, such as npm packages, declares it as a `backend:test:setup` script in its `package.json`, and the runner runs it first.
+
+Locally, `hogli test products/<product_dir>/` runs the same thing for a product that has only Python tests.
+A product that also has Jest tests keeps the per-type grouping.
+
+Turbo still decides which products a change affects.
+The `backend:test` script in each `package.json` registers the task for that and calls the same runner, but CI does not run the script.
+Put product-specific pytest configuration in a `conftest.py` under the product, not in the script.
 
 See [architecture.md](./architecture.md) for how selective testing works.

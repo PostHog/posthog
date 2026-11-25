@@ -739,12 +739,12 @@ visual_review impl       (logic.py, models.py)
 
 ## CI commands
 
-```bash
-# Run all product tests
-pnpm turbo run backend:test
+Turbo decides which products a change affects.
+CI then runs the tests of each selected product with `.github/scripts/run-product-tests.sh`, which the `backend:test` script also calls.
 
-# Run specific product tests
-pnpm turbo run backend:test --filter=@posthog/products-visual_review
+```bash
+# Run one product's tests the way CI does
+hogli test products/visual_review/
 
 # Run contract checks
 pnpm turbo run backend:contract-check

@@ -105,8 +105,9 @@ const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 200
 // The key is not a real file, so pruning drops it: read it before pruning. It
 // survives the --store-durations round trip like any restored entry.
 const PRODUCTS_SCALED_MARKER = 'products/.junit-scaled'
-// Temporal tests of products NOT listed below run in Django CI's Temporal segment,
-// so they must not also count toward that product's own size.
+// Sizing leaves out the /temporal/ test durations of products NOT listed below. The
+// product job still runs those tests, so the size of such a product reads low by
+// their duration.
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // Products that run their OWN temporal suite inside the product test job, so their
 // temporal durations count toward product sizing, otherwise a big suite lands in
@@ -114,7 +115,8 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 //
 // Every shard in backend CI already starts COMPOSE_PROFILES=temporal, in the django
 // job and in turbo-tests alike, so running a temporal suite here costs no extra
-// infrastructure. The product's backend:test must name its temporal path.
+// infrastructure. The product runner runs every test file under the product, temporal
+// ones included; this set only decides which products count them toward sizing.
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',

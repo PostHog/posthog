@@ -4,11 +4,13 @@
         "affectedUsingTaskInputs": true
     },
     "tasks": {
+        // Only affectedness reads this task: turbo-discover asks which products' inputs changed.
+        // CI runs the tests with .github/scripts/run-product-tests.sh.
         "backend:test": {
             "inputs": [
                 "backend/**/*.py",
                 "!backend/**/__pycache__/**",
-                // A few products run pytest against roots outside backend/:
+                // A few products keep tests outside backend/:
                 // experiments (stats/), logs (skills/), posthog_ai (scripts/).
                 // These globs anchor per-package, so they only match where the
                 // dir exists. Do NOT collapse to a leading "**/*.py" — that
@@ -19,40 +21,14 @@
                 "scripts/**/*.py",
                 "../../pyproject.toml",
                 "../../uv.lock",
-                "../../common/**/*.py"
+                "../../common/**/*.py",
+                // The runner and its ignore list decide which tests every product runs, so a change to them
+                // marks every product affected, also on a PR whose earlier full run already passed.
+                "../../.github/scripts/run-product-tests.sh",
+                "../../.github/scripts/product-tests-owned-elsewhere.txt"
             ],
             "outputs": [],
-            "cache": true,
-            // PERSON_ON_EVENTS_V2_ENABLED and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA belong in
-            // `env`, not passThroughEnv: each changes the SQL a query runner builds, so a
-            // result cached under one mode must not satisfy a run in the other.
-            "env": [
-                "DATABASE_URL",
-                "REDIS_URL",
-                "CLICKHOUSE_HOST",
-                "TEST",
-                "PERSON_ON_EVENTS_V2_ENABLED",
-                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
-            ],
-            // Job env that pytest reads. Turbo strips undeclared env vars, so a var set on
-            // the CI job never reaches pytest unless listed here, and nothing fails when one
-            // is missing. Pass-through, not env: they must not become cache keys.
-            // - Credentials and the fork-PR flag the product-run temporal suites need (tasks
-            //   sandbox JWT, batch-exports Modal/S3, RUNS_ON_INTERNAL_PR that skips
-            //   internal-only tests for external contributors).
-            // - COVERAGE_CORE: without it, coverage uses its slower C tracer.
-            // - POSTHOG_PYTEST_HARD_EXIT: without it, green shards pay the interpreter teardown.
-            "passThroughEnv": [
-                "PYTEST_ADDOPTS",
-                "RUNNER_NAME",
-                "RUNS_ON_INTERNAL_PR",
-                "SANDBOX_JWT_PRIVATE_KEY",
-                "MODAL_TOKEN_ID",
-                "MODAL_TOKEN_SECRET",
-                "AWS_S3_ALLOW_UNSAFE_RENAME",
-                "COVERAGE_CORE",
-                "POSTHOG_PYTEST_HARD_EXIT"
-            ]
+            "cache": true
         },
         "backend:lint": {
             "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],

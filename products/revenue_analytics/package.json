@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-revenue-analytics",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh revenue_analytics"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

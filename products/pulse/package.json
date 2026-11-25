@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-pulse",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh pulse"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

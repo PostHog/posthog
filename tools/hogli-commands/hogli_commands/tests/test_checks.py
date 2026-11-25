@@ -19,7 +19,6 @@ from hogli_commands.product.checks import (
     SystemChecksCheck,
     _has_test_files,
     _is_noop_script,
-    _parse_pytest_paths,
 )
 
 # ---------------------------------------------------------------------------
@@ -72,6 +71,7 @@ def _make_product(
 
 
 check = PackageJsonScriptsCheck()
+RUNNER_SCRIPT = "bash ../../.github/scripts/run-product-tests.sh my_product"
 
 
 # ---------------------------------------------------------------------------
@@ -80,24 +80,6 @@ check = PackageJsonScriptsCheck()
 
 
 class TestParseHelpers:
-    @pytest.mark.parametrize(
-        "script, expected",
-        [
-            ("pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short", ["backend/tests"]),
-            ("pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short", ["backend/"]),
-            (
-                "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short",
-                ["backend/", "stats/tests"],
-            ),
-            ("pytest backend/test_max_tools.py", ["backend/test_max_tools.py"]),
-            ("echo 'No backend tests'", []),
-            ("pytest -v", []),
-            ("pytest -c ../../pytest.ini --rootdir ../.. -k 'not slow' backend/tests", ["backend/tests"]),
-        ],
-    )
-    def test_parse_pytest_paths(self, script: str, expected: list[str]) -> None:
-        assert _parse_pytest_paths(script) == expected
-
     @pytest.mark.parametrize(
         "script, expected",
         [
@@ -153,7 +135,7 @@ class TestPresenceChecks:
     def test_backend_test_present_passes(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+            scripts={"backend:test": RUNNER_SCRIPT},
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
@@ -167,50 +149,25 @@ class TestPresenceChecks:
 
 
 # ---------------------------------------------------------------------------
-# Content checks: pytest path validation
+# Content checks: the script must call the product runner
 # ---------------------------------------------------------------------------
 
 
-class TestPytestPathValidation:
-    def test_valid_path_passes(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"},
-            test_files=["tests/test_foo.py"],
-        )
+class TestRunnerScript:
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+            "pytest -c ../../pytest.ini --rootdir ../.. backend/ -m 'not slow' --reruns=2 -v --tb=short",
+            "bash ../../.github/scripts/run-product-tests.sh other_product",
+            "bash ../../.github/scripts/run-product-tests.sh my_product -m 'not slow'",
+            "bash ../../.github/scripts/run-product-tests.sh my_product || true",
+        ],
+    )
+    def test_script_other_than_the_runner_fails(self, tmp_path: Path, script: str) -> None:
+        ctx = _make_product(tmp_path, scripts={"backend:test": script}, test_files=["tests/test_foo.py"])
         result = check.run(ctx)
-        assert not result.issues
-
-    def test_nonexistent_path_fails(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/typo_tests -v --tb=short"},
-        )
-        result = check.run(ctx)
-        assert any("does not exist" in i for i in result.issues)
-        assert any("typo_tests" in i for i in result.issues)
-
-    def test_multiple_paths_one_missing(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short"},
-            extra_dirs=["backend"],
-        )
-        result = check.run(ctx)
-        # backend/ exists, stats/tests does not
-        assert any("stats/tests" in i for i in result.issues)
-        assert not any("backend/" in i for i in result.issues)
-
-    def test_file_path_passes(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test_max_tools.py -v --tb=short"
-            },
-            test_files=["test_max_tools.py"],
-        )
-        result = check.run(ctx)
-        assert not result.issues
+        assert any(RUNNER_SCRIPT in i for i in result.issues)
 
 
 # ---------------------------------------------------------------------------
@@ -241,42 +198,6 @@ class TestNoopDetection:
 
 
 # ---------------------------------------------------------------------------
-# Content checks: || true detection
-# ---------------------------------------------------------------------------
-
-
-class TestPipeTrueDetection:
-    def test_pipe_true_fails(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || true"},
-            extra_dirs=["backend"],
-        )
-        result = check.run(ctx)
-        assert any("|| true" in i for i in result.issues)
-        assert any("swallows" in i for i in result.issues)
-
-    def test_pipe_exit_0_fails(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || exit 0"},
-            extra_dirs=["backend"],
-        )
-        result = check.run(ctx)
-        assert any("|| exit 0" in i for i in result.issues)
-        assert any("swallows" in i for i in result.issues)
-
-    def test_no_pipe_true_passes(self, tmp_path: Path) -> None:
-        ctx = _make_product(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-            extra_dirs=["backend"],
-        )
-        result = check.run(ctx)
-        assert not result.issues
-
-
-# ---------------------------------------------------------------------------
 # Combined scenario: isolated product, all good
 # ---------------------------------------------------------------------------
 
@@ -286,7 +207,7 @@ class TestCombinedScenarios:
         ctx = _make_product(
             tmp_path,
             scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+                "backend:test": RUNNER_SCRIPT,
                 "backend:contract-check": "echo 'Contract files unchanged'",
             },
             strict=True,
@@ -299,27 +220,13 @@ class TestCombinedScenarios:
     def test_fully_valid_legacy_product(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+            scripts={"backend:test": RUNNER_SCRIPT},
             strict=False,
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
         assert not result.issues
         assert any("✓ ok" in line for line in result.lines)
-
-    def test_multiple_issues_reported(self, tmp_path: Path) -> None:
-        """A product with several problems reports all of them."""
-        ctx = _make_product(
-            tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/nonexistent -v --tb=short || true",
-                "backend:contract-check": "echo 'Contract files unchanged'",
-            },
-            strict=False,
-        )
-        result = check.run(ctx)
-        # Should report: || true, nonexistent path
-        assert len(result.issues) >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -518,13 +425,12 @@ class TestFileFolderConflictsCheck:
 
 
 # ---------------------------------------------------------------------------
-# OrphanedTestFilesCheck — ensures every product test file is reachable by
-# either backend:test or a known external runner.
+# OrphanedTestFilesCheck: every product test file runs in some CI job.
 # ---------------------------------------------------------------------------
 
 
 class TestOrphanedTestFilesCheck:
-    """Verifies the lint catches test files left behind by misconfigured scripts."""
+    """Verifies the lint catches test files that no CI job runs."""
 
     _orphan_check = OrphanedTestFilesCheck()
 
@@ -548,78 +454,28 @@ class TestOrphanedTestFilesCheck:
         result = self._orphan_check.run(ctx)
         assert result.skip is True
 
-    def test_orphan_flagged_when_backend_test_missing(self, tmp_path: Path) -> None:
-        ctx = self._ctx(tmp_path)
-        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
-        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+    @pytest.mark.parametrize(
+        "name, scripts, test_file, flagged",
+        [
+            ("my_product", {"backend:test": RUNNER_SCRIPT}, "scripts/test/test_tool.py", False),
+            ("my_product", None, "backend/api/test/test_thing.py", True),
+            # turbo-discover drops a product whose backend:test only echoes, so its tests never run.
+            ("my_product", {"backend:test": "echo 'no tests'"}, "backend/test_thing.py", True),
+            # Other jobs run the paths in product-tests-owned-elsewhere.txt.
+            ("my_product", None, "dags/tests/test_thing.py", False),
+            ("warehouse_sources", None, "sources/stripe/test_stripe.py", False),
+            ("my_product", None, "sources/stripe/test_stripe.py", True),
+        ],
+    )
+    def test_flags_test_files_no_ci_job_runs(
+        self, tmp_path: Path, name: str, scripts: dict[str, str] | None, test_file: str, flagged: bool
+    ) -> None:
+        ctx = self._ctx(tmp_path, scripts=scripts, name=name)
+        (ctx.product_dir / test_file).parent.mkdir(parents=True, exist_ok=True)
+        (ctx.product_dir / test_file).write_text("")
         result = self._orphan_check.run(ctx)
-        assert any("backend/api/test/test_thing.py" in line for line in result.lines)
-        assert result.issues
-
-    def test_no_orphans_when_backend_test_covers(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-        )
-        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
-        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_specific_file_path_in_pytest_does_not_false_flag(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/test_max_tools.py -v"},
-        )
-        (ctx.backend_dir / "test_max_tools.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_directory_prefix_does_not_eat_unrelated_paths(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/api"},
-        )
-        (ctx.backend_dir / "api").mkdir()
-        (ctx.backend_dir / "api" / "test_covered.py").write_text("")
-        (ctx.backend_dir / "api_v2").mkdir()
-        (ctx.backend_dir / "api_v2" / "test_uncovered.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert any("api_v2/test_uncovered.py" in i for i in result.issues)
-        assert not any("api/test_covered.py" in i for i in result.issues)
-
-    def test_dags_tests_exempted_via_external_runner(self, tmp_path: Path) -> None:
-        # ci-dagster.yml runs `pytest products/**/dags`. The check should not
-        # flag test files under `dags/` even when backend:test doesn't cover them.
-        ctx = self._ctx(tmp_path, scripts={"backend:test": "pytest backend/"})
-        (ctx.product_dir / "dags" / "tests").mkdir(parents=True)
-        (ctx.product_dir / "dags" / "tests" / "test_thing.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_per_product_exemption_applied(self, tmp_path: Path) -> None:
-        # products/tasks/backend/temporal/ is covered by ci-backend.yml Temporal
-        # segment, not the product matrix.
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/tests backend/services"},
-            name="tasks",
-        )
-        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
-        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_per_product_exemption_does_not_apply_to_other_products(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/tests"},
-            name="not_tasks",
-        )
-        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
-        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
+        assert bool(result.issues) is flagged
+        assert any(test_file in issue for issue in result.issues) is flagged
 
 
 class TestBackendPackageMarker:

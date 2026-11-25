@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-slack-app",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/temporal -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh slack_app"
     },
     "dependencies": {
         "kea": "catalog:",

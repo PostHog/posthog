@@ -40,7 +40,7 @@ hogli test products/warehouse_sources/sources/<vendor>/
 ```
 
 `products/warehouse_sources/sources/conftest.py` isolates the job context of each test and caps `time.sleep`, so retry backoff does not run at real duration.
-CI runs these tests in the `Warehouse sources checks and tests` job of `.github/workflows/ci-python.yml`, not in Backend CI or the product shard (`backend:test` collects `backend/` only).
+CI runs these tests in the `Warehouse sources checks and tests` job of `.github/workflows/ci-python.yml`, not in Backend CI or the product shard (the product runner skips `sources/` through `.github/scripts/product-tests-owned-elsewhere.txt`).
 That job has no Postgres, ClickHouse, Redis or Kafka, so a vendor test must not need one.
 A pull request that changes only vendor directories runs the tests of those vendors, the catalog tests of those vendors, and the repo invariants scoped to those directories.
 A change to `products/warehouse_sources/sources/sdk/`, a file at the top of `products/warehouse_sources/sources/` (for example `conftest.py`), `products/warehouse_sources/backend/` or any other file runs every vendor.
