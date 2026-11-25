@@ -1329,7 +1329,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/internal/limiting",
             headers=self._system_auth_headers(LIMITING_SERVICE_ACTION),
             json={"organization_ids": organization_ids},
-            timeout=60,
+            timeout=30,
         )
 
         handle_billing_service_error(res, valid_codes=(200,))

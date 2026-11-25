@@ -12,7 +12,7 @@ from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from django.conf import settings
 from django.utils import timezone
@@ -25,11 +25,14 @@ from posthog.redis import get_client
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import BillingLimit, BillingLimits
-from ee.billing.quota_limiting import QuotaLimitingRunResult, QuotaResource
+from ee.billing.quota_limiting import GRACE_PERIOD_EXEMPT_RESOURCES, QuotaLimitingRunResult, QuotaResource
 
 logger = structlog.get_logger(__name__)
 
 Key = tuple[str, str]  # organization id, resource
+QuotaLevel = Literal["none", "limited", "suspended"]
+SpineLevel = Literal["absent", "exempt", "enforced", "over", "under"]
+Label = Literal["no_spine_limit", "exempt", "grace", "near_limit", "unexplained"]
 
 
 class Sighting(TypedDict):
@@ -45,9 +48,9 @@ class State(TypedDict):
 class Mismatch(TypedDict):
     organization_id: str
     resource: str
-    label: str
-    quota_level: str
-    spine_level: str
+    label: Label
+    quota_level: QuotaLevel
+    spine_level: SpineLevel
     usage: str | None
     limit: str | None
     grace_expiry: str | None
@@ -59,11 +62,14 @@ STATE_KEY = "@posthog/quota-limiting/spine-comparison"
 STATE_TTL = timedelta(days=7)
 MISMATCH_EVENT = "quota limiting spine mismatch"
 NEAR_LIMIT = Decimal("0.01")
+# The analytics client drops what its queue cannot hold, so a backlog is confirmed over several runs.
+CONFIRMED_PER_RUN = 1000
 # Billing also holds limits on products that quota limiting has no quota for.
 RESOURCES = frozenset(resource.value for resource in QuotaResource)
+CREDIT_RESOURCES = frozenset(resource.value for resource in GRACE_PERIOD_EXEMPT_RESOURCES)
 
 # The label for each pair of levels, quota limiting's first. None means they agree.
-LABELS: dict[tuple[str, str], str | None] = {
+LABELS: dict[tuple[QuotaLevel, SpineLevel], Label | None] = {
     ("none", "absent"): None,
     ("none", "exempt"): None,
     ("none", "under"): None,
@@ -72,7 +78,7 @@ LABELS: dict[tuple[str, str], str | None] = {
     # The spine holds dollar limits only, so a free allocation has no row there.
     ("limited", "absent"): "no_spine_limit",
     ("suspended", "absent"): "no_spine_limit",
-    # Quota limiting ignores never_drop_data on credit products.
+    # Quota limiting ignores never_drop_data on credit products. Anywhere else this pair is unexplained.
     ("limited", "exempt"): "exempt",
     ("suspended", "exempt"): "exempt",
     # Both say over the limit, and only one is enforcing: trust-score grace against the spine's flat grace.
@@ -85,24 +91,26 @@ LABELS: dict[tuple[str, str], str | None] = {
 }
 
 
-def quota_levels(run: QuotaLimitingRunResult) -> dict[Key, str]:
+def quota_levels(run: QuotaLimitingRunResult) -> dict[Key, QuotaLevel]:
     """Quota limiting's level for each organization and resource it limits or suspends.
 
     An organization limited on a resource it has not used is left out. Quota limiting counts
     zero usage against a zero allowance as limited, and that is not a limit the spine could hold.
-    Nor is the flag limit of a deactivated organization, which is left out too.
     """
-    decisions = (("limited", run.quota_limited_orgs), ("suspended", run.quota_limiting_suspended_orgs))
+    decisions: dict[QuotaLevel, dict[str, dict[str, int]]] = {
+        "limited": run.quota_limited_orgs,
+        "suspended": run.quota_limiting_suspended_orgs,
+    }
     return {
         (organization_id, resource): level
-        for level, by_resource in decisions
+        for level, by_resource in decisions.items()
         for resource, organizations in by_resource.items()
-        for organization_id in run.used_quota_orgs.get(resource, ())
+        for organization_id in run.orgs_with_usage.get(resource, ())
         if organization_id in organizations
     }
 
 
-def _spine_level(row: BillingLimit | None) -> str:
+def _spine_level(row: BillingLimit | None) -> SpineLevel:
     if row is None:
         return "absent"
     if row["never_drop_data"]:
@@ -119,13 +127,14 @@ def _near_limit(row: BillingLimit) -> bool:
 
 
 def compare(
-    quota: Mapping[Key, str], spine: BillingLimits, previous: State, now: datetime
+    quota: Mapping[Key, QuotaLevel], spine: BillingLimits, previous: State, now: datetime
 ) -> tuple[State, list[Mismatch]]:
     """The next state, and the mismatches this run confirmed.
 
     `quota` is from `quota_levels`, `spine` is billing's answer, `previous` is the state this
     returned on the run before. A mismatch that goes away is forgotten, so it starts over if it
-    returns, and so does one whose levels or label change.
+    returns, and so does one whose levels or label change. A run confirms `CONFIRMED_PER_RUN` at
+    most, and the rest wait for the next.
     """
     reported = spine["usage_through"]
     if reported is None:
@@ -141,17 +150,25 @@ def compare(
     for key in sorted(quota.keys() | rows.keys()):
         organization_id, resource = key
         row = rows.get(key)
-        quota_level, spine_level = quota.get(key, "none"), _spine_level(row)
+        quota_level: QuotaLevel = quota.get(key, "none")
+        spine_level = _spine_level(row)
         label = LABELS[quota_level, spine_level]
         if label is None:
             continue
         if label == "unexplained" and row is not None and _near_limit(row):
             label = "near_limit"
+        if label == "exempt" and resource not in CREDIT_RESOURCES:
+            label = "unexplained"
         name = ":".join((organization_id, resource, quota_level, spine_level, label))
         seen = previous["mismatches"].get(name) or Sighting(since=now.isoformat(), confirmed=False)
-        is_confirmed = folded is not None and datetime.fromisoformat(seen["since"]) < folded
-        mismatches[name] = Sighting(since=seen["since"], confirmed=seen["confirmed"] or is_confirmed)
-        if is_confirmed and not seen["confirmed"]:
+        due = (
+            not seen["confirmed"]
+            and folded is not None
+            and datetime.fromisoformat(seen["since"]) < folded
+            and len(confirmed) < CONFIRMED_PER_RUN
+        )
+        mismatches[name] = Sighting(since=seen["since"], confirmed=seen["confirmed"] or due)
+        if due:
             confirmed.append(
                 Mismatch(
                     organization_id=organization_id,
@@ -190,7 +207,7 @@ def compare_with_spine(run: QuotaLimitingRunResult) -> None:
             properties=dict(mismatch),
             groups={"instance": settings.SITE_URL, "organization": mismatch["organization_id"]},
         )
-    # After the captures: if one fails, the next run confirms and captures these again.
+    # After the captures: a run that dies among them captures them again on the next, and loses none.
     redis.set(STATE_KEY, json.dumps(state), ex=STATE_TTL)
     decided = sum(map(len, (*run.quota_limited_orgs.values(), *run.quota_limiting_suspended_orgs.values())))
     logger.info(

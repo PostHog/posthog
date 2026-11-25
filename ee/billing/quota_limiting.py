@@ -525,19 +525,12 @@ def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[
     )
 
 
-def _gets_no_flags(organization: Organization, resource: QuotaResource) -> bool:
-    """Whether the resource is flags and the organization is deactivated, which limits it whatever its usage."""
-    return resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False
+def _has_usage(organization: Organization, resource: QuotaResource) -> bool:
+    """Whether the organization has used any of the resource.
 
-
-def _used_quota(organization: Organization, resource: QuotaResource) -> bool:
-    """Whether a limit on this resource is a quota the organization has used some of.
-
-    Not a zero allowance, which limits an organization that has used nothing. And not the flag limit
-    of a deactivated organization, which is set even when it has no usage at all.
+    A limit can be set without it: a zero allowance limits an organization that has used nothing,
+    and a deactivated organization gets no flags even when it has no usage at all.
     """
-    if _gets_no_flags(organization, resource):
-        return False
     usage = organization.usage or {}
     return _quota_usage(usage, usage.get(resource.value) or {}) > 0
 
@@ -589,7 +582,7 @@ def org_quota_limited_until(
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
     # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
-    if _gets_no_flags(organization, resource):
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
         return {"quota_limited_until": _deactivated_org_flags_limited_until(), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
@@ -1464,7 +1457,7 @@ def _timed_query(name, fn, *args, **kwargs):
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
-    used_quota_orgs: dict[str, set[str]]
+    orgs_with_usage: dict[str, set[str]]  # by resource, the limited and suspended orgs that used any of it
     stats: dict[str, float | int]
 
 
@@ -1774,7 +1767,7 @@ def update_all_orgs_billing_quotas(
     )
     quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
-    used_quota_orgs: dict[str, set[str]] = {x.value: set() for x in QuotaResource}
+    orgs_with_usage: dict[str, set[str]] = {x.value: set() for x in QuotaResource}
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     recordings_transitioned_team_ids: set[int] = set()
@@ -1922,8 +1915,8 @@ def update_all_orgs_billing_quotas(
                             batch=usage_batch,
                         )
                         if result:
-                            if _used_quota(org, resource):
-                                used_quota_orgs[field].add(org_id)
+                            if _has_usage(org, resource):
+                                orgs_with_usage[field].add(org_id)
                             quota_limited_until = result.get("quota_limited_until")
                             limiting_suspended_until = result.get("quota_limiting_suspended_until")
                             if limiting_suspended_until:
@@ -2146,7 +2139,7 @@ def update_all_orgs_billing_quotas(
     return QuotaLimitingRunResult(
         quota_limited_orgs=quota_limited_orgs,
         quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
-        used_quota_orgs=used_quota_orgs,
+        orgs_with_usage=orgs_with_usage,
         stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,
