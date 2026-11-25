@@ -89,6 +89,7 @@ When they want "as fast as possible", propose `hourly`.
   Tell the user and offer `hourly`. Do not try other fast cadences on your own.
 - A cadence faster than the insight's interval checks the same completed bucket until the next one closes.
   For an hourly check of a daily insight, set `check_ongoing_interval: true` with an upper bound so the check reads the day in progress.
+  Leave it off when the insight's `dateRange.excludeIncompletePeriods` is on, because that query has no day in progress to read.
 - The AI detector cannot run on `real_time`.
   Prefer `daily` or `hourly` for it, because every check is charged.
 

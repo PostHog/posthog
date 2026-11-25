@@ -145,6 +145,11 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isTrendsFunnel = funnelSource?.funnelsFilter?.funnelVizType === FunnelVizType.Trends
+    const insightSource = query && isInsightVizNode(query) ? query.source : query
+    const excludesIncompletePeriods =
+        !!insightSource &&
+        (isTrendsQuery(insightSource) || isFunnelsQuery(insightSource)) &&
+        !!insightSource.dateRange?.excludeIncompletePeriods
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
@@ -169,6 +174,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
+        insightExcludesIncompletePeriods: excludesIncompletePeriods,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -243,7 +249,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     }, [insightLogicProps, insightId])
 
     const creatingNewAlert = alertId === undefined
-    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
+    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel, excludesIncompletePeriods })
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
@@ -324,15 +330,13 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         if (!delay) {
             return indexedResults
         }
-        const source = query && isInsightVizNode(query) ? query.source : query
-        const excludesIncomplete = source && isTrendsQuery(source) && source.dateRange?.excludeIncompletePeriods
-        const skipped = delay + (excludesIncomplete ? 0 : 1)
+        const skipped = delay + (excludesIncompletePeriods ? 0 : 1)
         return indexedResults?.map((series) => ({
             ...series,
             data: series.data.slice(0, -skipped),
             labels: series.labels?.slice(0, -skipped),
         }))
-    }, [alertForm.evaluation_delay_intervals, indexedResults, query])
+    }, [alertForm.evaluation_delay_intervals, indexedResults, excludesIncompletePeriods])
     const previewHistoryTooShort =
         !useAlertCheckPreview &&
         (alertForm.evaluation_delay_intervals ?? 0) > 0 &&
@@ -459,6 +463,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         <AlertAdvancedOptionsSection
             alertForm={alertForm}
             canCheckOngoingInterval={can_check_ongoing_interval}
+            insightExcludesIncompletePeriods={excludesIncompletePeriods}
             projectTimezone={projectTimezone}
             enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
             evaluationDelayInterval={delayField.show ? (trendInterval ?? 'day') : undefined}

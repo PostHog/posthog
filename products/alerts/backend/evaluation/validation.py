@@ -24,7 +24,7 @@ from posthog.schema import (
 from posthog.hogql_queries.validation.validate_query import first_query_rule_violation
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.tasks.alerts.trends import _defined_result_count, _has_breakdown
+from posthog.tasks.alerts.trends import _defined_result_count, _has_breakdown, query_excludes_incomplete_periods
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
@@ -32,6 +32,10 @@ from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
+ONGOING_INTERVAL_EXCLUDED_MESSAGE = (
+    "Check ongoing period can't be used on an insight that excludes incomplete periods. "
+    "Turn off Check ongoing period, or include incomplete periods in the insight's date filter."
+)
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     if not 0 <= parsed_config.series_index < result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
+    if parsed_config.check_ongoing_interval and query_excludes_incomplete_periods(trends_query):
+        raise ValueError(ONGOING_INTERVAL_EXCLUDED_MESSAGE)
+
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     if (
         threshold is not None
@@ -175,6 +182,13 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
     if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
         raise ValueError("This funnel only supports absolute value conditions")
     strategy.validate_config(funnels_query, parsed)
+    # A steps funnel has no periods and ignores the flag, so only a time-series funnel can hit this.
+    if (
+        strategy.supports_relative_conditions
+        and parsed.check_ongoing_interval
+        and query_excludes_incomplete_periods(funnels_query)
+    ):
+        raise ValueError(ONGOING_INTERVAL_EXCLUDED_MESSAGE)
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     if ctx.require_threshold_bounds and ctx.detector_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
@@ -275,7 +289,8 @@ def should_default_check_ongoing_interval(
     A cadence finer than the insight's grouping interval re-checks a frozen completed bucket until it
     closes, so evaluating the ongoing (incomplete) bucket is what makes the faster cadence meaningful.
     Only applies where the toggle is valid — mirrors the UI's ``canCheckOngoingInterval``: a trends
-    absolute/increase alert above an upper bound, or a time-series (historical-trend) funnel.
+    absolute/increase alert above an upper bound, or a time-series (historical-trend) funnel, on an
+    insight that keeps its incomplete periods.
     """
     if not isinstance(config, dict) or calculation_interval is None:
         return False
@@ -295,7 +310,7 @@ def should_default_check_ongoing_interval(
             parsed_condition = AlertCondition.model_validate(condition)
         except PydanticValidationError:
             return False
-        if is_non_time_series_trend(trends_query):
+        if is_non_time_series_trend(trends_query) or query_excludes_incomplete_periods(trends_query):
             return False
         if parsed_condition.type not in (AlertConditionType.ABSOLUTE_VALUE, AlertConditionType.RELATIVE_INCREASE):
             return False
@@ -314,7 +329,11 @@ def should_default_check_ongoing_interval(
         except ValueError:
             return False
         # Time-series funnels only (steps funnels have no periods) — the same gate as isTrendsFunnel.
-        return strategy.supports_relative_conditions and _cadence_finer_than_interval(cadence, funnels_query.interval)
+        return (
+            strategy.supports_relative_conditions
+            and not query_excludes_incomplete_periods(funnels_query)
+            and _cadence_finer_than_interval(cadence, funnels_query.interval)
+        )
 
     return False
 

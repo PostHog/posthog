@@ -22,6 +22,7 @@ const QUIET_HOURS_COARSE_INTERVAL_LABELS: Partial<Record<AlertCalculationInterva
 export interface AlertAdvancedOptionsSectionProps {
     alertForm: AlertFormType
     canCheckOngoingInterval: boolean
+    insightExcludesIncompletePeriods?: boolean
     projectTimezone: string
     enabledAdvancedOptionsCount: number
     evaluationDelayInterval?: string
@@ -34,6 +35,7 @@ export interface AlertAdvancedOptionsSectionProps {
 export function AlertAdvancedOptionsSection({
     alertForm,
     canCheckOngoingInterval,
+    insightExcludesIncompletePeriods,
     projectTimezone,
     enabledAdvancedOptionsCount,
     evaluationDelayInterval,
@@ -42,7 +44,7 @@ export function AlertAdvancedOptionsSection({
     defaultOpen,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
-    const ongoing = ongoingIntervalField(alertForm.config, canCheckOngoingInterval)
+    const ongoing = ongoingIntervalField(alertForm.config, canCheckOngoingInterval, insightExcludesIncompletePeriods)
     const quietHoursCadenceMinutes = alertCadenceMinutes(alertForm.calculation_interval)
     const quietHoursCoarseIntervalLabel = QUIET_HOURS_COARSE_INTERVAL_LABELS[alertForm.calculation_interval]
 

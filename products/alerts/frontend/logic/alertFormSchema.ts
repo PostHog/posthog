@@ -29,8 +29,14 @@ export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boole
 
 export function canCheckOngoingInterval(
     alert?: AlertType | AlertFormType,
-    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
+    {
+        isTrendsFunnel = false,
+        excludesIncompletePeriods = false,
+    }: { isTrendsFunnel?: boolean; excludesIncompletePeriods?: boolean } = {}
 ): boolean {
+    if (excludesIncompletePeriods) {
+        return false
+    }
     // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
     // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
     // safe for an absolute/increase check above an upper bound.

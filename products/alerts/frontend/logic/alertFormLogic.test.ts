@@ -32,6 +32,7 @@ import {
     evaluationDelayField,
     ongoingIntervalField,
     thresholdAlertHasBounds,
+    type AlertFormLogicProps,
     type AlertFormType,
 } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
@@ -147,13 +148,17 @@ describe('alertFormLogic', () => {
         jest.restoreAllMocks()
     })
 
-    function mountForm(onEditSuccess: jest.Mock = jest.fn()): ReturnType<typeof alertFormLogic.build> {
+    function mountForm(
+        onEditSuccess: jest.Mock = jest.fn(),
+        extraProps: Partial<AlertFormLogicProps> = {}
+    ): ReturnType<typeof alertFormLogic.build> {
         const logic = alertFormLogic({
             alert: null,
             insightId: 42,
             onEditSuccess,
             insightVizDataLogicProps: insightLogicProps,
             insightInterval: 'day',
+            ...extraProps,
         })
         logic.mount()
         logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
@@ -311,6 +316,36 @@ describe('alertFormLogic', () => {
         expect(createSpy).toHaveBeenCalledTimes(1)
         expect(createSpy.mock.calls[0][0].threshold.configuration.type).toBe(InsightThresholdType.PERCENTAGE)
     })
+
+    it.each([
+        ['trends', { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true }, false],
+        [
+            'trends funnel',
+            {
+                type: 'FunnelsAlertConfig',
+                metric: 'conversion_from_start',
+                funnel_step: null,
+                check_ongoing_interval: true,
+            },
+            true,
+        ],
+    ])(
+        'clears check_ongoing_interval on submit when the %s insight excludes incomplete periods',
+        async (_name, config, isTrendsFunnel) => {
+            const logic = mountForm(jest.fn(), {
+                insightIsTrendsFunnel: isTrendsFunnel,
+                insightExcludesIncompletePeriods: true,
+            })
+            logic.actions.setAlertFormValues({ ...makeFormDefaults({ config: config as any }), checks: undefined })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(createSpy.mock.calls[0][0].config.check_ongoing_interval).toBe(false)
+        }
+    )
 
     // Regression test for ticket #353:
     // A post-save side-effect (e.g. the parent `onEditSuccess` callback) throwing must NOT surface as
@@ -1249,6 +1284,15 @@ describe('alertFormLogic', () => {
             const funnelAlert: any = { config: funnelConfig, condition: { type: AlertConditionType.RELATIVE_DECREASE } }
             expect(canCheckOngoingInterval(funnelAlert, { isTrendsFunnel: false })).toBe(false)
             expect(canCheckOngoingInterval(funnelAlert, { isTrendsFunnel: true })).toBe(true)
+        })
+
+        it('canCheckOngoingInterval: an insight excluding incomplete periods rules it out for both kinds', () => {
+            const funnelAlert: any = { config: funnelConfig, condition: { type: AlertConditionType.RELATIVE_DECREASE } }
+            const trendsAlert = trendsAbsoluteWithUpper(AlertConditionType.ABSOLUTE_VALUE)
+            expect(
+                canCheckOngoingInterval(funnelAlert, { isTrendsFunnel: true, excludesIncompletePeriods: true })
+            ).toBe(false)
+            expect(canCheckOngoingInterval(trendsAlert, { excludesIncompletePeriods: true })).toBe(false)
         })
 
         it.each([

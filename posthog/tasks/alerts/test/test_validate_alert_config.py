@@ -15,13 +15,15 @@ def _base_config(series_index: int = 0) -> dict[str, Any]:
     return {"type": "TrendsAlertConfig", "series_index": series_index}
 
 
-def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, Any]:
+def _base_query(series_count: int = 1, display: str | None = None, excludes_incomplete: bool = False) -> dict[str, Any]:
     query: dict[str, Any] = {
         "kind": "TrendsQuery",
         "series": [{"kind": "EventsNode", "event": f"$event_{i}"} for i in range(series_count)],
     }
     if display:
         query["trendsFilter"] = {"display": display}
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
     return query
 
 
@@ -37,11 +39,16 @@ def _funnels_config(metric: str = "conversion_from_start") -> dict[str, Any]:
     return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": None}
 
 
-def _funnels_query() -> dict[str, Any]:
-    return {
+def _funnels_query(viz: str | None = None, excludes_incomplete: bool = False) -> dict[str, Any]:
+    query: dict[str, Any] = {
         "kind": "FunnelsQuery",
         "series": [{"kind": "EventsNode", "event": "a"}, {"kind": "EventsNode", "event": "b"}],
     }
+    if viz:
+        query["funnelsFilter"] = {"funnelVizType": viz}
+    if excludes_incomplete:
+        query["dateRange"] = {"excludeIncompletePeriods": True}
+    return query
 
 
 def _metrics_query(metric_name: str) -> dict[str, Any]:
@@ -212,6 +219,33 @@ class TestValidateAlertConfig:
                 _base_threshold("absolute", {"lower": 0}),
                 "daily",
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
+            ),
+            (
+                "check_ongoing_with_excluded_incomplete_periods",
+                _base_query(excludes_incomplete=True),
+                _base_condition("absolute_value"),
+                {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
+                _base_threshold(),
+                "hourly",
+                "Check ongoing period can't be used on an insight that excludes incomplete periods",
+            ),
+            (
+                "funnels_trends_check_ongoing_with_excluded_incomplete_periods",
+                _funnels_query(viz="trends", excludes_incomplete=True),
+                _base_condition(),
+                {**_funnels_config(), "check_ongoing_interval": True},
+                _base_threshold(),
+                "hourly",
+                "Check ongoing period can't be used on an insight that excludes incomplete periods",
+            ),
+            (
+                "funnels_steps_check_ongoing_with_excluded_incomplete_periods_has_no_period_to_clip",
+                _funnels_query(viz="steps", excludes_incomplete=True),
+                _base_condition(),
+                {**_funnels_config(), "check_ongoing_interval": True},
+                _base_threshold(),
+                "hourly",
+                None,
             ),
             (
                 "series_index_out_of_range",

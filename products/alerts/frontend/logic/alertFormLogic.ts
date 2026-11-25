@@ -91,6 +91,8 @@ export type AlertFormType = Pick<
 
 const ONGOING_DISABLED_REASON =
     'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+const ONGOING_EXCLUDED_REASON =
+    "This insight excludes incomplete periods, so there's no ongoing period to check. Include incomplete periods in the insight's date filter to use this."
 const ONGOING_TOOLTIP_FUNNEL =
     'By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint.'
 const ONGOING_TOOLTIP_TRENDS =
@@ -105,12 +107,20 @@ export interface OngoingIntervalField {
 
 /** State of the "Check ongoing period" advanced-option, keyed on alert kind — so the per-kind
  * branching lives here rather than growing inside the component as more alert types are added. */
-export function ongoingIntervalField(config: AlertConfig | null | undefined, canCheck: boolean): OngoingIntervalField {
+export function ongoingIntervalField(
+    config: AlertConfig | null | undefined,
+    canCheck: boolean,
+    excludesIncompletePeriods = false
+): OngoingIntervalField {
     return {
         // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
         show: supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
         checked: supportsOngoingInterval(config) && !!config.check_ongoing_interval && canCheck,
-        disabledReason: canCheck ? undefined : ONGOING_DISABLED_REASON,
+        disabledReason: canCheck
+            ? undefined
+            : excludesIncompletePeriods
+              ? ONGOING_EXCLUDED_REASON
+              : ONGOING_DISABLED_REASON,
         tooltip: isFunnelsAlertConfig(config) ? ONGOING_TOOLTIP_FUNNEL : ONGOING_TOOLTIP_TRENDS,
     }
 }
@@ -171,6 +181,8 @@ export interface AlertFormLogicProps {
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
+    /** Whether the insight's date range excludes incomplete periods, which rules out checking the ongoing one. */
+    insightExcludesIncompletePeriods?: boolean
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -639,14 +651,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
                             isSubDailyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
-                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
-                    config: isTrendsAlertConfig(alert.config)
-                        ? {
-                              ...alert.config,
-                              check_ongoing_interval:
-                                  canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
-                          }
-                        : alert.config,
+                    // Clear an ongoing-period flag the insight or condition no longer allows, so the save isn't rejected.
+                    config:
+                        isTrendsAlertConfig(alert.config) || isFunnelsAlertConfig(alert.config)
+                            ? {
+                                  ...alert.config,
+                                  check_ongoing_interval:
+                                      canCheckOngoingInterval(alert, {
+                                          isTrendsFunnel: props.insightIsTrendsFunnel,
+                                          excludesIncompletePeriods: props.insightExcludesIncompletePeriods,
+                                      }) && alert.config.check_ongoing_interval,
+                              }
+                            : alert.config,
                     detector_config: alert.detector_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
