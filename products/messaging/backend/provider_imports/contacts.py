@@ -177,12 +177,26 @@ def save_contact_lists(
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
-    # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
+    saved = _save_lists(context, everyone, lists, result, create_people=create_people)
+    # A send matches an opt-out by exact address, and the person may spell it differently from the provider. Last,
+    # because it locks preferences until the save commits, and someone unsubscribing then waits. No one becomes a
+    # person or joins a cohort before the commit.
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
+    return saved
+
+
+def _save_lists(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Iterable[ContactList],
+    result: ProviderContactsResult,
+    *,
+    create_people: bool,
+) -> SavedPage:
     if result.status == "failed":
         # The lists' contacts never became people, so the step fails rather than leave every list empty.
         return SavedPage(
