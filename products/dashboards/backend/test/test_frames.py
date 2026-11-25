@@ -76,7 +76,9 @@ class TestInsightFramesFromCachedRows(SimpleTestCase):
         assert (current.name, current.meta.previous) == ("Views", False)
         assert (previous.name, previous.meta.previous) == ("Views (previous)", True)
         assert previous.meta.date_from == dt.datetime(2026, 9, 11, tzinfo=dt.UTC)
-        assert previous.fields[0].values[0] == (current.fields[0].values[0] or 0) - 7 * 86_400_000
+        current_start = current.fields[0].values[0]
+        assert isinstance(current_start, int)
+        assert previous.fields[0].values[0] == current_start - 7 * 86_400_000
 
     def test_trends_shown_as_one_number_per_series_are_not_framed(self) -> None:
         query = TrendsQuery(

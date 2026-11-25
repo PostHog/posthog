@@ -240,7 +240,8 @@ def _to_staff_recalculation(recalc: ExperimentMetricsRecalculation, *, with_resu
     failures: list[StaffRecalculationFailure] = []
     if with_results:
         results = _run_result_statuses(recalc)
-        completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
+        counts = _derive_counters(results, recalc.metric_errors or {})
+        completed_metrics, failed_metrics = counts.completed_metrics, counts.failed_metrics
         failures = _resolve_failures(recalc, results)
     return StaffRecalculation(
         id=str(recalc.id),

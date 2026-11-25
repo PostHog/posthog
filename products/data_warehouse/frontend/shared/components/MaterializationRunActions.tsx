@@ -34,6 +34,7 @@ export function MaterializationRunActions({
         dataModelingJobsError,
         dataModelingJobsLoading,
         hasMaterializationChanges,
+        refreshModeChanged,
         savingMaterialization,
         materializationRefreshPending,
     } = useValues(materializationJobsLogic({ viewId, kind }))
@@ -81,7 +82,7 @@ export function MaterializationRunActions({
         deleteReason,
         materializeReason,
         busyReason,
-        draftError,
+        saveReason,
         noScheduleReason,
         cancelReason,
         pauseReason,
@@ -102,6 +103,7 @@ export function MaterializationRunActions({
         initialSyncFrequency,
         incrementalDraft,
         incrementalDraftTouched,
+        refreshModeChanged,
     })
     const deleteItem = {
         label: deleteLabel,
@@ -169,7 +171,7 @@ export function MaterializationRunActions({
                     type="primary"
                     size="small"
                     loading={savingMaterialization}
-                    disabledReason={accessReason || busyReason || draftError}
+                    disabledReason={saveReason}
                     onClick={saveMaterializationChanges}
                 >
                     Save

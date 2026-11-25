@@ -9,6 +9,7 @@ from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
+import redis
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
@@ -490,9 +491,18 @@ def create_external_data_job_model_activity(
 
         # Answered here, after the job row exists, in the order the separate activity ran it. A
         # transient app-DB failure is retried in place: this activity has one Temporal attempt.
-        hit_billing_limit = retry_internal_db_operation(
-            lambda: billing_limit_reached(job, source, inputs.team_id, logger)
-        )
+        # A quota-limiter Redis outage that outlasts the in-place retries leaves the question
+        # unanswered instead, so the workflow asks the separate activity, which has Temporal
+        # retries of its own, rather than failing the run here.
+        try:
+            hit_billing_limit = retry_internal_db_operation(
+                lambda: billing_limit_reached(job, source, inputs.team_id, logger)
+            )
+            billing_limit_checked = True
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+            logger.warning("Billing limit check could not reach Redis, deferring it to the billing activity")
+            hit_billing_limit = False
+            billing_limit_checked = False
 
         # Read before this run's own outcome can move it, so it is not counted against itself.
         failed_runs_in_a_row = schema.failed_runs_in_a_row
@@ -518,7 +528,7 @@ def create_external_data_job_model_activity(
             fast_return_eligible=fast_return_eligible,
             scheduled_full_refresh=scheduled_full_refresh,
             repartition_needed=repartition_needed,
-            billing_limit_checked=True,
+            billing_limit_checked=billing_limit_checked,
             hit_billing_limit=hit_billing_limit,
             source_templates_needed=source_templates_needed,
             import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,

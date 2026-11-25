@@ -53,6 +53,14 @@ class TicketMessageType(models.TextChoices):
     AI_DRAFT = "ai_draft", "AI draft"
 
 
+class AiFeedbackReason(models.TextChoices):
+    WRONG_FACTS = "wrong_facts", "Wrong or made-up facts"
+    MISSED_QUESTION = "missed_question", "Missed the customer's question"
+    TOO_VAGUE = "too_vague", "Too vague to act on"
+    WRONG_TONE = "wrong_tone", "Wrong tone or style"
+    SHOULD_NOT_RUN = "should_not_run", "Should not have run on this ticket"
+
+
 class OrganizationIdSource(models.TextChoices):
     PERSON = "person", "Requester identity"
     SLACK_CHANNEL_ACCOUNT = "slack_channel_account", "Slack channel account"

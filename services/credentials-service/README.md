@@ -123,7 +123,8 @@ The service holds only the public keys, so a leak of the service's secret does n
 Each file holds one or more PEM `PUBLIC KEY` blocks (SPKI), newest first.
 To rotate, add the new block, move the caller to the new private key, then remove the old block.
 The load fails on a file with any other name, a private key, a key that is not Ed25519, or one key listed for two deployments.
-A failed reload keeps the previous keys (see the metrics).
+A failed reload keeps the previous keys (see the metrics), except for each key the edit removed.
+Removing the last `.pub` file is not a failure: a running pod then refuses every integration caller.
 
 ```bash
 openssl genpkey -algorithm ed25519 -out posthog-web-django.key   # stays with the caller
@@ -202,6 +203,11 @@ The service reads it from one of two sources, set by `CREDENTIALS_SERVICE_SECRET
 Each source yields the whole Secret at one version.
 The service applies that one snapshot to the signing keys first and then to the credentials.
 So a revocation and a rotation in one edit land together, and a revoked caller never reads the new values.
+That includes an edit that removes the last caller key: a running pod then refuses every caller.
+Only boot refuses a secret with no caller keys.
+When the signing-key load refuses a snapshot, the service still applies what the snapshot takes away: removed keys, removed credentials, and new names on the recovery list.
+It holds every credential value that the snapshot adds or changes, until a snapshot loads.
+A resolve request reads the credentials in the same tick as the keys, so a reload during signature verification cannot mix the two.
 
 The kubernetes source:
 
@@ -291,7 +297,7 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_store_errors_total`                                 | source reads that returned nothing                            |
 | `credentials_service_watch_restarts_total{reason}`                       | Kubernetes watch restarts, by why the previous watch ended    |
 | `credentials_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
-| `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
+| `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous keys and credential values     |
 | `credentials_service_integration_keys_last_loaded_timestamp`             | as above, for the integrations public keys                    |
 | `credentials_service_integration_key_reload_failures_total`              | reloads that kept the previous integrations public keys       |
 | `credentials_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
@@ -306,7 +312,7 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
-previous keys when an edit is malformed, and an unreadable mount keeps what is already held. Alert
+previous keys and credential values when an edit is malformed, and an unreadable mount keeps what is already held. Alert
 on the two staleness signals, or neither degradation is observable.
 
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus

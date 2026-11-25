@@ -24,15 +24,12 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
 from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -537,15 +534,15 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            # (name, cutoff set, experiment start offset from the cutoff, events read)
             ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
-            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_without_cutoff_set", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
             ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
+        self, _name: str, cutoff_set: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         # setUp logged in under the class-level freeze, months before this test's frozen clock,
         # so that session has expired; log in again inside the window.
@@ -571,7 +568,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # The bucket must hold the population the analysis queries count. An experiment on
@@ -608,7 +605,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so

@@ -52,7 +52,7 @@ from products.experiments.backend.metric_calculation.config import (
     build_calculation_configs,
     calculation_metric_name,
 )
-from products.experiments.backend.metric_resolution import build_metric, metric_uses_warehouse_native_source
+from products.experiments.backend.metric_resolution import build_metric, metric_dict_uses_warehouse_native_source
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -111,8 +111,12 @@ def _load_metric_compiles(
     failures: list[MetricCompileFailure] = []
     unknown_count = 0
     no_access_count = 0
+    warehouse_native_count = 0
     exposure_query_fails = False
     for calculation_config in configs.values():
+        if metric_dict_uses_warehouse_native_source(dict(calculation_config.definition)):
+            warehouse_native_count += 1
+            continue
         match _answer(compiler, calculation_config):
             case _Outcome.UNKNOWN:
                 unknown_count += 1
@@ -137,6 +141,7 @@ def _load_metric_compiles(
         unknown_count=unknown_count,
         no_access_count=no_access_count,
         exposure_query_fails=exposure_query_fails,
+        warehouse_native_count=warehouse_native_count,
     )
 
 
@@ -186,9 +191,6 @@ class _MetricCompiler:
             metric = build_metric(definition)
         except pydantic.ValidationError as error:
             return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
-        if metric_uses_warehouse_native_source(metric):
-            # The statement runs in the customer's warehouse and has no HogQL to compile.
-            return _Outcome.UNKNOWN
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),
             team=self.experiment.team,
