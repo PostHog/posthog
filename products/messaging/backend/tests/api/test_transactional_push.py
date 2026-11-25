@@ -464,14 +464,16 @@ class TestTransactionalPushSend(APIBaseTest):
     def test_queues_the_push_for_the_person(self, mock_post, _flag, capture, _name, scopes, authorized_by):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
 
-        response = self._psak_client(scopes).post(
-            self.url, self.body, format="json", headers={"Idempotency-Key": "order-42"}
-        )
+        with override_settings(CDP_TRANSACTIONAL_PUSH_API_URL="http://push-only"):
+            response = self._psak_client(scopes).post(
+                self.url, self.body, format="json", headers={"Idempotency-Key": "order-42"}
+            )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"message_id": "invocation-1", "replayed": False}
-        url = mock_post.call_args.args[0]
-        assert url.endswith(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_push")
+        assert mock_post.call_args.args[0] == (
+            f"http://push-only/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_push"
+        )
         assert mock_post.call_args.kwargs["json"] == {
             "distinct_id": "user-1",
             "variables": {"order": "42"},
@@ -552,8 +554,14 @@ class TestTransactionalPushSend(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert capture.call_args.kwargs["properties"]["outcome"] in ("rejected", "unavailable")
 
-    def test_sends_nothing_while_the_push_key_is_unset(self, mock_post, _flag, _capture):
-        with override_settings(WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS=[]):
+    @parameterized.expand(
+        [
+            ("key", {"WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS": []}),
+            ("url", {"CDP_TRANSACTIONAL_PUSH_API_URL": ""}),
+        ]
+    )
+    def test_sends_nothing_while_push_is_not_configured(self, mock_post, _flag, _capture, _name, unset):
+        with override_settings(**unset):
             response = self.client.post(self.url, self.body, format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()

@@ -5,6 +5,8 @@ import hashlib
 from datetime import timedelta
 from typing import Any, Optional, Union
 
+from django.conf import settings
+
 import requests
 import structlog
 
@@ -350,9 +352,11 @@ def _mint_transactional_push_jwt(team_id: int, hog_flow_id: str, distinct_id: st
 def send_transactional_push(team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10) -> requests.Response:
     """Run a transactional push's workflow once. `payload` carries the recipient's distinct_id and the template
     variables. 202 means queued, 429 means the team is over its quota."""
+    if not settings.CDP_TRANSACTIONAL_PUSH_API_URL:
+        raise RuntimeError("CDP_TRANSACTIONAL_PUSH_API_URL is not configured, cannot send push")
     token = _mint_transactional_push_jwt(team_id, hog_flow_id, payload["distinct_id"])
     return internal_requests.post(
-        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_push",
+        settings.CDP_TRANSACTIONAL_PUSH_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_push",
         json=payload,
         headers={"Authorization": f"Bearer {token}"},
         timeout=timeout,
