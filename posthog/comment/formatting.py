@@ -3,10 +3,14 @@
 import re
 import html as html_mod
 import unicodedata
-from collections.abc import Callable, Iterable
+from bisect import bisect_left
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
+
+from markdown_it import MarkdownIt
 
 from posthog.slack.formatting import escape_slack_mrkdwn
 
@@ -40,8 +44,12 @@ _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
 _RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
-# A code delimiter is an unescaped backtick: the serializer escapes every backtick it writes as prose.
-_RE_MD_CODE = re.compile(r"(^```[^\n]*\n.*?^```|(?<!\\)``[^\n]+?``|(?<!\\)`[^`\n]+`)", re.MULTILINE | re.DOTALL)
+_RE_MD_BACKTICKS = re.compile(r"`+")
+_RE_MD_ESCAPE_OR_BACKTICKS = re.compile(r"\\.|`+")
+# Splits after each line ending markdown-it counts, so a block token's line map indexes the result.
+_RE_MD_LINE_END = re.compile(r"(?<=\n)|(?<=\r)(?!\n)")
+# Keep these block rules the same as the email renderer's in posthog/helpers/email_formatting.py.
+_MD_BLOCK_PARSER = MarkdownIt("commonmark", {"html": False}).enable("table").disable("inline")
 _RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
 _RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
 
@@ -480,18 +488,63 @@ def _escape_markdown(text: str) -> str:
     return _RE_MD_ESCAPE_TABLE_ROW.sub(_escape_table_delimiter_row, text)
 
 
+def _code_spans(line: str) -> Iterator[tuple[int, int]]:
+    """
+    Yield the start and end of each code span in one line, as CommonMark reads them.
+
+    A backslash pair is skipped first, so a backtick after an odd run of backslashes is escaped
+    prose. Inside a span a backslash is literal, so the span closes at the next run of exactly the
+    opening run's length. A run with no such closer is literal. Runs are indexed by length up front,
+    because a scan to the end of the line for each unclosed run is quadratic.
+    """
+    run_starts: dict[int, list[int]] = defaultdict(list)
+    for run in _RE_MD_BACKTICKS.finditer(line):
+        run_starts[len(run.group())].append(run.start())
+    position = 0
+    while match := _RE_MD_ESCAPE_OR_BACKTICKS.search(line, position):
+        position = match.end()
+        opener = match.group()
+        if opener[0] != "`":
+            continue
+        closers = run_starts[len(opener)]
+        index = bisect_left(closers, position)
+        if index < len(closers):
+            position = closers[index] + len(opener)
+            yield match.start(), position
+
+
+def _unescape_line(line: str) -> str:
+    parts: list[str] = []
+    prose_start = 0
+    for start, end in _code_spans(line):
+        parts.append(_RE_MD_ESCAPED_CHAR.sub(r"\1", line[prose_start:start]))
+        parts.append(line[start:end])
+        prose_start = end
+    parts.append(_RE_MD_ESCAPED_CHAR.sub(r"\1", line[prose_start:]))
+    return "".join(parts)
+
+
 def unescape_markdown(text: str) -> str:
     """
     Remove markdown escapes, for a reader that gets the text as plain text.
 
     The character set is the wide one the composer used before, so a reply stored then still
-    unescapes now. Code keeps every backslash: the serializer escapes no code span and no fenced
+    unescapes now. Code keeps every backslash: the serializer escapes no code span and no code
     block, so a backslash inside one belongs to the code and changes what it means.
+
+    Code blocks come from the email renderer's own block parser, so the text part keeps as code
+    the lines the HTML part shows as code: a fence in a list or a quote, a `~~~` fence, an unclosed
+    fence, and an indented block. Prose that the serializer leaves in the shape of a code block,
+    such as a line indented by four spaces, keeps its escapes too. A code span is read within one
+    line.
     """
-    parts = _RE_MD_CODE.split(text)
-    for index in range(0, len(parts), 2):
-        parts[index] = _RE_MD_ESCAPED_CHAR.sub(r"\1", parts[index])
-    return "".join(parts)
+    lines = _RE_MD_LINE_END.split(text)
+    in_code = [False] * len(lines)
+    for token in _MD_BLOCK_PARSER.parse(text):
+        if token.type in ("fence", "code_block") and token.map:
+            begin, end = token.map
+            in_code[begin:end] = [True] * (end - begin)
+    return "".join(line if is_code else _unescape_line(line) for line, is_code in zip(lines, in_code))
 
 
 def _escape_alt_text(text: str) -> str:

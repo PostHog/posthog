@@ -29,6 +29,13 @@ def _list_item(*content: dict) -> dict:
     return {"type": "listItem", "content": list(content)}
 
 
+def _code_block(text: str) -> dict:
+    return {"type": "codeBlock", "content": [{"type": "text", "text": text}]}
+
+
+_BACKTICK_RUNS_OF_EVERY_LENGTH = " x ".join("`" * length for length in range(1, 1400))
+
+
 class TestSlackFormatting(SimpleTestCase):
     @parameterized.expand(
         [
@@ -739,10 +746,55 @@ class TestRichContentBlockNodes(SimpleTestCase):
                 "Try \\(this\\):\n```\nre.sub(r'\\.', '', s)\n```",
                 "Try (this):\n```\nre.sub(r'\\.', '', s)\n```",
             ),
+            (
+                "tilde_fence_keeps_its_backslash",
+                "Try \\(this\\):\n~~~\nre.sub(r'\\.', '', s)\n~~~",
+                "Try (this):\n~~~\nre.sub(r'\\.', '', s)\n~~~",
+            ),
+            (
+                "unclosed_fence_keeps_its_backslash",
+                "Try \\(this\\):\n```\nre.sub(r'\\.', '', s)",
+                "Try (this):\n```\nre.sub(r'\\.', '', s)",
+            ),
+            (
+                "indented_block_keeps_its_backslash",
+                "Try \\(this\\):\n\n    re.sub(r'\\.', '', s)",
+                "Try (this):\n\n    re.sub(r'\\.', '', s)",
+            ),
+            ("escaped_backslash_before_a_code_span", "C:\\\\`a\\*b` \\(v2\\)", "C:\\`a\\*b` (v2)"),
+            ("odd_backslash_run_escapes_the_backtick", "C:\\\\\\`a\\*b`", "C:\\`a*b`"),
+            # A scan to the end of the line for each unclosed run is quadratic. The timeout fails it if that returns.
+            ("unclosed_backtick_runs_stay_literal", _BACKTICK_RUNS_OF_EVERY_LENGTH, _BACKTICK_RUNS_OF_EVERY_LENGTH),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_unescape_markdown_clears_prose_and_keeps_code(self, _name: str, escaped: str, expected: str) -> None:
         assert unescape_markdown(escaped) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "code_block_after_text_in_a_list_item",
+                {
+                    "type": "bulletList",
+                    "content": [_list_item(_paragraph("Try a_b:"), _code_block("re.sub(r'\\.', '', s)"))],
+                },
+                "- Try a_b:\n  ```\n  re.sub(r'\\.', '', s)\n  ```",
+            ),
+            (
+                "code_block_opening_a_list_item",
+                {"type": "orderedList", "content": [_list_item(_code_block("re.sub(r'\\.', '', s)"))]},
+                "1. ```\n   re.sub(r'\\.', '', s)\n   ```",
+            ),
+            (
+                "code_block_in_a_quote",
+                {"type": "blockquote", "content": [_paragraph("Try a_b:"), _code_block("re.sub(r'\\.', '', s)")]},
+                "> Try a_b:\n> ```\n> re.sub(r'\\.', '', s)\n> ```",
+            ),
+        ]
+    )
+    def test_unescape_markdown_keeps_code_the_serializer_nests(self, _name: str, block: dict, expected: str) -> None:
+        assert unescape_markdown(rich_content_to_markdown({"type": "doc", "content": [block]})) == expected
 
     def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
         assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
