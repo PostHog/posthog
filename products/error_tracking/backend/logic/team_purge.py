@@ -7,8 +7,6 @@ from typing import Any
 from django.conf import settings
 from django.db.models import QuerySet
 
-import structlog
-
 from posthog.models.utils import transaction_with_timeouts
 
 from products.error_tracking.backend.models import (
@@ -17,12 +15,14 @@ from products.error_tracking.backend.models import (
     delete_symbol_set_contents_many,
 )
 
-logger = structlog.get_logger(__name__)
-
 # A batch can wait on row locks that an earlier, timed-out deletion attempt still holds. These limits make the
 # batch fail fast instead, and keep its own locks short. They match the limits on the Team cascade.
 BATCH_LOCK_TIMEOUT_MS = 30_000
 BATCH_STATEMENT_TIMEOUT_MS = 120_000
+
+
+class StoredFileDeleteFailed(Exception):
+    """Object storage did not delete every stored file of a symbol set batch, so the batch keeps its rows."""
 
 
 def delete_stack_frames_and_symbol_sets_for_team(
@@ -38,50 +38,39 @@ def delete_stack_frames_and_symbol_sets_for_team(
     """
     frames = ErrorTrackingStackFrame.objects.filter(team_id=team_id)
     if not _delete_in_batches(
+        frames,
         lambda last_key: frames.filter(raw_id__gte=last_key).order_by("raw_id").values_list("id", "raw_id"),
-        lambda ids: _delete_rows(frames, ids),
         should_stop,
         batch_size,
     ):
         return False
     symbol_sets = ErrorTrackingSymbolSet.objects.filter(team_id=team_id)
     return _delete_in_batches(
-        lambda last_key: symbol_sets.filter(ref__gte=last_key).order_by("ref").values_list("id", "ref"),
-        lambda ids: _delete_symbol_set_rows(symbol_sets, ids),
+        symbol_sets,
+        lambda last_key: symbol_sets.filter(ref__gte=last_key).order_by("ref").values_list("id", "ref", "storage_ptr"),
         should_stop,
         batch_size,
+        before_delete=_delete_stored_files,
     )
 
 
-def _delete_rows(team_rows: QuerySet[Any], ids: list[Any]) -> list[str]:
-    team_rows.filter(id__in=ids).delete()
-    return []
-
-
-def _delete_symbol_set_rows(symbol_sets: QuerySet[ErrorTrackingSymbolSet], ids: list[Any]) -> list[str]:
-    storage_ptrs = [ptr for ptr in symbol_sets.filter(id__in=ids).values_list("storage_ptr", flat=True) if ptr]
-    symbol_sets.filter(id__in=ids).delete()
-    return storage_ptrs
-
-
-def _delete_stored_files(storage_ptrs: list[str]) -> None:
-    # The rows are already gone, so a failed delete leaves an orphan object rather than a row that points nowhere.
+def _delete_stored_files(batch: list[tuple[Any, ...]]) -> None:
+    # The files go before the rows. When a file delete fails, the rows keep their storage pointers, so a retry of
+    # the purge finds the files again. Object storage treats the delete of a missing object as a success.
+    storage_ptrs = [row[2] for row in batch if row[2]]
     if not storage_ptrs or not settings.OBJECT_STORAGE_ENABLED:
         return
-    try:
-        failed = delete_symbol_set_contents_many(storage_ptrs)
-    except Exception:
-        logger.exception("error_tracking.team_purge.storage_delete_failed", storage_objects=len(storage_ptrs))
-        return
+    failed = delete_symbol_set_contents_many(storage_ptrs)
     if failed:
-        logger.warning("error_tracking.team_purge.storage_delete_failed", storage_objects_failed=len(failed))
+        raise StoredFileDeleteFailed(f"Object storage did not delete {len(failed)} stored symbol set files")
 
 
 def _delete_in_batches(
-    keys_from: Callable[[str], QuerySet[Any, tuple[Any, str]]],
-    delete_rows: Callable[[list[Any]], list[str]],
+    team_rows: QuerySet[Any],
+    keys_from: Callable[[str], QuerySet[Any, tuple[Any, ...]]],
     should_stop: Callable[[], bool] | None,
     batch_size: int,
+    before_delete: Callable[[list[tuple[Any, ...]]], None] | None = None,
 ) -> bool:
     # Each batch resumes the walk of the (team_id, key) unique index at the last key it deleted, so no batch reads
     # the index entries of rows that earlier batches deleted.
@@ -89,11 +78,13 @@ def _delete_in_batches(
     while True:
         if should_stop is not None and should_stop():
             return False
+        batch = list(keys_from(last_key)[:batch_size])
+        if not batch:
+            return True
+        if before_delete is not None:
+            before_delete(batch)
         with transaction_with_timeouts(BATCH_LOCK_TIMEOUT_MS, BATCH_STATEMENT_TIMEOUT_MS):
-            batch = list(keys_from(last_key)[:batch_size])
-            storage_ptrs = delete_rows([row[0] for row in batch]) if batch else []
-        # The stored files go after the commit, so a slow object store never holds the batch's row locks.
-        _delete_stored_files(storage_ptrs)
+            team_rows.filter(id__in=[row[0] for row in batch]).delete()
         if len(batch) < batch_size:
             return True
         last_key = batch[-1][1]

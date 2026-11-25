@@ -8,7 +8,10 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.team.util import TeamPurgeStopped, _delete_misc_small_tables_for_teams, delete_team_records
 
-from products.error_tracking.backend.logic.team_purge import delete_stack_frames_and_symbol_sets_for_team
+from products.error_tracking.backend.logic.team_purge import (
+    StoredFileDeleteFailed,
+    delete_stack_frames_and_symbol_sets_for_team,
+)
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 
 
@@ -79,3 +82,18 @@ class TestDeleteStackFramesAndSymbolSetsForTeam(BaseTest):
             assert delete_stack_frames_and_symbol_sets_for_team(self.team.id)
 
         delete_files.assert_called_once_with(["symbolsets/uploaded"])
+        assert not ErrorTrackingSymbolSet.objects.filter(team_id=self.team.id).exists()
+
+    @override_settings(OBJECT_STORAGE_ENABLED=True)
+    def test_a_failed_file_delete_keeps_the_rows_for_a_retry(self, _sleep: MagicMock) -> None:
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="uploaded", storage_ptr="symbolsets/uploaded")
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="missing")
+
+        with patch(
+            "products.error_tracking.backend.logic.team_purge.delete_symbol_set_contents_many",
+            return_value=["symbolsets/uploaded"],
+        ):
+            with self.assertRaises(StoredFileDeleteFailed):
+                delete_stack_frames_and_symbol_sets_for_team(self.team.id)
+
+        assert ErrorTrackingSymbolSet.objects.filter(team_id=self.team.id).count() == 2
