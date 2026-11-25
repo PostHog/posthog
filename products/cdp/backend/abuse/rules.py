@@ -358,6 +358,9 @@ def _names_an_address(text: str) -> bool:
         for name in filter(None, part.split(":")):
             if internal_host_name(name) is not None or _is_address_shorthand(name):
                 return True
+            # Only a dotted name is read as a host here, so an ID such as `1a2b3c4d` in a path is not an address.
+            if "." in name and _resolves_to_its_address(canonicalize_host(name)):
+                return True
     return False
 
 

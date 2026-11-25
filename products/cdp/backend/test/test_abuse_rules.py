@@ -877,6 +877,17 @@ class TestAbuseRules(SimpleTestCase):
             ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
             ("internal_tld_host", post_to("https://billing.corp/x"), False),
             ("loopback_dns_name", post_to("http://localtest.me/x"), False),
+            (
+                "loopback_dns_name_in_the_query",
+                post_to("https://api.example.com/go?to=http://localtest.me:8000/x"),
+                False,
+            ),
+            (
+                "address_dns_name_in_the_query",
+                post_to("https://api.example.com/go?to=http://127.0.0.1.nip.io/x"),
+                False,
+            ),
+            ("hex_id_in_the_path", post_to("https://api.example.com/orders/1a2b3c4d"), True),
             ("cluster_short_name", post_to("http://redis.posthog:6379/x"), False),
             ("localhost_tld", post_to("http://app.localhost:3000/x"), False),
             ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
