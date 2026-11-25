@@ -491,8 +491,10 @@ class TestForwardToVercelEndpointLabel(SimpleTestCase):
             ("allowlisted_path", "/billing/invoices", "/v1/installations/{id}/billing/invoices"),
             ("invoice", "/billing/invoices/inv_example", "/v1/installations/{id}/billing/invoices/{id}/*"),
             ("deeper_suffix", "/billing/invoices/inv_example/a/b", "/v1/installations/{id}/billing/invoices/{id}/*"),
+            ("other_prefix", "/billing/usage/usage_example", "/v1/installations/{id}/billing/usage/{id}/*"),
         ]
     )
+    @patch("ee.api.vercel.vercel_proxy.ALLOWED_VERCEL_PATH_PREFIXES", ("/billing/invoices/", "/billing/usage/"))
     @responses.activate
     def test_endpoint_label_is_bounded(self, _name: str, path: str, expected_endpoint: str) -> None:
         responses.add(responses.GET, f"https://api.vercel.com/v1/installations/icfg_example{path}", json={})

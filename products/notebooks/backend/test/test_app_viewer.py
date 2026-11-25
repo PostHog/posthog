@@ -19,15 +19,19 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
     )
     def test_viewer_inputs_bind_published_sources_without_writing_shared_state(self, _app_builder_enabled) -> None:
-        defaults = [{"name": "region", "type": "string", "value": "All"}]
+        defaults: list[dict[str, str | list[str]]] = [
+            {"name": "region", "type": "string", "value": "All"},
+            {"name": "selected", "type": "list", "value": []},
+        ]
         content = build_markdown_notebook_content(
-            '<SQLV2 nodeId="base" code="select {region} AS region" returnVariable="regions" />\n\n'
+            '<SQLV2 nodeId="base" code="select {region} AS region where {region} IN {selected}" returnVariable="regions" />\n\n'
             '<SQLV2 nodeId="output" code="select * from regions" returnVariable="answer" />'
         )
         layout = {
             "tabs": [{"id": "overview", "title": "Overview"}],
             "blocks": [
                 {"id": "region", "kind": "input", "variable": "region", "tab_id": "overview"},
+                {"id": "filter", "kind": "input", "variable": "selected", "tab_id": "overview"},
                 {"id": "answer", "kind": "cell", "node_id": "output", "tab_id": "overview"},
             ],
         }
@@ -59,13 +63,16 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
         )
         notebook_url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
         url = notebook_url + "app_queries/"
-        for name, region in [("alice", "Europe"), ("bob", "Asia")]:
+        for name, region, selected in [("alice", "Europe", ["Asia", "Europe"]), ("bob", "Asia", [])]:
             user = self._create_user(f"{name}@example.com")
             self.organization.members.add(user)
             self.client.force_login(user)
             assert self.client.get(notebook_url).json()["user_access_level"] == "viewer"
             assert self.client.patch(notebook_url, {"title": "Unauthorized"}, format="json").status_code == 403
-            payload = {"revision": 1, "variables": [{**defaults[0], "value": region}]}
+            payload = {
+                "revision": 1,
+                "variables": [{**defaults[0], "value": region}, {**defaults[1], "value": selected}],
+            }
             response = self.client.post(url, payload, format="json")
             assert response.status_code == 200, response.json()
             [plan] = response.json()
@@ -77,7 +84,7 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
             assert result.status_code == 200, result.json()
-            assert result.json()["results"] == [[region]]
+            assert result.json()["results"] == ([[region]] if region in selected else [])
         assert self.client.post(url, {"variables": defaults, "revision": 1}, format="json").json()[0][
             "matches_defaults"
         ]

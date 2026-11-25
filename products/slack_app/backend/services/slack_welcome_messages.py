@@ -175,7 +175,13 @@ def _member_welcome_tail(integration: WorkspaceIntegration) -> list[dict[str, An
     ]
 
 
-def onboarding_intro_text(slack_user_id: str) -> str:
+def onboarding_intro_text(slack_user_id: str, *, has_used_agent: bool = False) -> str:
+    """``has_used_agent`` is for someone who mentioned the agent before the onboarding existed, so it skips the pitch."""
+    if has_used_agent:
+        return (
+            f":wave: Hey <@{slack_user_id}>, thanks for working with me in Slack. "
+            "A few settings help me do more for you. Let's set them up, it takes about 2 minutes."
+        )
     return (
         f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack. I can:\n"
         "• Answer questions about your product data\n"

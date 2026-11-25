@@ -600,14 +600,14 @@ function NativeEmailTemplaterForm({
     const isWorkflowEmail = logicProps.type === 'native_email' || logicProps.type === 'native_email_sandbox'
     const documentEditorActive = usesDocumentEditor && mode === 'full'
     // Each header field gets one short row to keep vertical space for the canvas. A transactional template adds its
-    // sender as one summary line above, and a workflow email adds the sender and the recipients. The new editor has
-    // its own visual/plain-text switch, so a template it edits keeps the full header.
+    // sender as one summary line above, and a workflow email adds the sender and the recipients. A transactional
+    // template in the new editor keeps the full header.
     const workflowHeader = isWorkflowEmail && emailHeaderEnabled
     const compactHeader =
         workflowHeader ||
         ((logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
             mode === 'full' &&
-            !documentEditorActive)
+            (!documentEditorActive || logicProps.type === 'native_email_template'))
     const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
     const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
@@ -628,8 +628,16 @@ function NativeEmailTemplaterForm({
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
-                            <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
-                                <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
+                            <EmailHeaderRow
+                                label="Subject"
+                                error={logicProps.fieldErrors?.subject}
+                                wrap={showContentSwitch}
+                            >
+                                <LemonField
+                                    name="subject"
+                                    className={clsx('flex-1', showContentSwitch ? 'min-w-32' : 'min-w-0')}
+                                    renderError={() => null}
+                                >
                                     {({ value, onChange }: ChildFunctionProps) => (
                                         <LiquidSupportedText
                                             value={value}

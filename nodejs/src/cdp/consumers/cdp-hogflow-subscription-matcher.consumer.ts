@@ -379,7 +379,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             'CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS'
         )
         this.eventWakes = new BatchCoalescer(
-            (globals) => this.processBatch(globals, 'events', (g) => this.eventArrivals.get(g)),
+            (globals, batches) => this.processBatch(globals, 'events', (g) => this.eventArrivals.get(g), batches),
             config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
             config.CONSUMER_MAX_BACKGROUND_TASKS
         )
@@ -458,14 +458,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[],
         source: WakeSource = 'events',
-        arrivalOf?: (globals: HogFunctionInvocationGlobals) => Date | undefined
+        arrivalOf?: (globals: HogFunctionInvocationGlobals) => Date | undefined,
+        batches = 1
     ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
         try {
             const now = new Date()
-            await this.wakeMatchingWorkflows(invocationGlobals, source, (g) => arrivalOf?.(g) ?? now)
+            await this.wakeMatchingWorkflows(invocationGlobals, source, (g) => arrivalOf?.(g) ?? now, batches)
         } finally {
             // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
             // Best-effort: a flush failure must not crash the batch (which would replay the event
@@ -488,8 +489,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async wakeMatchingWorkflows(
         invocationGlobals: HogFunctionInvocationGlobals[],
         source: WakeSource,
-        arrivedAt: (globals: HogFunctionInvocationGlobals) => Date
+        arrivedAt: (globals: HogFunctionInvocationGlobals) => Date,
+        batches: number
     ): Promise<void> {
+        // A grouped lookup carries several batches, so its filter check gets the budget of each.
+        const filterBudgetMs = FILTER_FIRST_BUDGET_MS * batches
         // The lookups take the earliest arrival, then each candidate keeps only the events that beat it.
         const earliestArrival = new Date(Math.min(...invocationGlobals.map((g) => arrivedAt(g).getTime())))
         const indexed = indexBatch(invocationGlobals)
@@ -566,19 +570,32 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const filterFirst = source === 'events' ? this.filterFirst : 'off'
         let watcherCheck
         if (usePinnedGoals) {
-            watcherCheck = await this.checkFilters('on', 'watcher_goals', watcherGlobals, couldMeetPinnedGoal)
+            watcherCheck = await this.checkFilters(
+                'on',
+                'watcher_goals',
+                watcherGlobals,
+                filterBudgetMs,
+                couldMeetPinnedGoal
+            )
         } else {
-            const flowCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
-                const goalFlows = goalFlowsByTeam.get(globals.project.id)
-                // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
-                return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
-            })
+            const flowCheck = await this.checkFilters(
+                filterFirst,
+                'watchers',
+                watcherGlobals,
+                filterBudgetMs,
+                (globals, spent) => {
+                    const goalFlows = goalFlowsByTeam.get(globals.project.id)
+                    // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
+                    return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
+                }
+            )
             watcherCheck = flowCheck
             if (shadowPinnedGoals) {
                 const shadowCheck = await this.checkFilters(
                     'shadow',
                     'watcher_goals',
                     flowCheck.lookup,
+                    filterBudgetMs,
                     couldMeetPinnedGoal
                 )
                 watcherCheck = {
@@ -628,8 +645,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
             return flows
         }
-        const parkedCheck = await this.checkFilters(filterFirst, 'parked', invocationGlobals, (globals, spent) =>
-            this.couldMoveRun(actionableFlowsOf(globals.project.id), filterGlobalsFor(globals), spent)
+        const parkedCheck = await this.checkFilters(
+            filterFirst,
+            'parked',
+            invocationGlobals,
+            filterBudgetMs,
+            (globals, spent) =>
+                this.couldMoveRun(actionableFlowsOf(globals.project.id), filterGlobalsFor(globals), spent)
         )
         if (parkedCheck.lookup.length === 0) {
             return
@@ -883,6 +905,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         mode: FilterFirstMode,
         lookup: 'parked' | 'watchers' | 'watcher_goals',
         invocationGlobals: HogFunctionInvocationGlobals[],
+        budgetMs: number,
         // `spent` turns true once the batch is over budget; `passes` then answers true without evaluating.
         passes: (globals: HogFunctionInvocationGlobals, spent: () => boolean) => boolean | Promise<boolean>
     ): Promise<{
@@ -894,7 +917,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         const failed = new Set<HogFunctionInvocationGlobals>()
         const startedAt = performance.now()
-        const spent = (): boolean => performance.now() - startedAt > FILTER_FIRST_BUDGET_MS
+        const spent = (): boolean => performance.now() - startedAt > budgetMs
         let unchecked = 0
         for (const globals of invocationGlobals) {
             if (!(await passes(globals, spent))) {

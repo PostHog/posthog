@@ -27,6 +27,8 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils.timezone import now
 
+from pydantic import JsonValue
+
 from posthog.caching.insight_result import InsightResult
 from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
@@ -59,7 +61,12 @@ from products.dashboards.backend.facade.contracts import (
     TeamDashboardRef,
     TilePlacement,
 )
-from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope, DashboardUsageCount
+from products.dashboards.backend.facade.enums import (
+    DashboardCreationMode,
+    DashboardTemplateScope,
+    DashboardUsageCount,
+    ResultFormat,
+)
 from products.dashboards.backend.logic import (
     frames as frames_logic,
     search as search_logic,
@@ -78,7 +85,6 @@ from products.dashboards.backend.v2 import (
     board_stream as v2_board_stream,
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
-    flag as v2_flag,
     query_batch as v2_query_batch,
 )
 from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
@@ -959,6 +965,15 @@ def live_tile_placements(
     return tiles_logic.live_tile_placements(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
 
 
+def live_tile_layouts(dashboard_id: int, *, limit: int) -> list[dict[str, JsonValue]]:
+    """The grid layouts of at most `limit` live tiles of this dashboard, one dict per tile, keyed by breakpoint.
+
+    Live means neither the tile nor its dashboard is soft-deleted. Unscoped: the id comes from the
+    caller's own row.
+    """
+    return tiles_logic.live_tile_layouts(dashboard_id=dashboard_id, limit=limit)
+
+
 def insight_ids_on_template_dashboards(
     *, insight_ids: Collection[int], name_prefix: str, description_prefix: str
 ) -> set[int]:
@@ -1299,21 +1314,17 @@ __all__ = [
 ]
 
 
-def dashboard_v2_enabled(team: "Team", distinct_id: str) -> bool:
-    return v2_flag.dashboard_v2_enabled(team, distinct_id)
-
-
 @contextmanager
-def shared_tile_work(team: "Team", distinct_id: str) -> Iterator[None]:
+def shared_tile_work(team: "Team", user: User | None) -> Iterator[None]:
     """Tiles serialized inside the block share their per-tile setup when `dashboard-v2` is on for the team."""
-    with v2_first_load.shared_tile_work(team, distinct_id):
+    with v2_first_load.shared_tile_work(team, user):
         yield
 
 
 def read_cached_tiles(
     *,
     team: "Team",
-    distinct_id: str,
+    user: User,
     tile_ids: Sequence[int],
     found_tile_ids: Collection[int],
     forbidden_tile_ids: Collection[int],
@@ -1325,7 +1336,7 @@ def read_cached_tiles(
     how to plan and serialize one tile by ID."""
     return v2_cached_tiles.read_cached_tiles(
         team=team,
-        distinct_id=distinct_id,
+        user=user,
         tile_ids=tile_ids,
         found_tile_ids=found_tile_ids,
         forbidden_tile_ids=forbidden_tile_ids,
@@ -1358,15 +1369,21 @@ def query_batch_stream(
     dashboard_id: int | None,
     client_query_id: str,
     asynchronous: bool,
+    traceparent: str | None = None,
+    result_format: ResultFormat = ResultFormat.RESULT,
 ) -> Iterator[bytes] | AsyncIterator[bytes]:
     """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
     then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
-    tiles, under the dashboard query limits. Raises `QueryBatchBusy` when the batch cannot be admitted."""
+    tiles, under the dashboard query limits. `client_query_id` is the prefix of each query's id, which adds the tile,
+    the refId and a short uuid. `traceparent` is tagged on every query the batch runs. With `result_format` frames, each
+    line carries chart-ready frames where its kind has them. Raises `QueryBatchBusy` when the batch cannot be admitted."""
     batch = v2_query_batch.QueryBatch(
         team=team,
         user=user,
         inputs=inputs,
         dashboard_id=dashboard_id,
         client_query_id=client_query_id,
+        traceparent=traceparent,
+        result_format=result_format,
     )
     return batch.astream() if asynchronous else batch.stream()

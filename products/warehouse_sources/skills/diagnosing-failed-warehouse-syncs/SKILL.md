@@ -96,18 +96,18 @@ almost certainly stuck, even though the status isn't `Failed`.
 
 Map the `latest_error` string to a root cause. Common patterns:
 
-| Error substring                                                                      | Root cause                                                 | Fix                                                                 |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | Reconnect the source with a connect link (see B)                    |
-| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                    |
-| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`         |
-| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                      |
-| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Reconnect the source with a connect link (see B)                    |
-| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update` |
-| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                 |
-| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                               |
-| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate        |
-| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                  |
+| Error substring                                                                      | Root cause                                                 | Fix                                                                                                             |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | Reconnect the source with a connect link (see B)                                                                |
+| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                                                |
+| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                                                     |
+| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `external-data-schemas-partial-update`                                            |
+| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Reconnect the source with a connect link (see B)                                                                |
+| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `external-data-schemas-incremental-fields-create` to re-detect, then `external-data-schemas-partial-update` |
+| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                                                             |
+| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                                           |
+| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `external-data-sources-check-cdc-prerequisites-create`; may need slot recreate                              |
+| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                                                              |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
 on the detail view.
@@ -194,7 +194,7 @@ The recovery action depends on root cause, not just status. Match the user's sit
   the problem is the push path.
 - Action:
   1. `external-data-sources-webhook-info-retrieve({id})`.
-  2. If `exists: false` → the webhook was never registered, or was deleted. Call `create-webhook-create` to
+  2. If `exists: false` → the webhook was never registered, or was deleted. Call `external-data-sources-create-webhook-create` to
      register it.
   3. If `exists: true` but `external_status.error` is set → typically "API key doesn't have permission to read
      webhooks" or similar. The webhook may have been deleted on the source's dashboard. Re-create it.
@@ -268,14 +268,14 @@ Agent:
 
 - **Source status overrides schema status for diagnosis.** If the source is `Error`, nothing under it will work;
   fixing the source usually fixes all its schemas at once.
-- **`Running` isn't always healthy.** Cross-check `last_synced_at`. A sync stuck in `Running` needs `cancel` then
-  `reload`, not `resync`.
+- **`Running` isn't always healthy.** Cross-check `last_synced_at`. A sync stuck in `Running` needs `external-data-schemas-cancel` then
+  `external-data-schemas-reload`, not `external-data-schemas-resync`.
 - **Resync is destructive.** It discards synced data. Only recommend it when the data itself is bad (duplicates,
   missing rows, corrupt) or when recovery genuinely requires a clean slate (lost WAL position on CDC). Never use it
   as a first-try for transient errors.
 - **Delete-data preserves config.** When a user says "I just want to start this table over from scratch", prefer
-  `delete-data` + `reload` over `resync` + new schema entry — it keeps the configured sync_type / incremental_field
-  / PK setup. `delete-data` turns syncing off, so set `should_sync: true` before the reload.
+  `external-data-schemas-delete-data` + `external-data-schemas-reload` over `external-data-schemas-resync` + new schema entry — it keeps the configured sync_type / incremental_field
+  / PK setup. `external-data-schemas-delete-data` turns syncing off, so set `should_sync: true` before the reload.
 - **A failure can belong to a destination, not the source.** Some projects sync a source to their own database as
   well as to PostHog. When they do, `latest_error` is prefixed with the destination's name, e.g.
   `customer postgres: connection refused`. That is the customer's database refusing the write, not the source failing
@@ -284,5 +284,5 @@ Agent:
 - **Billing limits aren't technical failures.** Don't try to retry or reconfigure your way out. Route to billing.
 - **Webhook failures can hide behind a green status.** A webhook-type schema whose bulk fallback sync succeeded looks
   `Completed` even when the push channel is broken. When users say "my data is hours behind" on a webhook schema,
-  call `webhook-info-retrieve` before looking at schema status. Webhook issues don't surface on
+  call `external-data-sources-webhook-info-retrieve` before looking at schema status. Webhook issues don't surface on
   `external-data-schemas-list`.

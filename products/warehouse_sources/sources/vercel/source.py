@@ -267,7 +267,7 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         inputs: SourceInputs,
     ) -> SourceResponse:
         return vercel_source(
-            access_token=config.access_token,
+            access_token=config.access_token.strip(),
             endpoint=inputs.schema_name,
             team_id=config.team_id,
             logger=inputs.logger,
