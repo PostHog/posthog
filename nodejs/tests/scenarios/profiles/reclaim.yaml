@@ -1,8 +1,0 @@
-name: reclaim
-traffic:
-    event_email:
-        ratePerSecond: 30
-settings:
-    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '1000'
-    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '500'
-    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: '1000'
