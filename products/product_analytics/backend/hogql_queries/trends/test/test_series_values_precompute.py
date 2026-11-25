@@ -8,7 +8,6 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
-from prometheus_client import REGISTRY
 
 from posthog.schema import (
     ActionsNode,
@@ -30,7 +29,11 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import execute_precomputed_trends
+from products.product_analytics.backend.facade.contracts import SeriesValuesUnavailable
+from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (
+    closed_series_values,
+    execute_precomputed_trends,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -47,10 +50,6 @@ def _query(**overrides: Any) -> TrendsQuery:
         **overrides,
     }
     return TrendsQuery(**fields)
-
-
-def _fallbacks(reason: str) -> float:
-    return REGISTRY.get_sample_value("series_values_precompute_fallback_total", {"reason": reason}) or 0.0
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -236,25 +235,18 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_refuses_unsupported_shapes(self, reason: str, overrides: dict[str, Any], timezone: str | None) -> None:
         if timezone is not None:
             self._set_timezone(timezone)
-        before = _fallbacks(reason)
 
-        result = execute_precomputed_trends(
-            TrendsQueryRunner(team=self.team, query=_query(**overrides)), run_inserts=True
-        )
+        closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query(**overrides)), run_inserts=True)
 
-        assert result is None
-        assert _fallbacks(reason) == before + 1
+        assert closed == SeriesValuesUnavailable(reason=reason)
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
 
     @time_machine.travel(_NOW, tick=False)
     def test_refuses_teams_with_property_access_rules(self) -> None:
-        before = _fallbacks("property_access_rules")
-
         with patch(
             "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.team_has_property_access_rules",
             return_value=True,
         ):
-            result = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
+            closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
 
-        assert result is None
-        assert _fallbacks("property_access_rules") == before + 1
+        assert closed == SeriesValuesUnavailable(reason="property_access_rules")

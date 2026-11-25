@@ -79,7 +79,7 @@ class ClosedSeriesValues:
 
 @dataclass(frozen=True)
 class SeriesValuesUnavailable:
-    """Why stored Trends counts cannot serve a query, as the ``reason`` label of the fallback counter."""
+    """Why stored Trends counts cannot serve a query."""
 
     reason: str
 
