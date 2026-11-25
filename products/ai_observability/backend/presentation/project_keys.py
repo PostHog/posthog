@@ -1,6 +1,8 @@
 from typing import Literal, cast
 from uuid import UUID
 
+from django.db.models import Model, QuerySet
+
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
@@ -10,7 +12,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.permissions import is_service_auth
+from posthog.permissions import filter_visible_project_objects, is_service_auth
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.presentation.throttles import (
@@ -59,6 +61,13 @@ def log_project_key_activity(
 
 class AIObservabilityProjectKeyMixin(TeamAndOrgViewSetMixin):
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
+
+    def filter_visible_to_caller[M: Model](self, queryset: QuerySet[M]) -> QuerySet[M]:
+        if is_service_auth(self.request):
+            return queryset
+        return filter_visible_project_objects(
+            queryset, team_id=self.team.id, user_id=self.request.user.id, include_all_if_admin=True
+        )
 
     @property
     def reference_access_control(self) -> UserAccessControl | None:

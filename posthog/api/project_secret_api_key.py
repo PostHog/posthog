@@ -21,15 +21,23 @@ from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
-from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
-from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, APIScopeObject
+from posthog.permissions import (
+    TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
+    request_subject,
+    scopes_caller_lacks,
+)
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
@@ -43,7 +51,7 @@ if EE_AVAILABLE:
 logger = structlog.get_logger(__name__)
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
-AI_OBSERVABILITY_GRANT_RESOURCES: tuple[APIScopeObject, ...] = ("dataset", "evaluation", "llm_analytics")
+AI_OBSERVABILITY_GRANT_RESOURCES = (ResourceType.DATASET, ResourceType.EVALUATION, ResourceType.LLM_ANALYTICS)
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -102,11 +110,14 @@ def _enforce_caller_may_grant_scopes(request: Request, view: "ProjectSecretAPIKe
     _enforce_caller_holds_scopes(request, scopes)
     _enforce_caller_may_grant_billing_read(request, view.team.organization, scopes)
     _enforce_caller_may_grant_business_knowledge_read(request, view.team, scopes)
-    for resource in AI_OBSERVABILITY_GRANT_RESOURCES:
-        for scope_action in ("read", "write"):
-            level: AccessControlLevel = "viewer" if scope_action == "read" else "editor"
-            scope = f"{resource}:{scope_action}"
-            if scope in scopes and not view.user_access_control.check_access_level_for_resource(resource, level):
+    for resource_type in AI_OBSERVABILITY_GRANT_RESOURCES:
+        for scope_action, required_action, level in (("read", Action.VIEW, "viewer"), ("write", Action.EDIT, "editor")):
+            scope = f"{resource_type}:{scope_action}"
+            if scope in scopes and not authorization.check(
+                resource=Resource(type=resource_type, project_id=view.team.id),
+                action=required_action,
+                subject=request_subject(request),
+            ):
                 raise PermissionDenied(f"You need {level} access in this project to grant {scope}.")
 
 

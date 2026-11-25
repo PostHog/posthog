@@ -742,9 +742,9 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
         return queryset.filter(team_id=self.team.id)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
-        if self.action not in ("list", "retention") or self.reference_access_control is None:
+        if self.action not in ("list", "retention"):
             return queryset
-        return self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        return self.filter_visible_to_caller(queryset)
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
@@ -1179,8 +1179,7 @@ class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
         queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
     ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
         accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.for_team(self.team.id, canonical=True)
-        if access := self.reference_access_control:
-            accessible_datasets = access.filter_queryset_by_access_level(accessible_datasets, include_all_if_admin=True)
+        accessible_datasets = self.filter_visible_to_caller(accessible_datasets)
         return queryset.filter(
             team_id=self.team.id,
             dataset_id__in=Subquery(accessible_datasets.values("id")),

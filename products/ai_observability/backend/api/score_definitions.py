@@ -427,11 +427,7 @@ class ScoreDefinitionViewSet(
 
     def _visible_definitions(self) -> QuerySet[ScoreDefinition]:
         definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
-        if access := self.reference_access_control:
-            return access.filter_queryset_by_access_level(
-                definitions, include_all_if_admin=True, resource="llm_analytics"
-            )
-        return definitions
+        return self.filter_visible_to_caller(definitions)
 
     def _get_locked_definition(self) -> ScoreDefinition:
         # The current version determines which inputs the caller must be allowed to see.
