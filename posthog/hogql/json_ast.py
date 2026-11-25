@@ -17,7 +17,6 @@ from typing import Any, get_type_hints
 from uuid import UUID
 
 import orjson
-from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
@@ -240,7 +239,7 @@ def serialize_ast(node: ast.AST) -> str:
 def _serialize_object(value: Any) -> Any:
     if isinstance(value, ast.AST):
         return _serialize_node(value)
-    if isinstance(value, BaseModel):
+    if type(value) is HogQLQuerySettings:
         return value.model_dump(exclude_none=True)
     raise TypeError(f"Cannot serialize a value of type {type(value).__name__}")
 

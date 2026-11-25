@@ -24,6 +24,10 @@ PYTHON_ONLY_CONSTANTS = [
 ]
 
 
+class SettingsSubclass(HogQLQuerySettings):
+    max_bytes_before_external_sort: int | None = 1
+
+
 def round_trip(node: ast.AST) -> ast.AST:
     return deserialize_ast(serialize_ast(node))
 
@@ -87,9 +91,15 @@ class TestSerializeAst(SimpleTestCase):
 
         self.assertEqual(round_trip(resolved), ast.Constant(value=1))
 
-    def test_unsupported_constant_type_fails_to_serialize(self) -> None:
+    @parameterized.expand(
+        [
+            ("constant_type", ast.Constant(value=Decimal("1.5"))),
+            ("settings_subclass", ast.SelectQuery(select=[], settings=SettingsSubclass())),
+        ]
+    )
+    def test_value_the_reader_cannot_rebuild_fails_to_serialize(self, _name: str, node: ast.AST) -> None:
         with self.assertRaises(TypeError):
-            serialize_ast(ast.Constant(value=Decimal("1.5")))
+            serialize_ast(node)
 
     def test_unknown_constant_value_type_fails_to_deserialize(self) -> None:
         with self.assertRaisesMessage(ValueError, "Unknown constant value_type: 'decimal'"):
