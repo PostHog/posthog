@@ -385,7 +385,6 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax = 20000
 export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneLegendMax = 1000
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneBucketedDefault = false
-
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneToMax = 100
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax = 100
