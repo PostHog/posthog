@@ -121,4 +121,4 @@ poor > 3000ms. A poor FCP usually drags LCP with it; fix FCP first.
 The bands are defined for **p75** (the Core Web Vitals field standard) — anchor findings
 there. The product UI defaults to **p90**, and p99 is the tail. If p90/p99 is poor while
 p75 is good, that's a slow-tail story (a subset of slow sessions), not a page-wide
-regression — worth a `pattern:` note, rarely a standalone finding.
+regression, and rarely worth reporting on its own.

@@ -263,6 +263,9 @@
         "investigating-replay": {
             "audience": "customer"
         },
+        "investigating-web-vitals": {
+            "audience": "customer"
+        },
         "linking-errors-to-traces": {
             "audience": "customer"
         },
