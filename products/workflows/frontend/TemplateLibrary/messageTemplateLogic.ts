@@ -71,8 +71,6 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
-// Reconcile non-setting fields before advancing updated_at so a deferred realtime event
-// for an intervening edit (such as a publish or sensitive change) is never silently masked.
 function applySettingUpdate(
     updated: Awaited<ReturnType<typeof messagingTemplatesPartialUpdate>>,
     values: {
@@ -92,7 +90,6 @@ function applySettingUpdate(
         setOriginalTemplate: (template: MessageTemplate) => void
         resetTemplate: (values?: MessageTemplate) => void
         setExternallyEdited: (externallyEdited: boolean) => void
-        syncExternalEdit: () => void
         setTemplateValues: (
             values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>>
         ) => void
@@ -100,12 +97,6 @@ function applySettingUpdate(
 ): void {
     const loadedUpdatedAt = values.originalTemplate.updated_at
     if (loadedUpdatedAt && updated.updated_at && dayjs(updated.updated_at).isBefore(dayjs(loadedUpdatedAt))) {
-        // A newer write already advanced the loaded snapshot. Never roll back updated_at or restore a cleared draft.
-        if (!values.hasUnsavedChanges && !values.externallyEdited) {
-            actions.syncExternalEdit()
-        } else {
-            actions.setExternallyEdited(true)
-        }
         return
     }
 
@@ -128,8 +119,6 @@ function applySettingUpdate(
         draft: serverDraft,
         published: serverPublished,
     } = splitDraft(updated as unknown as MessageTemplate)
-    // Tags save independently and are stripped on publish, so ignore tag diffs here to avoid
-    // conflicting with an overlapping tag save. Compare drafts against the last server-normalized copy.
     const hasExternalChanges =
         serverForm.name !== values.originalTemplate.name ||
         (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
@@ -742,8 +731,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 saveDraftDone: (_, { draft }) => draft,
             },
         ],
-        // The server-normalized copy of draft_content, kept separate from savedDraft so form-side
-        // unnormalized edits do not trigger false external-edit conflicts during setting saves.
         serverDraft: [
             null as TemplateContent | null,
             {
@@ -1066,13 +1053,18 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     draft_content: null,
                 })
                 const published = updated.content as TemplateContent
+                const discardChanges = {
+                    content: published,
+                    sensitive: updated.sensitive,
+                    click_tracking_enabled: updated.click_tracking_enabled,
+                    updated_at: updated.updated_at,
+                }
                 actions.setDraftState(null, published)
                 actions.setOriginalTemplate({
                     ...values.originalTemplate,
-                    content: published,
-                    updated_at: updated.updated_at,
+                    ...discardChanges,
                 })
-                actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
+                actions.resetTemplate({ ...values.template, ...discardChanges })
             } catch {
                 lemonToast.error("Couldn't discard your draft. Try again.")
             }
