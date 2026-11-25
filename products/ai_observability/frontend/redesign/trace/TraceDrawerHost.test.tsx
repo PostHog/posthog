@@ -350,6 +350,7 @@ describe('TraceDrawerHost', () => {
         act(() => drawer.actions.setRowsBefore(true))
         await view.findAllByText('answer-a')
 
+        expect(attr(view.container, 'trace-drawer-previous').getAttribute('aria-disabled')).not.toBe('true')
         await expectLogic(drawer, stepUp).toDispatchActions([drawer.actionCreators.stepTo('previous')])
     })
 
