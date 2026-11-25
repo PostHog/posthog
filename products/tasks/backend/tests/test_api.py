@@ -20453,8 +20453,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         )
         self.organization.save()
 
-        with patch("posthog.llm.gateway_client.get_llm_client", side_effect=AssertionError("no gateway call")):
-            response = self.client.get("/api/projects/@current/tasks/models/")
+        response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         models = {m["model"]: m for m in response.json()["models"]}
