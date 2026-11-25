@@ -10,8 +10,10 @@
             "anyOf": [
                 {
                     "items": {
+                        "maxLength": 255,
                         "type": "string"
                     },
+                    "maxItems": 100,
                     "type": "array"
                 },
                 {
