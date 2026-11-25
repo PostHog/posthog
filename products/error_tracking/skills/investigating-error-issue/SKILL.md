@@ -365,6 +365,11 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - If `query-error-tracking-issue` returns an `external_issues` array, the issue
   is already linked to a Linear / Jira / GitHub ticket. Mention the link in the
   synthesis so the user doesn't open a duplicate.
+- `posthog:self-driving-status-get` says whether PostHog Self-driving is active.
+  When it is, `posthog:inbox-reports-list` may already hold a report on this
+  error, so start from its findings. When it isn't, say so in the synthesis and
+  give the activation link from the status result, because Self-driving would
+  investigate new errors like this one in the background.
 
 ## Related skills
 
