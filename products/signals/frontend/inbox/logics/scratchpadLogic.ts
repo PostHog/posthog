@@ -24,6 +24,13 @@ import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreach
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
 const SEARCH_DEBOUNCE_MS = 300
+// Mirrors `TRIGRAM_INDEXABLE_TEXT` in the scout harness serializers, which rejects other search text
+// with a 400. Python's `\w` is Unicode-aware and JS's is ASCII-only, so spell out letters and digits.
+const SEARCHABLE_TEXT = /[\p{L}\p{N}]{3}|(?<=[^\p{L}\p{N}])[\p{L}\p{N}]{2}|[\p{L}\p{N}]{2}(?=[^\p{L}\p{N}])/u
+
+export function isSearchableText(text: string): boolean {
+    return SEARCHABLE_TEXT.test(text)
+}
 // `list` caps at 1000 newest-first with no pagination wrapper. Search and one scout's entries
 // are narrow reads, so they take the whole cap in one read and filter it client-side.
 export const SCRATCHPAD_FETCH_LIMIT = 1000
@@ -211,6 +218,7 @@ export interface scratchpadLogicValues {
     searchResults: ScratchpadEntryApi[] | null
     searchResultsLoading: boolean
     searchText: string
+    searchTextTooShort: boolean
     timeFilter: ScratchpadTimeFilter
     topicFacets: ScratchpadFacet[]
     topicFilter: string[]
@@ -359,6 +367,7 @@ export interface scratchpadLogicMeta {
         totalCount: (windowEntries: ScratchpadEntryApi[] | null) => number | null
         loadedSpanLabel: (windowEntries: ScratchpadEntryApi[] | null) => string | null
         canLoadOlderEntries: (hasMoreOlderEntries: boolean, searchText: string) => boolean
+        searchTextTooShort: (searchText: string) => boolean
         recentlyLearnedCount: (entries: ScratchpadEntryApi[] | null) => number
         recentlyLearnedCountCapped: (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number) => boolean
         visibleEntries: (
@@ -517,7 +526,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadSearchResults: async (_payload: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     const text = values.searchText.trim()
-                    if (!teamId || !text) {
+                    if (!teamId || !isSearchableText(text)) {
                         return null
                     }
                     const discardedBeforeRead = values.discardedKeys.length
@@ -718,6 +727,11 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             (s) => [s.hasMoreOlderEntries, s.searchText],
             (hasMoreOlderEntries: boolean, searchText: string): boolean => hasMoreOlderEntries && !searchText.trim(),
         ],
+        // Typed text the endpoint would refuse, so the panel asks for more rather than sending it.
+        searchTextTooShort: [
+            (s) => [s.searchText],
+            (searchText: string): boolean => !!searchText.trim() && !isSearchableText(searchText.trim()),
+        ],
         // Entries written or refreshed over the roster window, so the roster's "learned" headline
         // sits on the same span as the run and report numbers the summary endpoint returns for it.
         recentlyLearnedCount: [
@@ -890,7 +904,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             }
         },
         setSearchText: async ({ searchText }, breakpoint) => {
-            if (!searchText.trim()) {
+            if (!isSearchableText(searchText.trim())) {
                 return
             }
             await breakpoint(SEARCH_DEBOUNCE_MS)
@@ -901,7 +915,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // narrowing what's already here — a wider span has rows the loaded window never held.
         setTimeFilter: () => {
             actions.loadEntries()
-            if (values.searchText.trim()) {
+            if (isSearchableText(values.searchText.trim())) {
                 actions.loadSearchResults()
             }
         },

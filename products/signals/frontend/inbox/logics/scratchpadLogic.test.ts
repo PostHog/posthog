@@ -189,6 +189,23 @@ describe('scratchpadLogic', () => {
         expect(searchRequests).toHaveLength(1)
     })
 
+    // The endpoint answers text without a trigram-indexable word with a 400, so the panel must not send it.
+    it.each([
+        ['one letter', 'a', false],
+        ['two letters', 'ai', false],
+        ['only symbols', ' #:_ ', false],
+        ['two letters next to a symbol', 'ai_', true],
+        ['three letters', 'bug', true],
+        ['three non-ASCII letters', 'été', true],
+    ])('sends a search of %s only when the endpoint can index it', async (_name, text, sent) => {
+        logic.actions.setSearchText(text)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchRequests.map((params) => params.get('text'))).toEqual(sent ? [text.trim()] : [])
+        expect(logic.values.searchTextTooShort).toBe(!sent)
+        expect(logic.values.searchFailed).toBe(false)
+    })
+
     it('flags the learned count as capped only when a full fetch all falls inside the window', () => {
         const fresh = (i: number): ScratchpadEntryApi => ({
             ...entry(`pattern:${i}`, 'note'),
