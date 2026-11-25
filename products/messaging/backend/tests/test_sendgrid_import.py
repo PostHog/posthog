@@ -700,6 +700,10 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
                 "others": ["unsubscribed@example.com"],
             },
             "Bêta testeurs (from SendGrid)": {"members": ["ada@example.com"], "others": ["unsubscribed@example.com"]},
+            "Pro plan 🦔 (segment from SendGrid)": {
+                "members": ["ada@example.com"],
+                "others": ["unsubscribed@example.com"],
+            },
         }
         plan = run.progress["contacts"]["people_imports"][0]
         people = {person["properties"]["email"]: person for person in self.people.people(plan)}
@@ -730,9 +734,121 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
                 "notifications": {"email": False},
                 "list_ids": ["11111111-0000-4000-8000-000000000003"],
             },
+            {
+                "file_type": "csv",
+                "notifications": {"email": False},
+                "segment_ids": ["22222222-0000-4000-8000-000000000001"],
+            },
         ]
         downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
-        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 4
+        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 5
+
+    @parameterized.expand(
+        [
+            (answer,)
+            for answer in ("no_files", "failure", "refused", "empty_file", "header_only", "pending", "unreadable")
+        ]
+    )
+    def test_a_segment_sendgrid_sends_nothing_for_keeps_its_cohort_and_lets_the_rest_import(self, answer: str) -> None:
+        run = self._import_twice({"empty_segment": answer, "count": "missing"}, members=False)
+
+        assert self.segment_label not in self._cohorts(run)
+        assert "Newsletter (from SendGrid)" in self._cohorts(run)
+        assert "Pro plan 🦔 wasn't imported, so its cohort stays as it was" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_segment_export_that_holds_nearly_the_whole_account_keeps_its_cohort(self) -> None:
+        for number in range(30):
+            self.state.account["contacts"].append(
+                {"id": f"x{number}", "email": f"x{number}@example.com", "list_ids": []}
+            )
+        self.state.account["contact_count"] = {"contact_count": 37}
+        run = self._import_twice({"ignores_segments": True, "short_segments": 1}, members=True)
+
+        assert self.segment_label not in self._cohorts(run)
+        assert "holds every contact" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_segment_past_the_membership_limit_is_skipped(self) -> None:
+        # Every contact, then each list's.
+        with patch("products.messaging.backend.provider_imports.sendgrid.MAX_CONTACT_MEMBERSHIPS", 14):
+            run = self._start()
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert "Newsletter (from SendGrid)" in self._cohorts(run)
+        assert self.segment_label not in self._cohorts(run)
+        assert "more contacts than this import has room for" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_segment_past_the_list_limit_is_skipped(self) -> None:
+        with patch("products.messaging.backend.provider_imports.sendgrid.MAX_LISTS", 3):
+            run = self._start()
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert "Newsletter (from SendGrid)" in self._cohorts(run)
+        assert "Pro plan 🦔 wasn't imported" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_segment_export_that_holds_the_whole_account_keeps_its_cohort(self) -> None:
+        run = self._import_twice({"ignores_segments": True}, members=True)
+
+        assert self.segment_label not in self._cohorts(run)
+        assert "holds every contact" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_segment_export_far_below_its_count_keeps_its_cohort(self) -> None:
+        self.state.account["segments"][0]["contacts_count"] = 100
+        run = self._import_twice({"count": "missing"}, members=True)
+
+        assert self.segment_label not in self._cohorts(run)
+        assert "far fewer contacts" in run.progress["contacts"]["warnings"][0]
+
+    def test_a_skipped_segment_adds_nobody_and_is_not_asked_for_again(self) -> None:
+        self.state.export_shape = {"damaged_segment": "late@example.com"}
+        run = self._start()
+        self.state.fail_after["/v3/suppression/unsubscribes"] = (0, 503)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        started = len(self.state.exports)
+        self.state.fail_after.clear()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        assert len(self.state.exports) == started
+        cohorts = self._cohorts(run)
+        assert "wasn't imported" in run.progress["contacts"]["warnings"][0]
+        assert all("late@example.com" not in cohort["members"] for cohort in cohorts.values())
+
+    def test_a_segment_with_a_long_name_fills_a_cohort(self) -> None:
+        self.state.account["segments"][0]["name"] = "S" * 400
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert f"{'S' * 376} (segment from SendGrid)" in self._cohorts(run)
+
+    def test_a_segment_sendgrid_counts_as_empty_empties_its_cohort(self) -> None:
+        run = self._import_twice({"empty_segment": "counted"}, members=False)
+
+        assert self._cohorts(run)[self.segment_label] == {"members": [], "others": []}
+
+    segment_label = "Pro plan 🦔 (segment from SendGrid)"
+
+    def _import_twice(self, shape: dict[str, Any], *, members: bool) -> ProviderImportRun:
+        """The second run, after a first one gave the segment's cohort its people."""
+        first = self._start()
+        runs.run_step(self.team.id, first.id, "contacts", attempt=1)
+        assert "ada@example.com" in self._cohorts(first)[self.segment_label]["members"]
+        runs.finish_run(self.team.id, first.id)
+        for contact in self.state.account["contacts"]:
+            if not members:
+                contact.pop("segment_ids", None)
+        self.state.export_shape = shape
+        run = self._start()
+        with patch("products.messaging.backend.provider_imports.sendgrid.EXPORT_TIMEOUT_SECONDS", 0.2):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+        return run
+
+    def test_a_segment_of_the_first_version_fills_a_cohort_too(self) -> None:
+        del self.state.account["segments"][0]["query_version"]
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert "ada@example.com" in self._cohorts(run)["Pro plan 🦔 (segment from SendGrid)"]["members"]
 
     def test_a_second_account_fills_a_cohort_of_its_own(self) -> None:
         self.state.second_account.update(
@@ -819,8 +935,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         self.state.fail_after.clear()
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert (started, len(self.state.exports)) == (2, 4)
-        assert len(self._cohorts(run)) == 3
+        assert (started, len(self.state.exports)) == (2, 5)
+        assert len(self._cohorts(run)) == 4
 
     @parameterized.expand(
         [
@@ -846,7 +962,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         self.state.export_damage, self.state.export_status = None, "ready"
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self._cohorts(run)) == 3
+        assert len(self._cohorts(run)) == 4
 
     @parameterized.expand(
         [
@@ -875,7 +991,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
         cohorts = self._cohorts(run)
-        assert len(cohorts) == 3
+        assert len(cohorts) == 4
         assert "ada@example.com" in cohorts["Newsletter (from SendGrid)"]["members"]
         assert cohorts["Bêta testeurs (from SendGrid)"] == {"members": [], "others": ["unsubscribed@example.com"]}
         people = {
@@ -976,15 +1092,15 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
 
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self._cohorts(run)) == 3
+        assert len(self._cohorts(run)) == 4
 
     def test_exports_that_expired_are_all_started_again_in_one_attempt(self) -> None:
         run = self._start()
         self.state.failures["/__exports"] = [403, 200, 403, 200, 403, 200]
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
-        assert len(self.state.exports) == 4 + 3
-        assert len(self._cohorts(run)) == 3
+        assert len(self.state.exports) == 5 + 3
+        assert len(self._cohorts(run)) == 4
 
     def test_a_download_that_trickles_stops_at_its_deadline(self) -> None:
         self.state.trickle_seconds = 0.1
@@ -1017,7 +1133,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
 
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self.state.exports) == 4
+        assert len(self.state.exports) == 5
 
     @parameterized.expand(
         [

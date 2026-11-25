@@ -93,6 +93,7 @@ class FakeSendGridState:
             **{key: [] for key in ("templates", "designs", "single_sends", "lists", "verified_senders", "domains")},
             "group_suppressions": {},
             "contacts": [],
+            "segments": [],
             "contact_count": {"contact_count": 0, "billable_count": 0},
         }
         self.empty_account: dict[str, Any] = deepcopy(self.second_account)
@@ -107,9 +108,12 @@ class FakeSendGridState:
         # How "ready" exports fall short: "bytes" cuts the packed file off, "connection" ends an unpacked one early,
         # "rows" leaves out the last contact, "extra" adds one, and "empty" holds no contacts and counts none.
         self.export_damage: str | None = None
-        # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "bom", "header" ("upper", "lower",
-        # "spaced" or "field_ids"), "reversed", "header_in_each_file", "count" ("stated", "null" or "missing"), "all_columns" and
-        # "empty_list" ("unreadable"), "ignores_filter".
+        # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "header_in_each_file", "bom",
+        # "header" ("upper", "lower", "spaced" or "field_ids"), "reversed", "all_columns", "count" ("stated", "null" or
+        # "missing"), "ignores_filter", "ignores_segments", "short_segments" (how many contacts each leaves out) and
+        # "damaged_segment" (an address each segment holds uncounted). "empty_list" ("unreadable") and "empty_segment"
+        # are the answers for one without contacts. The latter is "no_files", "counted", "failure", "pending",
+        # "refused", "empty_file", "unreadable", or else a file with a header.
         self.export_shape: dict[str, Any] = {}
         # How long `/__trickle` waits between bytes.
         self.trickle_seconds = 0.0
@@ -200,15 +204,23 @@ class _Handler(BaseHTTPRequestHandler):
             status = 403
         if status:
             return self._send(status, {"errors": [{"field": None, "message": "refused"}]})
-        list_ids = set(body.get("list_ids") or [])
+        list_ids, segment_ids = set(body.get("list_ids") or []), set(body.get("segment_ids") or [])
         contacts = [
             contact
             for contact in state.account_for(key)["contacts"]
-            if not list_ids or state.export_shape.get("ignores_filter") or list_ids & set(contact["list_ids"])
+            if not (list_ids or segment_ids)
+            or state.export_shape.get("ignores_filter")
+            or list_ids & set(contact["list_ids"])
+            or (segment_ids and state.export_shape.get("ignores_segments"))
+            or segment_ids & set(contact.get("segment_ids", []))
         ]
+        if segment_ids and not contacts and state.export_shape.get("empty_segment") == "refused":
+            return self._send(400, {"errors": [{"field": "segment_ids", "message": "refused"}]})
+        if segment_ids and (short := state.export_shape.get("short_segments")):
+            contacts = contacts[:-short]
         with state.lock:
             export_id = f"export-{len(state.exports) + 1}"
-            state.exports[export_id] = {"contacts": contacts, "checks": 0}
+            state.exports[export_id] = {"contacts": contacts, "checks": 0, "segment_ids": segment_ids}
         self._send(202, {"id": export_id, "_metadata": {"self": f"https://api.sendgrid.com{self.path}/{export_id}"}})
 
     def _export_status(self, export_id: str) -> tuple[int, Any, dict[str, str]]:
@@ -222,7 +234,17 @@ class _Handler(BaseHTTPRequestHandler):
         body: dict[str, Any] = {"id": export_id, "status": status, "expires_at": "2026-01-04T00:00:00Z", **dates}
         if status == "failure":
             body["message"] = "export failed"
-        if status == "ready":
+        empty_segment = state.export_shape.get("empty_segment", "no_files")
+        is_empty_segment = export["segment_ids"] and not export["contacts"]
+        if is_empty_segment and empty_segment == "failure" and status == "ready":
+            body |= {"status": "failure", "message": "nothing to export"}
+        elif is_empty_segment and empty_segment == "pending":
+            body["status"] = "pending"
+        elif is_empty_segment and empty_segment == "counted" and status == "ready":
+            body |= {"urls": [], "contact_count": 0}
+        elif is_empty_segment and empty_segment == "no_files" and status == "ready":
+            body["urls"] = []
+        elif status == "ready":
             count = 0 if state.export_damage == "empty" else len(export["contacts"])
             # SendGrid documents the count as optional.
             stated = "missing" if state.export_damage == "connection" else state.export_shape.get("count", "stated")
@@ -266,6 +288,8 @@ class _Handler(BaseHTTPRequestHandler):
         contacts = state.exports[export_id]["contacts"][part::files]
         if state.export_damage == "rows":
             contacts = contacts[:-1]
+        if state.exports[export_id]["segment_ids"] and (late := shape.get("damaged_segment")):
+            contacts = [*contacts, {"id": "late", "email": late, "list_ids": []}]
         if state.export_damage == "extra":
             contacts = [*contacts, {"id": "extra", "email": "extra@example.com", "list_ids": []}]
         columns = _export_columns(state.exports[export_id]["contacts"], shape)
@@ -275,8 +299,20 @@ class _Handler(BaseHTTPRequestHandler):
             writer.writerow([header for header, _ in columns])
         writer.writerows([[value(contact) for _, value in columns] for contact in contacts])
         text = ("\ufeff" if shape.get("bom") else "") + rows.getvalue()
-        if shape.get("empty_list") == "unreadable" and not state.exports[export_id]["contacts"]:
+        if shape.get("empty_list") == "unreadable" and not (
+            state.exports[export_id]["contacts"] or state.exports[export_id]["segment_ids"]
+        ):
             text = "No contacts\r\n"
+        if (
+            state.exports[export_id]["segment_ids"]
+            and not contacts
+            and shape.get("empty_segment")
+            in (
+                "empty_file",
+                "unreadable",
+            )
+        ):
+            text = "" if shape["empty_segment"] == "empty_file" else "No contacts\r\n"
         payload = gzip.compress(text.encode()) if shape.get("packed", True) else text.encode()
         stated_length = len(payload)
         if state.export_damage == "bytes":
@@ -377,6 +413,10 @@ class _Handler(BaseHTTPRequestHandler):
             return 200, {"custom_fields": custom, "reserved_fields": [], "_metadata": {}}, {}
         if match := re.fullmatch(r"/v3/marketing/contacts/exports/([^/]+)", path):
             return self._export_status(match.group(1))
+        if path in ("/v3/marketing/segments", "/v3/marketing/segments/2.0"):
+            is_v2 = path.endswith("2.0")
+            found = [s for s in account["segments"] if (s.get("query_version") == "2") == is_v2]
+            return 200, {"results": found, "_metadata": {}}, {}
         if path == "/v3/user/username":
             return 200, {"username": f"{key[3:]}-user", "user_id": sorted(_SCOPES_BY_KEY).index(key) + 1}, {}
         if path == "/v3/verified_senders":
