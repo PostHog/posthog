@@ -5185,6 +5185,7 @@ def _start_mention_workflow(
     fork_source_thread_ts: str | None = None,
     fork_source_message_ts: str | None = None,
     fork_source_task_id: str | None = None,
+    fork_source_title: str | None = None,
 ) -> str:
     """Start the mention workflow for an explicit ``app_mention``, an untagged
     thread reply, or a forked thread.
@@ -5232,6 +5233,7 @@ def _start_mention_workflow(
         fork_source_thread_ts=fork_source_thread_ts,
         fork_source_message_ts=fork_source_message_ts,
         fork_source_task_id=fork_source_task_id,
+        fork_source_title=fork_source_title,
     )
     # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)

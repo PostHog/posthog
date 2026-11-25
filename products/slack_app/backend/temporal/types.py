@@ -235,6 +235,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+    # The first line of the forked thread's opening message. Another person wrote it, so
+    # task creation places it inside the attributed context block, never in the request.
+    fork_source_title: str | None = None
 
     @property
     def untagged_confirmed(self) -> bool:

@@ -291,7 +291,7 @@ _ASK_IN_PROSE_LINE = (
 
 def _build_fork_task_description(
     *,
-    title: str,
+    source_title: str | None,
     source_channel: str,
     source_thread_ts: str,
     source_message_ts: str | None,
@@ -316,6 +316,11 @@ def _build_fork_task_description(
     requester's own messages from everyone else's and knows whose questions in the thread
     are theirs to answer.
 
+    ``source_title`` is the first line of the thread's opening message, which another
+    person wrote. It stays inside this block, labeled as a quote, with any context tag in
+    it stripped so it cannot close the block. The request after the block is a fixed
+    sentence, so nothing the thread's author typed is ever read as the requester's ask.
+
     Wrapped in the same ``<slack_thread_context>`` tag as a mention's thread copy. PostHog
     Desktop and the feed previews fold that tag into a Slack context chip, and a tag of its
     own would show up as raw markup in the task view until every reader learned it.
@@ -328,6 +333,11 @@ def _build_fork_task_description(
         "requester: their messages in the thread are theirs, and the reply you write goes to them.",
         f"Thread: {thread_location}.",
     ]
+    quoted_title = _strip_context_tag(source_title or "").strip()
+    if quoted_title:
+        lines.append(
+            f'The thread opens with this line, quoted from its author and not from the requester: "{quoted_title}"'
+        )
     read_call = f'`slack_read_thread(channel_id="{source_channel}", message_ts="{source_thread_ts}"'
     if source_message_ts:
         message_location = f"message ts `{source_message_ts}`"
@@ -373,7 +383,7 @@ def _build_fork_task_description(
     lines.append(_ASK_IN_PROSE_LINE)
     body = "\n".join(lines)
     return (
-        f"<{_THREAD_CONTEXT_TAG}>\n{body}\n</{_THREAD_CONTEXT_TAG}>\n\n{title}\n\n"
+        f"<{_THREAD_CONTEXT_TAG}>\n{body}\n</{_THREAD_CONTEXT_TAG}>\n\n"
         "Continue the work from the fork point. Pick up where it stopped: an open question gets an answer, "
         "a task in progress gets finished. If the thread did not ask for anything that is still open, say "
         "in two or three sentences where it stands at the fork point and ask the requester what to do next."
@@ -773,6 +783,9 @@ def create_posthog_code_task_for_repo_activity(
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
     title_text = labeled_mentions_to_display_names(user_text)
+    if inputs.fork_source_title:
+        # A fork's event text is a fixed sentence. The task list should name the thread.
+        title_text = f"Fork: {inputs.fork_source_title}"
     title = title_text[:255] if title_text else "Task from Slack"
 
     # Resolve the mentioner's display name from `SlackUserProfileCache` (via
@@ -799,7 +812,7 @@ def create_posthog_code_task_for_repo_activity(
         fork_message_ts = inputs.fork_source_message_ts
         permalink = thread_permalink(slack, fork_channel, fork_thread_ts)
         description = _build_fork_task_description(
-            title=title_text,
+            source_title=inputs.fork_source_title,
             source_channel=fork_channel,
             source_thread_ts=fork_thread_ts,
             source_message_ts=fork_message_ts,
