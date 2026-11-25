@@ -598,7 +598,7 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
                 error_code="cannot_parse_datetime",
             ),
             "cannot_parse_datetime",
-            "ClickHouse rejected the query with error CANNOT_PARSE_DATETIME.",
+            "Cannot parse a date and time. Check your datetime values and their format.",
             id="clickhouse_rejection_uses_curated_text",
         ),
         pytest.param(

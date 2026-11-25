@@ -394,6 +394,115 @@ class MergedPullRequest:
     head_sha: str | None
 
 
+@frozen
+class PostedStatus:
+    state: str
+    description: str
+    # The login of the account that posted it.
+    creator: str
+
+
+def commit_statuses(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) -> dict[str, PostedStatus] | None:
+    """The newest status of each context on the commit, or None when GitHub cannot say."""
+    items = _read_all_pages(
+        "visual_review.commit_statuses_fetch_failed", repo, f"commits/{sha}/statuses", {}, priority=priority
+    )
+    if items is None:
+        return None
+    newest: dict[str, PostedStatus] = {}
+    # GitHub lists the statuses of a commit newest first, so the first one of a context is its current one.
+    for status in items:
+        newest.setdefault(
+            status["context"],
+            PostedStatus(
+                state=status.get("state") or "",
+                description=status.get("description") or "",
+                creator=(status.get("creator") or {}).get("login") or "",
+            ),
+        )
+    return newest
+
+
+# Only workflow jobs prove what CI did. Any app with `checks:write` can post a check run of any name.
+_ACTIONS_APP_SLUG = "github-actions"
+
+
+@frozen
+class CheckRun:
+    # Empty while the check run has not finished.
+    conclusion: str
+    completed_at: datetime | None
+
+
+def actions_check_runs(
+    repo: Repo, sha: str, check_name: str, priority: Priority = Priority.CRITICAL
+) -> list[CheckRun] | None:
+    """The GitHub Actions check runs named `check_name` on the commit, or None when GitHub cannot say.
+
+    Check runs of other apps are left out.
+    """
+    data = _read_json(
+        "visual_review.check_runs_fetch_failed",
+        partial(
+            _github_api_request,
+            "GET",
+            repo,
+            f"commits/{sha}/check-runs",
+            params={"check_name": check_name, "per_page": 100},
+            priority=priority,
+        ),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    return [
+        CheckRun(
+            conclusion=check_run.get("conclusion") or "",
+            completed_at=parse_datetime(check_run["completed_at"]) if check_run.get("completed_at") else None,
+        )
+        for check_run in data.get("check_runs") or []
+        if (check_run.get("app") or {}).get("slug") == _ACTIONS_APP_SLUG
+    ]
+
+
+_BASE_CHANGE_EVENTS = ("base_ref_changed", "automatic_base_change_succeeded")
+
+
+def pull_request_base_changes(
+    repo: Repo, pr_number: int, priority: Priority = Priority.CRITICAL
+) -> list[datetime] | None:
+    """When the pull request's base branch was changed, or None when GitHub cannot say.
+
+    GitHub's automatic retarget of a stacked pull request, after its parent merged, counts too.
+    """
+    events = _read_all_pages(
+        "visual_review.pull_request_timeline_fetch_failed", repo, f"issues/{pr_number}/timeline", {}, priority=priority
+    )
+    if events is None:
+        return None
+    changed_at = [
+        parse_datetime(event["created_at"])
+        for event in events
+        if event.get("event") in _BASE_CHANGE_EVENTS and event.get("created_at")
+    ]
+    return [moment for moment in changed_at if moment is not None]
+
+
+def commit_committer_date(repo: Repo, sha: str, priority: Priority = Priority.BATCH) -> datetime | None:
+    """When the commit was committed, or None when GitHub cannot say."""
+    data = _read_json(
+        "visual_review.commit_fetch_failed",
+        partial(_github_api_request, "GET", repo, f"commits/{sha}", priority=priority),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    committed_at = ((data.get("commit") or {}).get("committer") or {}).get("date")
+    return parse_datetime(committed_at) if committed_at else None
+
+
 def merged_pull_requests_for_commit(
     repo: Repo, sha: str, priority: Priority = Priority.CRITICAL
 ) -> list[MergedPullRequest] | None:
@@ -417,6 +526,102 @@ def merged_pull_requests_for_commit(
         for item in items
         if item.get("merged_at") and item.get("merge_commit_sha") == sha
     ]
+
+
+@frozen
+class BranchHead:
+    """The commit a branch points at, and the pull request the branch belongs to."""
+
+    commit_sha: str
+    pr_number: int
+    # The head is in another repository, or that repository was deleted.
+    from_fork: bool = False
+    # The branch a pull request targets. Empty for a merge-queue branch.
+    base_ref: str = ""
+    draft: bool = False
+
+
+_LIST_PAGE_SIZE = 100
+_MAX_LIST_PAGES = 50
+
+
+def _read_all_pages(
+    log_event: str,
+    repo: Repo,
+    path: str,
+    params: dict[str, str | int],
+    priority: Priority = Priority.CRITICAL,
+) -> list[dict] | None:
+    """Every item of a paged GitHub list, or None when GitHub cannot say or the list has more than the cap.
+
+    A cut list would leave heads without a status, so a caller must not act on one.
+    """
+    items: list[dict] = []
+    for page in range(1, _MAX_LIST_PAGES + 1):
+        page_items = _read_json(
+            log_event,
+            partial(
+                _github_api_request,
+                "GET",
+                repo,
+                path,
+                params={**params, "per_page": _LIST_PAGE_SIZE, "page": page},
+                priority=priority,
+            ),
+            repo_id=str(repo.id),
+            page=page,
+        )
+        if page_items is None:
+            return None
+        items.extend(page_items)
+        if len(page_items) < _LIST_PAGE_SIZE:
+            return items
+    logger.warning(log_event, repo_id=str(repo.id), reason="too_many_pages")
+    return None
+
+
+def _is_from_fork(pull_request: dict) -> bool:
+    head_repo = (pull_request.get("head") or {}).get("repo") or {}
+    base_repo = (pull_request.get("base") or {}).get("repo") or {}
+    return not head_repo.get("full_name") or head_repo.get("full_name") != base_repo.get("full_name")
+
+
+def open_pull_request_heads(repo: Repo) -> list[BranchHead] | None:
+    """The head commit of every open pull request, whatever branch it targets, or None when GitHub cannot say."""
+    items = _read_all_pages("visual_review.open_pull_requests_fetch_failed", repo, "pulls", {"state": "open"})
+    if items is None:
+        return None
+    return [
+        BranchHead(
+            commit_sha=item["head"]["sha"],
+            pr_number=item["number"],
+            from_fork=_is_from_fork(item),
+            base_ref=(item.get("base") or {}).get("ref") or "",
+            draft=bool(item.get("draft")),
+        )
+        for item in items
+    ]
+
+
+def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
+    """The head commit of every merge-queue branch that exists now, or None when GitHub cannot say.
+
+    The queue deletes a branch once its test is decided, so the branches that exist are the tests in progress.
+    """
+    # This endpoint does not page: one response holds every matching ref.
+    refs = _read_json(
+        "visual_review.merge_queue_branches_fetch_failed",
+        partial(_github_api_request, "GET", repo, "git/matching-refs/heads/trunk-merge"),
+        repo_id=str(repo.id),
+    )
+    if refs is None:
+        return None
+    heads: list[BranchHead] = []
+    for ref in refs:
+        match = _MERGE_QUEUE_BRANCH_RE.match(ref["ref"].removeprefix("refs/heads/"))
+        if match is not None:
+            heads.append(BranchHead(commit_sha=ref["object"]["sha"], pr_number=int(match.group("pr_number"))))
+    return heads
 
 
 # Ten pages of the compare endpoint. Past that the default branch went unwatched for long enough

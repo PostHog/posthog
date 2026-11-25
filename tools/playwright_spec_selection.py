@@ -32,7 +32,7 @@ provably adds nothing; the third is a deliberate trust trade:
   exercise it either. Changes there run the cheap `smoke_subset` (app boots,
   auth works) instead of everything. A mapping in `scenes` outranks the
   smoke-only list; writing a real spec for the scene means moving it to
-  `scenes`.
+  `scenes`. `products_smoke_only` does the same for product frontends.
 - `backend_smoke` + `backend_smoke_specs` + `backend_explicit`: a backend
   Python file (or its pytest snapshot) that no earlier rule maps runs
   `backend_smoke_specs`, plus the specs of the first `backend_explicit` area
@@ -217,6 +217,7 @@ class AreaMap:
         self._force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
         self._ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
         self._products = area_map.get("products", {})
+        self._products_smoke_only = set(area_map.get("products_smoke_only", []))
         self._scenes = area_map.get("scenes", {})
         self._scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
         self._smoke_subset = area_map.get("smoke_subset", [])
@@ -261,6 +262,8 @@ class AreaMap:
         explicit = self.explicit_specs(path)
         if explicit is not None:
             return explicit
+        if name in self._products_smoke_only:
+            return self._expand(self._smoke_subset)
         return FullRun(f"{path}: product '{name}' has no spec mapping", "unmapped_product", name)
 
     def scene_specs(self, path: str) -> FileOutcome:

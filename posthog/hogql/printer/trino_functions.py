@@ -60,7 +60,6 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "fromUnixTimestamp": "from_unixtime",
     "replaceAll": "replace",
     "replaceRegexpAll": "regexp_replace",
-    "now": "now",
     "startsWith": "starts_with",
     "rand": "random",
     "dateTrunc": "date_trunc",
@@ -1564,7 +1563,10 @@ def _bit_test(name: str, mode: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         if len(args) < 2:
             raise _invalid_arguments(name, f"{name} expects a value and bit positions.")
-        tests = [f"bitwise_and({args[0]}, bitwise_left_shift(BIGINT '1', {position})) <> 0" for position in args[1:]]
+        tests = [
+            f"bitwise_and({args[0]}, bitwise_left_shift(BIGINT '1', CAST({position} AS INTEGER))) <> 0"
+            for position in args[1:]
+        ]
         operator = " AND " if mode == "all" else " OR "
         return f"({operator.join(tests)})"
 
@@ -1579,9 +1581,15 @@ def _bit_count(args: list[str]) -> str:
 def _bit_shift(name: str, target: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         _require_args(name, args, 2)
-        return f"{target}({args[0]}, {args[1]})"
+        return f"{target}(CAST({args[0]} AS BIGINT), CAST({args[1]} AS INTEGER))"
 
     return handler
+
+
+def _now(args: list[str]) -> str:
+    if len(args) > 1:
+        raise _invalid_arguments("now", "now expects an optional timezone in Trino mode.")
+    return f"at_timezone(now(), {args[0]})" if args else "now()"
 
 
 def _domain_without_www(args: list[str]) -> str:
@@ -1986,6 +1994,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "bitTestAny": _bit_test("bitTestAny", "any"),
     "bitCount": _bit_count,
     "bitHammingDistance": _bit_hamming_distance,
+    "now": _now,
     "bitShiftLeft": _bit_shift("bitShiftLeft", "bitwise_left_shift"),
     "bitShiftRight": _bit_shift("bitShiftRight", "bitwise_right_shift_arithmetic"),
     "domain": _url_string("domain", "url_extract_host"),

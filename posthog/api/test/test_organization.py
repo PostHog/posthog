@@ -34,6 +34,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationAITerms
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -85,6 +86,33 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
+
+    def test_external_project_links_are_read_only_and_listed_for_their_organization_only(self) -> None:
+        link = OrganizationExternalProjectLink.objects.create(
+            organization=self.organization, name="Hedgebox (EU)", url="https://eu.posthog.com/project/2"
+        )
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationExternalProjectLink.objects.create(
+            organization=other_organization, name="Other (EU)", url="https://eu.posthog.com/project/3"
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        patched = self.client.patch(
+            "/api/organizations/@current",
+            {"external_project_links": [{"name": "Phishing", "url": "https://example.com"}]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.json())
+
+        response = self.client.get("/api/organizations/@current")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["external_project_links"],
+            [{"id": str(link.id), "name": "Hedgebox (EU)", "url": "https://eu.posthog.com/project/2"}],
+        )
+        self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
 
     def test_project_logo_changes_show_in_organization_projects(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1250,11 +1278,23 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    @parameterized.expand(
+        [
+            ("posthog_billing", {}, "billing page"),
+            (
+                "vercel_billing",
+                {"billing_provider": "vercel"},
+                "uninstall the PostHog integration from your Vercel team",
+            ),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_cannot_delete_organization_with_active_subscription(
+        self, _name, billing_extra, expected_detail, mock_get_license, mock_get_billing
+    ):
         mock_get_license.return_value = True
-        mock_get_billing.return_value = {"has_active_subscription": True}
+        mock_get_billing.return_value = {"has_active_subscription": True, **billing_extra}
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -1263,7 +1303,7 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("active subscription", response.json()["detail"])
+        self.assertIn(expected_detail, response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")

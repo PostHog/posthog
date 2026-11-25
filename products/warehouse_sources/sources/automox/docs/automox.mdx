@@ -40,7 +40,7 @@ To connect Automox, you need:
 
 <SyncModes />
 
-The `policy_runs` table (policy execution history) and the `events` table (console activity log) support **incremental** sync using Automox's server-side time filters, so they only fetch new rows on each run. The remaining tables have no server-side "updated since" filter and sync as a **full refresh**. Each sync re-reads the resource and merges on the primary key.
+The `policy_runs` table (policy execution history), the `events` table (console activity log) and the `audit_events` table (console audit trail) support **incremental** sync using Automox's server-side time filters, so they only fetch new rows on each run. A full refresh of `audit_events` reads the last 365 days of the audit trail. The remaining tables have no server-side "updated since" filter and sync as a **full refresh**. Each sync re-reads the resource and merges on the primary key.
 
 Two tables are gathered per device or per report rather than from a single list endpoint, so they make one request per parent record and take longer to sync than the rest:
 

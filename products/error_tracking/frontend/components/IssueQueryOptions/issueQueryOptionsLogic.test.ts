@@ -88,33 +88,71 @@ describe('issueQueryOptionsLogic', () => {
     })
 
     // The query schema forbids unknown fields and a non-boolean applied state, so a malformed tag filter fails the
-    // whole list with a 400.
+    // whole list with a 400. Links saved before the filter took several tags hold one tag in the `issueTag` param.
     // Each case starts from another filter, because a rejected or missing value must clear the filter already set.
     it.each([
-        ['an applied filter', { key: 'cause_in_trace', applied: true }, { key: 'cause_in_trace', applied: true }],
         [
-            'a not applied filter with an extra field',
-            { key: 'cause_in_trace', applied: false, label: 'Cause' },
-            { key: 'cause_in_trace', applied: false },
+            'a legacy applied tag',
+            { issueTag: { key: 'cause_in_trace', applied: true } },
+            { has: ['cause_in_trace'], hasNot: [] },
         ],
-        ['a bare key', 'cause_in_trace', null],
-        ['no applied state', { key: 'cause_in_trace' }, null],
-        ['an applied state that is not a boolean', { key: 'cause_in_trace', applied: 'yes' }, null],
-        ['an empty key', { key: '', applied: true }, null],
-        ['no tag filter', undefined, null],
-    ])('applies a tag filter from the URL with %s', (_, issueTag, expected) => {
+        [
+            'a legacy not applied tag with an extra field',
+            { issueTag: { key: 'cause_in_trace', applied: false, label: 'Cause' } },
+            { has: [], hasNot: ['cause_in_trace'] },
+        ],
+        ['a legacy tag with no applied state', { issueTag: { key: 'cause_in_trace' } }, null],
+        ['a legacy applied state that is not a boolean', { issueTag: { key: 'cause_in_trace', applied: 'yes' } }, null],
+        ['a legacy empty key', { issueTag: { key: '', applied: true } }, null],
+        [
+            'has and has not tags',
+            { issueTags: { has: ['cause_in_trace'], hasNot: ['third_party'] } },
+            { has: ['cause_in_trace'], hasNot: ['third_party'] },
+        ],
+        [
+            'a tag in both lists',
+            { issueTags: { has: ['cause_in_trace', 'third_party'], hasNot: ['third_party'] } },
+            { has: ['cause_in_trace'], hasNot: ['third_party'] },
+        ],
+        [
+            'keys that are not strings or are repeated',
+            { issueTags: { has: ['cause_in_trace', 7, '', 'cause_in_trace'], hasNot: 'third_party' } },
+            { has: ['cause_in_trace'], hasNot: [] },
+        ],
+        ['a bare key', { issueTags: 'cause_in_trace' }, null],
+        ['no tag filter', {}, null],
+    ])('applies a tag filter from the URL with %s', (_, params, expected) => {
         const logic = mountLogic()
-        router.actions.push('/error_tracking', { issueTag: { key: 'other_tag', applied: true } })
-        router.actions.push('/error_tracking', { issueTag })
-        expect(logic.values.issueTag).toEqual(expected)
+        router.actions.push('/error_tracking', { issueTags: { has: ['other_tag'], hasNot: [] } })
+        router.actions.push('/error_tracking', params)
+        expect(logic.values.issueTags).toEqual(expected)
+    })
+
+    it('moves a tag between has and has not, and writes the filter to the URL in place of a legacy tag', () => {
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { issueTag: { key: 'cause_in_trace', applied: true } })
+
+        logic.actions.setIssueTagState('third_party', 'hasNot')
+        logic.actions.setIssueTagState('cause_in_trace', 'hasNot')
+        expect(logic.values.issueTags).toEqual({ has: [], hasNot: ['third_party', 'cause_in_trace'] })
+        expect(router.values.searchParams).toEqual({
+            issueTags: { has: [], hasNot: ['third_party', 'cause_in_trace'] },
+        })
+
+        logic.actions.setIssueTagState('third_party', null)
+        logic.actions.setIssueTagState('cause_in_trace', null)
+        expect(logic.values.issueTags).toBeNull()
+        expect(router.values.searchParams).toEqual({})
     })
 
     // The query ignores a tag that is not enabled, so a filter on one must not stay on screen as if it applied.
     it.each([
-        ['clears a filter on a tag that is not enabled', 'before', 'other_tag', null],
-        ['keeps a filter on an enabled tag', 'before', 'cause_in_trace', { key: 'cause_in_trace', applied: true }],
-        ['clears a filter on a tag that is not enabled', 'after', 'other_tag', null],
-        ['keeps a filter on an enabled tag', 'after', 'cause_in_trace', { key: 'cause_in_trace', applied: true }],
+        ['clears a filter on tags that are not enabled', 'before', 'other_tag', null],
+        ['keeps only the enabled tag', 'before', 'cause_in_trace', { has: ['cause_in_trace'], hasNot: [] }],
+        ['keeps only the enabled tag', 'before', 'third_party', { has: [], hasNot: ['third_party'] }],
+        ['clears a filter on tags that are not enabled', 'after', 'other_tag', null],
+        ['keeps only the enabled tag', 'after', 'cause_in_trace', { has: ['cause_in_trace'], hasNot: [] }],
+        ['keeps only the enabled tag', 'after', 'third_party', { has: [], hasNot: ['third_party'] }],
     ])('%s when the link opens %s the tag definitions load', async (_, linkOpens, enabledKey, expected) => {
         useMocks({
             get: {
@@ -126,7 +164,9 @@ describe('issueQueryOptionsLogic', () => {
         router.actions.push('/error_tracking')
         const logic = mountLogic()
         const openLink = (): void => {
-            router.actions.push('/error_tracking', { issueTag: { key: 'cause_in_trace', applied: true } })
+            router.actions.push('/error_tracking', {
+                issueTags: { has: ['cause_in_trace'], hasNot: ['third_party'] },
+            })
         }
         if (linkOpens === 'before') {
             openLink()
@@ -141,7 +181,7 @@ describe('issueQueryOptionsLogic', () => {
             openLink()
         }
 
-        expect(logic.values.issueTag).toEqual(expected)
+        expect(logic.values.issueTags).toEqual(expected)
     })
 
     // A malformed assignee reaches the query, which the backend rejects with a 400. It renders as

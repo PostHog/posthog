@@ -267,7 +267,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 SegmentCohort(name="Pro (from Resend)", cohort_id=7),
                 True,
                 {"cohort_id": {"value": 7}},
-                "also added the segment's contacts",
+                "Contacts step adds the segment's contacts",
             ),
             (
                 "no_cohort_keeps_the_step",

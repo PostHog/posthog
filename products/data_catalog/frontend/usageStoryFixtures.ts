@@ -16,7 +16,24 @@ const MORE_TOPICS = [
     'Onboarding drop-off',
     'Churn risk',
 ]
-const MORE_MEASURES = Array.from({ length: 11 }, (_, index) => `measure_${index + 1}`)
+// A scan drafts a name for each measure that it proposes, so each of these has a draft and a proposal.
+const MORE_DRAFTED_MEASURES = [
+    {
+        name: 'checkout_completions',
+        description: 'Orders that reach the end of checkout.',
+        event: 'checkout completed',
+    },
+    { name: 'seat_additions', description: 'Seats that teams add to a subscription.', event: 'seat added' },
+    { name: 'file_uploads', description: 'Files that members upload.', event: 'file uploaded' },
+    { name: 'shared_links_created', description: 'Links that members create to share a file.', event: 'link shared' },
+    { name: 'support_tickets_opened', description: 'Tickets that customers open.', event: 'ticket opened' },
+    { name: 'export_runs', description: 'Data exports that members start.', event: 'export started' },
+    { name: 'password_resets', description: 'Requests to reset a password.', event: 'password reset requested' },
+    { name: 'dashboard_views', description: 'Views of a dashboard.', event: 'dashboard viewed' },
+    { name: 'api_keys_created', description: 'API keys that members create.', event: 'api key created' },
+    { name: 'onboarding_completions', description: 'Teams that finish onboarding.', event: 'onboarding completed' },
+    { name: 'refund_requests', description: 'Refunds that customers request.', event: 'refund requested' },
+].map((draft) => ({ ...draft, definition: `SELECT count() FROM events WHERE event = '${draft.event}'` }))
 
 export const USAGE_SNAPSHOT: UsageSnapshotApi = {
     id: 'snapshot-1',
@@ -27,6 +44,7 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
     judge_model: 'claude-opus-5-5',
     computed_at: '2026-10-29T07:12:00Z',
     created_at: '2026-10-29T06:00:00Z',
+    hidden_topics: 0,
     payload: {
         metric_runs: [
             {
@@ -61,7 +79,6 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 is_scout: false,
             },
         ],
-        topic_definitions: null,
         topics: [
             {
                 title: 'Weekly signups by plan',
@@ -92,6 +109,7 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 distinct_people: 7,
                 views: 3,
                 complexity: 2,
+                priority: 0,
                 built: 64,
                 sample_sql: "SELECT sum(properties.amount) FROM events WHERE event = 'purchase'",
                 draft_name: 'purchase_revenue',
@@ -106,25 +124,27 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 distinct_people: 6,
                 views: 3,
                 complexity: 2,
+                priority: 0,
                 built: 40,
                 sample_sql: "SELECT count() FROM events WHERE event = 'signup' AND properties.plan = 'pro'",
                 draft_name: null,
                 draft_description: null,
                 draft_definition: null,
             },
-            ...MORE_MEASURES.map((name, index) => ({
+            ...MORE_DRAFTED_MEASURES.map(({ name, description, event, definition }, index) => ({
                 fingerprint_digest: `digest-${index + 2}`,
-                measure: `count() on events where event = '${name}'`,
+                measure: `count() on events where event = '${event}'`,
                 outcome: 'uncovered' as const,
                 matched_metric_id: null,
                 distinct_people: 5,
                 views: 3,
                 complexity: 2,
+                priority: 0,
                 built: 30 - index,
-                sample_sql: `SELECT count() FROM events WHERE event = '${name}'`,
-                draft_name: null,
-                draft_description: null,
-                draft_definition: null,
+                sample_sql: definition,
+                draft_name: name,
+                draft_description: description,
+                draft_definition: definition,
             })),
         ],
         proposed_metrics: [
@@ -136,6 +156,7 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 people: 14,
                 views: 40,
                 complexity: 2,
+                priority: 0,
                 built: 212,
                 charts: [
                     {
@@ -165,12 +186,28 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 people: 1,
                 views: 40,
                 complexity: 2,
+                priority: 0,
                 built: 3,
                 charts: [],
                 other_charts: 0,
                 surfaces: [],
                 agents: { people: 1, sessions: 1, runs: 3 },
             },
+            ...MORE_DRAFTED_MEASURES.map(({ name, description, definition }, index) => ({
+                name,
+                description,
+                definition,
+                measures: 1,
+                people: 5,
+                views: 3,
+                complexity: 2,
+                priority: 0,
+                built: 30 - index,
+                charts: [],
+                other_charts: 0,
+                surfaces: [],
+                agents: null,
+            })),
         ],
         failed_sections: [],
     },
@@ -182,7 +219,6 @@ export const PARTLY_FAILED_USAGE_SNAPSHOT: UsageSnapshotApi = {
         ...USAGE_SNAPSHOT.payload,
         adjusted_runs: null,
         topics: null,
-        topic_definitions: null,
         topic_sessions: null,
         table_sources: null,
         failed_sections: [

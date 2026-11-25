@@ -1,20 +1,22 @@
 """Turns a Mailgun template version into PostHog's Liquid, and says what did not carry over.
 
-Mailgun renders versions with Handlebars or Go templates, then replaces `%recipient.x%` style variables. Only plain
-values convert: `{{name}}` and `{{{name}}}` in page text or a quoted attribute value, and Go's `{{.Name}}` in page
-text. A template
-with anything else, such as a condition, a loop, a helper or a comment, or a value somewhere its engine escapes
-differently, stays as plain text with a note, so a person rewrites it. See
+Mailgun renders versions with Handlebars or Go templates, then replaces `%recipient.x%` style variables. Handlebars
+converts one tag at a time (see handlebars_liquid.py). Go converts only plain values, `{{.Name}}` in page text, and a
+Go template with anything else stays as plain text with a note, so a person rewrites it. See
 https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-templates.
 """
 
 import re
 import html
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import field
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
+
+from products.messaging.backend.provider_imports.handlebars_liquid import HandlebarsToLiquid, OutputTooLarge, TextValue
+from products.messaging.backend.provider_imports.html_context import HtmlContext
+from products.messaging.backend.provider_imports.sendgrid_handlebars import _Malformed, _parse_nodes, _tokenize
 
 _MAX_NOTED_TAGS = 5
 # Liquid can't parse a longer template.
@@ -23,19 +25,18 @@ _OPENING = re.compile(r"\{[{%]")
 # Each converted value is about a hundred characters, so more than this can't fit what Liquid parses anyway.
 _MAX_VALUES = 40_000
 _TAG = re.compile(r"\{\{(?:(?!\{\{).){0,200}?\}\}\}?", re.DOTALL)
-_HANDLEBARS_VALUE = re.compile(r"\{\{(\{)?\s*([A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*)\s*(\})?\}\}")
 _GO_VALUE = re.compile(r"\{\{\s*\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\}\}")
-_RESERVED = frozenset({"else", "this", "true", "false", "null", "undefined"})
 _RECIPIENT_VARIABLE = re.compile(r"%recipient\.([A-Za-z_][\w-]{0,127})%")
 _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
+# Liquid reads these as properties of any list or object, such as how many variables the send has, where Mailgun
+# finds nothing.
+_LIQUID_PROPERTIES = frozenset({"size", "first", "last"})
 _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailing_list_unsubscribe_url"})
-# Elements whose content isn't page text, so a value inside one is escaped some other way.
-_RAW_ELEMENTS = frozenset(
-    {"script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"}
-)
+_MAILGUN_VARIABLE = re.compile(f"{_FIXED_VARIABLE.pattern}|{_RECIPIENT_VARIABLE.pattern}")
+_FIXED_UNSUBSCRIBE = re.compile(r"%(?:unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url)%")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
 
@@ -54,6 +55,7 @@ class ConvertedText:
     list_unsubscribe: bool = False
     unsubscribe_email: bool = False
     too_large: bool = False
+    malformed: bool = False
 
 
 @frozen
@@ -78,7 +80,55 @@ def detect_engine(version: Mapping[str, Any]) -> Engine:
 def convert_text(text: str | None, *, engine: Engine = "handlebars", is_html: bool = True) -> ConvertedText:
     if not text:
         return ConvertedText(text="")
-    return _Converter(text.replace("\x00", ""), engine, is_html).convert()
+    text = text.replace("\x00", "")
+    if _too_many_values(text):
+        return ConvertedText(text=_as_text(text, is_html), has_tags=True, too_large=True)
+    if engine == "go":
+        return _GoConverter(text, is_html).convert()
+    return _convert_handlebars(text, is_html)
+
+
+def _too_many_values(text: str) -> bool:
+    return text.count("{{") + text.count("%") // 2 > _MAX_VALUES
+
+
+def _split_mailgun_variables(text: str) -> Iterator[str | TextValue]:
+    """The `%recipient.x%` style variables Mailgun replaces after Handlebars runs."""
+    position = 0
+    for match in _MAILGUN_VARIABLE.finditer(text):
+        name = match[1]
+        yield text[position : match.start()]
+        position = match.end()
+        if name == "unsubscribe_email":
+            yield match.group(0)
+        elif name in _UNSUBSCRIBE_URLS:
+            yield TextValue(source=match.group(0), in_attribute=True, liquid="{{ unsubscribe_url }}")
+        elif match[2] in _LIQUID_PROPERTIES:
+            yield TextValue(source=match.group(0), in_attribute=True)
+        else:
+            yield TextValue(source=match.group(0), in_attribute=True, value_path=f"variables.{name or match[2]}")
+    yield text[position:]
+
+
+def _convert_handlebars(text: str, is_html: bool) -> ConvertedText:
+    converter = HandlebarsToLiquid(is_html=is_html, dialect="mailgun", split_text=_split_mailgun_variables)
+    try:
+        converted = converter.convert(_parse_nodes(_tokenize(text, is_html)))
+    except _Malformed:
+        return ConvertedText(text=_as_text(text, is_html), has_tags=True, malformed=True)
+    except OutputTooLarge:
+        return ConvertedText(text=_as_text(text, is_html), has_tags=True, too_large=True)
+    # Only the variables that converted need a value from the app or point at PostHog's preferences page.
+    done = converter.converted
+    return ConvertedText(
+        text=converted,
+        recipient_variables=tuple(dict.fromkeys(tag for tag in done if not _FIXED_UNSUBSCRIBE.fullmatch(tag))),
+        unsupported=tuple(converter.unsupported),
+        has_tags="{{" in text,
+        tag_unsubscribe="%tag_unsubscribe_url%" in done,
+        list_unsubscribe="%mailing_list_unsubscribe_url%" in done,
+        unsubscribe_email="%unsubscribe_email%" in text,
+    )
 
 
 def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
@@ -98,10 +148,18 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if unsupported := list(dict.fromkeys(tag for part in parts for tag in part.unsupported)):
         shown = ", ".join(unsupported[:_MAX_NOTED_TAGS])
         more = f" and {len(unsupported) - _MAX_NOTED_TAGS} more" if len(unsupported) > _MAX_NOTED_TAGS else ""
-        notes.append(
-            f"PostHog only converts plain values, such as {{{{name}}}}, and this template uses {shown}{more}. It "
-            "appears as plain text, so rewrite it in Liquid."
-        )
+        if engine == "go":
+            notes.append(
+                f"PostHog only converts plain values, such as {{{{.Name}}}}, and this template uses {shown}{more}. It "
+                "appears as plain text, so rewrite it in Liquid."
+            )
+        else:
+            them = "it" if len(unsupported) == 1 else "them"
+            notes.append(
+                f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
+            )
+    if any(part.malformed for part in parts):
+        notes.append("This template isn't valid Handlebars, so it appears as plain text. Rewrite it in Liquid.")
     if any(part.too_large for part in parts):
         notes.append("This template is too large to convert, so it appears as plain text. Rewrite it in Liquid.")
     if engine == "go":
@@ -153,8 +211,6 @@ class _Value:
     end: int
     source: str
     liquid: str
-    # Raw output can only go in page text, where Handlebars pastes it as HTML too.
-    raw: bool = False
 
 
 class _Unsupported(Exception):
@@ -163,10 +219,11 @@ class _Unsupported(Exception):
         self.source = source
 
 
-class _Converter:
-    def __init__(self, text: str, engine: Engine, is_html: bool) -> None:
+class _GoConverter:
+    """Converts a Go template, which only converts as a whole."""
+
+    def __init__(self, text: str, is_html: bool) -> None:
         self.text = text
-        self.engine = engine
         self.is_html = is_html
         self.recipient_variables: list[str] = []
         self.tag_unsubscribe = False
@@ -175,14 +232,12 @@ class _Converter:
         self.go_kinds: dict[str, str] = {}
 
     def convert(self) -> ConvertedText:
-        if self.text.count("{{") + self.text.count("%") // 2 > _MAX_VALUES:
-            return ConvertedText(text=self._as_text(), has_tags=True, too_large=True)
         try:
             values = self._values()
             if self.is_html:
                 self._check_contexts(values)
         except _Unsupported as e:
-            return ConvertedText(text=self._as_text(), unsupported=(e.source,), has_tags=True)
+            return ConvertedText(text=_as_text(self.text, self.is_html), unsupported=(e.source,), has_tags=True)
         out: list[str] = []
         cursor = 0
         for value in values:
@@ -194,7 +249,7 @@ class _Converter:
         converted = setup + "".join(out)
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
         if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
-            return ConvertedText(text=self._as_text(), has_tags=True, too_large=True)
+            return ConvertedText(text=_as_text(self.text, self.is_html), has_tags=True, too_large=True)
         return ConvertedText(
             text=converted,
             recipient_variables=tuple(dict.fromkeys(self.recipient_variables)),
@@ -210,20 +265,12 @@ class _Converter:
         position = 0
         while (opening := self.text.find("{{", position)) >= 0:
             tag = _TAG.match(self.text, opening)
-            value = self._tag_value(tag.group(0)) if tag else None
-            # Handlebars prints a tag after a backslash as it's written.
-            escaped = self.engine == "handlebars" and self.text[opening - 1 : opening] == "\\"
-            if tag is None or value is None or escaped:
+            go = _GO_VALUE.fullmatch(tag.group(0)) if tag else None
+            if tag is None or go is None or _LIQUID_PROPERTIES.intersection(go[1].split(".")):
                 shown = tag.group(0) if tag else self.text[opening : opening + 60].split("\n", 1)[0]
                 raise _Unsupported(shown)
             values.append(
-                _Value(
-                    start=opening,
-                    end=tag.end(),
-                    source=tag.group(0),
-                    liquid=value,
-                    raw=tag.group(0).startswith("{{{"),
-                )
+                _Value(start=opening, end=tag.end(), source=tag.group(0), liquid=self._value(f"variables.{go[1]}"))
             )
             position = tag.end()
         for match in _FIXED_VARIABLE.finditer(self.text):
@@ -231,6 +278,8 @@ class _Converter:
                 _Value(start=match.start(), end=match.end(), source=match.group(0), liquid=self._fixed_variable(match))
             )
         for match in _RECIPIENT_VARIABLE.finditer(self.text):
+            if match[1] in _LIQUID_PROPERTIES:
+                raise _Unsupported(match.group(0))
             self.recipient_variables.append(match.group(0))
             values.append(
                 _Value(
@@ -244,16 +293,6 @@ class _Converter:
         if any(previous.end > value.start for previous, value in zip(values, values[1:])):
             raise _Unsupported("a Mailgun variable inside braces")
         return values
-
-    def _tag_value(self, tag: str) -> str | None:
-        if self.engine == "go":
-            go = _GO_VALUE.fullmatch(tag)
-            return self._value(f"variables.{go[1]}") if go else None
-        match = _HANDLEBARS_VALUE.fullmatch(tag)
-        if match is None or bool(match[1]) != bool(match[3]) or match[2].split(".")[0] in _RESERVED:
-            return None
-        path = f"variables.{match[2]}"
-        return f"{{{{ {path} | raw }}}}" if match[1] and self.is_html else self._value(path)
 
     def _fixed_variable(self, match: re.Match[str]) -> str:
         name = match[1]
@@ -271,9 +310,6 @@ class _Converter:
 
     def _value(self, path: str) -> str:
         show = _escaped if self.is_html else (lambda shown: f"{{{{ {shown} }}}}")
-        if self.engine == "handlebars":
-            # Handlebars prints a list with commas between its items, and `join` leaves any other value as it is.
-            return show(f'{path} | join: ","')
         # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is. Each value's
         # answer is worked out once, at the top of the template, so every use can read it.
         kind = self.go_kinds.setdefault(path, f"go_value{len(self.go_kinds) + 1}")
@@ -285,33 +321,26 @@ class _Converter:
         )
 
     def _check_contexts(self, values: list[_Value]) -> None:
-        """Raises _Unsupported for a value anywhere but page text or a quoted attribute value its engine escapes the
-        way Liquid does."""
-        tracker = _HtmlTracker(self.text)
+        """Raises _Unsupported for a value anywhere but page text. Go escapes an attribute value by what the attribute
+        holds, such as a link, and Liquid can't."""
+        context = HtmlContext()
+        cursor = 0
         for value in values:
-            where = tracker.advance(value.start)
-            # A script's end can hide inside a comment or a string in it, so nothing after one opens is trusted.
-            if tracker.script_opened:
+            context.feed(self.text[cursor : value.start])
+            if context.untrusted:
                 raise _Unsupported(f"{value.source} after a script")
-            if where == "text":
-                continue
-            if where == "value" and not value.raw and self._plain_attribute(tracker.attribute):
-                tracker.skip(value.end)
-                continue
-            raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
+            if (where := context.where()) != "text":
+                raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
+            context.feed("x")
+            cursor = value.end
 
-    def _plain_attribute(self, name: str) -> bool:
-        if name.startswith("on") or name in ("style", "srcset"):
-            return False
-        # Go escapes an attribute value by what the attribute holds, such as a link, and Liquid can't.
-        return self.engine == "handlebars"
 
-    def _as_text(self) -> str:
-        """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
-        # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses,
-        # and a huge template is cut before it's copied.
-        source = self.text[: _MAX_OUTPUT_CHARS // 5]
-        return _literal(html.escape(source, quote=False) if self.is_html else source)
+def _as_text(text: str, is_html: bool) -> str:
+    """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
+    # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses, and a
+    # huge template is cut before it's copied.
+    source = text[: _MAX_OUTPUT_CHARS // 5]
+    return _literal(html.escape(source, quote=False) if is_html else source)
 
 
 _PLACES = {
@@ -321,126 +350,9 @@ _PLACES = {
 }
 
 
-class _HtmlTracker:
-    """Follows where the text sits in HTML, the way a browser reads it, so a value's place is known."""
-
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.position = 0
-        self.state = "text"
-        self.attribute = ""
-        self.tag_name = ""
-        self.closing = False
-        self.raw_element = ""
-        self.script_opened = False
-
-    def skip(self, position: int) -> None:
-        self.position = position
-
-    def advance(self, target: int) -> str:
-        """Reads up to `target` and says where it is: text, value, raw, comment or tag."""
-        text = self.text
-        while self.position < target:
-            i = self.position
-            state = self.state
-            if state == "text":
-                opening = text.find("<", i, target)
-                if opening < 0:
-                    self.position = target
-                    break
-                self.position = opening + 1
-                self._open(opening)
-            elif state == "raw":
-                found = _find_end_tag(text, self.raw_element, i)
-                if found < 0 or found >= target:
-                    self.position = target
-                    break
-                self.position = found + 2
-                self.state, self.tag_name, self.closing = "tag_name", "", True
-            elif state in ("comment", "bogus"):
-                end = "-->" if state == "comment" else ">"
-                found = text.find(end, i)
-                if found < 0 or found >= target:
-                    self.position = target
-                    break
-                self.position = found + len(end)
-                self.state = "text"
-            elif state in ("dq", "sq"):
-                quote = '"' if state == "dq" else "'"
-                found = text.find(quote, i, target)
-                if found < 0:
-                    self.position = target
-                    break
-                self.position = found + 1
-                self.state = "before_attribute"
-            else:
-                self._tag_character(text[i])
-                self.position = i + 1
-        return {"dq": "value", "sq": "value", "text": "text", "raw": "raw", "comment": "comment"}.get(self.state, "tag")
-
-    def _open(self, opening: int) -> None:
-        rest = self.text[opening + 1 : opening + 4]
-        if rest.startswith("!--"):
-            self.position = opening + 4
-            self.state = "comment"
-        elif rest[:1].isalpha():
-            self.state, self.tag_name, self.closing = "tag_name", "", False
-        elif rest[:1] == "/" and rest[1:2].isalpha():
-            self.position = opening + 2
-            self.state, self.tag_name, self.closing = "tag_name", "", True
-        elif rest[:1] in ("!", "?", "/"):
-            self.state = "bogus"
-
-    def _tag_character(self, character: str) -> None:
-        state = self.state
-        if character == ">":
-            opened_raw = not self.closing and self.tag_name in _RAW_ELEMENTS
-            self.state = "raw" if opened_raw else "text"
-            self.raw_element = self.tag_name if opened_raw else ""
-            self.script_opened = self.script_opened or (opened_raw and self.tag_name == "script")
-            return
-        if state == "tag_name":
-            if character.isspace() or character == "/":
-                self.state = "before_attribute"
-            else:
-                self.tag_name = (self.tag_name + character.lower())[:20]
-        elif state == "before_attribute":
-            if not character.isspace() and character != "/":
-                self.state, self.attribute = "attribute", character.lower()
-        elif state == "attribute":
-            if character == "=":
-                self.state = "before_value"
-            elif character.isspace():
-                self.state = "after_attribute"
-            elif character == "/":
-                self.state = "before_attribute"
-            else:
-                self.attribute = (self.attribute + character.lower())[:40]
-        elif state == "after_attribute":
-            if character == "=":
-                self.state = "before_value"
-            elif not character.isspace() and character != "/":
-                self.state, self.attribute = "attribute", character.lower()
-        elif state == "before_value":
-            if character == '"':
-                self.state = "dq"
-            elif character == "'":
-                self.state = "sq"
-            elif not character.isspace():
-                self.state = "unquoted"
-        elif state == "unquoted" and character.isspace():
-            self.state = "before_attribute"
-
-
-def _find_end_tag(text: str, name: str, start: int) -> int:
-    pattern = re.compile(rf"</{re.escape(name)}[\s/>]", re.IGNORECASE)
-    match = pattern.search(text, start)
-    return match.start() if match else -1
-
-
 def _escaped(path: str) -> str:
     # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
-    return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
+    return f'{{{{ {path} | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}}}'
 
 
 def _append(out: list[str], chunk: str) -> None:

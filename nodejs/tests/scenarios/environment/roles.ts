@@ -66,6 +66,9 @@ export function roleSpecs(
         AWS_PROFILE: _profile,
         SCENARIO_POOLER_URLS: poolerUrls,
         CDP_RATE_LIMITER_REFILL_RATE: _refillRate,
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: _sesRefill,
+        CDP_SES_RATE_LIMIT_CAPACITY: _sesCapacity,
+        CONSUMER_BATCH_SIZE: _batchSize,
         ...inherited
     } = base
     const poolers = poolerUrls ? poolerUrls.split(',') : []

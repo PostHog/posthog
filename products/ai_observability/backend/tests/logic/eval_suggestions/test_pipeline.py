@@ -31,6 +31,7 @@ from products.ai_observability.backend.logic.eval_suggestions.coverage import (
     ExistingEval,
     earlier_review_cards,
 )
+from products.ai_observability.backend.logic.eval_suggestions.eligibility import set_suggestions_turned_off
 from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
@@ -737,14 +738,16 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch.object(pipeline, "runs_for_organization", return_value=False)
+    @parameterized.expand([("organization_out_of_the_rollout", False, False), ("project_turned_off", True, True)])
     @patch.object(pipeline.coverage_stage, "fetch_coverage")
-    def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
-        self, fetch_coverage: MagicMock, _flag: MagicMock
+    def test_a_queued_run_that_may_no_longer_run_does_nothing(
+        self, _name: str, in_rollout: bool, turned_off: bool, fetch_coverage: MagicMock
     ) -> None:
         run = create_run(self.team, "scheduled")
+        set_suggestions_turned_off(self.team, turned_off)
 
-        assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
+        with patch.object(pipeline, "runs_for_organization", return_value=in_rollout):
+            assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED
@@ -773,6 +776,16 @@ class TestRunRecords(BaseTest):
                 "no gateway route to calibrate judges on unrouted-model",
                 "unrouted-model",
             ),
+            (
+                "turned_off_while_the_run_works",
+                True,
+                SuggestionSettings(llm_drafting=True),
+                True,
+                None,
+                "turned off by the project",
+                "gpt-5-mini",
+                True,
+            ),
         ]
     )
     def test_the_review_runs_only_when_allowed_and_in_time(
@@ -784,9 +797,11 @@ class TestRunRecords(BaseTest):
         deadline: float | None,
         detail: str,
         judge_model: str = "gpt-5-mini",
+        turned_off: bool = False,
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
+        set_suggestions_turned_off(self.team, turned_off)
         run = create_run(self.team, "scheduled")
         handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
