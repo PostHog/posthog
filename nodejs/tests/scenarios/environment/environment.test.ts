@@ -1331,12 +1331,12 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
             if (args[0] === 'ps') {
-                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.Label "com.docker.compose.service"}}']
+                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.Label "com.docker.compose.service"}} {{.State}}']
                 if (args.slice(1).join(' ') !== lists.join(' ')) {
                     process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
                     process.exit(125)
                 }
-                process.stdout.write((stack.services || ['kafka', 'db']).join('\\n') + '\\n')
+                process.stdout.write((stack.services || ['kafka running', 'db running']).join('\\n') + '\\n')
                 process.exit(0)
             }
             if (args.join(' ') === 'volume ls --format {{.Name}}') {
@@ -1743,7 +1743,7 @@ describe('scenario environment', () => {
             writeStack({
                 running: false,
                 ready: false,
-                services: ['kafka', 'db', 'clickhouse'],
+                services: ['kafka running', 'db running', 'clickhouse running'],
                 volumes: ['posthog_clickhouse-data'],
             })
             const said = jest.spyOn(process.stderr, 'write')
@@ -1760,28 +1760,33 @@ describe('scenario environment', () => {
             }
         }, 30_000)
 
-        it('refuses to keep a ClickHouse container whose data is not on its named volume yet, before hogli starts anything', async () => {
-            writeStack({
-                running: false,
-                ready: false,
-                services: ['db', 'clickhouse'],
-                volumes: ['posthog_postgres-15-data'],
-            })
-            environment = environmentOf()
+        it.each([
+            [
+                'a container that is not running, which would start with its old mounts',
+                ['db running', 'clickhouse exited'],
+                ['posthog_clickhouse-data'],
+                'The dev services clickhouse have containers that are not running',
+            ],
+            [
+                'a ClickHouse container whose data is not on its named volume yet',
+                ['db running', 'clickhouse running'],
+                ['posthog_postgres-15-data'],
+                'The dev services clickhouse still keep their data on anonymous volumes',
+            ],
+        ])(
+            'refuses to keep %s, before hogli starts anything',
+            async (_case, services, volumes, refusal) => {
+                writeStack({ running: false, ready: false, services, volumes })
+                environment = environmentOf()
 
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
-                name: 'StackNotReadyError',
-                message: expect.stringContaining(
-                    'The dev services clickhouse still keep their data on anonymous volumes'
-                ),
-            })
-            expect(stackOf()).toEqual({
-                running: false,
-                ready: false,
-                services: ['db', 'clickhouse'],
-                volumes: ['posthog_postgres-15-data'],
-            })
-        }, 30_000)
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    name: 'StackNotReadyError',
+                    message: expect.stringContaining(refusal),
+                })
+                expect(stackOf()).toMatchObject({ running: false, ready: false })
+            },
+            30_000
+        )
 
         it.each([
             ['stop on SIGTERM', false],

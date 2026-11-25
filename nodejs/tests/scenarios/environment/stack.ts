@@ -97,9 +97,9 @@ const STACK_UNITS = {
 const COMPOSE_BASE = String.raw`docker compose -p [\w.-]+ -f docker-compose\.dev\.yml -f docker-compose\.profiles\.yml(?: --profile [\w-]+)*`
 const ECHO = String.raw`echo "[^"$\x60\\]*"`
 const GENERATED_COMPOSE_SHELL = new RegExp(
-    String.raw`^((?:echo '[^']*' && )?if \[ "\$\{POSTHOG_SANDBOX:-\}" = "1" \]; then ${ECHO} && echo "docker-compose ready" && sleep infinity; else ${COMPOSE_BASE})` +
+    String.raw`^(?<head>(?:echo '[^']*' && )?if \[ "\$\{POSTHOG_SANDBOX:-\}" = "1" \]; then ${ECHO} && echo "docker-compose ready" && sleep infinity; else (?<compose>${COMPOSE_BASE}))` +
         String.raw` up --pull always -d ` +
-        String.raw`(\|\| \{ ${ECHO}; exit 1; \} && echo "docker-compose ready" && ${COMPOSE_BASE} logs --tail=100 -f; fi)$`
+        String.raw`(?<tail>\|\| \{ ${ECHO}; exit 1; \} && echo "docker-compose ready" && \k<compose> logs --tail=100 -f; fi)$`
 )
 const KEEPING_COMPOSE_UP = ' up --pull always --no-recreate -d '
 
@@ -130,7 +130,7 @@ export function keepRunningContainers(mprocsYaml: string): string {
             `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}${otherKeys.length > 0 ? `; its other keys: ${otherKeys.join(', ')}` : ''}`
         )
     }
-    compose.shell = generated[1] + KEEPING_COMPOSE_UP + generated[2]
+    compose.shell = generated.groups!.head + KEEPING_COMPOSE_UP + generated.groups!.tail
     return stringify(config, { lineWidth: 0 })
 }
 
@@ -156,7 +156,13 @@ export async function onAnonymousVolumes(
     return moving.filter((service) => !volumes.has(`${project}_${NAMED_VOLUMES[service]}`))
 }
 
-export async function existingServices(docker: string, project: string, signal?: AbortSignal): Promise<string[]> {
+export type ExistingServices = { running: string[]; stopped: string[] }
+
+export async function existingServices(
+    docker: string,
+    project: string,
+    signal?: AbortSignal
+): Promise<ExistingServices> {
     const { stdout } = await promisify(execFile)(
         docker,
         [
@@ -167,11 +173,21 @@ export async function existingServices(docker: string, project: string, signal?:
             '--filter',
             'label=com.docker.compose.oneoff=False',
             '--format',
-            '{{.Label "com.docker.compose.service"}}',
+            '{{.Label "com.docker.compose.service"}} {{.State}}',
         ],
         { timeout: 10_000, signal }
     )
-    return [...new Set(stdout.split('\n').filter((service) => service !== ''))].sort()
+    const running = new Set<string>()
+    const stopped = new Set<string>()
+    for (const line of stdout.split('\n')) {
+        const [service, state] = line.split(' ')
+        if (service && state === 'running') {
+            running.add(service)
+        } else if (service) {
+            stopped.add(service)
+        }
+    }
+    return { running: [...running].filter((service) => !stopped.has(service)).sort(), stopped: [...stopped].sort() }
 }
 
 export async function startStack(
@@ -195,7 +211,12 @@ export async function startStack(
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
     writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
     const project = env.COMPOSE_PROJECT_NAME || 'posthog'
-    const kept = await existingServices(docker, project, signal)
+    const { running: kept, stopped } = await existingServices(docker, project, signal)
+    if (stopped.length > 0) {
+        throw new StackNotReadyError(
+            `The dev services ${stopped.join(', ')} have containers that are not running. The runner keeps only running services, because a stopped container starts again with the mounts of the worktree that made it and the volumes it had. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, or start the stack with \`hogli start\` while no other worktree uses it, then run again.`
+        )
+    }
     const unmoved = await onAnonymousVolumes(docker, project, kept, signal)
     if (unmoved.length > 0) {
         throw new StackNotReadyError(

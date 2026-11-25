@@ -83,6 +83,12 @@ describe('keepRunningContainers', () => {
                     '  docker-compose:\n    <<: *compose\n'
                 ),
         ],
+        [
+            'its logs tailed from another project',
+            generatedConfig(
+                `${SANDBOX}${COMPOSE} up --pull always -d || { echo "docker compose up failed"; exit 1; } && echo "docker-compose ready" && ${COMPOSE.replace('-p posthog', '-p other')} logs --tail=100 -f; fi`
+            ),
+        ],
         ['no docker-compose proc', 'procs:\n  backend:\n    shell: bin/start-backend\n'],
         ['nothing in it', ''],
         ['YAML that does not parse', 'procs:\n  docker-compose: [\n'],
