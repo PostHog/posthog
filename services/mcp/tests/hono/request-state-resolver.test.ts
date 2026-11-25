@@ -158,7 +158,7 @@ vi.mock('@/hono/request-context', async () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_SERVED_SKILLS_LIST_FLAG } from '@/hono/constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
@@ -631,7 +631,6 @@ describe('RequestStateResolver MCP client contexts', () => {
         MCP_INTERVIEW_RECRUITMENT_FLAG,
         MCP_INTENT_PROMPT_FLAG,
         MCP_CURSOR_EXEC_MODE_FLAG,
-        MCP_SERVED_SKILLS_LIST_FLAG,
         'flag-only-a-served-skill-names',
     ])('evaluates %s even though no generated tool declares it', async (flag) => {
         const servedSkillFlags = vi

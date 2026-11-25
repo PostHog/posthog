@@ -12,11 +12,8 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import {
-    MCP_EXEC_SKILLS_FEATURE_FLAG,
-    MCP_SERVED_SKILLS_LIST_FLAG,
-    MCP_TIME_SERIES_CHARTS_FLAG,
-} from '@/hono/constants'
+import servedSkillsJson from '@/generated/served-skills.json'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog, toMcpInputSchema } from '@/hono/tool-catalog'
@@ -34,6 +31,10 @@ import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { makeToolExecutorState, mockApi } from '../shared/test-utils'
+
+const OPEN_SERVED_SKILL = (
+    Object.entries(servedSkillsJson.skills) as [string, { feature_flag?: string; consumers?: string[] }][]
+).find(([, entry]) => !entry.feature_flag && !entry.consumers)![0]
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -304,6 +305,7 @@ describe('ToolExecutor', () => {
                 ])
                 const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
                     getCatalog: () => skills,
+                    isInRelease: (name: string) => skills.has(name),
                 } as any)
                 const useExec = mode === 'exec'
                 // Exec dispatches through the real tool objects, so the roster has to
@@ -343,7 +345,7 @@ describe('ToolExecutor', () => {
             const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
             const state = makeToolExecutorState(tools as any, {
                 useSingleExec: true,
-                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_SERVED_SKILLS_LIST_FLAG]: true },
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
                 context: skillMissContext(unlistedSkill, `{"detail":"Skill with name '${unlistedSkill}' not found."}`),
             })
 
@@ -505,7 +507,7 @@ describe('ToolExecutor', () => {
             async ({ isClaudeChatHost, skillsEnabled, consumer, expectGuides, expectSkills }) => {
                 const skills = new SkillCatalog([
                     {
-                        name: 'sample-skill',
+                        name: OPEN_SERVED_SKILL,
                         description: 'A sample skill.',
                         files: [makeSkillFile('SKILL.md', '# Sample skill')],
                     },
@@ -814,7 +816,7 @@ describe('ToolExecutor', () => {
             async ({ skillsEnabled, consumer, expectLearn }) => {
                 const skills = new SkillCatalog([
                     {
-                        name: 'sample-skill',
+                        name: OPEN_SERVED_SKILL,
                         description: 'A sample skill.',
                         files: [makeSkillFile('SKILL.md', '# Sample skill')],
                     },
@@ -844,14 +846,14 @@ describe('ToolExecutor', () => {
 
                 const call = (command: string): Promise<{ content: { text: string }[]; isError?: boolean }> =>
                     skillExecutor.handleToolCall({ name: 'learn', arguments: { command } }, state) as any
-                const result = await call('posthog:sample-skill')
+                const result = await call(`posthog:${OPEN_SERVED_SKILL}`)
                 if (!expectLearn) {
                     expect(result.isError).toBe(true)
                     expect(result.content[0]!.text).toBe('Tool learn not found')
                     return
                 }
                 expect(result.content[0]!.text).toContain('# Sample skill')
-                expect((await call('learn posthog:sample-skill')).content[0]!.text).toContain('# Sample skill')
+                expect((await call(`learn posthog:${OPEN_SERVED_SKILL}`)).content[0]!.text).toContain('# Sample skill')
             }
         )
 

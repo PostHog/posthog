@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_SERVED_SKILLS_LIST_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -51,25 +51,22 @@ describe('ToolExecutor served skills', () => {
         (await skillExecutor().handleToolCall({ name: 'exec', arguments: { command } }, state)) as any
 
     it.each([
-        { label: 'an unlisted skill before the rollout', skill: unlistedSkill, rollout: false, served: true },
-        { label: 'a listed skill', skill: openSkill, rollout: true, served: true },
-        { label: 'an unlisted skill', skill: unlistedSkill, rollout: true, served: false },
-        { label: 'a gated skill without its flag', skill: gatedSkill, rollout: true, served: false },
-        { label: 'a gated skill with its flag', skill: gatedSkill, rollout: true, gateOn: true, served: true },
-        { label: 'a consumer skill to another caller', skill: scopedSkill, rollout: true, served: false },
+        { label: 'a listed skill', skill: openSkill, served: true },
+        { label: 'an unlisted skill', skill: unlistedSkill, served: false },
+        { label: 'a gated skill without its flag', skill: gatedSkill, served: false },
+        { label: 'a gated skill with its flag', skill: gatedSkill, gateOn: true, served: true },
+        { label: 'a consumer skill to another caller', skill: scopedSkill, served: false },
         {
             label: 'a consumer skill to its consumer',
             skill: scopedSkill,
-            rollout: true,
             consumer: consumers[0],
             served: true,
         },
-    ])('learn serves $label: $served', async ({ skill, rollout, gateOn, consumer, served }) => {
+    ])('learn serves $label: $served', async ({ skill, gateOn, consumer, served }) => {
         const state = makeToolExecutorState([], {
             useSingleExec: true,
             toolFeatureFlags: {
                 [MCP_EXEC_SKILLS_FEATURE_FLAG]: true,
-                [MCP_SERVED_SKILLS_LIST_FLAG]: rollout,
                 ...(gateOn ? { [gate]: true } : {}),
             },
             ...(consumer

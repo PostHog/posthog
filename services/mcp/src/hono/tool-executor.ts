@@ -78,7 +78,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
-import { MCP_SERVED_SKILLS_LIST_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
+import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -1026,12 +1026,10 @@ export class ToolExecutor {
     }
 
     private servedSkillCatalog(state: ResolvedState): SkillCatalog | undefined {
-        const catalog = this.skillCatalogService?.getCatalog()
-        if (!catalog || state.toolFeatureFlags?.[MCP_SERVED_SKILLS_LIST_FLAG] !== true) {
-            return catalog
-        }
         const consumer = getEffectiveMCPClientContext(state.requestContext, state.sessionContext).mcpConsumer
-        return catalog.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
+        return this.skillCatalogService
+            ?.getCatalog()
+            ?.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
     }
 
     /**
@@ -1049,9 +1047,10 @@ export class ToolExecutor {
      */
     private builtInSkillHint(state: ResolvedState): BuiltInSkillHint {
         const learnAvailable = this.instructionsBuilder.execSkillsEnabled(state)
-        const catalog = learnAvailable ? this.servedSkillCatalog(state) : this.skillCatalogService?.getCatalog()
+        const served = learnAvailable ? this.servedSkillCatalog(state) : undefined
         return {
-            isBuiltIn: (name) => catalog?.has(name) === true,
+            isBuiltIn: (name) =>
+                learnAvailable ? served?.has(name) === true : this.skillCatalogService?.isInRelease(name) === true,
             learnAvailable,
         }
     }
