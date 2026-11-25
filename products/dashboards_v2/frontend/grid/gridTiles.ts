@@ -14,7 +14,37 @@ function minWidthOf(tile: Tile, sizeOf: SizeOf): number {
     if (!isSection(tile)) {
         return minW
     }
-    return Math.max(minW, ...tile.widget.tiles.map((inner) => inner.place.x + inner.place.w))
+    // Narrowing a section scales its tiles down, so it is only as narrow as its narrowest-allowed tile.
+    return Math.max(minW, ...tile.widget.tiles.map((inner) => minWidthOf(inner, sizeOf)))
+}
+
+/** Scales rather than reflows, during a resize and after it, so the tiles land where they were drawn. */
+export function resizeSection(tile: Tile, w: number, sizeOf: SizeOf): Tile {
+    if (!isSection(tile) || tile.place.w === w) {
+        return tile
+    }
+    const tiles = settleGrid(scaleTiles(tile.widget.tiles, tile.place.w, w, sizeOf), w, sizeOf)
+    return { ...tile, place: { ...tile.place, w }, widget: { ...tile.widget, tiles } }
+}
+
+function scaleTiles(tiles: Tile[], from: number, to: number, sizeOf: SizeOf): Tile[] {
+    if (from === to) {
+        return tiles
+    }
+    return tiles.map((tile) => {
+        const x = Math.round((tile.place.x * to) / from)
+        const right = Math.round(((tile.place.x + tile.place.w) * to) / from)
+        const w = Math.min(to, Math.max(right - x, minWidthOf(tile, sizeOf), 1))
+        const scaled = { ...tile, place: { ...tile.place, x: Math.min(x, to - w), w } }
+        if (!isSection(tile)) {
+            return scaled
+        }
+        return { ...scaled, widget: { ...tile.widget, tiles: scaleTiles(tile.widget.tiles, tile.place.w, w, sizeOf) } }
+    })
+}
+
+export function inReadingOrder(tiles: Tile[]): Tile[] {
+    return [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
 }
 
 export function toPlacedItems(tiles: Tile[], sizeOf: SizeOf): PlacedItem[] {
@@ -62,9 +92,35 @@ export function settleGrid(tiles: Tile[], cols: number, sizeOf: SizeOf): Tile[] 
     return withPlaces(sized, placeTiles(toPlacedItems(sized, sizeOf), cols))
 }
 
+/** A tile wider than its column keeps its minimum width, and settling moves what it overlaps down. */
+export function arrangeInColumns(tiles: Tile[], cols: number, columns: number, sizeOf: SizeOf): Tile[] {
+    const count = Math.max(1, Math.min(columns, cols))
+    const widths = Array.from(
+        { length: count },
+        (_, index) => Math.floor(cols / count) + (index < cols % count ? 1 : 0)
+    )
+    const ordered = inReadingOrder(tiles)
+    let y = 0
+    let rowHeight = 0
+    return ordered.map((tile, index) => {
+        const column = index % count
+        if (column === 0) {
+            y += rowHeight
+            rowHeight = 0
+        }
+        rowHeight = Math.max(rowHeight, tile.place.h)
+        const w = Math.min(cols, Math.max(widths[column], minWidthOf(tile, sizeOf)))
+        const x = Math.min(
+            cols - w,
+            widths.slice(0, column).reduce((sum, width) => sum + width, 0)
+        )
+        return { ...tile, place: { x, y, w, h: tile.place.h } }
+    })
+}
+
 /** Every tile full width, one under another in reading order: top to bottom, then left to right. */
 export function stackTiles(tiles: Tile[], cols: number, sizeOf: SizeOf): Tile[] {
-    const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
+    const ordered = inReadingOrder(tiles)
     let y = 0
     return ordered.map((tile) => {
         const stacked = isSection(tile)

@@ -153,6 +153,9 @@ export function createTileMountScheduler(): TileMountScheduler {
 /** Left out, every tile mounts its content, so a grid rendered outside a dashboard still draws everything. */
 export const TileMountContext = createContext<TileMountScheduler | null>(null)
 
+/** The tile being captured as an image. It and everything inside it mount, whatever the scheduler says. */
+export const CapturingTileContext = createContext<string | null>(null)
+
 /** Whether the tile around `ref` should mount its content now. */
 export function useTileMounted(ref: RefObject<Element>): boolean {
     const scheduler = useContext(TileMountContext)

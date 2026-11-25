@@ -69,7 +69,7 @@ An entry that says a flag is noisy, an alert is snoozed, an issue is fixed or a 
 Distillation comes first in every run and gets most of the run.
 Across a week of runs, expect hygiene to be about a quarter of the work.
 
-1. Distill (_Read the feedback_): the new feedback, then the candidates, then a look back at one subject when the new feedback was thin.
+1. Distill (_Read the feedback_): the new feedback, a look back at one subject, then the candidates both feed.
 2. Hygiene on one scout's entries (_Read cheaply_), only when either holds:
    - distillation gave this run nothing to write: no learning and no candidate was written or extended;
    - `dream:cursor` shows that the last four runs did no hygiene, or `dream:cursor` is absent or holds no such count.
@@ -104,10 +104,13 @@ Candidates hold it until it is enough (_Candidates_).
 
 ### A look back
 
-When the new feedback gave fewer than three verdicts to place, look back at one subject.
-Pick the candidate closest to the bar, or else one scout, one product area or one person, different from the last look back.
+Every run looks back 90 days at one subject, whatever the cursor says.
+When new feedback touches a person, an area or a shape, look back at the subject it touches most, rather than placing only its new verdicts.
+When there is no new feedback, backfill one subject that has no candidate and no learning yet.
+Choose it where feedback clusters: the scout, product area or person with the most separately dismissed or acted-on reports in the window.
+Revisit a candidate only when new feedback touches its subject.
 
-1. Read the last 30 days of outcomes for it, whatever the cursor says: `scout-notes-list` with `text` or a wider `date_from`, and `inbox-reports-list` with `scout`, `status`, `created_after` and `include_all_statuses=true`.
+1. Read the last 90 days of outcomes for it. Notes derived from report feedback expire 30 days after they are written, and `scout-notes-list` hides expired notes, so pass `include_expired=true`, with `text` or a wider `date_from`, and `content_max_chars` set. Report outcomes do not expire: use `inbox-reports-list` with `scout`, `status`, `created_after` and `include_all_statuses=true`, and `inbox-reports-retrieve` for the reports worth reading.
 2. Compare what was dismissed, and why, with what was resolved or acted on.
 3. Place the findings through the candidate steps, counted as in _New feedback_.
 
@@ -150,13 +153,14 @@ Write one entry per subject, under `learned:<kind>:<subject>`:
 - `learned:area:<area>`: what feedback on one product area or surface keeps saying, such as which findings there get acted on and which get dismissed.
 - `learned:shape:<shape>`: what feedback on one kind of finding keeps saying, across areas.
 
-The bar for a learning is verdicts on at least three separate reports from the last 30 days.
+The bar for a learning is verdicts on at least three separate reports from the last 90 days.
 It is the one bar this skill uses, and a first value to tune.
 One dismissal, however clear, is feedback for the scout it was addressed to, not a learning.
 Each learning states the pattern in a sentence, then its evidence: how many reports, the date range, and the report ids.
 Write the pattern as what happened ("dismissed 5 of 6 reports of this shape since …"), not as what a scout must do: a learning is evidence other scouts weigh.
 Read the existing entry by exact `key` before you write, and extend it rather than replace it.
-Give each learning an `expires_at`.
+Give each learning an `expires_at`, 90 days ahead by default.
+Use a shorter expiry when the learning is about something that will change, such as a bug, an incident or a migration, and state the reason in the entry.
 A later run that finds the evidence still holds rewrites the learning with the new count and a later expiry, so a learning nobody re-confirms lapses on its own.
 A learning that is really a change to a scout's skill body is for the people who own that skill: name it in your summary instead of writing it.
 
@@ -168,8 +172,8 @@ Write one entry per subject under `dream:candidate:<kind>:<subject>`, with the s
 - It lists evidence and makes no claim: each report id once, with the date, the outcome, and the reason in a few words.
 - It names no person. A person candidate is keyed by the person already, and holds routing verdicts only, as a person learning does.
 - Read the existing entry by exact `key` before you write, and extend it.
-- Only verdicts from the last 30 days count toward the bar. When you extend a candidate, drop the lines older than that.
-- Give it an `expires_at` 30 days ahead, and move it out when you add evidence, so a quiet subject lapses.
+- Only verdicts from the last 90 days count toward the bar. When you extend a candidate, drop the lines older than that.
+- Give it an `expires_at` 90 days ahead, and move it out when you add evidence, so a quiet subject lapses.
 
 The run prompt tells other scouts that `dream:candidate:` entries are your bookkeeping and not evidence.
 Each candidate you start, extend or promote gets a structured-output record (_Close out_).
@@ -193,7 +197,7 @@ Records hold no entry content, because entries can hold customer data.
 Your run summary carries:
 
 - the feedback pass: how many notes and reports you read, and the learnings you wrote or re-confirmed, or why none met the bar;
-- the subject of the look back, if you did one;
+- the subject of the look back, and whether new feedback or a backfill picked it;
 - the candidates: how many are live, which you started, extended or promoted, and the one closest to the bar with its count of reports inside the window;
 - hygiene: which scout's entries you worked on and why you picked it, or that you skipped hygiene and which rule decided it;
 - for hygiene, the count of each action, and the scout's entry count before and after;
