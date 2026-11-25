@@ -7,17 +7,18 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 
+import type {
+    CohortCalculationHistoryApi,
+    CohortCalculationHistoryResponseApi,
+} from 'products/cohorts/frontend/generated/api.schemas'
+
 import {
-    CohortCalculationHistoryRecord,
-    CohortCalculationHistoryResponse,
     CohortCalculationHistorySceneLogicProps,
     cohortCalculationHistorySceneLogic,
 } from './cohortCalculationHistorySceneLogic'
 
-const mockHistoryRecord: CohortCalculationHistoryRecord = {
-    id: 1,
-    team: 1,
-    cohort: 123,
+const mockHistoryRecord: CohortCalculationHistoryApi = {
+    id: '0190a1b2-0000-0000-0000-000000000001',
     filters: { some: 'filter' },
     count: 500,
     started_at: '2023-01-01T10:00:00Z',
@@ -33,15 +34,17 @@ const mockHistoryRecord: CohortCalculationHistoryRecord = {
         },
     ],
     error: null,
+    duration_seconds: 300,
+    is_completed: true,
+    is_successful: true,
     total_query_ms: 1000,
     total_memory_mb: 64,
     total_read_rows: 1000,
     total_written_rows: 500,
-    main_query: { query: 'main query' },
-    main_query_id: 'query-1',
+    main_query: 'SELECT * FROM events',
 }
 
-const mockHistoryResponse: CohortCalculationHistoryResponse = {
+const mockHistoryResponse: CohortCalculationHistoryResponseApi = {
     results: [mockHistoryRecord],
     count: 1,
     next: null,
@@ -85,7 +88,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
 
             expect(api.get).toHaveBeenCalledTimes(2)
             expect(api.get).toHaveBeenCalledWith(
-                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=0`,
+                expect.anything()
             )
             expect(logic.values.calculationHistory).toEqual([mockHistoryRecord])
             expect(logic.values.totalRecords).toBe(1)
@@ -127,7 +131,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(
-                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=100`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=100`,
+                expect.anything()
             )
         })
 
@@ -140,7 +145,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(
-                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=50&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=50&offset=0`,
+                expect.anything()
             )
         })
 
@@ -164,7 +170,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
                     .toFinishAllListeners()
 
                 expect(api.get).toHaveBeenLastCalledWith(
-                    `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=${limit}&offset=${expectedOffset}`
+                    `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=${limit}&offset=${expectedOffset}`,
+                    expect.anything()
                 )
             })
         })
@@ -269,7 +276,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
             await initLogic({ cohortId: 456 })
 
             expect(api.get).toHaveBeenCalledWith(
-                `/api/projects/${MOCK_TEAM_ID}/cohorts/456/calculation_history/?limit=100&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/456/calculation_history/?limit=100&offset=0`,
+                expect.anything()
             )
         })
 
@@ -288,7 +296,8 @@ describe('cohortCalculationHistorySceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.get).toHaveBeenLastCalledWith(
-                `/api/projects/${MOCK_TEAM_ID}/cohorts/789/calculation_history/?limit=25&offset=50`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/789/calculation_history/?limit=25&offset=50`,
+                expect.anything()
             )
         })
     })

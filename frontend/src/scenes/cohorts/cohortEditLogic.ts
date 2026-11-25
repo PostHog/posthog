@@ -76,11 +76,7 @@ import {
     PropertyType,
 } from '~/types'
 
-import {
-    cohortsRealtimeCreate,
-    cohortsUsedInRetrieve,
-    getCohortsCreateUrl,
-} from 'products/cohorts/frontend/generated/api'
+import { cohortsCreate, cohortsRealtimeCreate, cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
 import type {
     CohortApi,
     CohortRealtimeReadinessApi,
@@ -149,7 +145,7 @@ export interface cohortEditLogicValues {
     creationPersonQuery: ActorsQuery
     csvMaxBytes: number
     csvUploadModalOpen: boolean
-    duplicatedCohort: CohortType | null
+    duplicatedCohort: CohortType | CohortApi | null
     duplicatedCohortLoading: boolean
     effectiveQuery: DataTableNode
     hasAddUsersMenu: boolean
@@ -214,12 +210,12 @@ export interface cohortEditLogicActions {
         errorObject?: any
     }
     duplicateCohortSuccess: (
-        duplicatedCohort: CohortType | null,
+        duplicatedCohort: CohortType | CohortApi | null,
         payload?: {
             asStatic: boolean
         }
     ) => {
-        duplicatedCohort: CohortType | null
+        duplicatedCohort: CohortType | CohortApi | null
         payload?: {
             asStatic: boolean
         }
@@ -1236,10 +1232,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         duplicatedCohort: [
-            null as CohortType | null,
+            null as CohortType | CohortApi | null,
             {
                 duplicateCohort: async ({ asStatic }: { asStatic: boolean }, breakpoint) => {
-                    let cohort: CohortType
+                    let cohort: CohortType | CohortApi
                     try {
                         await breakpoint(200)
                         if (asStatic) {
@@ -1248,8 +1244,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 kind: NodeKind.HogQLQuery,
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
-                            // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-                            cohort = await api.create(getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())), {
+                            cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
                                 is_static: true,
                                 name: `${values.cohort.name} (static copy)`,
                                 query,

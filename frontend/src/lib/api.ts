@@ -26,7 +26,6 @@ import { HogQLQueryString } from 'lib/utils/hogql'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
@@ -912,10 +911,6 @@ export class ApiRequest {
 
     public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
-    }
-
-    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
     }
 
     // # Customer Profile Configs
@@ -3384,9 +3379,6 @@ const api = {
         async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
-        },
-        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
-            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
         },
     },
 

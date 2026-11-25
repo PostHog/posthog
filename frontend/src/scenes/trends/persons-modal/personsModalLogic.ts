@@ -51,7 +51,7 @@ import {
     RecordingUniversalFilters,
 } from '~/types'
 
-import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
@@ -506,8 +506,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-            const cohort = await api.create(getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())), {
+            const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
                 ...cohortParams,
                 query: values.actorsQuery,
             })

@@ -26,7 +26,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import {
     APIErrorType,
-    CohortType,
     ExportContext,
     ExportedAssetType,
     ExporterFormat,
@@ -34,7 +33,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
@@ -416,15 +415,11 @@ export const exportsLogic = kea<exportsLogicType>([
                         return null
                     }
                 )
-                // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-                const cohort: CohortType = await api.create(
-                    getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())),
-                    {
-                        is_static: true,
-                        name: name || 'Query cohort',
-                        query: query,
-                    }
-                )
+                const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
+                    is_static: true,
+                    name: name || 'Query cohort',
+                    query: query,
+                })
                 cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
