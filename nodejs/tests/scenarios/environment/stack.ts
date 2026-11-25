@@ -111,13 +111,13 @@ export class StackNotReadyError extends Error {
 }
 
 export function keepRunningContainers(mprocsYaml: string): string {
-    const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
+    const config = (parse(mprocsYaml) ?? {}) as { procs?: Record<string, { shell?: unknown; cmd?: unknown }> }
     const compose = config.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    const generated = GENERATED_COMPOSE_SHELL.exec(shell)
+    const generated = compose?.cmd === undefined ? GENERATED_COMPOSE_SHELL.exec(shell) : null
     if (!generated) {
         throw new StackNotReadyError(
-            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
+            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs and no cmd, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
         )
     }
     compose!.shell = generated[1] + KEEPING_COMPOSE_UP + generated[2]

@@ -57,16 +57,27 @@ describe('keepRunningContainers', () => {
     )
 
     it.each([
-        ['an up call it does not know', composeShell(COMPOSE, 'up --pull missing -d')],
-        ['a second up call', composeShell(COMPOSE, 'up --pull always -d', `${COMPOSE} "up" -d db && `)],
+        ['an up call it does not know', generatedConfig(composeShell(COMPOSE, 'up --pull missing -d'))],
+        [
+            'a second up call',
+            generatedConfig(composeShell(COMPOSE, 'up --pull always -d', `${COMPOSE} "up" -d db && `)),
+        ],
         [
             'its up call quoted and the known call only in a message',
-            composeShell(COMPOSE, 'up --pull "always" -d').replace('up failed', 'up --pull always -d failed'),
+            generatedConfig(
+                composeShell(COMPOSE, 'up --pull "always" -d').replace('up failed', 'up --pull always -d failed')
+            ),
         ],
-        ['no docker-compose proc', ''],
-    ])('refuses a config with %s, which would recreate the shared containers', (_case, shell) => {
-        const config = shell ? generatedConfig(shell) : 'procs:\n  backend:\n    shell: bin/start-backend\n'
-
+        [
+            'a cmd that phrocs runs in place of the known shell',
+            generatedConfig(composeShell(COMPOSE, 'up --pull always -d')).replace(
+                '    ready_pattern',
+                '    cmd: [docker, compose, -p, posthog, up, -d]\n    ready_pattern'
+            ),
+        ],
+        ['no docker-compose proc', 'procs:\n  backend:\n    shell: bin/start-backend\n'],
+        ['nothing in it', ''],
+    ])('refuses a config with %s, which would recreate the shared containers', (_case, config) => {
         expect(() => keepRunningContainers(config)).toThrow(StackNotReadyError)
     })
 })
@@ -107,11 +118,18 @@ describe('untilMigrated', () => {
                 return rows[0].present
             }, URL)
 
-        try {
-            await untilMigrated([{ url: URL, table: `${schema}.jobs` }], 60_000, 60_000, NEVER, () =>
-                migrate(`CREATE TABLE IF NOT EXISTS ${schema}.jobs (id int)`).then(() => undefined)
-            )
+        let pauses = 0
+        const migrateOnSecondPause = async (): Promise<void> => {
+            pauses += 1
+            if (pauses === 2) {
+                await migrate(`CREATE TABLE ${schema}.jobs (id int)`)
+            }
+        }
 
+        try {
+            await untilMigrated([{ url: URL, table: `${schema}.jobs` }], 60_000, 60_000, NEVER, migrateOnSecondPause)
+
+            expect(pauses).toBe(2)
             expect(await created()).toBe(true)
         } finally {
             await migrate(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
