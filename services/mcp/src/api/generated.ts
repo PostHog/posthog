@@ -24978,18 +24978,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `frames` - Frames
-     * * `result` - Result
-     */
-    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
-
-
-    export const CachedTileFormatEnum = {
-      Frames: 'frames',
-      Result: 'result',
-    } as const;
-
-    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25096,6 +25084,18 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type ResultFormatEnum = typeof ResultFormatEnum[keyof typeof ResultFormatEnum];
+
+
+    export const ResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
     export interface FrameMeta {
       /**
          * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -25175,9 +25175,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
     }
@@ -36106,9 +36106,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
@@ -43051,8 +43051,6 @@ export namespace Schemas {
     export interface EmailInfrastructureHealth {
       /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
       readonly emails_sent_at_least: number;
-      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-      readonly delivery_rate: number;
       /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
       readonly bounce_rate: number;
       /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -94301,6 +94299,14 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedGroupTypeMetadataUpdateRequest {
+      /**
+         * Group type metadata updates to apply, at most 5, one per group type.
+         * @maxItems 5
+         */
+      updates?: GroupTypeMetadataUpdate[];
+    }
+
     /**
      * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
      *
@@ -107265,6 +107271,19 @@ export namespace Schemas {
     }
 
     /**
+     * * `classic` - Classic
+     * * `new` - New
+     */
+    export type QueryBatchEngineEnum = typeof QueryBatchEngineEnum[keyof typeof QueryBatchEngineEnum];
+
+
+    export const QueryBatchEngineEnum = {
+      Classic: 'classic',
+      New: 'new',
+    } as const;
+
+    /**
+     * * `query` - Query
      * * `insight` - Insight
      * * `hogql` - HogQL
      * * `promql` - PromQL
@@ -107274,6 +107293,7 @@ export namespace Schemas {
 
 
     export const QueryBatchLanguageEnum = {
+      Query: 'query',
       Insight: 'insight',
       Hogql: 'hogql',
       Promql: 'promql',
@@ -107286,14 +107306,27 @@ export namespace Schemas {
      */
     export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
 
+    /**
+     * * `time_series` - Time series
+     * * `table` - Table
+     */
+    export type QueryBatchTargetFormatEnum = typeof QueryBatchTargetFormatEnum[keyof typeof QueryBatchTargetFormatEnum];
+
+
+    export const QueryBatchTargetFormatEnum = {
+      TimeSeries: 'time_series',
+      Table: 'table',
+    } as const;
+
     export interface QueryBatchTarget {
       /**
          * The panel's ID for this query. Not used for caching.
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
+      /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
+       * * `query` - Query
        * * `insight` - Insight
        * * `hogql` - HogQL
        * * `promql` - PromQL
@@ -107304,6 +107337,21 @@ export namespace Schemas {
          * @maxLength 200000
          */
       query: string;
+      /**
+         * The series name template the panel draws. Returned unchanged on the target's line.
+         * @maxLength 1000
+         */
+      legend?: string;
+      /** How the panel draws the result. Returned unchanged on the target's line.
+       *
+       * * `time_series` - Time series
+       * * `table` - Table */
+      format?: QueryBatchTargetFormatEnum;
+      /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+       *
+       * * `classic` - Classic
+       * * `new` - New */
+      engine?: QueryBatchEngineEnum;
     }
 
     export interface QueryBatchTime {
@@ -107344,6 +107392,11 @@ export namespace Schemas {
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
       cacheOnly?: boolean;
+      /**
+         * The tile this target belongs to. Only labels the query's run in the query log.
+         * @maxLength 64
+         */
+      tile?: string;
     }
 
     export interface QueryBatchRequest {
@@ -107352,6 +107405,11 @@ export namespace Schemas {
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable

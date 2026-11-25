@@ -101,6 +101,10 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Prints HTML unescaped, so it's only valid in page text.
+    raw: bool = False
+    # Prints the tag itself when the app passes no value.
+    stays_when_missing: bool = False
 
 
 TextSplitter = Callable[[str], Iterator["str | TextValue"]]
@@ -189,15 +193,25 @@ class HandlebarsToLiquid:
             if isinstance(piece, str):
                 self._feed(piece)
                 yield _literal_text(piece)
-            elif (piece.liquid or piece.value_path) and self._value_fits(raw=False, in_attribute=piece.in_attribute):
+            elif (piece.liquid or piece.value_path) and self._value_fits(
+                raw=piece.raw, in_attribute=piece.in_attribute
+            ):
+                yield self._attribute_safe(self._text_value(piece))
                 self._feed("x")
+                self._after_raw_html = self._after_raw_html or (piece.raw and self.is_html)
                 self.converted.append(piece.source)
-                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
-                yield self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
                 self._feed(piece.source)
                 yield _literal_text(piece.source)
+
+    def _text_value(self, piece: TextValue) -> str:
+        if piece.value_path is None:
+            return piece.liquid or ""
+        value = self._print(piece.value_path, piece.raw, may_be_a_list=not piece.raw)
+        if not piece.stays_when_missing:
+            return value
+        return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
 
     def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
         if self.is_html and _ENTITY.search(node.source):
