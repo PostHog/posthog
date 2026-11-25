@@ -213,6 +213,24 @@ describe('renderEmailHtml', () => {
         )
     })
 
+    it.each([
+        ['a filter', '<a href="/{{ x | join: "," }}">Go</a>', '<a href="/{{ x | join: &quot;,&quot; }}">Go</a>'],
+        [
+            'a tag',
+            '<a href="{% if x == "<" %}a{% endif %}">Go</a>',
+            '<a href="{% if x == &quot;<&quot; %}a{% endif %}">Go</a>',
+        ],
+        ['text', '<p>"{{ x | join: "," }}"</p>', '<p>"{{ x | join: "," }}"</p>'],
+        ['single quotes', `<a href='{{ x | join: "," }}'>Go</a>`, '<a href="{{ x | join: &quot;,&quot; }}">Go</a>'],
+        ['a brace that opens no tag', '<a title="{{" href="/a">Go</a>', '<a title="{{" href="/a">Go</a>'],
+    ])('keeps the quotes of %s in a whole document next to other blocks', (_, stored, expected) => {
+        const own = `<html><head></head><body><!-- it's --><style>p{}</style>${stored}</body></html>`
+
+        expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
+            expected
+        )
+    })
+
     it('restores the font inside columns, because the row around them zeroes it', () => {
         const html = renderEmailHtml(
             doc({
