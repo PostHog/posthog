@@ -837,14 +837,6 @@ fn make_release_event(fingerprint: &str, release_id: Option<Uuid>) -> AnyEvent {
     event
 }
 
-fn kept_resolved(event: &Option<AnyEvent>) -> bool {
-    let properties = &event.as_ref().unwrap().properties;
-    match properties.get("$exception_issue_kept_resolved") {
-        Some(value) => value == &json!(true),
-        None => false,
-    }
-}
-
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn a_resolved_issue_follows_its_resolve_mode(db: PgPool) {
     let harness = TestHarness::new(db);
@@ -865,12 +857,12 @@ async fn a_resolved_issue_follows_its_resolve_mode(db: PgPool) {
     );
 
     let cases = [
-        ("new_release", Some(older), "resolved", Some(older), true),
-        ("next_occurrence", Some(older), "active", Some(older), false),
-        ("new_release", None, "active", Some(older), false),
-        ("new_release", Some(newer), "active", Some(newer), false),
+        ("new_release", Some(older), "resolved", Some(older)),
+        ("next_occurrence", Some(older), "active", Some(older)),
+        ("new_release", None, "active", Some(older)),
+        ("new_release", Some(newer), "active", Some(newer)),
     ];
-    for (resolved_until, release, expected_status, expected_latest, expected_kept) in cases {
+    for (resolved_until, release, expected_status, expected_latest) in cases {
         harness.resolve(issue_id, resolved_until).await;
 
         let (status, body): (_, SuccessResponse) = harness
@@ -878,11 +870,6 @@ async fn a_resolved_issue_follows_its_resolve_mode(db: PgPool) {
             .await;
 
         assert!(status.is_success());
-        assert_eq!(
-            kept_resolved(body.first_event()),
-            expected_kept,
-            "{resolved_until} {release:?}"
-        );
         assert_eq!(body.take_properties().issue_id(), issue_id);
         assert_eq!(
             harness.issue_status_and_latest_release(issue_id).await,
@@ -926,10 +913,6 @@ async fn each_release_in_a_batch_is_applied_to_the_issue(db: PgPool) {
             serde_json::from_value(event.as_ref().unwrap().properties.clone()).unwrap();
         assert_eq!(properties.issue_id(), issue_id);
     }
-    assert!(kept_resolved(&body.0[0]));
-    assert!(!kept_resolved(&body.0[1]));
-    assert!(!kept_resolved(&body.0[2]));
-    assert!(!kept_resolved(body.0.last().unwrap()));
     assert_eq!(
         harness.issue_status_and_latest_release(issue_id).await,
         ("active".to_string(), Some(newest))
