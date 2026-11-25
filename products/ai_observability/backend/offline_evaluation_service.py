@@ -233,8 +233,12 @@ class OfflineExperimentService(_OfflineEvaluationService):
                 )
         elif submission.suite_key:
             fields["experiment_scorer_version_id"] = (
-                ExperimentScoreSuiteDefault.objects.for_team(self.team_id, canonical=True)
-                .filter(suite_key=submission.suite_key, scorer_version__definition__archived=False)
+                ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
+                .filter(
+                    suite_key=submission.suite_key,
+                    scorer_version__definition__team_id=self.team_id,
+                    scorer_version__definition__archived=False,
+                )
                 .values_list("scorer_version_id", flat=True)
                 .first()
             )

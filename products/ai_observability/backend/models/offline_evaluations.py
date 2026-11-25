@@ -99,6 +99,11 @@ class OfflineExperiment(Taggable):
         ]
         indexes = [
             models.Index(fields=["team", "-started_at", "id"], name="aio_offline_exp_list_idx"),
+            models.Index(
+                fields=["experiment_scorer_version", "team", "-started_at", "id"],
+                condition=Q(experiment_scorer_version__isnull=False),
+                name="aio_exp_score_history_idx",
+            ),
         ]
 
 

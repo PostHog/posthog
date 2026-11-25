@@ -116,7 +116,7 @@ pass rates, `0.7 * correct + 0.3 * grounded` gives correctness a 70% weight. Rat
 Other inputs include a numeric mean, the fraction of Boolean values that are true, and the fraction of
 successful items with a selected category. An item composite can supply any statistic its output supports.
 
-A suite key can have one default experiment scorer version per project. The first successful experiment
+A suite key can have one default experiment scorer version per environment. The first successful experiment
 creation pins that version. Supply `experiment_scorer_version_id` in Python or the API, or
 `experimentScorerVersionId` in JavaScript, to select a specific version. Changing a suite default applies
 to future runs. A preview on a historical run leaves its official score unchanged.

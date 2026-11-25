@@ -234,6 +234,10 @@ class ScoreDefinitionVersionQuerySerializer(StrictQuerySerializer):
             raise serializers.ValidationError("Provide a valid continuation cursor.") from error
 
 
+def _suite_defaults_prefetch(team_id: int, relation: str = "suite_defaults") -> Prefetch:
+    return Prefetch(relation, queryset=ExperimentScoreSuiteDefault.objects.for_team(team_id).order_by("suite_key"))
+
+
 def _score_definition_version_page(
     definition: ScoreDefinition,
     *,
@@ -242,14 +246,7 @@ def _score_definition_version_page(
     allowed_versions: QuerySet[ScoreDefinitionVersion] | None = None,
 ) -> CursorPage[ScoreDefinitionVersion]:
     versions = definition.versions.select_related("definition", "created_by").order_by("-version", "id")
-    versions = versions.prefetch_related(
-        Prefetch(
-            "suite_defaults",
-            queryset=ExperimentScoreSuiteDefault.objects.for_team(definition.team_id, canonical=True).order_by(
-                "suite_key"
-            ),
-        )
-    )
+    versions = versions.prefetch_related(_suite_defaults_prefetch(definition.team_id))
     if allowed_versions is not None:
         versions = versions.filter(id__in=allowed_versions)
     count = versions.count()
@@ -490,14 +487,8 @@ class ScoreDefinitionViewSet(
                 | Q(current_version__in=CompositeScorers.accessible_versions(accessible, team_id=self.team_id))
             )
             .select_related("current_version", "created_by", "updated_by")
-            .prefetch_related(self._input_prefetch())
             .prefetch_related(
-                Prefetch(
-                    "current_version__suite_defaults",
-                    queryset=ExperimentScoreSuiteDefault.objects.for_team(self.team_id, canonical=True).order_by(
-                        "suite_key"
-                    ),
-                )
+                self._input_prefetch(), _suite_defaults_prefetch(self.team_id, "current_version__suite_defaults")
             )
             .annotate(
                 dependent_composite_count=Count(
@@ -588,11 +579,11 @@ class ScoreDefinitionViewSet(
 
     def _apply_suites(
         self, definition: ScoreDefinition, keys: list[str] | None, *, version_id: UUID | None = None
-    ) -> None:
+    ) -> Change | None:
         if keys is None:
             if version_id is not None:
                 raise serializers.ValidationError({"apply_to_suite_keys": "Select suites to update."})
-            return
+            return None
         definition = ScoreDefinition.objects.select_for_update().get(pk=definition.pk, team_id=self.team_id)
         if definition.scope != "experiment" or (definition.archived and keys):
             raise serializers.ValidationError({"apply_to_suite_keys": "Choose an active experiment scorer."})
@@ -607,12 +598,17 @@ class ScoreDefinitionViewSet(
                 .exists()
             ):
                 raise serializers.ValidationError({"suite_version_id": "Select an accessible version of this scorer."})
-        bindings = ExperimentScoreSuiteDefault.objects.for_team(self.team_id, canonical=True)
+        bindings = ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
         own = bindings.filter(scorer_version__definition=definition)
-        own.filter(scorer_version_id=version_id).exclude(suite_key__in=keys).delete()
+        current = own.filter(scorer_version_id=version_id)
+        previous_keys = set(current.values_list("suite_key", flat=True))
+        selected_keys = set(keys)
+        if previous_keys == selected_keys:
+            return None
+        current.filter(suite_key__in=previous_keys - selected_keys).delete()
         try:
             with transaction.atomic():
-                for key in sorted(set(keys)):
+                for key in sorted(selected_keys - previous_keys):
                     binding, _ = bindings.select_for_update().get_or_create(
                         team_id=self.team_id, suite_key=key, defaults={"scorer_version_id": version_id}
                     )
@@ -625,14 +621,22 @@ class ScoreDefinitionViewSet(
             raise serializers.ValidationError(
                 {"apply_to_suite_keys": "Suite assignments changed. Reload and try again."}
             ) from error
+        return Change(
+            type="ScoreDefinition",
+            action="changed",
+            field="suite_keys",
+            before={"version_id": str(version_id), "suite_keys": sorted(previous_keys)},
+            after={"version_id": str(version_id), "suite_keys": sorted(selected_keys)},
+        )
 
     @transaction.atomic
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[Change]:
         definition_data = dict(validated_data)
         keys = definition_data.pop("apply_to_suite_keys", None)
-        self._apply_suites(definition, keys, version_id=definition_data.pop("suite_version_id", None))
-        if keys is not None and definition.current_version:
+        suite_change = self._apply_suites(definition, keys, version_id=definition_data.pop("suite_version_id", None))
+        if suite_change and definition.current_version:
             definition.current_version.refresh_from_db()
+            prefetch_related_objects([definition.current_version], _suite_defaults_prefetch(self.team_id))
         changed_fields: list[str] = []
         if "tags" in definition_data:
             tags = definition_data.pop("tags")
@@ -648,7 +652,7 @@ class ScoreDefinitionViewSet(
                 setattr(definition, field, value)
                 changed_fields.append(field)
 
-        if not changed_fields:
+        if not changed_fields and suite_change is None:
             return []
 
         definition.updated_by = attribution_user(self.request)
@@ -661,6 +665,10 @@ class ScoreDefinitionViewSet(
                 "updated_by_project_key_id",
             ]
         )
+        changes = [Change(type="ScoreDefinition", action="changed", field=field) for field in changed_fields]
+        if suite_change:
+            changes.append(suite_change)
+            changed_fields.append("suite_keys")
         event_properties: dict[str, str | bool | int | list[str]] = {
             **self._event_properties(definition),
             "changed_fields": changed_fields,
@@ -677,14 +685,13 @@ class ScoreDefinitionViewSet(
                 request=self.request,
             )
         )
-        return changed_fields
+        return changes
 
     def _audit_scorer_edit(
-        self, definition: ScoreDefinition, fields: list[str], previous_editor_id: int | None
+        self, definition: ScoreDefinition, changes: list[Change], previous_editor_id: int | None
     ) -> None:
-        if not fields:
+        if not changes:
             return
-        changes = [Change(type="ScoreDefinition", action="changed", field=field) for field in fields]
         if previous_editor_id is not None:
             changes.append(
                 Change(type="ScoreDefinition", action="changed", field="updated_by", before=previous_editor_id)
@@ -696,6 +703,7 @@ class ScoreDefinitionViewSet(
             item_id=definition.pk,
             activity="updated",
             changes=changes,
+            include_user=any(change.field == "suite_keys" for change in changes),
         )
 
     @transaction.atomic
@@ -726,16 +734,19 @@ class ScoreDefinitionViewSet(
             composition=composition,
         )
         definition.refresh_from_db()
-        self._apply_suites(definition, validated_data.get("apply_to_suite_keys"))
-        changed_fields = self._update_definition_metadata(
+        changes = self._update_definition_metadata(
             definition,
             {
                 field: validated_data[field]
-                for field in ("name", "short_name", "description")
+                for field in ("name", "short_name", "description", "apply_to_suite_keys")
                 if field in validated_data
             },
         )
-        self._audit_scorer_edit(definition, ["current_version", *changed_fields], previous_editor_id)
+        self._audit_scorer_edit(
+            definition,
+            [Change(type="ScoreDefinition", action="changed", field="current_version"), *changes],
+            previous_editor_id,
+        )
         return definition
 
     @extend_schema(
@@ -785,7 +796,11 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
-        prefetch_related_objects([definition], self._input_prefetch())
+        prefetch_related_objects(
+            [definition],
+            self._input_prefetch(),
+            _suite_defaults_prefetch(self.team_id, "current_version__suite_defaults"),
+        )
         return Response(self.get_serializer(definition).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -796,8 +811,8 @@ class ScoreDefinitionViewSet(
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self._get_locked_definition()
         previous_editor_id = definition.updated_by_id
-        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
-        self._audit_scorer_edit(definition, changed_fields, previous_editor_id)
+        changes = self._update_definition_metadata(definition, dict(request.validated_data))
+        self._audit_scorer_edit(definition, changes, previous_editor_id)
 
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 
@@ -852,6 +867,7 @@ class ScoreDefinitionViewSet(
         version = (
             CompositeScorers.accessible_versions(accessible, team_id=self.team_id)
             .select_related("definition", "created_by")
+            .prefetch_related(_suite_defaults_prefetch(self.team_id))
             .filter(definition=definition, id=identity)
             .first()
         )
@@ -886,5 +902,9 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
-        prefetch_related_objects([definition], self._input_prefetch())
+        prefetch_related_objects(
+            [definition],
+            self._input_prefetch(),
+            _suite_defaults_prefetch(self.team_id, "current_version__suite_defaults"),
+        )
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)

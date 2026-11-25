@@ -135,6 +135,35 @@ class TestOfflineEvaluationReads(TestCase):
         assert failed is not None
         self.assertEqual((failed.status, failed.value), ("failed", None))
 
+    def test_pooled_mean_stays_finite_at_the_numeric_limit(self) -> None:
+        experiment = self._experiment()
+        formula = ScoreDefinition.objects.create(
+            team=self.team, scope="experiment", name="Pooled quality", calculation="composite", kind="numeric"
+        )
+        experiment.experiment_scorer_version = formula.create_new_version(
+            config={},
+            composition={
+                "expression": "quality",
+                "inputs": [
+                    {
+                        "alias": "quality",
+                        "statistic": "mean",
+                        "version_policy": "combine",
+                        "scorer_version_id": str(self.numeric.id),
+                    }
+                ],
+            },
+            created_by=None,
+        )
+        experiment.save(update_fields=["experiment_scorer_version"])
+        third = self.numeric.definition.create_new_version(config={}, created_by=None)
+        for version, count in [(self.numeric, 12), (self.numeric_v2, 2), (third, 12)]:
+            for _ in range(count):
+                self._result(self._item(experiment), version, float_info.max)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("ok", float_info.max))
+
     def test_formula_uses_category_rate_and_boolean_polarity_and_keeps_missing_inputs_unset(self) -> None:
         experiment = self._experiment()
         boolean = self.boolean.definition.create_new_version(config={"true_is_failure": True}, created_by=None)

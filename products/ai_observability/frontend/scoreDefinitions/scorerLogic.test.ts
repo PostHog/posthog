@@ -112,6 +112,57 @@ describe('scorer editor', () => {
         logic.unmount()
     })
 
+    it.each([
+        { archived: true, suiteKeys: ['smoke', 'candidate'], expectedAssignment: {} },
+        {
+            archived: false,
+            suiteKeys: [],
+            expectedAssignment: { apply_to_suite_keys: [], suite_version_id: definition.current_version_id },
+        },
+    ])(
+        'only patches changed suite assignments when renaming an experiment scorer (archived: $archived)',
+        async ({ archived, suiteKeys, expectedAssignment }) => {
+            const existing: ScoreDefinitionApi = {
+                ...definition,
+                scope: 'experiment',
+                calculation: 'composite',
+                archived,
+                suite_keys: ['candidate', 'smoke'],
+                composition: {
+                    expression: 'quality',
+                    inputs: [{ alias: 'quality', statistic: 'mean', scorer_version_id: 'source-v1' }],
+                },
+                input_scorers: [
+                    {
+                        alias: 'quality',
+                        definition_id: 'source',
+                        name: 'Quality',
+                        kind: 'numeric',
+                        scorer_version_id: 'source-v1',
+                        version: 1,
+                        latest_version_id: 'source-v1',
+                        latest_version: 1,
+                        config: {},
+                    },
+                ],
+            }
+            retrieve.mockResolvedValue(existing)
+            update.mockResolvedValue({ ...existing, name: 'Release quality' })
+            const logic = scorerLogic({ scorerId: existing.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setDraftField('suiteKeys', suiteKeys)
+            logic.actions.setDraftField('name', 'Release quality')
+            await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+            expect(update).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), existing.id, {
+                name: 'Release quality',
+                short_name: '',
+                description: '',
+                ...expectedAssignment,
+            })
+        }
+    )
+
     it.each<{
         kind: ScoreDefinitionApi['kind']
         config: ScoreDefinitionConfigApi

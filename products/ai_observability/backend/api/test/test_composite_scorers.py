@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
@@ -67,6 +68,23 @@ class TestCompositeScorers(APIBaseTest):
         self.assertEqual(moved.status_code, 200, moved.data)
         self.assertEqual(moved.data["suite_keys"], ["agent-ci"])
         self.assertEqual(self.client.get(history_url).data["suite_keys"], [])
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, item_id=created["id"], scope="ScoreDefinition", activity="updated"
+        )
+        entry = logs.get(user=self.user)
+        assert entry.detail is not None
+        change = next(change for change in entry.detail["changes"] if change["field"] == "suite_keys")
+        self.assertEqual(change["before"], {"version_id": version.data["current_version_id"], "suite_keys": []})
+        self.assertEqual(
+            change["after"], {"version_id": version.data["current_version_id"], "suite_keys": ["agent-ci"]}
+        )
+        self.assertNotEqual(moved.data["updated_at"], version.data["updated_at"])
+        retry = self.client.patch(
+            f"{self.endpoint}{created['id']}/", {"apply_to_suite_keys": ["agent-ci"]}, format="json"
+        )
+        self.assertEqual(retry.status_code, 200, retry.data)
+        self.assertEqual(retry.data["updated_at"], moved.data["updated_at"])
+        self.assertEqual(logs.count(), 1)
 
     def test_dependency_notices_and_explicit_repinned_version(self) -> None:
         composite = self.create_composite()

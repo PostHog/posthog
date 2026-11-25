@@ -1271,6 +1271,7 @@ rules:
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset

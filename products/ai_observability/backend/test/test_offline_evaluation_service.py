@@ -128,6 +128,22 @@ class TestOfflineEvaluationService(TestCase):
         with self.assertRaises(OfflineEvaluationValidationError):
             self.lifecycle.create(replace(submission, id=uuid4(), experiment_scorer_version_id=self.version.id))
 
+    def test_suite_default_belongs_to_the_run_environment(self) -> None:
+        child = Team.objects.create(organization=self.team.organization, parent_team=self.team)
+        definition = ScoreDefinition.objects.create(
+            team=child, scope="experiment", name="Child release", kind="numeric"
+        )
+        version = definition.create_new_version(config={}, created_by=None)
+        binding = ExperimentScoreSuiteDefault.objects.for_team(child.id).create(
+            team=child, suite_key="release", scorer_version=version
+        )
+        self.assertEqual(binding.team_id, child.id)
+        submission = replace(self.experiment_submission, id=uuid4(), suite_key="release")
+        child_run = OfflineExperimentService(team_id=child.id, user_access_control=None).create(submission)
+        self.assertEqual(child_run.experiment.experiment_scorer_version_id, version.id)
+        parent_run = self.lifecycle.create(replace(submission, id=uuid4()))
+        self.assertIsNone(parent_run.experiment.experiment_scorer_version_id)
+
     @parameterized.expand([(None,), ("model-a",)])
     def test_upload_retry_preserves_identity_acceptance_and_retention(self, model_version: str | None) -> None:
         self.item = replace(self.item, model_version=model_version)

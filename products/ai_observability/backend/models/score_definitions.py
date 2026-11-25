@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models, transaction
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -152,10 +153,12 @@ class ScoreDefinitionInput(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class ExperimentScoreSuiteDefault(TeamScopedRootMixin, UUIDModel):
+class ExperimentScoreSuiteDefault(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, db_constraint=False, related_name="+")
     suite_key = models.CharField(max_length=255)
     scorer_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.RESTRICT, related_name="suite_defaults")
+
+    objects = EnvironmentScopedManager()
 
     class Meta:
         constraints = [

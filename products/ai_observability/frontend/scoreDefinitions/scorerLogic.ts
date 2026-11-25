@@ -40,6 +40,12 @@ export interface ScorerLogicProps {
 
 type ScorerParent = { name: string; path: string; key: string }
 
+function suiteKeysChanged(keys: string[], definition: ScoreDefinitionApi | null): boolean {
+    const savedKeys = new Set(definition?.suite_keys)
+    const selectedKeys = new Set(keys)
+    return savedKeys.size !== selectedKeys.size || [...selectedKeys].some((key) => !savedKeys.has(key))
+}
+
 function initialDraft(props: ScorerLogicProps, definition: ScoreDefinitionApi | null): ScoreDefinitionDraft {
     const draft = createDraft(
         props.scorerId === 'new' && props.duplicateFrom ? 'duplicate' : definition ? 'metadata' : 'create',
@@ -311,7 +317,7 @@ export const scorerLogic = kea<scorerLogicType>([
             ): boolean =>
                 isNew ||
                 configChanged ||
-                JSON.stringify(draft.suiteKeys) !== JSON.stringify(definition?.suite_keys ?? []) ||
+                suiteKeysChanged(draft.suiteKeys, definition) ||
                 draft.name.trim() !== definition?.name ||
                 draft.shortName.trim() !== (definition?.short_name || '') ||
                 draft.description.trim() !== definition?.description,
@@ -365,8 +371,11 @@ export const scorerLogic = kea<scorerLogicType>([
         performSave: async (_, breakpoint) => {
             const teamId = getCurrentProjectId()
             const { draft, definition, isNew, willCreateVersion } = values
+            const applySuites =
+                draft.scope === 'experiment' &&
+                (isNew || willCreateVersion || suiteKeysChanged(draft.suiteKeys, definition))
             const metadata = {
-                ...(draft.scope === 'experiment' ? { apply_to_suite_keys: draft.suiteKeys } : {}),
+                ...(applySuites ? { apply_to_suite_keys: draft.suiteKeys } : {}),
                 name: draft.name.trim(),
                 short_name: draft.shortName.trim(),
                 description: draft.description.trim(),
@@ -401,7 +410,7 @@ export const scorerLogic = kea<scorerLogicType>([
                         })
                       : await llmAnalyticsScoreDefinitionsPartialUpdate(teamId, props.scorerId, {
                             ...metadata,
-                            ...(draft.scope === 'experiment' && definition?.current_version_id
+                            ...(applySuites && definition?.current_version_id
                                 ? { suite_version_id: definition.current_version_id }
                                 : {}),
                         })

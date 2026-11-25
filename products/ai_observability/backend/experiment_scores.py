@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from math import fsum
+from fractions import Fraction
 from typing import Any
 from uuid import UUID
 
@@ -60,7 +60,13 @@ def _resolve_input(
         status = "no_successful_items"
     else:
         status = "ok"
-        value = fsum(source.value * (source.successful_items / count) for source in sources if source.value is not None)
+        if len(sources) == 1:
+            value = sources[0].value
+        else:
+            weighted_total = sum(
+                Fraction(source.value) * source.successful_items for source in sources if source.value is not None
+            )
+            value = float(weighted_total / count)
     return ExperimentScoreInput(
         alias=spec["alias"],
         statistic=spec["statistic"],
