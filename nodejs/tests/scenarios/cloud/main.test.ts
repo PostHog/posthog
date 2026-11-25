@@ -389,14 +389,14 @@ describe('cloud controller', () => {
 
     it('calls a paired run invalid before it starts the card when the setup left too little of the lease', async () => {
         const { controller } = prepare({
-            cards: { [PAIRED_CARD]: pairedCard('120m') },
+            cards: { [PAIRED_CARD]: pairedCard('90m') },
             cloud: { seed: { takesMs: HOUR_MS } },
             env: api.credentials,
         })
 
         await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
 
-        expect(published().status_reason).toContain(`${PAIRED_CARD} runs paired, so it needs two runs of 120m`)
+        expect(published().status_reason).toContain(`${PAIRED_CARD} runs paired, so it needs two runs of 90m`)
         expect([...cloud.objects.keys()].some((key) => key.endsWith('/evidence/card.log'))).toBe(false)
     })
 
@@ -441,10 +441,10 @@ describe('cloud controller', () => {
             { cards: { [PAIRED_CARD]: pairedCard('200m') } },
         ],
         [
-            'a paired card whose drives fit before the teardown only without the time each run needs to start, reset, seed and upload',
+            'a paired card whose drives fit before the teardown only without the dev stack start and the time each run needs to reset, seed and upload',
             PAIRED_CARD,
-            `${PAIRED_CARD} runs paired, so it needs two runs of 145m`,
-            { cards: { [PAIRED_CARD]: pairedCard('145m') } },
+            `${PAIRED_CARD} runs paired, so it needs two runs of 110m`,
+            { cards: { [PAIRED_CARD]: pairedCard('110m') } },
         ],
         [
             'a paired card that judges no no_loss',

@@ -1,4 +1,5 @@
 import { durationMs } from '../duration'
+import { FIRST_START_TIMEOUT_S } from '../environment/stack'
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
@@ -114,9 +115,10 @@ function refuseUnfitPair(
     workMs: number,
     window: string
 ): void {
-    if (2 * (durationMs(drive) + durationMs(convergeWithin) + durationMs(PAIR_RUN_RESERVE)) > workMs) {
+    const runMs = durationMs(drive) + durationMs(convergeWithin) + durationMs(PAIR_RUN_RESERVE)
+    if (FIRST_START_TIMEOUT_S * 1000 + 2 * runMs > workMs) {
         throw new Error(
-            `${cardId} runs paired, so it needs two runs of ${drive}, each with ${convergeWithin} to converge and ${PAIR_RUN_RESERVE} to start, reset, seed and upload, and they do not fit ${window}.`
+            `${cardId} runs paired, so it needs two runs of ${drive}, each with ${convergeWithin} to converge and ${PAIR_RUN_RESERVE} to reset, seed and upload, after up to ${FIRST_START_TIMEOUT_S / 60}m for the dev stack's first start, and they do not fit ${window}.`
         )
     }
 }
