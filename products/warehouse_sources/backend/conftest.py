@@ -1,5 +1,4 @@
 from collections.abc import Generator
-from pathlib import Path
 
 import pytest
 from posthog.test.base import reset_unusable_db_connections
@@ -7,8 +6,6 @@ from posthog.test.base import reset_unusable_db_connections
 from google.auth.credentials import CredentialsWithRegionalAccessBoundary
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import isolated_job_context
-
-_PRODUCT_TESTS_DIR = Path(__file__).parent
 
 
 @pytest.fixture(autouse=True)
@@ -46,12 +43,3 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
         return (yield)
     finally:
         reset_unusable_db_connections()
-
-
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    # The Temporal end-to-end tests of this product flake, so every test here retries twice.
-    # Every conftest sees every collected item in this hook, so the path check keeps the retries
-    # off other trees in a mixed session. A flaky marker on the test itself takes precedence.
-    for item in items:
-        if item.path.is_relative_to(_PRODUCT_TESTS_DIR) and item.get_closest_marker("flaky") is None:
-            item.add_marker(pytest.mark.flaky(reruns=2, reruns_delay=1))
