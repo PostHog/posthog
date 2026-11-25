@@ -401,16 +401,18 @@ class TestBuildersRequireGoGateway:
         ids=["openai", "async_openai", "anthropic", "async_anthropic"],
     )
     @pytest.mark.parametrize(
-        ("url", "api_key"),
-        [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+        ("url", "api_key", "message"),
+        [
+            ("", "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"),
+            (AI_GATEWAY_URL, "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"),
+            ("https://ai-gateway.example", AI_GATEWAY_KEY, "AI_GATEWAY_URL must include the OpenAI base path"),
+        ],
         ids=["unset", "half_applied", "missing_v1"],
     )
     @override_settings(LLM_GATEWAY_URL="https://gateway.example", LLM_GATEWAY_API_KEY="shared-credential")
-    def test_raises_instead_of_using_the_python_gateway(self, builder, url, api_key):
+    def test_raises_instead_of_using_the_python_gateway(self, builder, url, api_key, message):
         with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
-            with pytest.raises(
-                GatewayNotConfiguredError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"
-            ):
+            with pytest.raises(GatewayNotConfiguredError, match=message):
                 builder()
 
 

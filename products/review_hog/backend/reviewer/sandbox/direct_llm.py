@@ -69,7 +69,6 @@ async def run_oneshot_review(
     non-retryable. ``step_name`` is stamped on the captured ``$ai_generation`` event as ``ai_stage``
     so dumps and cost queries can attribute the call to its pipeline stage.
     """
-    # The Go gateway reads ai_stage from the builder; the Python fallback reads the per-call header below.
     client = build_async_anthropic_client(ai_product="review_hog", ai_stage=step_name, team_id=team_id)
     async with client:
         try:
@@ -84,7 +83,6 @@ async def run_oneshot_review(
                 output_config=cast(OutputConfigParam, {"effort": reasoning_effort}),
                 output_format=model_to_validate,
                 metadata={"user_id": f"user-{user_id}"},
-                extra_headers={"x-posthog-property-ai_stage": step_name},
                 timeout=_TIMEOUT_SECONDS,
             ) as stream:
                 response = await stream.get_final_message()

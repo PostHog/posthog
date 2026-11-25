@@ -243,9 +243,14 @@ def openai_gateway_configured() -> bool:
 
 def _require_ai_gateway_config() -> AIGatewayConfig:
     gateway = resolve_ai_gateway_config()
-    if gateway is None:
-        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
-    return gateway
+    if gateway is not None:
+        return gateway
+    url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
+    if url or api_key:
+        misconfig = _gateway_misconfig(url, api_key)
+        assert misconfig is not None
+        raise GatewayNotConfiguredError(misconfig)
+    raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
 
 
 def build_openai_client(

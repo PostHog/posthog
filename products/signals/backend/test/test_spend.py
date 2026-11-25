@@ -1320,7 +1320,6 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
                         self.team.id,
                         output,
                         "Is this actionable? {description}",
-                        gateway_mode=True,
                         system_one_prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
                     )
                     is request_id_available
