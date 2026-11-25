@@ -15,7 +15,7 @@ A dashboard is a collection of insight tiles on one page. Your job is to figure 
 reuse what already exists, create what's missing, and lay them out sensibly — not to blindly generate charts.
 
 When the dashboard needs explanatory text, keep user copy and agent context separate. Use the
-`writing-user-facing-copy` skill for text that people read. Use `agent_context` for information that an agent needs to
+`writing-simplified-technical-english` skill for text that people read. Use `agent_context` for information that an agent needs to
 maintain the dashboard.
 
 PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there. Never use `agent_context` as
@@ -95,7 +95,7 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
   - Bad: "Tracks signups, activation, and churn across all plans. Revised 3 March to add the enterprise tile."
   - When you update it, rewrite it. Do not append.
   - Put metric definitions in the Data Catalog. Put working notes in a text tile's `agent_context`.
-  - Use the same rules for insight descriptions. Write plain, short copy: see `writing-user-facing-copy`.
+  - Use the same rules for insight descriptions. Write plain, short copy: see `writing-simplified-technical-english`.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
@@ -120,7 +120,7 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 
 Use `dashboard-create-tile` with `type: text` when a dashboard needs a heading, explanation, definition, or caveat.
 
-- Write `body` for the dashboard viewer. Keep it concise, use plain language, and follow the `writing-user-facing-copy`
+- Write `body` for the dashboard viewer. Keep it concise, use plain language, and follow the `writing-simplified-technical-english`
   skill. Do not put tool instructions, query notes, or maintenance details in this field.
 - Write `agent_context` for agents. Put Data Catalog metric names, event and property names, data sources,
   tile-specific query assumptions, caveats, and editing guidance here. Do not put metric definitions or formulas in
