@@ -274,9 +274,10 @@ class TestSCIMGroupsAPI(APILicensedTest):
         role.refresh_from_db()
         assert role.name == "UpdatedName"
 
-    def test_patch_replace_group_members_with_simple_path(self):
+    @parameterized.expand([("human", UserType.HUMAN, True), ("service_account", UserType.SERVICE_ACCOUNT, False)])
+    def test_patch_replace_group_members_with_simple_path(self, _name, user_type, assigned):
         user = User.objects.create_user(
-            email="groupmembers@example.com", password=None, first_name="Member", is_email_verified=True
+            email="groupmembers@example.com", password=None, first_name="Member", is_email_verified=True, type=user_type
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
@@ -294,7 +295,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert RoleMembership.objects.filter(role=role, user=user).exists()
+        assert RoleMembership.objects.filter(role=role, user=user).exists() == assigned
 
     def test_patch_replace_group_member_with_filtered_path_not_supported(self):
         # Swapping members within a group with a filtered path is not supported
@@ -489,7 +490,8 @@ class TestSCIMGroupsAPI(APILicensedTest):
             ("patch_replace_members", "patch", [{"op": "replace", "path": "members", "value": []}]),
             ("patch_remove_all_members", "patch", [{"op": "remove", "path": "members"}]),
             ("patch_remove_by_value", "patch", [{"op": "remove", "path": "members", "value": "SERVICE_ACCOUNT"}]),
-            ("put_without_members", "put", []),
+            ("patch_remove_filtered", "patch", [{"op": "remove", "path": 'members[value eq "SERVICE_ACCOUNT"]'}]),
+            ("put_empty_members", "put", []),
         ]
     )
     def test_group_sync_keeps_service_account_role_membership(self, _name, method, operations):
@@ -514,7 +516,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             }
             response = self.client.put(url, data=data, content_type="application/scim+json")
         else:
+            operations = [operation.copy() for operation in operations]
             for operation in operations:
+                operation["path"] = operation["path"].replace("SERVICE_ACCOUNT", str(service_account.id))
                 if operation.get("value") == "SERVICE_ACCOUNT":
                     operation["value"] = [{"value": str(service_account.id)}]
             data = {"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], "Operations": operations}
