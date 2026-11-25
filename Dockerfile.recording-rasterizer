@@ -50,6 +50,8 @@ COPY ./common/replay-headless/package.json ./common/replay-headless/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV BUILD_LIBRDKAFKA=0 \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Turbo sends usage events to telemetry.vercel.com on every run unless this is set.
+ENV TURBO_TELEMETRY_DISABLED=1
 
 # The base image ships standalone Yarn 1 links that block corepack's own yarn shims.
 RUN rm -rf /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v* && \

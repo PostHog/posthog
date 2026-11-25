@@ -327,7 +327,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
         exposure_params = get_exposure_config_params_for_builder(
-            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            self.experiment.exposure_criteria, self.experiment.start_date
         )
 
         return ExperimentQueryBuilder(
