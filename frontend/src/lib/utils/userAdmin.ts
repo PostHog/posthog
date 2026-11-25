@@ -7,7 +7,11 @@ import { hogql } from 'lib/utils/hogql'
 import { HogQLQueryResponse, NodeKind, QueryLogTags } from '~/queries/schema/schema-general'
 import { Region } from '~/types'
 
-const POSTHOG_CLOUD_HOSTNAMES = new Set([CLOUD_HOSTNAMES[Region.US], CLOUD_HOSTNAMES[Region.EU]])
+const POSTHOG_CLOUD_REGIONS = new Map<string, Region.US | Region.EU>([
+    [CLOUD_HOSTNAMES[Region.US], Region.US],
+    [CLOUD_HOSTNAMES[Region.EU], Region.EU],
+    ['app.posthog.com', Region.US],
+])
 
 // EU users have no rows in this region's posthog_user tables; eu_org_members is a
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
@@ -15,7 +19,7 @@ const EU_ORG_MEMBERS_VIEW = 'eu_org_members'
 
 function getAdminOrigin(region: Region.US | Region.EU, currentOrigin: string): string {
     const currentUrl = new URL(currentOrigin)
-    return POSTHOG_CLOUD_HOSTNAMES.has(currentUrl.hostname) ? `https://${CLOUD_HOSTNAMES[region]}` : currentUrl.origin
+    return POSTHOG_CLOUD_REGIONS.has(currentUrl.hostname) ? `https://${CLOUD_HOSTNAMES[region]}` : currentUrl.origin
 }
 
 export function getUserAdminUrl(
@@ -39,7 +43,8 @@ export function canLogInAsFromCurrentOrigin(
     region: Region.US | Region.EU,
     currentOrigin: string = window.location.origin
 ): boolean {
-    return getAdminOrigin(region, currentOrigin) === new URL(currentOrigin).origin
+    const currentRegion = POSTHOG_CLOUD_REGIONS.get(new URL(currentOrigin).hostname)
+    return currentRegion === undefined || currentRegion === region
 }
 
 export function isEuOrgMembersViewMissingError(error: unknown): boolean {

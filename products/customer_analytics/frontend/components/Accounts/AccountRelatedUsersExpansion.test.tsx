@@ -5,7 +5,6 @@ import { Provider } from 'kea'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
@@ -106,7 +105,6 @@ describe('AccountRelatedUsersExpansion', () => {
                 '/admin/login/user/42/': () => [200, {}],
             },
         })
-        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
         const originalLocation = window.location
         const assign = jest.fn()
         Object.defineProperty(window, 'location', {
@@ -116,13 +114,10 @@ describe('AccountRelatedUsersExpansion', () => {
 
         try {
             fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Investigate a support request' } })
-            fireEvent.click(screen.getByText('Log in', { selector: 'button span' }))
-
-            await waitFor(() =>
-                expect(errorToast).toHaveBeenCalledWith(
-                    'Could not log in as this user. Check that impersonation is allowed and try again.'
-                )
-            )
+            const logInButton = screen.getByText('Log in', { selector: 'button span' }).closest('button')!
+            fireEvent.click(logInButton)
+            expect(logInButton).toHaveAttribute('aria-disabled', 'true')
+            await waitFor(() => expect(logInButton).toHaveAttribute('aria-disabled', 'false'))
             expect(screen.getByText('Log in as Alex Mercer')).toBeInTheDocument()
             expect(assign).not.toHaveBeenCalled()
         } finally {
