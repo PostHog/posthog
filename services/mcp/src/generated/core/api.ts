@@ -368,6 +368,8 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionW
 
 export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
+export const organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
+
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax = 500
@@ -2832,6 +2834,38 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
                     ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -3256,6 +3290,8 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
+
+export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
@@ -5731,6 +5767,38 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
                     ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -6180,7 +6248,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
 })
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this uploaded media.'),
@@ -6214,7 +6282,9 @@ export const UploadedMediaStartUploadCreateBody = () => zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 /**

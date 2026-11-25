@@ -18,6 +18,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
+import { PlanFloorClampBanner } from 'scenes/data-warehouse/saved_queries/PlanFloorClampBanner'
 import { SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -96,6 +97,7 @@ export function EndpointConfiguration(): JSX.Element {
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
     // The plan floor limits how often a materialized endpoint refreshes; a direct endpoint only caches.
     const planRefreshFloorSeconds = isMaterialized ? endpoint.plan_refresh_floor_seconds : null
+    const planClamp = (viewingVersion ?? endpoint).plan_clamp
     const refreshBounds = endpointSyncFrequencyBounds(planRefreshFloorSeconds)
     const materializationExpanded = leftActiveKeys.includes('materialization')
 
@@ -105,6 +107,16 @@ export function EndpointConfiguration(): JSX.Element {
         <div className="flex gap-6">
             {/* Left column — settings (fixed width) */}
             <div className="w-120 shrink-0">
+                {planClamp && (
+                    <PlanFloorClampBanner
+                        className="mb-4"
+                        subject="endpoint"
+                        subjectId={viewingVersion?.version_id ?? endpoint.current_version_id}
+                        previousSeconds={planClamp.previous_data_freshness_seconds}
+                        planFloorSeconds={planClamp.plan_floor_seconds}
+                        at={planClamp.at}
+                    />
+                )}
                 <LemonCollapse
                     multiple
                     activeKeys={leftActiveKeys}

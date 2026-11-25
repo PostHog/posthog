@@ -935,6 +935,12 @@ GRANT_DENIAL_PREFIX = "GitHub can't read this table"
 
 COLLABORATOR_ONLY_ENDPOINTS: frozenset[str] = frozenset({"stargazers", "subscribers"})
 
+# GitHub's permission tables for fine-grained tokens and GitHub Apps list both endpoints under
+# Contents: write, so an admin's token with Contents: read still gets "Resource not accessible".
+# Not an ENDPOINT_REQUIRED_PERMISSION entry: the picker checks only that the grant key is held,
+# and every connection holds contents, so the entry would never flag a gap.
+COLLABORATOR_ONLY_GRANT = "Contents: read and write"
+
 # What to ask for, as (name on a fine-grained token or app installation, scope on a classic token).
 # The three name the same grant differently, so the message carries both rather than making the
 # reader translate. _grant_hint in github.py builds the sentence, which keeps the wording in one

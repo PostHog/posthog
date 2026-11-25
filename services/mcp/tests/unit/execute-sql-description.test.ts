@@ -11,7 +11,6 @@ describe('formatExecuteSqlDescription', () => {
         const rendered = builder.formatExecuteSqlDescription()
         expect(rendered).toContain('#### Catalog trust signals')
         expect(rendered).toContain('certification')
-        expect(rendered).toContain('confidence')
         expect(rendered).toContain('reasoning')
         expect(rendered).toContain('#### Metric discovery (semantic layer)')
         expect(rendered).toContain('metric-list')

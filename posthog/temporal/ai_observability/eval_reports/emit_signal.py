@@ -30,6 +30,7 @@ import temporalio.workflow
 from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_client import GatewayNotConfiguredError, resolve_ai_gateway_config
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -218,9 +219,20 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
 
     content = await database_sync_to_async(_fetch_report_content, thread_sensitive=False)()
 
-    summary = await summarize_report_for_signal(inputs, content)
+    from products.signals.backend.facade.api import TrialRefused, emit_signal
 
-    from products.signals.backend.facade.api import emit_signal
+    try:
+        summary = await summarize_report_for_signal(inputs, content)
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        # The trial or billing limit refused the summary call. A retry gets the same refusal, so drop the signal.
+        logger.info(
+            "Skipped eval report signal: self-driving admission refused",
+            evaluation_id=inputs.evaluation_id,
+            report_run_id=inputs.report_run_id,
+            team_id=inputs.team_id,
+            reason=error.reason if isinstance(error, TrialRefused) else "quota_limited",
+        )
+        return
 
     await emit_signal(
         team=team,

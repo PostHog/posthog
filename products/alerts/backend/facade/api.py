@@ -7,6 +7,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 
 import uuid
 from collections.abc import Collection, Iterable, Iterator
+from copy import copy as shallow_copy
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Literal
@@ -78,6 +79,7 @@ from products.alerts_platform.backend.facade.api import (
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    rows_with_counted_copies,
     runtime_by_public_id,
     update_configuration,
 )
@@ -234,7 +236,18 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     # Deferred: the cutover module imports `posthog.tasks.alerts.utils`, which imports this facade.
     from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
 
-    rows = _insight_owned_rows().filter(team_id=team_id)
+    team_rows = _insight_owned_rows().filter(team_id=team_id)
+    rows = team_rows.exclude(
+        id__in=rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=list(team_rows.values_list("id", flat=True)),
+        )
+    )
+    enabled_row_ids = set(team_rows.filter(enabled=True).values_list("id", flat=True))
+    enabled_row_ids -= rows_with_counted_copies(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=enabled_row_ids, enabled_only=True
+    )
     held = list_configurations(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
@@ -285,7 +298,7 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
     return contracts.AlertInventory(
         total_count=rows.count() + held.total,
-        enabled_count=rows.filter(enabled=True).count() + enabled_held,
+        enabled_count=len(enabled_row_ids) + enabled_held,
         recent=tuple(recent[:recent_limit]),
     )
 
@@ -416,6 +429,8 @@ def snooze_alert_from_slack(
         except AlertConfiguration.DoesNotExist:
             return "not_found"
 
+        if locked_alert.platform_owned:
+            return _snooze_moved_from_slack(locked_alert, user=user, snoozed_until=snoozed_until)
         if not _is_enabled(locked_alert):
             return "disabled"
 
@@ -423,42 +438,50 @@ def snooze_alert_from_slack(
             state_fields = apply_snooze(locked_alert)
             locked_alert.snoozed_until = snoozed_until
             locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
-            if locked_alert.platform_owned:
-                # The platform's copy mutes delivery, so it takes the snooze under the same lock.
-                from products.alerts.backend.platform_ownership import (  # noqa: PLC0415 - platform_ownership reaches this module back
-                    on_updated,
-                )
-
-                try:
-                    on_updated(locked_alert, snooze_changed=True)
-                except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
-                    # Neither row takes the snooze, so the alert does not mute on one stack only.
-                    capture_exception(error, {"alert_id": str(alert_id)})
-                    transaction.set_rollback(True)
-                    return "not_snoozable"
-            else:
-                AlertCheck.objects.create(
-                    alert_configuration=locked_alert,
-                    calculated_value=None,
-                    condition=locked_alert.condition,
-                    targets_notified={},
-                    state=locked_alert.state,
-                    error=None,
-                )
+            AlertCheck.objects.create(
+                alert_configuration=locked_alert,
+                calculated_value=None,
+                condition=locked_alert.condition,
+                targets_notified={},
+                state=locked_alert.state,
+                error=None,
+            )
 
     return "snoozed"
 
 
+def _snooze_moved_from_slack(alert: AlertConfiguration, *, user: User, snoozed_until: datetime) -> SlackSnoozeOutcome:
+    """Snoozes an alert the platform owns, whose row the caller locked, on its copy alone, which holds
+    whether it is on and mutes its delivery."""
+    # Deferred: platform_ownership reaches this module back.
+    from products.alerts.backend.activity_logging import log_platform_alert_edit  # noqa: PLC0415
+    from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
+
+    if not show_locked_copy(alert):
+        return "not_found"
+    if not alert.enabled:
+        return "disabled"
+    before = shallow_copy(alert)
+    alert.snoozed_until = snoozed_until
+    with ActingUserContext(user):
+        try:
+            on_updated(alert, snooze_changed=True)
+        except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+            capture_exception(error, {"alert_id": str(alert.id)})
+            transaction.set_rollback(True)
+            return "not_snoozable"
+    log_platform_alert_edit(before, alert, user=user, was_impersonated=False)
+    return "snoozed"
+
+
 def _is_enabled(alert: AlertConfiguration) -> bool:
-    """Whether the alert is on. An alert the platform owns needs its copy on as well, because the platform
-    holds whether it is on, and a snooze writes the row's settings to the copy, so a row that is off
-    would switch the copy off."""
-    if not alert.enabled or not alert.platform_owned:
+    """Whether the alert is on. The copy of an alert the platform owns holds whether it is on."""
+    if not alert.platform_owned:
         return alert.enabled
     copy = owned_copies_by_legacy_id(
         team_id=alert.team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert.id]
     ).get(alert.id)
-    return copy is None or copy.enabled
+    return copy is not None and copy.enabled
 
 
 def _can_snooze_from_slack(alert: AlertConfiguration, *, user: User) -> bool:

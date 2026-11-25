@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 
+import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -21,6 +22,11 @@ describe('todayShellLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+    })
+
+    it('does not mount the help menu, which loads the health summary, so shared pages make no team-scoped call', () => {
+        todayShellLogic().mount()
+        expect(helpMenuLogic.isMounted()).toBe(false)
     })
 
     test.each([
@@ -176,7 +182,6 @@ describe('todayShellLogic', () => {
         ['/project/1/inbox/scouts', 'products', 'products'],
         ['/project/1/inbox/scouts/checkout-errors', 'products', 'products'],
         ['/project/1/ai-observability/traces', 'monitor', null],
-        ['/project/1/ai-evals/taggers', 'monitor', 'products'],
         ['/project/1/prompt-management/prompts', 'monitor', 'products'],
         ['/project/1/application-observability', 'products', 'products'],
         ['/project/1/inbox/reports', 'products', 'products'],
@@ -204,6 +209,70 @@ describe('todayShellLogic', () => {
             router.actions.push('/project/1/insights/abc')
             router.actions.push('/project/1/error-tracking/0190-issue')
             expect(logic.values.activePane).toBe(issuePane)
+        }
+    )
+
+    test.each([
+        ['/project/1/workflows', 'automate', 'products'],
+        ['/project/1/workflows/0190-flow/workflow', 'automate', 'products'],
+        ['/project/1/transactional/log', 'automate', 'products'],
+        ['/project/1/data-management/destinations', 'automate', 'products'],
+        ['/project/1/pipeline/batch-exports/0190-export', 'automate', null],
+        ['/project/1/subscriptions/12', 'automate', null],
+        ['/project/1/inbox/scouts/checkout-errors', 'automate', 'products'],
+        ['/project/1/inbox/reports', 'products', 'products'],
+        ['/project/1/functions/0190-function', null, null],
+    ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutAutomate) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutAutomate)
+    })
+
+    test.each([
+        [true, 'automate'],
+        [false, 'products'],
+    ] as const)('with data-area %s, a workflow shows %s', (enabled, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push('/project/1/workflows/0190-flow/workflow')
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['/project/1/data-management/sources', 'data', 'products'],
+        ['/project/1/data-management/sources/managed-0190/schemas', 'data', 'products'],
+        ['/project/1/data-warehouse/new-source', 'data', 'products'],
+        ['/project/1/data-warehouse/connect-destination', 'data', 'products'],
+        ['/project/1/data-management/events/0190-event', 'data', 'products'],
+        ['/project/1/data-management/properties', 'data', 'products'],
+        ['/project/1/models/0190-model', 'data', 'products'],
+        ['/project/1/data-catalog', 'data', 'products'],
+        ['/project/1/sql', 'products', 'products'],
+    ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutData)
+    })
+
+    test.each([
+        [true, ['home', 'spaces', 'analytics', 'people', 'automate', 'data', 'products'], 'analytics'],
+        [false, ['home', 'spaces', 'analytics', 'people', 'products'], 'products'],
+    ] as const)(
+        'with data-area %s, the rail shows %o and an event opened from an insight shows %s',
+        (enabled, railPanes, eventPane) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.railPanes).toEqual(railPanes)
+
+            router.actions.push('/project/1/insights/abc')
+            router.actions.push('/project/1/data-management/events/0190-event')
+            expect(logic.values.activePane).toBe(eventPane)
+
+            router.actions.push('/project/1/data-management/events')
+            expect(logic.values.activePane).toBe(enabled ? 'data' : 'products')
         }
     )
 
@@ -238,6 +307,8 @@ describe('todayShellLogic', () => {
         ['products', 'new', {}, undefined],
         ['settings', 'new', {}, urls.settings('project')],
         ['people', 'new', {}, urls.persons()],
+        ['automate', 'new', {}, urls.workflows()],
+        ['data', 'new', {}, urls.sources()],
         ['people', 'new', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }, urls.customerAnalyticsDashboard()],
         [
             'people',

@@ -17,7 +17,7 @@ import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetai
 
 export const CITATIONS_PAGE_SIZE = 10
 /** The longest window the API accepts, for lookups opened outside a report with a window of its own. */
-export const CITATIONS_MAX_DAYS = 90
+export const CITATIONS_MAX_DATE_FROM = '-90d'
 
 export type CitationsLookupKind = 'url' | 'domain' | 'search'
 
@@ -25,7 +25,10 @@ export type CitationsLookupKind = 'url' | 'domain' | 'search'
 export interface CitationsLookup {
     kind: CitationsLookupKind
     value: string
-    days: number
+    /** A date or a relative day such as "-90d". A report passes its own `window_from`. */
+    dateFrom: string
+    /** The last day, or null for today. A report passes its own `window_to`. */
+    dateTo: string | null
     branded: BrandedSegmentEnumApi
 }
 
@@ -170,7 +173,8 @@ export const contentAutopilotCitationsModalLogic = kea<contentAutopilotCitations
             }
             return await aeoPromptsCitations(String(values.currentTeamIdStrict), {
                 [lookup.kind]: lookup.value,
-                days: lookup.days,
+                date_from: lookup.dateFrom,
+                ...(lookup.dateTo !== null ? { date_to: lookup.dateTo } : {}),
                 branded: lookup.branded,
                 include_answer_text: true,
                 limit: CITATIONS_PAGE_SIZE,

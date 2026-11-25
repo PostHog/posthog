@@ -10,3 +10,5 @@ class KnockSourceConfig(config.Config):
     object_collections: str | None = None
     audience_keys: str | None = None
     in_app_feed_channel_ids: str | None = None
+    service_token: str | None = None
+    management_environment: str | None = None
