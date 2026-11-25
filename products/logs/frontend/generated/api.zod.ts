@@ -2228,12 +2228,12 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
             'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
         ),
     rule_type: zod
-        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .enum(['severity_sampling', 'path_drop', 'rate_limit', 'require_secret_key'])
         .describe(
-            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or require_secret_key (drops every log not sent with a project secret API key).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         ),
     scope_service: zod
         .string()
@@ -2288,12 +2288,12 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
             'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
         ),
     rule_type: zod
-        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .enum(['severity_sampling', 'path_drop', 'rate_limit', 'require_secret_key'])
         .describe(
-            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or require_secret_key (drops every log not sent with a project secret API key).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         ),
     scope_service: zod
         .string()
@@ -2352,13 +2352,13 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
         ),
     rule_type: zod
-        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .enum(['severity_sampling', 'path_drop', 'rate_limit', 'require_secret_key'])
         .describe(
-            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         )
         .optional()
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or require_secret_key (drops every log not sent with a project secret API key).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit\n\* `require_secret_key` - Require secret key'
         ),
     scope_service: zod
         .string()

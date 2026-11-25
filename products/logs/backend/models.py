@@ -596,6 +596,7 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
         PATH_DROP = "path_drop", "Path exclusion"
         RATE_LIMIT = "rate_limit", "Rate limit"
+        REQUIRE_SECRET_KEY = "require_secret_key", "Require secret key"
 
     # Same choice set as metric rules, so the OpenAPI schema emits one enum for both.
     RecordSource = LogsMetricRule.RecordSource

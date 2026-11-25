@@ -48,7 +48,10 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     )
     rule_type = serializers.ChoiceField(
         choices=LogsExclusionRule.RuleType.choices,
-        help_text="Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).",
+        help_text=(
+            "Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or "
+            "require_secret_key (drops every log not sent with a project secret API key)."
+        ),
     )
     scope_service = serializers.CharField(
         required=False,
@@ -140,6 +143,17 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         ):
             # Spans carry no severity, so every span would rank as info and one action would hit all of them.
             raise ValidationError({"rule_type": "severity_sampling rules are not supported for spans."})
+        if rule_type == LogsExclusionRule.RuleType.REQUIRE_SECRET_KEY:
+            if attrs.get("source") != LogsExclusionRule.RecordSource.LOGS:
+                raise ValidationError({"rule_type": "require_secret_key rules are only supported for logs."})
+            # The rule acts on the whole message, so a filter would suggest a narrower drop than it does.
+            for field in ("scope_service", "scope_path_pattern"):
+                if attrs.get(field):
+                    raise ValidationError({field: "require_secret_key rules take no scope."})
+            if attrs.get("config") or attrs.get("scope_attribute_filters"):
+                raise ValidationError({"config": "require_secret_key rules take no config."})
+            return attrs
+
         config = attrs.get("config")
         # Only reject vacuous groups on requests that actually write config: rows that
         # predate this validator can carry an empty group, and a PATCH of unrelated

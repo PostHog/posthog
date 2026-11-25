@@ -9,6 +9,8 @@ export function ruleTypeLabel(ruleType: LogsExclusionRuleRuleTypeEnumApi): strin
             return 'Drop by severity'
         case LogsExclusionRuleRuleTypeEnumApi.RateLimit:
             return 'Rate limit'
+        case LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey:
+            return 'Require secret key'
         default: {
             return String(ruleType)
         }

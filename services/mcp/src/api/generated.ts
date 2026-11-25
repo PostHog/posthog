@@ -71499,6 +71499,7 @@ export namespace Schemas {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
+     * * `require_secret_key` - Require secret key
      */
     export type LogsExclusionRuleRuleTypeEnum = typeof LogsExclusionRuleRuleTypeEnum[keyof typeof LogsExclusionRuleRuleTypeEnum];
 
@@ -71507,6 +71508,7 @@ export namespace Schemas {
       SeveritySampling: 'severity_sampling',
       PathDrop: 'path_drop',
       RateLimit: 'rate_limit',
+      RequireSecretKey: 'require_secret_key',
     } as const;
 
     /**
@@ -72084,11 +72086,12 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
+      /** Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or require_secret_key (drops every log not sent with a project secret API key).
        *
        * * `severity_sampling` - Severity-based reduction
        * * `path_drop` - Path exclusion
-       * * `rate_limit` - Rate limit */
+       * * `rate_limit` - Rate limit
+       * * `require_secret_key` - Require secret key */
       rule_type: LogsExclusionRuleRuleTypeEnum;
       /**
          * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
@@ -94573,11 +94576,12 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
+      /** Rule kind: severity_sampling, path_drop, rate_limit (caps matching log volume at ingestion), or require_secret_key (drops every log not sent with a project secret API key).
        *
        * * `severity_sampling` - Severity-based reduction
        * * `path_drop` - Path exclusion
-       * * `rate_limit` - Rate limit */
+       * * `rate_limit` - Rate limit
+       * * `require_secret_key` - Require secret key */
       rule_type?: LogsExclusionRuleRuleTypeEnum;
       /**
          * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.

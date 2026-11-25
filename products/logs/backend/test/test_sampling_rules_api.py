@@ -415,6 +415,23 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("valid", {}, status.HTTP_201_CREATED, None),
+            ("spans", {"source": "spans"}, status.HTTP_400_BAD_REQUEST, "rule_type"),
+            ("config", {"config": {"patterns": ["/healthz"]}}, status.HTTP_400_BAD_REQUEST, "config"),
+            ("service scope", {"scope_service": "api"}, status.HTTP_400_BAD_REQUEST, "scope_service"),
+        ]
+    )
+    def test_require_secret_key_rule_validation(self, _label, overrides, expected_status, error_attr):
+        payload = self._payload(**{"rule_type": "require_secret_key", "config": {}, **overrides})
+
+        response = self.client.post(self.base_url, payload, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if error_attr:
+            assert response.json()["attr"] == error_attr
+
+    @parameterized.expand(
+        [
             ("create", "post", status.HTTP_403_FORBIDDEN),
             ("enable", "patch", status.HTTP_403_FORBIDDEN),
             ("delete", "delete", status.HTTP_204_NO_CONTENT),

@@ -140,6 +140,9 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
 }
 
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
+    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
+        return {}
+    }
     if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
         // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),

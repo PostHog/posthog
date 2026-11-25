@@ -21,6 +21,7 @@ const RATE_LIMIT_UNIT_OPTIONS: { value: RateLimitUnit; label: string }[] = [
 const ACTION_OPTIONS: { value: LogsExclusionRuleRuleTypeEnumApi; label: string }[] = [
     { value: LogsExclusionRuleRuleTypeEnumApi.PathDrop, label: 'Drop' },
     { value: LogsExclusionRuleRuleTypeEnumApi.RateLimit, label: 'Rate limit' },
+    { value: LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey, label: 'Require secret key' },
 ]
 
 export function LogsSamplingForm(): JSX.Element {
@@ -28,6 +29,7 @@ export function LogsSamplingForm(): JSX.Element {
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
 
     const isRateLimit = samplingForm.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit
+    const requiresSecretKey = samplingForm.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey
     const hasFilters = samplingForm.filter_group.values.length > 0
 
     const matchDescription = isRateLimit
@@ -98,46 +100,59 @@ export function LogsSamplingForm(): JSX.Element {
                 )}
             </SceneSection>
 
-            <SceneSection title="Match" titleSize="sm" description={matchDescription}>
-                <DropRuleFilterEditor
-                    filterGroup={samplingForm.filter_group}
-                    onChange={(group) => setSamplingFormValue('filter_group', group)}
-                />
-                {/* filter_group is an object — kea-forms types only allow scalar field errors,
+            {requiresSecretKey ? (
+                <SceneSection title="Match" titleSize="sm">
+                    <p className="text-sm text-secondary m-0">
+                        Drops every log that was not sent with a project secret API key, including logs sent from
+                        browsers and mobile apps with your project token. Dropped logs are not stored and cannot be
+                        recovered.
+                    </p>
+                </SceneSection>
+            ) : (
+                <SceneSection title="Match" titleSize="sm" description={matchDescription}>
+                    <DropRuleFilterEditor
+                        filterGroup={samplingForm.filter_group}
+                        onChange={(group) => setSamplingFormValue('filter_group', group)}
+                    />
+                    {/* filter_group is an object — kea-forms types only allow scalar field errors,
                     so this inline message mirrors what samplingFormSaveDisabledReason returns. */}
-                {!hasFilters && <p className="text-danger text-xs mt-1 mb-0">Add at least one filter to match logs.</p>}
-                <LogsFilterVolumeSparkline
-                    filterGroup={samplingForm.filter_group}
-                    metric={isRateLimit ? 'bytes' : 'count'}
-                    buildGoalLines={({ bucketSeconds }) => {
-                        const threshold = rateLimitThresholdPerBucket(bucketSeconds)
-                        if (threshold == null) {
-                            return undefined
-                        }
-                        return [
-                            {
-                                value: threshold,
-                                color: 'var(--danger)',
-                                label: `Rate limit (${samplingForm.rate_limit_amount.trim()} ${
-                                    samplingForm.rate_limit_unit
-                                })`,
-                                displayLabel: true,
-                            },
-                        ]
-                    }}
-                    renderCaption={({ bucketSeconds, chartMax }) => {
-                        const threshold = rateLimitThresholdPerBucket(bucketSeconds)
-                        if (threshold == null || chartMax <= 0 || threshold <= chartMax) {
-                            return null
-                        }
-                        return (
-                            <div className="text-xs text-muted">
-                                Rate limit is above the current peak — no logs would be dropped in the previewed window.
-                            </div>
-                        )
-                    }}
-                />
-            </SceneSection>
+                    {!hasFilters && (
+                        <p className="text-danger text-xs mt-1 mb-0">Add at least one filter to match logs.</p>
+                    )}
+                    <LogsFilterVolumeSparkline
+                        filterGroup={samplingForm.filter_group}
+                        metric={isRateLimit ? 'bytes' : 'count'}
+                        buildGoalLines={({ bucketSeconds }) => {
+                            const threshold = rateLimitThresholdPerBucket(bucketSeconds)
+                            if (threshold == null) {
+                                return undefined
+                            }
+                            return [
+                                {
+                                    value: threshold,
+                                    color: 'var(--danger)',
+                                    label: `Rate limit (${samplingForm.rate_limit_amount.trim()} ${
+                                        samplingForm.rate_limit_unit
+                                    })`,
+                                    displayLabel: true,
+                                },
+                            ]
+                        }}
+                        renderCaption={({ bucketSeconds, chartMax }) => {
+                            const threshold = rateLimitThresholdPerBucket(bucketSeconds)
+                            if (threshold == null || chartMax <= 0 || threshold <= chartMax) {
+                                return null
+                            }
+                            return (
+                                <div className="text-xs text-muted">
+                                    Rate limit is above the current peak — no logs would be dropped in the previewed
+                                    window.
+                                </div>
+                            )
+                        }}
+                    />
+                </SceneSection>
+            )}
         </div>
     )
 }
