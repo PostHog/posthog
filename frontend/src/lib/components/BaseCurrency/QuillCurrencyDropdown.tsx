@@ -15,6 +15,7 @@ import {
     SelectTriggerIcon,
 } from '@posthog/quill'
 
+import { cn } from 'lib/utils/css-classes'
 import {
     CURRENCY_SYMBOL_TO_EMOJI_MAP,
     CURRENCY_SYMBOL_TO_NAME_MAP,
@@ -40,10 +41,12 @@ export function QuillCurrencyDropdown({
     value,
     onChange,
     disabledReason,
+    className,
 }: {
     value: CurrencyCode | null
     onChange: (currency: CurrencyCode) => void
     disabledReason?: string
+    className?: string
 }): JSX.Element {
     const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -66,7 +69,7 @@ export function QuillCurrencyDropdown({
                 ref={triggerRef}
                 variant="outline"
                 left
-                className="w-fit min-w-60"
+                className={cn('w-fit min-w-60', className)}
                 onClick={() => setOpen(!open)}
                 disabledReason={disabledReason}
             >

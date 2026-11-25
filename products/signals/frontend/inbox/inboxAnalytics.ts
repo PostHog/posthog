@@ -303,6 +303,9 @@ export type InboxQueryChange =
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
+/** Which control a scout delete came from, where one surface offers more than one. */
+export type ScoutDeleteEntryPoint = 'header' | 'settings'
+
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the

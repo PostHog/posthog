@@ -15,12 +15,14 @@ import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.test.utils import native_stored_document
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -71,6 +73,7 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.data_deletion import preview_event_deletion
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -384,6 +387,47 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
     assert params["_deletion_request_id"] == request_id
     assert execute.call_args.kwargs["team_id"] == team.pk
     assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
+
+
+@pytest.mark.django_db
+def test_query_deletion_selects_flag_evaluations_rows_older_than_the_coverage_start(team, user):
+    distinct_id = f"erase-{uuid4()}"
+    timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 10)
+    sync_execute(
+        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
+        [(team.pk, distinct_id, uuid4(), uuid4(), timestamp)],
+    )
+
+    with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+        count = preview_event_deletion(
+            query=f"SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = '{distinct_id}'",
+            variables={},
+            team=team,
+            user=user,
+        )
+
+    assert count == 1
+
+
+@pytest.mark.django_db
+def test_query_deletion_selects_events_older_than_the_events_retention_window(team, user):
+    distinct_id = f"erase-{uuid4()}"
+    team.event_retention_months = 12
+    team.save()
+    sync_execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, distinct_id) VALUES",
+        [(team.pk, "old event", uuid4(), datetime.now(UTC) - timedelta(days=400), distinct_id)],
+    )
+
+    with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
+        count = preview_event_deletion(
+            query=f"SELECT uuid FROM events WHERE distinct_id = '{distinct_id}'",
+            variables={},
+            team=team,
+            user=user,
+        )
+
+    assert count == 1
 
 
 @pytest.mark.django_db

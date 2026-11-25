@@ -35,6 +35,7 @@ from posthog.otel_instrumentation import (
     _otel_django_request_hook,
     _otel_django_response_hook,
     _otel_redis_request_hook,
+    build_sampler,
     initialize_otel,
     instrument_botocore,
     instrument_httpx_client,
@@ -180,8 +181,7 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        self.assertIn("sampler", call_args[1])
 
         mock_otlp_exporter_cls.assert_called_once_with()
         mock_batch_processor_cls.assert_called_once_with(mock_otlp_exporter_cls.return_value)
@@ -422,8 +422,7 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertEqual(mock_tracer_provider_cls.call_count, 1)
         call_args = mock_tracer_provider_cls.call_args
         self.assertEqual(call_args[1]["resource"], mock_resource_instance)
-        # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        self.assertIn("sampler", call_args[1])
 
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
 
@@ -446,6 +445,48 @@ class TestOtelInstrumentation(SimpleTestCase):
         # Assert AIOKafkaInstrumentor call
         mock_aio_kafka_instrumentor_cls.assert_called_once_with()
         mock_aio_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
+
+
+class TestOtelSampler(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "query_batch_old_semconv",
+                {"http.target": "/api/projects/2/dashboard_v2/query_batch/?refresh=1"},
+                None,
+                True,
+            ),
+            ("query_batch_new_semconv", {"url.path": "/api/environments/2/dashboard_v2/query_batch"}, None, True),
+            ("other_route", {"http.target": "/api/projects/2/dashboards/"}, None, False),
+            (
+                "query_batch_unsampled_remote_parent",
+                {"http.target": "/api/projects/2/dashboard_v2/query_batch/"},
+                False,
+                True,
+            ),
+            ("other_route_sampled_remote_parent", {"http.target": "/api/projects/2/dashboards/"}, True, True),
+        ]
+    )
+    @mock.patch.dict(
+        os.environ, {"OTEL_TRACES_SAMPLER": "parentbased_traceidratio", "OTEL_TRACES_SAMPLER_ARG": "0"}, clear=True
+    )
+    def test_root_span_sampling_by_route(
+        self, _case: str, attributes: dict[str, str], parent_sampled: bool | None, expected_sampled: bool
+    ) -> None:
+        tracer = TracerProvider(sampler=build_sampler()).get_tracer(__name__)
+        context = None
+        if parent_sampled is not None:
+            parent = trace.SpanContext(
+                trace_id=1,
+                span_id=1,
+                is_remote=True,
+                trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED if parent_sampled else 0),
+            )
+            context = trace.set_span_in_context(trace.NonRecordingSpan(parent))
+
+        span = tracer.start_span("GET", context=context, kind=trace.SpanKind.SERVER, attributes=attributes)
+
+        self.assertEqual(span.get_span_context().trace_flags.sampled, expected_sampled)
 
 
 class TestOtelRedisRequestHook(SimpleTestCase):

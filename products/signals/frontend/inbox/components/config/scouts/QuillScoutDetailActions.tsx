@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconExternal, IconGear, IconPencil, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconGear, IconPencil, IconRefresh, IconTrash } from '@posthog/icons'
 import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger, Switch } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -15,8 +15,17 @@ import { SCOUT_RUN_NOW_TOOLTIP, SCOUT_VIEW_SKILL_TOOLTIP } from './scoutDetailAc
 
 export function QuillScoutDetailActions({ config }: { config: SignalScoutConfig }): JSX.Element {
     const logic = scoutDetailActionsLogic({ skillName: config.skill_name })
-    const { running, updating, savingNote, noteDisabledReason, runNoteDisabledReason, runNoteOpen } = useValues(logic)
-    const { runNow, leaveNote, setEnabled, setRunNoteOpen, openDialog, skillOpened } = useActions(logic)
+    const {
+        running,
+        updating,
+        deleting,
+        canDelete,
+        savingNote,
+        noteDisabledReason,
+        runNoteDisabledReason,
+        runNoteOpen,
+    } = useValues(logic)
+    const { runNow, leaveNote, setEnabled, setRunNoteOpen, openDialog, confirmDelete, skillOpened } = useActions(logic)
 
     return (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -77,6 +86,20 @@ export function QuillScoutDetailActions({ config }: { config: SignalScoutConfig 
                 disabledReason={updating ? 'Saving scout settings' : undefined}
                 aria-label={`${scoutDisplayName(config)} enabled`}
             />
+            {canDelete && (
+                <Button
+                    variant="destructive-outline"
+                    size="icon"
+                    loading={deleting}
+                    disabledReason={deleting ? 'Deleting…' : undefined}
+                    tooltip="Delete scout"
+                    aria-label="Delete scout"
+                    data-attr="scout-detail-delete"
+                    onClick={confirmDelete}
+                >
+                    <IconTrash />
+                </Button>
+            )}
         </div>
     )
 }

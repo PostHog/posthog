@@ -422,16 +422,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def needs_organization_link(self) -> bool:
-        """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
-        partners are exempt, because staff already know who runs them."""
-        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-
-        return (
-            self.is_cimd_client
-            and self.organization_id is None
-            and not self.organization_link_issuer
-            and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
-        )
+        """A self-registered partner with no PostHog organization behind it, which cannot provision until it links one.
+        Staff-created partners are exempt, because staff already know who runs them."""
+        return self.is_cimd_client and self.organization_id is None and not self.organization_link_issuer
 
     @property
     def provisioning_allowed(self) -> bool:

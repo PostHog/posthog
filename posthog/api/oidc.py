@@ -44,6 +44,10 @@ OIDC_REQUEST_DURATION = Histogram(
 # 30 minutes is probably enough. I think all IdPs have a max lifetime of 1-10 minutes for codes.
 OIDC_AUTHORIZATION_CODE_CACHE_TTL_SECONDS = 60 * 30
 
+# Upper bound on the redirect leg from building the authorization URL to the callback. The IdP's
+# own code lifetime is usually shorter; this only bounds IdPs that issue long-lived codes.
+OIDC_AUTHENTICATION_TTL_SECONDS = 30 * 60
+
 
 OIDC_FETCH_TIMEOUT_SECONDS = 10
 
@@ -63,6 +67,11 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     authentication_started_at: int | None = None
 
     def auth_complete(self, *args: Any, **kwargs: Any) -> UserProtocol | HttpResponseProtocol | None:
+        started_at = self.strategy.session_get("oidc_started_at")
+        # Absent means the flow did not start here (for example a partial pipeline continuation), so
+        # there is no leg to bound and the IdP's own code lifetime still applies.
+        if isinstance(started_at, int) and time.time() - started_at >= OIDC_AUTHENTICATION_TTL_SECONDS:
+            raise AuthFailed(self, "This sign-in took too long. Start it again.")
         self.authentication_started_at = int(time.time())
         return super().auth_complete(*args, **kwargs)
 
@@ -164,6 +173,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         self.strategy.session_set("oidc_config_id", str(configs[0].id))
         self.strategy.session_set("oidc_email", email)
         self.strategy.session_set("oidc_organization_id", str(configs[0].organization_id))
+        self.strategy.session_set("oidc_started_at", int(time.time()))
         return super().auth_url()
 
     def oidc_endpoint(self) -> str:
