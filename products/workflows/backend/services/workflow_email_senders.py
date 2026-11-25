@@ -5,6 +5,7 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -20,6 +21,12 @@ logger = structlog.get_logger(__name__)
 SENDER_UNUSABLE_NOTICE_FLAG = "workflows-sender-unusable-notice"
 
 _PAGE_SIZE = 500
+
+sender_unusable_notice_failures_total = Counter(
+    "workflow_email_sender_unusable_notice_failures_total",
+    "Projects or notices the daily unusable email sender check could not finish, by the step that failed.",
+    labelnames=["step"],
+)
 
 _HAS_EMAIL_STEP = Q(actions__contains=[{"type": "function_email"}]) | Q(
     actions__contains=[{"config": {"template_id": "template-email"}}]
@@ -99,6 +106,7 @@ def notify_unusable_email_senders() -> None:
             outcome = _notify_team(team_id)
         except Exception as error:
             failed += 1
+            sender_unusable_notice_failures_total.labels(step="project").inc()
             logger.exception("workflow_email_sender_unusable_team_failed", team_id=team_id)
             capture_exception(error, {"team_id": team_id})
             continue
@@ -187,5 +195,6 @@ def _queue_sender_unusable_email(team_id: int, workflow: WorkflowWithUnusableSen
             sender_ids=workflow.sender_ids,
         )
     except Exception as error:
+        sender_unusable_notice_failures_total.labels(step="dispatch").inc()
         logger.exception("workflow_email_sender_unusable_dispatch_failed", team_id=team_id, workflow_id=workflow.id)
         capture_exception(error, {"team_id": team_id, "workflow_id": workflow.id})

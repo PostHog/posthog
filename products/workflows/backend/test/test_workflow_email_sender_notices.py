@@ -128,22 +128,24 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         recipients = sorted(address for message in mail.outbox for address in message.to)
         assert recipients == sorted([self.user.email, *(["creator@example.com"] if member else [])])
 
-    def test_leaves_out_a_project_admin_the_workflow_is_hidden_from(self) -> None:
+    def test_emails_only_the_people_who_can_open_the_workflow(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         admin = User.objects.create_and_join(self.organization, "project-admin@example.com", None)
         membership = OrganizationMembership.objects.get(user=admin, organization=self.organization)
-        flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
-        for resource, resource_id, level in (("project", self.team.id, "admin"), ("hog_flow", flow.id, "none")):
-            AccessControl.objects.create(
-                team=self.team,
-                resource=resource,
-                resource_id=str(resource_id),
-                access_level=level,
-                organization_member=membership,
-            )
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", None)
+        flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted), creator=creator)
+        OrganizationMembership.objects.filter(user=creator).delete()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=str(flow.id), access_level="none")
 
         notify_unusable_workflow_email_senders()
 
@@ -151,7 +153,9 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
 
     def test_a_project_that_fails_does_not_stop_the_others(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other project")
-        self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
+        malformed = email_step("welcome", "Welcome email", self.deleted)
+        malformed["config"]["inputs"] = ["not an input map"]
+        self.workflow("Onboarding", malformed)
         HogFlow.objects.create(
             team=other,
             name="Renewals",
@@ -159,12 +163,6 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
             actions=[email_step("renew", "Renewal email", self.deleted)],
         )
 
-        def flag(key: str, *args: Any, groups: dict[str, str], **kwargs: Any) -> bool:
-            if key == SENDER_UNUSABLE_NOTICE_FLAG and groups["project"] == str(self.team.id):
-                raise ConnectionError("flag service unreachable")
-            return True
-
-        with patch("posthoganalytics.feature_enabled", side_effect=flag):
-            notify_unusable_workflow_email_senders()
+        notify_unusable_workflow_email_senders()
 
         assert ["Renewals" in message.subject for message in mail.outbox] == [True]

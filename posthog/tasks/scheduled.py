@@ -1153,7 +1153,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="9", minute="47"),
+        crontab(hour="9", minute="51"),
         notify_unusable_workflow_email_senders.s(),
         name="workflows unusable email sender notices",
     )

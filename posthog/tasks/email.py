@@ -1031,14 +1031,13 @@ def send_workflow_email_sender_unusable(
     if creator and creator not in recipients and _can_open_project(creator, team):
         recipients.add(creator)
     # Loaded here so that every importer of this module does not also load the workflows product.
-    from products.workflows.backend.facade.api import get_viewable_workflow_ids  # noqa: PLC0415
+    from products.workflows.backend.facade.api import can_view_workflow  # noqa: PLC0415
 
     recipients = {
         user
         for user in recipients
-        if hog_flow_id
-        in get_viewable_workflow_ids(
-            team_id=team.id, user_access_control=UserAccessControl(user, team), workflow_ids=[hog_flow_id]
+        if can_view_workflow(
+            team_id=team.id, workflow_id=hog_flow_id, user_access_control=UserAccessControl(user, team)
         )
     }
     if not recipients:
