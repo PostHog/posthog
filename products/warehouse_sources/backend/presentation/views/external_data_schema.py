@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
@@ -85,7 +86,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.partitioning import (
     partitioning_controls_enabled_for_team,
     partitioning_history,
-    partitioning_summary,
     stage_repartition,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
@@ -157,6 +157,7 @@ from products.warehouse_sources.backend.presentation.partitioning_serializers im
     RepartitionErrorSerializer,
     RepartitionSchemaRequestSerializer,
     RepartitionSchemaResponseSerializer,
+    partitioning_summary,
 )
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
@@ -3504,7 +3505,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         if not partitioning_controls_enabled_for_team(self.team):
             raise PermissionDenied(PARTITIONING_CONTROLS_UNAVAILABLE)
-        return Response(PartitioningHistorySerializer(partitioning_history(instance)).data)
+        history = partitioning_history(instance.team_id, instance.id)
+        requester_ids = {row.requested_by_id for row in history.repartitions if row.requested_by_id is not None}
+        requesters = {user.id: user for user in User.objects.filter(id__in=requester_ids)} if requester_ids else {}
+        return Response(
+            PartitioningHistorySerializer(
+                {
+                    "summary": partitioning_summary(instance),
+                    "repartitions": [
+                        {
+                            **dataclasses.asdict(row),
+                            "requested_by": requesters.get(row.requested_by_id)
+                            if row.requested_by_id is not None
+                            else None,
+                        }
+                        for row in history.repartitions
+                    ],
+                    "sync_windows": history.sync_windows,
+                }
+            ).data
+        )
 
     @validated_request(
         request_serializer=RepartitionSchemaRequestSerializer,
@@ -3551,7 +3571,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         data = request.validated_data
         outcome = stage_repartition(
-            instance,
+            instance.team_id,
+            instance.id,
             RepartitionRequest(
                 partition_mode=data.get("partition_mode"),
                 partitioning_keys=tuple(data.get("partitioning_keys") or ()),
@@ -3573,7 +3594,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "message": outcome.message,
                     "run_started": outcome.run_started,
-                    "partition_policy": instance.partition_policy,
+                    "partition_policy": outcome.partition_policy,
                 }
             ).data,
             status=status.HTTP_202_ACCEPTED,

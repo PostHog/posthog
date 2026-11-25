@@ -9,6 +9,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.warehouse_sources.backend.facade.contracts import PartitionPolicy, RepartitionStatus
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 PARTITION_POLICY_HELP_TEXT = (
     "Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out "
@@ -70,6 +71,24 @@ class PartitioningSummarySerializer(serializers.Serializer):
     repartition_pending = serializers.BooleanField(
         help_text="Whether a repartition is queued or running. The next sync runs a queued one."
     )
+
+
+def partitioning_summary(schema: ExternalDataSchema) -> dict[str, Any]:
+    """The table's current partitioning, for `PartitioningSummarySerializer`."""
+    measurement = schema.partition_measurement or {}
+    healthy = measurement.get("healthy")
+    return {
+        "policy": schema.partition_policy,
+        "partition_mode": schema.partition_mode,
+        "partition_format": schema.partition_format,
+        "partition_count": schema.partition_count,
+        "partition_size": schema.partition_size,
+        "partitioning_keys": schema.partitioning_keys,
+        "max_partition_bytes": schema.max_partition_bytes,
+        "healthy": healthy if isinstance(healthy, bool) else None,
+        "last_repartition_at": schema.last_repartition_at,
+        "repartition_pending": schema.repartition_pending is not None or schema.repartition_swap is not None,
+    }
 
 
 class RepartitionHistoryRowSerializer(serializers.Serializer):

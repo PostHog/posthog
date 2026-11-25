@@ -7,6 +7,7 @@ so both paths validate the scheme and check the partition budget the same way.
 import math
 import time
 import statistics
+import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, assert_never, cast, get_args
@@ -97,6 +98,8 @@ class RepartitionOutcome:
     refusal: RepartitionRefusal | None = None
     workflow_id: str | None = None
     run_started: bool = False
+    # The table's policy after the request, set when the target was staged.
+    partition_policy: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -433,7 +436,7 @@ def stage_repartition(
     if is_user and schema.partition_policy != PartitionPolicy.MANUAL:
         schema.partition_policy = PartitionPolicy.MANUAL
         schema.save(update_fields=["partition_policy", "updated_at"])
-    return outcome
+    return dataclasses.replace(outcome, partition_policy=schema.partition_policy)
 
 
 def _pause_save_and_resync(
@@ -560,38 +563,6 @@ def _restore_marker(schema: ExternalDataSchema, marker: str | None) -> None:
 
 
 @frozen
-class PartitioningSummary:
-    policy: str
-    partition_mode: str | None
-    partition_format: str | None
-    partition_count: int | None
-    partition_size: int | None
-    partitioning_keys: tuple[str, ...] | None
-    max_partition_bytes: int | None
-    healthy: bool | None
-    last_repartition_at: str | None
-    repartition_pending: bool
-
-
-def partitioning_summary(schema: ExternalDataSchema) -> PartitioningSummary:
-    measurement = schema.partition_measurement or {}
-    healthy = measurement.get("healthy")
-    keys = schema.partitioning_keys
-    return PartitioningSummary(
-        policy=schema.partition_policy,
-        partition_mode=schema.partition_mode,
-        partition_format=schema.partition_format,
-        partition_count=schema.partition_count,
-        partition_size=schema.partition_size,
-        partitioning_keys=tuple(keys) if keys is not None else None,
-        max_partition_bytes=schema.max_partition_bytes,
-        healthy=healthy if isinstance(healthy, bool) else None,
-        last_repartition_at=schema.last_repartition_at,
-        repartition_pending=schema.repartition_pending is not None or schema.repartition_swap is not None,
-    )
-
-
-@frozen
 class SyncJobTiming:
     job_id: str
     created_at: datetime
@@ -704,9 +675,70 @@ def sync_job_timings(schema: ExternalDataSchema) -> list[SyncJobTiming]:
 
 
 @frozen
+class HistoryScheme:
+    """A partition layout as a history row shows it."""
+
+    mode: str | None
+    format: str | None
+    count: int | None
+    size: int | None
+    keys: tuple[str, ...] | None
+
+
+@frozen
+class RepartitionHistoryEntry:
+    """One history row, as the API shows it."""
+
+    id: str
+    status: str
+    trigger_reason: str | None
+    # Set only for `user` repartitions. Admin rows record a PostHog staff user, who is not shown to the customer.
+    requested_by_id: int | None
+    job_id: str | None
+    scheme_before: HistoryScheme | None
+    scheme_after: HistoryScheme | None
+    max_partition_bytes_before: int | None
+    rows_rewritten: int | None
+    duration_seconds: float | None
+    error_type: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
+def _scheme(stored: dict[str, Any] | None) -> HistoryScheme | None:
+    if not stored:
+        return None
+    keys = stored.get("keys")
+    return HistoryScheme(
+        mode=stored.get("mode"),
+        format=stored.get("format"),
+        count=stored.get("count"),
+        size=stored.get("size"),
+        keys=tuple(keys) if keys is not None else None,
+    )
+
+
+def _history_entry(row: ExternalDataSchemaRepartition) -> RepartitionHistoryEntry:
+    return RepartitionHistoryEntry(
+        id=str(row.id),
+        status=row.status,
+        trigger_reason=row.trigger_reason,
+        requested_by_id=row.requested_by_id if row.trigger_reason == "user" else None,
+        job_id=row.job_id,
+        scheme_before=_scheme(row.scheme_before),
+        scheme_after=_scheme(row.scheme_after),
+        max_partition_bytes_before=row.max_partition_bytes_before,
+        rows_rewritten=row.rows_rewritten,
+        duration_seconds=row.duration_seconds,
+        error_type=row.error_type,
+        created_at=row.created_at,
+        finished_at=row.finished_at,
+    )
+
+
+@frozen
 class PartitioningHistory:
-    summary: PartitioningSummary
-    repartitions: list[ExternalDataSchemaRepartition]
+    repartitions: list[RepartitionHistoryEntry]
     sync_windows: list[SyncStatsWindow]
 
 
@@ -714,11 +746,9 @@ def partitioning_history(schema: ExternalDataSchema) -> PartitioningHistory:
     repartitions = list(
         ExternalDataSchemaRepartition.objects.for_team(schema.team_id)
         .filter(schema_id=schema.id)
-        .select_related("requested_by")
         .order_by("-created_at")[:HISTORY_LIMIT]
     )
     return PartitioningHistory(
-        summary=partitioning_summary(schema),
-        repartitions=repartitions,
+        repartitions=[_history_entry(row) for row in repartitions],
         sync_windows=sync_stats_windows(repartitions, sync_job_timings(schema)),
     )
