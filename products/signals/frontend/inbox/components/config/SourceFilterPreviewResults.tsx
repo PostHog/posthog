@@ -13,9 +13,7 @@ import { SourceFilterPreviewRecordRow } from './SourceFilterPreviewRecordRow'
 export interface SourceFilterPreviewResultsProps {
     /** A preview response with status `ok` and at least one record in the window. */
     result: SourceFilterPreviewResponseApi
-    /** The roster label of the source, such as "Linear". */
     sourceLabel: string
-    /** What one record of the source is called, such as "issue". */
     noun: string
 }
 
@@ -27,7 +25,6 @@ function unreadableNote(count: number, noun: string): string {
         : `${humanFriendlyNumber(count)} ${noun}s are unreadable. They hold a value this filter can't read, so they never pass.`
 }
 
-/** The passing and excluded counts of a preview, with the newest records of the side the person picks. */
 export function SourceFilterPreviewResults({
     result,
     sourceLabel,

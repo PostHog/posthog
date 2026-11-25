@@ -15,11 +15,9 @@ export type SourceFilterPreviewRequestError = 'throttled' | 'failed'
 export interface SourceFilterPreviewPanelProps {
     /** The latest preview response. It stays while a newer one loads. Null until the first one arrives. */
     result: SourceFilterPreviewResponseApi | null
-    /** A preview request is in flight. */
     loading: boolean
     requestError: SourceFilterPreviewRequestError | null
     onRetry: () => void
-    /** The roster label of the source, such as "Linear". */
     sourceLabel: string
     /** What one record of the source is called, from the catalog `source_type`, such as "issue". */
     noun: string
@@ -31,7 +29,6 @@ interface PreviewNotice {
     retry?: boolean
 }
 
-/** The banner that replaces the records, or null when there are records (or a skeleton) to show. */
 function previewNotice(
     result: SourceFilterPreviewResponseApi | null,
     requestError: SourceFilterPreviewRequestError | null,
