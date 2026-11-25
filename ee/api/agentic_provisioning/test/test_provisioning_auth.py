@@ -13,7 +13,6 @@ from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.api.oauth.provisioning_review import ORGANIZATION_LINK_REQUIRED_MESSAGE
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -22,6 +21,7 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.test.base import (
+    TEST_CIMD_VERIFICATION_TOKEN,
     TEST_PARTNER_CLIENT_SECRET,
     TEST_PARTNER_JWKS_URI,
     ProvisioningTestBase,
@@ -323,8 +323,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self.addCleanup(real_cache.delete, _cache_key(self.partner.client_id))
         real_cache.delete(_cache_key(self.partner.client_id))
 
-        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
-            res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
 
         assert res.status_code == 401
         assert res.json()["error"]["message"] == ORGANIZATION_LINK_REQUIRED_MESSAGE
@@ -370,6 +369,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         cimd_url = "https://example.com/api/oauth/wizard/client-metadata"
         OAuthApplication.objects.create(
             name="CIMD Wizard",
+            organization=self.organization,
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -429,15 +429,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("stale_cache_fires_refresh", False, False, 1),
-            ("fresh_cache_skips_refresh", True, False, 0),
+            ("stale_cache_fires_refresh", False, True, 1),
+            ("fresh_cache_skips_refresh", True, True, 0),
             # The re-read is how this region learns of a link made since its last one, so refusing first would refuse forever.
-            ("refused_without_organization_still_fires_refresh", False, True, 1),
+            ("refused_without_organization_still_fires_refresh", False, False, 1),
         ]
     )
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_cimd_provisioning_partner_refreshes_metadata_only_when_stale(
-        self, _name, cache_is_fresh, organization_required, expected_delay_calls, mock_refresh
+        self, _name, cache_is_fresh, linked, expected_delay_calls, mock_refresh
     ):
         cimd_url = "https://example.com/api/oauth/wizard/refresh-on-auth"
         cimd_app = OAuthApplication.objects.create(
@@ -450,6 +450,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             client_id=cimd_url,
             is_cimd_client=True,
             is_provisioning_partner=True,
+            organization=self.organization if linked else None,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
@@ -461,10 +462,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         else:
             real_cache.delete(_cache_key(cimd_url))
 
-        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_required):
-            partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
+        partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
 
-        assert partner == (None if organization_required else cimd_app)
+        assert partner == (cimd_app if linked else None)
         assert mock_refresh.delay.call_count == expected_delay_calls
         if expected_delay_calls:
             mock_refresh.delay.assert_called_once_with(cimd_url)
@@ -555,6 +555,7 @@ def _make_cimd_metadata(url: str = CIMD_PROV_URL, **overrides) -> dict:
         "token_endpoint_auth_method": "private_key_jwt",
         "jwks_uri": TEST_PARTNER_JWKS_URI,
         "com.posthog": {"provisioning": True},
+        "posthog_verification_token": TEST_CIMD_VERIFICATION_TOKEN,
     }
     metadata.update(overrides)
     return metadata
@@ -578,6 +579,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         super().setUp()
         OAuthApplication.objects.filter(client_id=CIMD_PROV_URL).delete()
         real_cache.clear()
+        self._issue_cimd_verification_token(CIMD_PROV_URL)
 
     def _register(self) -> OAuthApplication:
         """Register the partner the way client_registration does, so the promotion depends on
@@ -658,6 +660,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             client_id=CIMD_PROV_URL,
             is_cimd_client=True,
             is_provisioning_partner=True,
+            organization=self.organization,
             _provisioning_config=provisioning_config(
                 active=True,
                 can_create_accounts=True,
@@ -768,6 +771,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 client_id=url,
                 is_cimd_client=True,
                 is_provisioning_partner=True,
+                organization=self.organization,
                 _provisioning_config=provisioning_config(
                     active=True, can_create_accounts=True, can_provision_resources=True
                 ),
@@ -799,6 +803,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             client_id=CIMD_PROV_URL,
             is_cimd_client=True,
             is_provisioning_partner=True,
+            organization=self.organization,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
