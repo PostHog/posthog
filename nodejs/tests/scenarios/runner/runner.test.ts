@@ -1459,6 +1459,7 @@ describe('runner through seed, drive and judge', () => {
         async (delivering, drift) => {
             const result = await run(delivering, [], 'event_email', {
                 measures: [{ name: 'counter_drift', params: {} }],
+                ...(delivering !== 'all' && { convergeWithin: '1s' }),
             })
 
             const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
