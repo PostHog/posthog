@@ -57,3 +57,7 @@ export const Loading: Story = {
 export const Untitled: Story = {
     args: { title: ready(makeSessionPreview(item.id, { input: null })), person: ready(null) },
 }
+
+export const DetailsFailed: Story = {
+    args: { title: { status: 'error' }, person: { status: 'error' }, onRetryDetails: () => {} },
+}
