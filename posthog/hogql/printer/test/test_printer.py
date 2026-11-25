@@ -1434,11 +1434,11 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            (expression, properties, expected)
-            for expression in [
-                "properties",
-                "toJSONString(properties)",
-                "JSONExtractString(toJSONString(tuple(properties)), 1)",
+            (expression, quoted, properties, expected)
+            for expression, quoted in [
+                ("properties", False),
+                ("toJSONString(properties)", True),
+                ("JSONExtractString(toJSONString(tuple(properties)), 1)", False),
             ]
             for properties, expected in [
                 ({}, {}),
@@ -1453,7 +1453,7 @@ class TestPrinter(BaseTest):
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_strips_empty_values(
-        self, expression: str, properties: dict[str, object], expected: dict[str, object]
+        self, expression: str, quoted: bool, properties: dict[str, object], expected: dict[str, object]
     ) -> None:
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
@@ -1466,7 +1466,8 @@ class TestPrinter(BaseTest):
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
-        self.assertEqual(json.loads(serialized), expected)
+        document = json.loads(serialized) if quoted else serialized
+        self.assertEqual(json.loads(document), expected)
 
     @parameterized.expand(
         [
