@@ -154,6 +154,7 @@ class CatalogModel:
     supports_1m_context: bool = False
     supports_fast_mode: bool = False
     retired: bool = False
+    context_window: int = 0
 
 
 # Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
@@ -165,6 +166,7 @@ _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
 _KIMI_K31_PRO_COST = ModelCost(2, 10)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
+_DEEPSEEK_V4_1_FLASH_COST = ModelCost(0.3, 1.2)
 _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
@@ -194,18 +196,49 @@ MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
-    CatalogModel("zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
-    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST, retired=True),
-    CatalogModel("moonshotai/kimi-k3.1-pro", CLAUDE, _NO_EFFORT, label="Kimi K3.1 Pro", cost=_KIMI_K31_PRO_COST),
+    CatalogModel(
+        "@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True, context_window=262_144
+    ),
+    CatalogModel(
+        "zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True, context_window=262_144
+    ),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST, context_window=1_000_000),
+    CatalogModel(
+        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST, context_window=1_000_000
+    ),
+    CatalogModel(
+        "moonshotai/kimi-k3",
+        CLAUDE,
+        _NO_EFFORT,
+        label="Kimi K3",
+        cost=_KIMI_COST,
+        retired=True,
+        context_window=1_048_576,
+    ),
+    CatalogModel(
+        "moonshotai/kimi-k3.1-pro",
+        CLAUDE,
+        _NO_EFFORT,
+        label="Kimi K3.1 Pro",
+        cost=_KIMI_K31_PRO_COST,
+        context_window=1_048_576,
+    ),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
         cost=_DEEPSEEK_COST,
+        context_window=1_048_000,
+        retired=True,
+    ),
+    CatalogModel(
+        "deepseek-ai/deepseek-v4.1-flash-1017",
+        CLAUDE,
+        _NO_EFFORT,
+        label="DeepSeek V4.1 Flash",
+        cost=_DEEPSEEK_V4_1_FLASH_COST,
+        context_window=1_048_000,
     ),
     CatalogModel(
         "deepseek-ai/deepseek-v4.1-flash-1017-fast",
@@ -213,9 +246,10 @@ MODELS: tuple[CatalogModel, ...] = (
         _NO_EFFORT,
         label="DeepSeek V4.1 Flash Fast",
         cost=_DEEPSEEK_V4_1_FLASH_FAST_COST,
+        context_window=1_048_000,
     ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True),
+    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True, context_window=200_000),
+    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True, context_window=1_000_000),
     CatalogModel(
         "claude-opus-4-7",
         CLAUDE,
@@ -224,6 +258,7 @@ MODELS: tuple[CatalogModel, ...] = (
         supports_1m_context=True,
         supports_fast_mode=True,
         retired=True,
+        context_window=1_000_000,
     ),
     CatalogModel(
         "claude-opus-4-8",
@@ -232,6 +267,7 @@ MODELS: tuple[CatalogModel, ...] = (
         cost=_OPUS_COST,
         supports_1m_context=True,
         supports_fast_mode=True,
+        context_window=1_000_000,
     ),
     CatalogModel(
         "claude-opus-5",
@@ -240,6 +276,7 @@ MODELS: tuple[CatalogModel, ...] = (
         cost=_OPUS_COST,
         supports_1m_context=True,
         supports_fast_mode=True,
+        context_window=1_000_000,
     ),
     CatalogModel(
         "claude-opus-5-5",
@@ -248,12 +285,23 @@ MODELS: tuple[CatalogModel, ...] = (
         cost=_OPUS_5_5_COST,
         supports_1m_context=True,
         supports_fast_mode=True,
+        context_window=1_000_000,
     ),
-    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
-    CatalogModel("claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True),
-    CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
-    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
+    CatalogModel(
+        "claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True, context_window=1_000_000
+    ),
+    CatalogModel(
+        "claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True, context_window=1_000_000
+    ),
+    CatalogModel(
+        "claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True, context_window=1_000_000
+    ),
+    CatalogModel(
+        "claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True, context_window=1_000_000
+    ),
+    CatalogModel(
+        "claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True, context_window=1_000_000
+    ),
     CatalogModel(
         "claude-sonnet-4-6",
         CLAUDE,
@@ -261,23 +309,26 @@ MODELS: tuple[CatalogModel, ...] = (
         cost=_SONNET_4_COST,
         supports_1m_context=True,
         retired=True,
+        context_window=1_000_000,
     ),
     # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
     # anyone can check it against.
-    CatalogModel("gpt-5", CODEX, _STANDARD),
-    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST),
-    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST),
-    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
-    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
-    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
-    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
-    CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
-    CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
-    CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST),
+    CatalogModel("gpt-5", CODEX, _STANDARD, context_window=400_000),
+    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST, context_window=1_050_000),
+    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST, context_window=1_050_000),
+    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST, context_window=1_050_000),
+    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST, context_window=1_050_000),
+    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST, context_window=1_050_000),
+    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
+    CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST, context_window=1_050_000),
+    CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
+    CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST, context_window=1_050_000),
     # Only ReviewHog's arm-set trial and the first-report model experiment pin it. `retired` is the catalog's state for a model no picker offers
     # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
-    CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
-    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
+    CatalogModel(
+        "gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True, context_window=1_050_000
+    ),
+    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST, context_window=1_050_000),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships

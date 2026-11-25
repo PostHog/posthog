@@ -4,6 +4,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
+import type { AiFeedbackReasonEnumApi } from '../../generated/api.schemas'
 import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { Message } from './Message'
 
@@ -28,7 +29,12 @@ export interface MessageListProps {
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
-    onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    onSubmitAiReplyFeedback?: (
+        messageId: string,
+        rating: AiReplyFeedbackRating,
+        feedbackText?: string,
+        reasons?: AiFeedbackReasonEnumApi[]
+    ) => void
     /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
      * customer-facing view never receives team-only content. */
     extras?: TimelineExtra[]
@@ -217,8 +223,8 @@ export function MessageList({
                                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                                 onSubmitAiReplyFeedback={
                                     onSubmitAiReplyFeedback
-                                        ? (rating, feedbackText) =>
-                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                        ? (rating, feedbackText, reasons) =>
+                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText, reasons)
                                         : undefined
                                 }
                                 onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}

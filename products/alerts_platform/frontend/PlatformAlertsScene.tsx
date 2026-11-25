@@ -24,7 +24,11 @@ import {
     describeGroup,
     describeInterval,
     describeSchedule,
+    listRowMute,
 } from './platformAlertFormat'
+import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
+import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
+import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
@@ -116,13 +120,20 @@ function listColumns(
         },
         {
             title: 'Destinations',
-            render: (_, row) =>
-                row.kind === 'group' ? null : (
-                    <PlatformAlertDestinationIcons
-                        types={row.configuration.destination_types}
-                        enabled={row.configuration.enabled}
-                    />
-                ),
+            render: (_, row) => {
+                const mute = listRowMute(row, new Date())
+                return (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        {row.kind !== 'group' && (
+                            <PlatformAlertDestinationIcons
+                                types={row.configuration.destination_types}
+                                enabled={row.configuration.enabled}
+                            />
+                        )}
+                        {mute && <PlatformAlertMuteMarker mute={mute} />}
+                    </div>
+                )
+            },
         },
         {
             title: 'Interval',
@@ -131,6 +142,15 @@ function listColumns(
                     <Tooltip title={describeSchedule(row.configuration)}>
                         <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
+                ),
+        },
+        {
+            width: 0,
+            render: (_, row) =>
+                row.kind === 'group' ? (
+                    <PlatformAlertGroupRowMenu configuration={row.configuration} group={row.group} />
+                ) : (
+                    <PlatformAlertRowMenu configuration={row.configuration} />
                 ),
         },
     ]

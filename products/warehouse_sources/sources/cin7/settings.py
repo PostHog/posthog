@@ -153,6 +153,24 @@ _ENDPOINT_LIST: list[Cin7Endpoint] = [
         primary_keys=["CreditID"],
         params={"ShowUsedCredits": "true"},
     ),
+    # Without ShowUsedDeposits the API leaves fully used deposits out, so they would drop from the table.
+    Cin7Endpoint(
+        name="supplier_deposits",
+        path="/ref/supplier/deposits",
+        data_selector="SupplierDeposits",
+        primary_keys=["DepositID"],
+        params={"ShowUsedDeposits": "true"},
+    ),
+    # Leads and opportunities accept ModifiedSince, but their rows carry no modified time to use as a watermark.
+    Cin7Endpoint(name="leads", path="/crm/lead", data_selector="LeadList"),
+    # The opportunity list answers under a key that starts with a lowercase letter.
+    Cin7Endpoint(name="opportunities", path="/crm/opportunity", data_selector="opportunityList"),
+    Cin7Endpoint(
+        name="inventory_write_offs",
+        path="/inventoryWriteOffList",
+        data_selector="InventoryWriteOffs",
+        primary_keys=["TaskID"],
+    ),
     Cin7Endpoint(name="journals", path="/journal", data_selector="Journals", primary_keys=["TaskID"]),
     # One task posts many ledger lines and the rows carry no line ID. FromDate filters on
     # EffectiveDate, not on a change time, so back-dated postings would be missed incrementally.

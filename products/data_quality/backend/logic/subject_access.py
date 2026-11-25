@@ -30,6 +30,7 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_catalog.backend.facade.contracts import MetricSummary
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
 from . import posthog_tables
+from .access import can_access, can_edit_organization
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
 from .errors import CheckConfigError
@@ -80,7 +82,7 @@ def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> 
     """
     return (
         user_access_control is not None
-        and not user_access_control.is_organization_admin
+        and not can_edit_organization(user_access_control)
         and user_access_control.access_controls_supported
     )
 
@@ -261,7 +263,7 @@ def reference_gate(
 def readable_posthog_table_ids(
     user_access_control: "UserAccessControl", matcher: DeniedTableMatcher
 ) -> frozenset[UUID]:
-    if not user_access_control.check_access_level_for_resource(posthog_tables.RESOURCE, "viewer"):
+    if not can_access(user_access_control, ResourceType(posthog_tables.RESOURCE), Action.VIEW):
         return frozenset()
     return frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name]))
 
@@ -367,7 +369,7 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
     metadata = metadata if metadata is not None else subject_metadata(team_id)
     access = database.user_access_control
     denied = set(database._denied_tables) | unreachable_subject_names(team_id, access, metadata)
-    can_read_catalog = access is not None and access.check_access_level_for_resource("data_catalog", "viewer")
+    can_read_catalog = access is not None and can_access(access, ResourceType.DATA_CATALOG, Action.VIEW)
     return DenialContext(
         readable=readable_subjects(
             team_id,
@@ -402,7 +404,7 @@ def caller_denial_context(
         readable = readable_subjects(
             team.id,
             denied,
-            can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+            can_read_catalog=can_access(user_access_control, ResourceType.DATA_CATALOG, Action.VIEW),
             metadata=metadata,
         )
     except Exception as err:

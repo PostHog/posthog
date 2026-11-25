@@ -11,9 +11,11 @@ from django.db.models.functions import Cast
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
@@ -50,8 +52,11 @@ MAX_REUSABLE_WIDGET_BINDINGS_BYTES = 256 * 1_024
 def reusable_widget_catalog_context(*, team_id: int, user: User | None) -> str:
     if user is None:
         return ""
-    team = Team.objects.get(id=team_id)
-    if not UserAccessControl(user, team=team).check_access_level_for_resource("notebook", "viewer"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.NOTEBOOK, project_id=team_id),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    ):
         return ""
     entries: list[dict[str, object]] = []
     size = 0

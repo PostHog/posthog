@@ -1,4 +1,5 @@
-# Test paths that Backend CI runs a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true,
+# Test paths that Backend CI runs a second time with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true
+# and BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100,
 # against the native-JSON events table. The leg runs wherever the legacy tests run. A run of the
 # full legacy matrix (the merge queue, the hourly master run, a PR the selector cannot narrow)
 # takes every path. A narrowed PR run takes the paths its test selection reaches, plus the paths
@@ -44,6 +45,7 @@ products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_facade_list_traces.py
+products/ai_observability/backend/tests/test_facade_sessions.py
 products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views
 products/cohorts

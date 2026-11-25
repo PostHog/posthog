@@ -2,12 +2,15 @@ import { ReactNode } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-export interface ListEmptyStateAction {
+interface ListEmptyStateActionBase {
     label: string
-    onClick: () => void
     icon?: JSX.Element
     'data-attr': string
 }
+
+/** A button that runs `onClick`, or a link to `to`, so that a step to another page opens like any link. */
+export type ListEmptyStateAction = ListEmptyStateActionBase &
+    ({ onClick: () => void; to?: never } | { to: string; onClick?: never })
 
 export interface ListEmptyStateProps {
     title: string
@@ -30,6 +33,7 @@ export function ListEmptyState({ title, description, icon, action }: ListEmptySt
                     size="small"
                     icon={action.icon}
                     onClick={action.onClick}
+                    to={action.to}
                     data-attr={action['data-attr']}
                 >
                     {action.label}

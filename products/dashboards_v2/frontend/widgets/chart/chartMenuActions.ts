@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { TileAction } from '../../tiles/tileAction'
+import type { MenuAction } from '../../dashboard/menuAction'
 import type { WidgetMenuContext } from '../widgetDefinition'
 import type { ChartConfig } from './chartSpec'
 import type { VizSpec } from './vizTypes'
@@ -15,7 +15,7 @@ function optionLabel(key: string, field: z.ZodType): string {
 function optionActions(
     viz: VizSpec,
     { widget, setConfig, disabledReason }: WidgetMenuContext<ChartConfig>
-): TileAction[] {
+): MenuAction[] {
     if (!(viz.optionsSchema instanceof z.ZodObject)) {
         return []
     }
@@ -24,7 +24,7 @@ function optionActions(
         setConfig({ ...widget.config, viz: { ...widget.config.viz, options: { ...options, [key]: value } } })
 
     return Object.entries(viz.optionsSchema.shape as Record<string, z.ZodType>).flatMap(
-        ([key, field]): TileAction[] => {
+        ([key, field]): MenuAction[] => {
             const inner = field instanceof z.ZodOptional ? (field.unwrap() as z.ZodType) : field
             const label = optionLabel(key, field)
             const dataAttr = `dashboard-v2-chart-option-${key}`
@@ -60,10 +60,10 @@ function optionActions(
  * The chart's own menu entries: a "Chart type" submenu that switches the kind of chart, and the options the current
  * kind declares in its schema. Switching kind keeps the query and drops options the new kind does not have.
  */
-export function chartMenuActions(vizTypes: VizSpec[], context: WidgetMenuContext<ChartConfig>): TileAction[] {
+export function chartMenuActions(vizTypes: VizSpec[], context: WidgetMenuContext<ChartConfig>): MenuAction[] {
     const { widget, setConfig, disabledReason } = context
     const current = vizTypes.find((viz) => viz.type === widget.config.viz.type)
-    const actions: TileAction[] = [
+    const actions: MenuAction[] = [
         {
             key: 'chart-type',
             group: 'display',
