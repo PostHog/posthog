@@ -27,6 +27,10 @@ It keeps Live event details at a steady height while custom properties load, rem
 The `ota-1160-live-traffic-filters` request follows `ota-1160-replay-feed` and targets `1.16.0` builds.
 It adds traffic filters to Live and makes links pasted into chat messages tappable.
 
+The `ota-1160-dashboard-refresh-live-preferences` request follows `ota-1160-live-traffic-filters` and targets `1.16.0` builds.
+It refreshes eligible dashboard tiles on open and after returning to the app from at least a minute in the background.
+Live remembers your filters and whether the filter banner is hidden.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.

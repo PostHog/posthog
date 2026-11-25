@@ -1,3 +1,4 @@
+import { kitchenSinkDashboard } from '../fixtures/kitchenSinkDashboard'
 import { chartSpec } from '../widgets/chart/chartSpec'
 import { barSpec } from '../widgets/chart/viz/bar/barSpec'
 import { lineSpec } from '../widgets/chart/viz/line/lineSpec'
@@ -25,6 +26,10 @@ const nestedSections = (depth: number): unknown =>
           }
 
 describe('validateDashboard', () => {
+    it('accepts the kitchen sink fixture', () => {
+        expect(validateDashboard(kitchenSinkDashboard, SPECS)).toEqual([])
+    })
+
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([
         ...['javascript:alert(1)', '//example.com/phish'].map((href) => ({
             name: `a link tab to ${href}`,

@@ -10,6 +10,7 @@ import type {
     sectionWidgetSchema,
     tilePlaceSchema,
     tileSchema,
+    timeRangeSchema,
 } from './dashboardSchema'
 
 export const GRID = {
@@ -41,6 +42,8 @@ export function spanPx(cells: number, cellPx: number): number {
 }
 
 export type TilePlace = z.infer<typeof tilePlaceSchema>
+
+export type TimeRange = z.infer<typeof timeRangeSchema>
 
 export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
 
