@@ -33,6 +33,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
@@ -44,7 +45,7 @@ from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSA
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
-from ee.vercel.client import SSOTokenResponse, VercelAPIClient
+from ee.vercel.client import InstallationTokenError, SSOTokenResponse, VercelAPIClient, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +55,12 @@ VercelItemType = Literal["flag", "experiment"]
 # same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
+
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+# Bounds the billing reads that repeated plan-limit refusals for one organization can cause.
+BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS = 10
+BILLING_FEATURES_REFRESH_CACHE_KEY = "vercel:billing_features_refresh:{organization_id}"
 
 SSO_VERIFY_EMAIL_REASON = "vercel_sso"
 
@@ -560,6 +567,42 @@ class VercelIntegration:
         return {"plans": VercelIntegration.get_vercel_plans()}
 
     @staticmethod
+    def _refresh_available_product_features(organization: Organization) -> None:
+        license = get_cached_instance_license()
+        if not license:
+            return
+        try:
+            # Deferred for the same reason as in upsert_installation: keep the billing stack off the import path.
+            from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
+
+            BillingManager(license).update_available_product_features(
+                organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh available product features for Vercel resource creation",
+                organization_id=str(organization.id),
+                integration="vercel",
+            )
+            capture_exception(e)
+
+    @staticmethod
+    def _assert_organization_can_add_project(organization: Organization) -> None:
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit == ProjectLimit.PLAN:
+            # upsert_installation authorizes billing but does not store the plan's features, which
+            # arrive later from the billing service. A resource created soon after the install can
+            # find them missing and fall back to the one-project limit, so read them from billing
+            # before refusing.
+            refresh_key = BILLING_FEATURES_REFRESH_CACHE_KEY.format(organization_id=organization.id)
+            if cache.add(refresh_key, True, timeout=BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS):
+                VercelIntegration._refresh_available_product_features(organization)
+                reached_limit = organization_project_limit_reached(organization)
+
+        if reached_limit is not None:
+            raise exceptions.PermissionDenied(PROJECT_LIMIT_MESSAGES[reached_limit])
+
+    @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "Starting Vercel resource creation",
@@ -575,6 +618,8 @@ class VercelIntegration:
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
+
+        VercelIntegration._assert_organization_can_add_project(organization)
 
         team = Team.objects.create_with_data(
             initiating_user=installation.created_by or None,
@@ -692,17 +737,22 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
-        if not access_token:
-            # Fallback for installations not yet migrated
-            access_token = installation.config.get("credentials", {}).get("access_token")
-        if not access_token:
+        if not installation.integration_id:
+            logger.error(
+                "Vercel installation has no installation ID", installation_pk=installation.pk, integration="vercel"
+            )
+            return None
+        try:
+            return get_installation_access_token(installation.integration_id)
+        except InstallationTokenError as e:
             logger.exception(
-                "Missing access token for Vercel installation",
+                "Failed to get access token for Vercel installation",
                 installation_id=installation.integration_id,
+                status_code=e.status_code,
+                error_code=e.code,
                 integration="vercel",
             )
-        return access_token
+            return None
 
     @staticmethod
     def _create_vercel_client(access_token: str) -> VercelAPIClient | None:
@@ -1507,9 +1557,13 @@ def _safe_vercel_sync(
         if is_delete:
             return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation:
+        if not installation or not installation.integration_id:
             return
         try:
+            # A resource created without an import is never imported later, so get the token first.
+            access_token = VercelIntegration._get_access_token(installation)
+            if not access_token:
+                return
             resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
@@ -1517,16 +1571,14 @@ def _safe_vercel_sync(
                     team_id=team.pk,
                     integration="vercel",
                 )
-                access_token = VercelIntegration._get_access_token(installation)
-                if access_token and installation.integration_id:
-                    client = VercelAPIClient(bearer_token=access_token)
-                    client.import_resource(
-                        integration_config_id=installation.integration_id,
-                        resource_id=str(resource.id),
-                        product_id="posthog",
-                        name=team.name,
-                        secrets=VercelIntegration._build_secrets(team),
-                    )
+                client = VercelAPIClient(bearer_token=access_token)
+                client.import_resource(
+                    integration_config_id=installation.integration_id,
+                    resource_id=str(resource.id),
+                    product_id="posthog",
+                    name=team.name,
+                    secrets=VercelIntegration._build_secrets(team),
+                )
         except Exception as e:
             logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
             capture_exception(e)

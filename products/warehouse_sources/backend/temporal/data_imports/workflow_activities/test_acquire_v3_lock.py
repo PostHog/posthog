@@ -124,8 +124,8 @@ class TestAcquireV3PipelineLockActivity:
         assert result.token == ""
 
 
-def _schema_with_config(sync_type_config: dict) -> ExternalDataSchema:
-    org = Organization.objects.create(name="org")
+def _schema_with_config(sync_type_config: dict, *, organization_is_active: bool | None = True) -> ExternalDataSchema:
+    org = Organization.objects.create(name="org", is_active=organization_is_active)
     team = Team.objects.create(organization=org, name="t")
     source = ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type="Stripe")
     return ExternalDataSchema.objects.create(name="Charge", team=team, source=source, sync_type_config=sync_type_config)
@@ -182,28 +182,91 @@ class TestAcquireV3PipelineLockActivityDeferral:
         else:
             mock_acquire.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "failing_read",
+        [
+            "products.warehouse_sources.backend.temporal.data_imports.organization_state.Team.objects",
+            f"{MODULE}.ExternalDataSchema.objects",
+        ],
+    )
     @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
-    @patch(f"{MODULE}.ExternalDataSchema.objects")
     @patch(f"{MODULE}.activity")
     @patch(f"{MODULE}.bind_contextvars")
-    def test_a_failing_schema_read_does_not_stop_the_sync(
+    def test_a_failing_read_does_not_stop_the_sync(
         self,
         _bind: MagicMock,
         mock_activity: MagicMock,
-        mock_objects: MagicMock,
         mock_acquire: MagicMock,
         _mock_write_meta: MagicMock,
+        failing_read: str,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
         mock_activity.info.return_value.workflow_id = "wf-abc-123"
-        mock_objects.filter.side_effect = OperationalError("db unavailable")
+        schema = _schema_with_config({})
 
-        result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
+        with patch(failing_read) as mock_objects:
+            mock_objects.filter.side_effect = OperationalError("db unavailable")
+            result = acquire_v3_pipeline_lock_activity(
+                AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+            )
 
         assert result.deferred is False
+        assert result.organization_deactivated is False
         assert result.acquired is True
         mock_acquire.assert_called_once()
+
+
+@pytest.mark.django_db
+class TestAcquireV3PipelineLockActivityDeactivatedOrganization:
+    @pytest.mark.parametrize(
+        "_name,organization_is_active,config_extra,streak_extra,streak_runs,expected",
+        [
+            ("active_org_syncs", True, {}, {}, None, "acquired"),
+            ("null_active_state_syncs", None, {}, {}, None, "acquired"),
+            ("deactivated_org_skips", False, {}, {}, None, "skipped"),
+            ("deactivated_org_skips_a_reset", False, {"reset_pipeline": True}, {}, None, "skipped"),
+            ("deactivated_org_skips_a_manual_sync", False, {}, {"manual_run_requested": True}, 1, "skipped"),
+            ("deactivated_org_wins_over_deferral", False, {}, {}, 8, "skipped"),
+            ("active_org_still_defers", True, {}, {}, 8, "deferred"),
+        ],
+    )
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_deactivated_organization(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+        _name: str,
+        organization_is_active: bool | None,
+        config_extra: dict,
+        streak_extra: dict,
+        streak_runs: int | None,
+        expected: str,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
+        config = dict(config_extra)
+        if streak_runs is not None:
+            config["failure_streak"] = {**_streak(streak_runs, timedelta(minutes=1)), **streak_extra}
+        schema = _schema_with_config(config, organization_is_active=organization_is_active)
+
+        result = acquire_v3_pipeline_lock_activity(
+            AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+        )
+
+        assert result.token == WORKFLOW_RUN_ID
+        assert result.organization_deactivated is (expected == "skipped")
+        assert result.deferred is (expected == "deferred")
+        assert result.acquired is (expected == "acquired")
+        if expected == "acquired":
+            mock_acquire.assert_called_once()
+        else:
+            mock_acquire.assert_not_called()
 
 
 class TestTakeOverStaleLock:

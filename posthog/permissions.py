@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -37,6 +37,7 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
+from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
@@ -55,6 +56,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
@@ -136,6 +138,18 @@ def request_subject(request: Request) -> Optional[Subject]:
     """
     user = getattr(request, "user", None)
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def filter_visible_project_objects[M: Model](
+    queryset: QuerySet[M], *, team_id: int, include_all_if_admin: bool, user_id: int | None = None
+) -> QuerySet[M]:
+    """Filter rows already scoped to the project for the given user, or the current request's user."""
+    return filter_queryset(
+        queryset,
+        resource=Resource(type=ResourceType(cast(str, model_to_resource(queryset.model))), project_id=team_id),
+        subject=Subject(user_id=user_id) if user_id is not None else None,
+        include_all_if_admin=include_all_if_admin,
+    )
 
 
 def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
@@ -1320,6 +1334,28 @@ REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
 }
 
 
+def user_can_access_resource(
+    team: Team,
+    user: User,
+    scope: str,
+    level: AccessControlLevel,
+    *,
+    user_access_control: Optional[UserAccessControl] = None,
+) -> bool:
+    """Whether the user has `level` on the `scope` resource type in the team, outside a DRF permission.
+
+    For a product that checks access to another product's resource type, which it cannot import the authorization
+    facade for without closing a product cycle. Pass the caller's `UserAccessControl` to reuse the rules it loaded.
+    """
+    if user_access_control is not None:
+        authorization.reuse_current_rules(user_access_control)
+    return authorization.check(
+        resource=Resource(type=ResourceType(scope), project_id=team.pk),
+        action=REQUIRED_LEVEL_ACTIONS[level],
+        subject=Subject(user_id=user.pk),
+    )
+
+
 def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool:
     """Whether neither the object nor its view has a project, as for an organization's plugins."""
     return team is None and getattr(obj, "team_id", None) is None and ResourceType(scope) not in MEMBERSHIP_RESOURCES
@@ -1582,6 +1618,32 @@ def posthog_feature_flag_enabled(
     )
 
 
+DASHBOARD_V2_FLAG = "dashboard-v2"
+DASHBOARD_V2_USERS_FLAG = "dashboard-v2-users"
+
+
+def dashboard_v2_enabled(team: Team, user: object | None) -> bool:
+    """`dashboard-v2` picks the projects and `dashboard-v2-users` picks the people in them, as the web app does.
+    Without a signed-in user, such as a shared link or a background job, the answer is no."""
+    if not isinstance(user, User):
+        return False
+    distinct_id = str(user.distinct_id or user.uuid)
+    return posthog_feature_flag_enabled(
+        DASHBOARD_V2_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    ) and posthog_feature_flag_enabled(
+        DASHBOARD_V2_USERS_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        person_properties={"email": user.email},
+        only_evaluate_locally=True,
+    )
+
+
 # DRF error code for a flag-gated 403, so a client can tell "not on this alpha yet" apart from a
 # plain access-control denial. Early access enrollment reaches the server as an ingested person
 # property, so a user who has just turned a feature preview on keeps getting denied for a few
@@ -1662,7 +1724,7 @@ class UserCanCreateProjectPermission(BasePermission):
     behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
     """
 
-    message = "You need to be an organization admin or above to create new projects."
+    message = PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE
 
     def has_permission(self, request: Request, view) -> bool:
         try:
@@ -1671,15 +1733,7 @@ class UserCanCreateProjectPermission(BasePermission):
             return True
 
         membership = get_required_organization_membership(request, organization)
-
-        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-            return True
-
-        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
-            return False
-
-        return bool(organization.members_can_create_projects)
+        return member_can_create_projects(cast(User, membership.user), organization)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:

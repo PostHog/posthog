@@ -11,7 +11,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { TodayAiRow } from './TodayAiRow'
-import { todayLogic } from './todayLogic'
 import { todayPromptsLogic } from './todayPromptsLogic'
 import { TodayWatchedNote } from './TodayWatchedNote'
 
@@ -19,21 +18,7 @@ const TodaySelfDrivingStatus = lazyWithRetry(() =>
     import('./TodaySelfDrivingStatus').then(({ TodaySelfDrivingStatus }) => ({ default: TodaySelfDrivingStatus }))
 )
 
-const ALERTS_CTA = { label: 'Set up alerts', to: urls.alerts(), dataAttr: 'today-for-you-empty-alerts' }
-const SELF_DRIVING_CTA = {
-    label: 'Set up self-driving',
-    to: urls.inbox(),
-    dataAttr: 'today-for-you-empty-self-driving',
-}
-
-function localDayNumber(now: number): number {
-    const date = new Date(now)
-    return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000)
-}
-
-function QuietRow({ offerSelfDriving }: { offerSelfDriving: boolean }): JSX.Element {
-    const { now } = useValues(todayLogic)
-    const cta = offerSelfDriving && localDayNumber(now) % 2 === 1 ? SELF_DRIVING_CTA : ALERTS_CTA
+function QuietRow(): JSX.Element {
     return (
         <li className="TodayRow">
             <IconStack className="TodayRow__icons">
@@ -46,8 +31,13 @@ function QuietRow({ offerSelfDriving }: { offerSelfDriving: boolean }): JSX.Elem
                 <TodayWatchedNote text="Checks each day: alerts, experiments, flags, workflows and tickets." />
             </div>
             <div className="TodayRow__end">
-                <Button size="sm" variant="link-muted" render={<LinkPrimitive to={cta.to} />} data-attr={cta.dataAttr}>
-                    {cta.label}
+                <Button
+                    size="sm"
+                    variant="link-muted"
+                    render={<LinkPrimitive to={urls.alerts()} />}
+                    data-attr="today-for-you-empty-alerts"
+                >
+                    Set up alerts
                 </Button>
             </div>
         </li>
@@ -61,19 +51,13 @@ export function TodayForYouEmpty(): JSX.Element {
         return (
             <ol className="TodayRows" data-attr="today-for-you-empty">
                 <TodayAiRow />
-                <QuietRow offerSelfDriving={false} />
+                <QuietRow />
             </ol>
         )
     }
     return (
         <Suspense fallback={<Skeleton className="h-12 w-full" />}>
-            <TodaySelfDrivingStatus
-                quietRow={(offerSelfDriving) => (
-                    <ol className="TodayRows" data-attr="today-for-you-empty">
-                        <QuietRow offerSelfDriving={offerSelfDriving} />
-                    </ol>
-                )}
-            />
+            <TodaySelfDrivingStatus quietRow={<QuietRow />} />
         </Suspense>
     )
 }

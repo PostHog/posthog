@@ -27,6 +27,8 @@ SUMMARY_STATES: list[tuple[str, bool, bool, bool, bool, bool, str, str | None]] 
     ("not_generated", True, True, True, True, False, "not_generated", None),
     ("setting_off", True, True, True, False, False, "unavailable", "setting_off"),
     ("setting_off_keeps_stored", True, True, True, False, True, "ready", None),
+    ("setting_off_before_access_checks", True, False, False, False, False, "unavailable", "setting_off"),
+    ("setting_off_stored_still_checks_access", True, False, False, False, True, "unavailable", "restricted"),
     ("disabled_hides_stored", False, True, True, True, True, "unavailable", "disabled"),
     ("restricted_hides_stored", True, False, True, True, True, "unavailable", "restricted"),
     ("ai_not_approved_hides_stored", True, True, False, True, True, "unavailable", "ai_not_approved"),

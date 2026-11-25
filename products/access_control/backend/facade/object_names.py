@@ -72,6 +72,11 @@ def register_object_visibility_filter(resource: str, filter_fn: ObjectVisibility
     _OBJECT_VISIBILITY_FILTERS[resource] = filter_fn
 
 
+def has_own_object_visibility(resource: str) -> bool:
+    """Whether the product hides some `resource` objects from members that access rules alone would let in."""
+    return resource in _OBJECT_VISIBILITY_FILTERS
+
+
 def visible_object_ids(resource: str, *, team_id: int, user_id: int | None, sandboxed: bool) -> Collection[str] | None:
     """The ids of the `resource` objects the viewer may open, or None when the product adds no rule of its own."""
     filter_fn = _OBJECT_VISIBILITY_FILTERS.get(resource)

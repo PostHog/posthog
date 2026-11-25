@@ -1,8 +1,14 @@
+from datetime import datetime, timedelta
+from enum import StrEnum
+
 import pytest
+
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
 from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.contracts import NoRunNeededInput
 from products.visual_review.backend.facade.enums import (
     BaselineApprovalState,
     BaselineEntrySource,
@@ -14,8 +20,24 @@ from products.visual_review.backend.logic import approvals, commit_status, gatin
 from products.visual_review.backend.logic.baseline_record import record_for_run
 from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.event_orders import SCENARIOS, Layer, Scenario
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, seeded_repo
+from products.visual_review.backend.tests.logic.ci_workflow import (
+    FIXED_WORKFLOW,
+    MASTER_WORKFLOW,
+    REPORT_CHECK,
+    SETUP_CHECK,
+    CiInputs,
+    CiOutcome,
+    CiWorkflow,
+    WorkflowConfig,
+)
+from products.visual_review.backend.tests.logic.event_orders import (
+    CI_GAP_SCENARIOS,
+    CI_SCENARIOS,
+    SCENARIOS,
+    Layer,
+    Scenario,
+)
+from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeActions, FakeGit, LedgerFlow, seeded_repo
 
 COLORS = {
     "b0": (255, 0, 0, 255),
@@ -39,6 +61,10 @@ CHECK_RESTACK = (
 GUARANTEE_UNRELATED_NOT_BOTH = (
     "Two unrelated pull requests with different pictures never both land unless the second approved again "
     "after the first landed, and one left behind shows a failing gate"
+)
+GUARANTEE_GREEN_HEAD = (
+    "A pull request head whose last gate status is success has a run that passes against the ledger and the "
+    "approvals now, or the pull request changes no picture against its base"
 )
 
 REASON_APPROVED = "every picture it renders was approved"
@@ -83,6 +109,19 @@ class RestackCheck:
     outcome: str
 
 
+class WorkflowResult(StrEnum):
+    RAN = "ran"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+@frozen
+class Workflow:
+    frontend_diff: frozenset[str]
+    base: str | None
+    result: WorkflowResult
+
+
 @frozen
 class QueueAttempt:
     group: tuple[str, ...]
@@ -94,6 +133,10 @@ class QueueAttempt:
     outcome: str
 
 
+def story_file(name: str) -> str:
+    return f"{name}-story@1"
+
+
 def ledger_button(repo: Repo) -> str:
     head = ledger.cursor(repo.id)
     assert head is not None
@@ -101,16 +144,40 @@ def ledger_button(repo: Repo) -> str:
 
 
 class OrderPlayer:
-    def __init__(self, scenario: Scenario, repo: Repo, git: FakeGit, flow: LedgerFlow, user, capture) -> None:
+    def __init__(
+        self,
+        scenario: Scenario,
+        repo: Repo,
+        git: FakeGit,
+        flow: LedgerFlow,
+        user,
+        capture,
+        actions: FakeActions,
+        workflow: CiWorkflow,
+    ) -> None:
         self.scenario = scenario
         self.repo = repo
         self.git = git
         self.flow = flow
         self.user = user
         self.capture = capture
+        self.actions = actions
+        self.workflow = workflow
         self.commits = 0
+        self.clock = timezone.now() - timedelta(days=1)
         # The pull requests whose changes each commit's tree holds, which decides the picture it renders.
         self.changes: dict[str, frozenset[str]] = {SEED: frozenset()}
+        # The frontend files each commit's tree changes against the seed, as "<layer>-<file>@<version>".
+        self.frontend_files: dict[str, frozenset[str]] = {SEED: frozenset()}
+        self.master_frontend_files: frozenset[str] = frozenset()
+        # The layer each pull request is based on, or None for the default branch.
+        self.bases: dict[str, str | None] = {layer.name: layer.stacked_on for layer in scenario.layers}
+        self.first_heads: dict[str, str] = {}
+        # Heads that a push to the open pull request moved to, so their workflow runs for `synchronize`.
+        self.pushed_heads: set[str] = set()
+        self.bot_heads: set[str] = set()
+        self.workflows: dict[str, list[Workflow]] = {layer.name: [] for layer in scenario.layers}
+        self.green_head_breaks: list[str] = []
         self.master_changes: frozenset[str] = frozenset()
         self.heads: dict[str, str] = {}
         self.runs: dict[str, Run] = {}
@@ -129,15 +196,31 @@ class OrderPlayer:
         # `gh stack submit` pushes every layer at once, before any run finishes.
         for layer in scenario.layers:
             parent = SEED if layer.stacked_on is None else self.heads[layer.stacked_on]
-            self._move_head(layer, (parent,), self.changes[parent] | {layer.name})
+            own_change = frozenset({layer.name}) if layer.frontend else frozenset()
+            own_files = frozenset({story_file(layer.name)}) if layer.frontend else frozenset()
+            self._move_head(
+                layer, (parent,), self.changes[parent] | own_change, self.frontend_files[parent] | own_files
+            )
+            self.first_heads[layer.name] = self.heads[layer.name]
 
     def _next_sha(self, prefix: str) -> str:
         self.commits += 1
         return f"{prefix}-{self.commits}"
 
-    def _move_head(self, layer: Layer, parents: tuple[str, ...], changes: frozenset[str]) -> None:
+    def _tick(self) -> datetime:
+        self.clock += timedelta(minutes=1)
+        return self.clock
+
+    def _move_head(
+        self,
+        layer: Layer,
+        parents: tuple[str, ...],
+        changes: frozenset[str],
+        frontend_files: frozenset[str] | None = None,
+    ) -> None:
         sha = self.git.commit(self._next_sha(layer.name), *parents)
         self.changes[sha] = changes
+        self.frontend_files[sha] = self.frontend_files[parents[0]] if frontend_files is None else frontend_files
         self.heads[layer.name] = sha
         self.git.open_pull_request(layer.pr_number, sha)
 
@@ -197,6 +280,153 @@ class OrderPlayer:
         self._move_head(self.scenario.layer(name), (old_head,), self.changes[old_head])
         return self.run(name)
 
+    def _open_base(self, name: str) -> str | None:
+        base = self.bases[name]
+        if base is None or base in self.landed:
+            return None
+        return base
+
+    # The frontend files the pull request's diff against its base changes.
+    def _frontend_diff(self, name: str, sha: str) -> frozenset[str]:
+        base = self._open_base(name)
+        base_files = self.master_frontend_files if base is None else self.frontend_files[self.heads[base]]
+        return self.frontend_files[sha] - base_files
+
+    # paths-filter searches the earlier heads, newest first, for one with the same frontend files where the suite
+    # ran and passed. A failed workflow on a newer head stops the search, and a base change since then too.
+    def _proven_head_matches(self, name: str, frontend_diff: frozenset[str]) -> bool:
+        base = self._open_base(name)
+        for workflow in reversed(self.workflows[name]):
+            if workflow.result == WorkflowResult.FAILED:
+                return False
+            if workflow.frontend_diff != frontend_diff or workflow.base != base:
+                continue
+            if workflow.result == WorkflowResult.RAN:
+                return True
+        return False
+
+    def _report_no_run(self, name: str, sha: str) -> str:
+        report = NoRunNeededInput(
+            repo_id=self.repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha=sha,
+            branch=name,
+            pr_number=self.scenario.layer(name).pr_number,
+        )
+        with self.capture(using=WRITER_DB, execute=True):
+            outcome = commit_status.report_no_run_needed(self.repo, report)
+        return f"{sha} skip report {outcome}, gate {self.gate(sha)}"
+
+    def ci(self, name: str, *, rerun: bool = False) -> str:
+        sha = self.heads[name]
+        frontend_diff = self._frontend_diff(name, sha)
+        inputs = CiInputs(
+            pr_touches_frontend=bool(frontend_diff),
+            proven_head_matches=self._proven_head_matches(name, frontend_diff),
+            synchronize=sha in self.pushed_heads,
+            rerun=rerun,
+            bot_baseline_only_push=sha in self.bot_heads,
+            affected_stories=any("-story@" in file for file in frontend_diff),
+        )
+        decision = self.workflow.decide(inputs)
+        finished_at = self._tick()
+        self.actions.finish(sha, SETUP_CHECK, decision.setup_conclusion, finished_at)
+        self.actions.finish(sha, REPORT_CHECK, decision.report_conclusion, finished_at)
+        result = WorkflowResult.RAN if decision.outcome == CiOutcome.CREATE_RUN else WorkflowResult.SKIPPED
+        self.workflows[name].append(Workflow(frontend_diff=frontend_diff, base=self._open_base(name), result=result))
+        decided = f"{decision.outcome}{' after a reuse' if decision.reused else ''}"
+        if decision.outcome == CiOutcome.CREATE_RUN:
+            return f"{decided}: {self.run(name)}"
+        if decision.outcome == CiOutcome.REPORT_NO_RUN:
+            return f"{decided}: {self._report_no_run(name, sha)}"
+        return f"{decided}: {sha} gate {self.gate(sha)}"
+
+    def fail(self, name: str) -> str:
+        sha = self.heads[name]
+        finished_at = self._tick()
+        # vr-setup and vr-skip both need a successful build on a frontend head, so both are skipped.
+        self.actions.finish(sha, SETUP_CHECK, "skipped", finished_at)
+        self.actions.finish(sha, REPORT_CHECK, "skipped", finished_at)
+        self.workflows[name].append(
+            Workflow(
+                frontend_diff=self._frontend_diff(name, sha),
+                base=self._open_base(name),
+                result=WorkflowResult.FAILED,
+            )
+        )
+        return f"{sha} build failed, gate {self.gate(sha)}"
+
+    def push_without_ci(self, name: str, kind: str) -> str:
+        layer = self.scenario.layer(name)
+        old_head = self.heads[name]
+        if kind == "back":
+            sha = self.first_heads[name]
+            self.heads[name] = sha
+            self.git.open_pull_request(layer.pr_number, sha)
+            self.pushed_heads.add(sha)
+            self.bot_heads.discard(sha)
+            return f"{sha}, gate {self.gate(sha)}"
+        changes = self.changes[old_head]
+        files = self.frontend_files[old_head]
+        if kind == "revert":
+            changes, files = changes - {name}, files - {story_file(name)}
+        elif kind == "restore":
+            changes, files = changes | {name}, files | {story_file(name)}
+        elif kind == "bot":
+            files = files | {f"{name}-snapshots@{self.commits + 1}"}
+        elif kind != "backend":
+            raise ValueError(f"Unknown push kind {kind!r}")
+        self._move_head(layer, (old_head,), changes, files)
+        sha = self.heads[name]
+        self.pushed_heads.add(sha)
+        if kind == "bot":
+            self.bot_heads.add(sha)
+        return sha
+
+    def retarget(self, name: str) -> str:
+        self.bases[name] = None
+        self.actions.retarget(self.scenario.layer(name).pr_number, self._tick())
+        sha = self.heads[name]
+        return f"{sha} targets the default branch, gate {self.gate(sha)}"
+
+    def recheck(self, name: str) -> str:
+        sha = self.heads[name]
+        with self.capture(using=WRITER_DB, execute=True):
+            result = commit_status.publish_recheck(
+                self.repo,
+                sha,
+                RunType.STORYBOOK,
+                SETUP_CHECK,
+                REPORT_CHECK,
+                current={},
+                only_success=False,
+                wait=lambda: None,
+                stacked=self._open_base(name) is not None,
+                pr_numbers=(self.scenario.layer(name).pr_number,),
+            )
+        return f"{sha} recheck {result.outcome}, gate {self.gate(sha)}"
+
+    def _changes_a_picture(self, name: str, sha: str) -> bool:
+        base = self._open_base(name)
+        base_changes = self.master_changes if base is None else self.changes[self.heads[base]] | self.master_changes
+        return not self.changes[sha] <= base_changes
+
+    def check_green_heads(self, event: str) -> None:
+        for layer in self.scenario.layers:
+            if layer.name in self.landed:
+                continue
+            sha = self.heads[layer.name]
+            state, description = self.gate(sha)
+            if state != "success" or not self._changes_a_picture(layer.name, sha):
+                continue
+            verdict = commit_status.ledger_verdict(self.repo, sha, RunType.STORYBOOK)
+            if verdict.state == "success":
+                continue
+            self.green_head_breaks.append(
+                f"{GUARANTEE_GREEN_HEAD}: after '{event}', {layer.name} head {sha} shows '{description}', "
+                f"and its verdict now is {verdict.state} '{verdict.description}'"
+            )
+
     def _expect_after_restack(self, layer: Layer) -> tuple[bool, str]:
         if layer.name not in self.approved_over:
             return False, REASON_RESTACK_NOT_APPROVED_YET
@@ -218,7 +448,8 @@ class OrderPlayer:
         layer = self.scenario.layer(name)
         below = layer.stacked_on
         parent = self.heads[below] if below is not None and below not in self.landed else self.git.head
-        self._move_head(layer, (parent,), self.changes[parent] | {name})
+        own_files = frozenset(file for file in self.frontend_files[self.heads[name]] if file.startswith(f"{name}-"))
+        self._move_head(layer, (parent,), self.changes[parent] | {name}, self.frontend_files[parent] | own_files)
         outcome = self.run(name)
         expected_to_pass, reason = self._expect_after_restack(layer)
         gate_passes = self.gate(self.heads[name])[0] == "success"
@@ -232,7 +463,10 @@ class OrderPlayer:
     def update(self, name: str) -> str:
         old_head = self.heads[name]
         self._move_head(
-            self.scenario.layer(name), (old_head, self.git.head), self.changes[old_head] | self.master_changes
+            self.scenario.layer(name),
+            (old_head, self.git.head),
+            self.changes[old_head] | self.master_changes,
+            self.frontend_files[old_head] | self.master_frontend_files,
         )
         return self.run(name)
 
@@ -313,7 +547,9 @@ class OrderPlayer:
         for name in group:
             sha = self.git.merge(self.scenario.layer(name).pr_number, self._next_sha("m"), squash=True)
             self.master_changes = self.master_changes | self.changes[self.heads[name]]
+            self.master_frontend_files = self.master_frontend_files | self.frontend_files[self.heads[name]]
             self.changes[sha] = self.master_changes
+            self.frontend_files[sha] = self.master_frontend_files
             merged.append(sha)
             self.landed.append(name)
             self.landed_pictures[name] = attempt.picture
@@ -326,8 +562,20 @@ class OrderPlayer:
         verb, *names = event.split(" ")
         if verb == "run":
             outcome = self.run(names[0])
-        elif verb == "push":
+        elif verb == "push" and len(names) == 1:
             outcome = self.push(names[0])
+        elif verb == "push":
+            outcome = self.push_without_ci(names[0], names[1])
+        elif verb == "ci":
+            outcome = self.ci(names[0])
+        elif verb == "rerun":
+            outcome = self.ci(names[0], rerun=True)
+        elif verb == "fail":
+            outcome = self.fail(names[0])
+        elif verb == "retarget":
+            outcome = self.retarget(names[0])
+        elif verb == "recheck":
+            outcome = self.recheck(names[0])
         elif verb == "restack":
             outcome = self.restack(names[0])
         elif verb == "update":
@@ -341,10 +589,11 @@ class OrderPlayer:
         else:
             raise ValueError(f"Unknown event {event!r}")
         self.trace.append(f"{event}: {outcome}")
+        self.check_green_heads(event)
 
 
 def broken_guarantees(player: OrderPlayer) -> list[str]:
-    broken: list[str] = []
+    broken = list(player.green_head_breaks)
     for attempt in player.attempts:
         if attempt.passed != attempt.expected.gets_through:
             broken.append(
@@ -416,9 +665,31 @@ def describe(order: tuple[str, ...], player: OrderPlayer) -> str:
     )
 
 
+def play_order(
+    scenario: Scenario, order: tuple[str, ...], workflow: WorkflowConfig, team, user, mocker, capture
+) -> OrderPlayer:
+    repo = seeded_repo(team.id, BaselineMode.LEDGER)
+    player = OrderPlayer(
+        scenario,
+        repo,
+        FakeGit(mocker, SEED),
+        LedgerFlow(repo, mocker),
+        user,
+        capture,
+        FakeActions(mocker),
+        CiWorkflow(workflow),
+    )
+    for event in order:
+        try:
+            player.play(event)
+        except Exception as error:
+            raise AssertionError(f"{event!r} raised {error!r}\n{describe(order, player)}") from error
+    return player
+
+
 CASES = [
     pytest.param(scenario, order, id=f"{scenario.key}-{index:03d}")
-    for scenario in SCENARIOS
+    for scenario in (*SCENARIOS, *CI_SCENARIOS)
     for index, order in enumerate(scenario.every_order())
 ]
 
@@ -428,15 +699,94 @@ CASES = [
 def test_every_event_order_keeps_the_ledger_guarantees(
     scenario, order, team, user, mocker, django_capture_on_commit_callbacks
 ) -> None:
-    repo = seeded_repo(team.id, BaselineMode.LEDGER)
-    player = OrderPlayer(
-        scenario, repo, FakeGit(mocker, SEED), LedgerFlow(repo, mocker), user, django_capture_on_commit_callbacks
-    )
-    for event in order:
-        try:
-            player.play(event)
-        except Exception as error:
-            raise AssertionError(f"{event!r} raised {error!r}\n{describe(order, player)}") from error
+    player = play_order(scenario, order, FIXED_WORKFLOW, team, user, mocker, django_capture_on_commit_callbacks)
 
     broken = broken_guarantees(player)
     assert not broken, "\n".join([*broken, describe(order, player)])
+
+
+@frozen
+class Gap:
+    scenario_key: str
+    workflow: WorkflowConfig
+    order: tuple[str, ...]
+    reason: str
+
+
+REASON_REUSE = (
+    "a backend-only push reuses the passing workflow of a red head, so the skip report greens a head with no run"
+)
+REASON_REUSE_OVER_STALE_APPROVAL = (
+    "the push reuses the workflow of an approved head after another pull request landed the same story, so the "
+    "skip report greens a head whose approval is stale"
+)
+REASON_BOT_SHORTCUT = (
+    "a bot push of the baseline file only clears the frontend filter, so the skip report greens a red pull request, "
+    "and a re-run keeps the push payload and greens it again"
+)
+REASON_RETARGET = (
+    "the child's diff against its parent changes no frontend file, so the skip report greens it, and the retarget "
+    "to the default branch keeps the green on the same commit while recheck leaves a retargeted head alone"
+)
+REASON_FORCE_PUSH_BACK = (
+    "a force-push back to an older head shows that head's green from before the baseline moved, because the "
+    "republish after a landing reaches only the commit of the newest run, until CI finishes on the head again"
+)
+
+GAPS = [
+    Gap(
+        scenario_key="ci_red_frontend_pr_then_backend_push",
+        workflow=MASTER_WORKFLOW,
+        order=("ci F", "push F backend", "ci F 2", "rerun F", "recheck F"),
+        reason=REASON_REUSE,
+    ),
+    Gap(
+        scenario_key="ci_approved_pr_baseline_moves_then_backend_push",
+        workflow=MASTER_WORKFLOW,
+        order=("ci A", "ci B", "approve A", "approve B", "queue B", "land B", "push A backend", "ci A 2", "recheck A"),
+        reason=REASON_REUSE_OVER_STALE_APPROVAL,
+    ),
+    Gap(
+        scenario_key="ci_bot_baseline_push_on_red_pr",
+        workflow=MASTER_WORKFLOW,
+        order=("ci F", "push F bot", "ci F 2", "rerun F", "recheck F"),
+        reason=REASON_BOT_SHORTCUT,
+    ),
+    Gap(
+        scenario_key="ci_stacked_child_skipped_then_retargeted",
+        workflow=FIXED_WORKFLOW,
+        order=("ci P", "ci C", "retarget C", "recheck C"),
+        reason=REASON_RETARGET,
+    ),
+    Gap(
+        scenario_key="ci_force_push_back_after_baseline_moves",
+        workflow=FIXED_WORKFLOW,
+        order=(
+            "ci A",
+            "ci B",
+            "approve A",
+            "approve B",
+            "queue B",
+            "push A backend",
+            "ci A 2",
+            "land B",
+            "push A back",
+            "ci A 3",
+            "recheck A",
+        ),
+        reason=REASON_FORCE_PUSH_BACK,
+    ),
+]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("gap", [pytest.param(gap, id=f"{gap.scenario_key}") for gap in GAPS])
+def test_the_model_finds_each_known_green_head_gap(gap, team, user, mocker, django_capture_on_commit_callbacks) -> None:
+    scenario = next(scenario for scenario in (*CI_SCENARIOS, *CI_GAP_SCENARIOS) if scenario.key == gap.scenario_key)
+    assert gap.order in scenario.every_order()
+
+    player = play_order(scenario, gap.order, gap.workflow, team, user, mocker, django_capture_on_commit_callbacks)
+
+    assert player.green_head_breaks, f"expected a green head without a passing run because {gap.reason}\n" + describe(
+        gap.order, player
+    )

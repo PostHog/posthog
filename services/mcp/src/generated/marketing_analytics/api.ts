@@ -3814,6 +3814,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                         schema_map: zod
                             .union([zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])), zod.null()])
                             .optional(),
+                        use_in_recommendations: zod.union([zod.boolean(), zod.null()]).optional(),
                         version: zod.union([zod.number(), zod.null()]).optional(),
                     })
                     .describe(
@@ -7385,6 +7386,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                         schema_map: zod
                             .union([zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])), zod.null()])
                             .optional(),
+                        use_in_recommendations: zod.union([zod.boolean(), zod.null()]).optional(),
                         version: zod.union([zod.number(), zod.null()]).optional(),
                     })
                     .describe(
@@ -10961,6 +10963,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = () => zo
                             .optional(),
                         table_name: zod.union([zod.string(), zod.null()]).optional(),
                         timestamp_field: zod.union([zod.string(), zod.null()]).optional(),
+                        use_in_recommendations: zod.union([zod.boolean(), zod.null()]).optional(),
                         version: zod.union([zod.number(), zod.null()]).optional(),
                     })
                     .describe(
@@ -14745,6 +14748,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                     .describe('Properties configurable in the interface'),
                 response: zod.union([zod.record(zod.string(), zod.unknown()), zod.null()]).optional(),
                 schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                use_in_recommendations: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                    ),
                 version: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -18305,6 +18314,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                     .describe('Properties configurable in the interface'),
                 response: zod.union([zod.record(zod.string(), zod.unknown()), zod.null()]).optional(),
                 schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                use_in_recommendations: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                    ),
                 version: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -21870,6 +21885,12 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = () => zod.objec
                 schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
                 table_name: zod.string(),
                 timestamp_field: zod.string(),
+                use_in_recommendations: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                    ),
                 version: zod
                     .union([zod.number(), zod.null()])
                     .optional()

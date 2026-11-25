@@ -310,7 +310,7 @@ def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secre
     assert "totally-made-up-token" not in str(detail)
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
 def test_batch_export_configuration_leaves_out_the_restrictions_its_schema_was_saved_with(team):
     with mock.patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",

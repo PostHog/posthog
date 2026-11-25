@@ -1,5 +1,6 @@
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import type { IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
+import { MATERIALIZATION_RUNNING_REASON } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import {
     defaultCadenceWithin,
     modeDisabledReason,
@@ -32,6 +33,7 @@ export interface MaterializationRunActionInputs {
     initialSyncFrequency: DataModelingSyncInterval
     incrementalDraft: IncrementalConfigDraft
     incrementalDraftTouched: boolean
+    refreshModeChanged: boolean
 }
 
 export interface MaterializationRunActionState {
@@ -43,6 +45,7 @@ export interface MaterializationRunActionState {
     deleteReason: string | undefined
     materializeReason: string | undefined
     busyReason: string | undefined
+    saveReason: string | undefined
     draftError: string | undefined
     noScheduleReason: string | undefined
     cancelReason: string | undefined
@@ -87,6 +90,35 @@ function incrementalDraftError(draft: IncrementalConfigDraft): string | undefine
         : undefined
 }
 
+function busyReasons({
+    running,
+    startingMaterialization,
+    refreshModeChanged,
+    actionReason,
+    accessReason,
+    draftError,
+}: {
+    running: boolean
+    startingMaterialization: boolean
+    refreshModeChanged: boolean
+    actionReason: string | undefined
+    accessReason: string | undefined
+    draftError: string | undefined
+}): { busyReason: string | undefined; saveReason: string | undefined } {
+    const startingReason = startingMaterialization ? 'Materialization is starting' : undefined
+    return {
+        busyReason: actionReason || (running ? MATERIALIZATION_RUNNING_REASON : startingReason),
+        // A cadence or pin change only edits the schedule, so it can be saved while a run is in progress.
+        // A refresh mode change can rebuild the table, so it waits, even when drafted before the run started.
+        saveReason:
+            accessReason ||
+            actionReason ||
+            (running && refreshModeChanged ? MATERIALIZATION_RUNNING_REASON : undefined) ||
+            startingReason ||
+            draftError,
+    }
+}
+
 export function materializationRunActionState({
     savedQuery,
     kind,
@@ -101,6 +133,7 @@ export function materializationRunActionState({
     initialSyncFrequency,
     incrementalDraft,
     incrementalDraftTouched,
+    refreshModeChanged,
 }: MaterializationRunActionInputs): MaterializationRunActionState {
     const running = latestJobStatus === 'Running'
     const accessReason =
@@ -127,19 +160,22 @@ export function materializationRunActionState({
           ? 'This view belongs to an endpoint. Delete the endpoint instead.'
           : undefined
     const draftError = incrementalDraftError(incrementalDraft)
-    const busyReason =
-        refreshReason ||
-        deletingReason ||
-        runStateReason ||
-        (updatingDataWarehouseSavedQuery
-            ? 'Saving materialization settings'
-            : materializationActionLoading
-              ? 'Updating materialization'
-              : running
-                ? 'Materialization is currently running'
-                : startingMaterialization
-                  ? 'Materialization is starting'
-                  : undefined)
+    const { busyReason, saveReason } = busyReasons({
+        running,
+        startingMaterialization,
+        refreshModeChanged,
+        actionReason:
+            refreshReason ||
+            deletingReason ||
+            runStateReason ||
+            (updatingDataWarehouseSavedQuery
+                ? 'Saving materialization settings'
+                : materializationActionLoading
+                  ? 'Updating materialization'
+                  : undefined),
+        accessReason,
+        draftError,
+    })
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison run
     // stopped, not that this model stopped refreshing.
     const suspended = !!savedQuery.suspended?.[SERVING_ENGINE]
@@ -158,7 +194,7 @@ export function materializationRunActionState({
             refreshReason ||
             deletingReason ||
             runStateReason ||
-            (running || startingMaterialization ? 'Materialization is currently running' : undefined) ||
+            (running || startingMaterialization ? MATERIALIZATION_RUNNING_REASON : undefined) ||
             (updatingDataWarehouseSavedQuery || materializationActionLoading ? 'Updating materialization' : undefined),
         materializeReason:
             accessReason ||
@@ -172,6 +208,7 @@ export function materializationRunActionState({
             unsatisfiableReason(savedQuery.sync_frequency_bounds) ||
             draftError,
         busyReason,
+        saveReason,
         draftError,
         // Resuming clears the suspension that repeated failures set, and it schedules nothing. A model
         // with no cadence has no scheduled run to go back into, so the action would promise one that
