@@ -18,6 +18,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.api.cohort import CohortFilters
@@ -852,9 +853,13 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
         self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
-    def test_recalculation_caps_memory_when_the_context_marks_a_flag_call_read(self):
-        from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
+    def _assert_flag_call_memory_capped(self, settings: dict[str, Any]) -> None:
+        cap = FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
+        self.assertEqual(settings["max_memory_usage"], cap)
+        self.assertEqual(settings["max_bytes_before_external_group_by"], cap // 2)
+        self.assertEqual(settings["max_bytes_before_external_sort"], cap // 2)
 
+    def test_recalculation_caps_memory_when_the_context_marks_a_flag_call_read(self):
         cohort = Cohort.objects.create(
             team=self.team,
             name="unkeyed flag call read",
@@ -870,15 +875,9 @@ class TestCohortUtils(BaseTest):
             patch("products.cohorts.backend.models.util.sync_execute", return_value=0) as execute,
         ):
             _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
-        settings = execute.call_args.kwargs["settings"]
-        cap = FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
-        self.assertEqual(settings["max_memory_usage"], cap)
-        self.assertEqual(settings["max_bytes_before_external_group_by"], cap // 2)
-        self.assertEqual(settings["max_bytes_before_external_sort"], cap // 2)
+        self._assert_flag_call_memory_capped(execute.call_args.kwargs["settings"])
 
     def test_insert_actors_into_cohort_by_query_caps_memory_when_the_context_marks_a_flag_call_read(self):
-        from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
-
         from products.cohorts.backend.models.util import insert_actors_into_cohort_by_query
 
         cohort = Cohort.objects.create(team=self.team, name="Static Query Cohort", is_static=True)
@@ -886,11 +885,7 @@ class TestCohortUtils(BaseTest):
 
         with patch("products.cohorts.backend.models.util.sync_execute") as execute:
             insert_actors_into_cohort_by_query(cohort, "SELECT 1", {}, context, team_id=self.team.id)
-        settings = execute.call_args.kwargs["settings"]
-        cap = FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
-        self.assertEqual(settings["max_memory_usage"], cap)
-        self.assertEqual(settings["max_bytes_before_external_group_by"], cap // 2)
-        self.assertEqual(settings["max_bytes_before_external_sort"], cap // 2)
+        self._assert_flag_call_memory_capped(execute.call_args.kwargs["settings"])
 
     def test_print_cohort_hogql_query_with_select_star_raises_error(self):
         """Test that SELECT * queries without explicit ID columns raise an error"""
