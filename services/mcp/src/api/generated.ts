@@ -54573,6 +54573,15 @@ export namespace Schemas {
       DuplicatePrimaryKey: 'duplicate_primary_key',
     } as const;
 
+    export type WebhookIssueEnum = typeof WebhookIssueEnum[keyof typeof WebhookIssueEnum];
+
+
+    export const WebhookIssueEnum = {
+      NotRegistered: 'not_registered',
+      MissingInputs: 'missing_inputs',
+      NotRouted: 'not_routed',
+    } as const;
+
     export interface RowFilterColumn {
       /** Column name to use as `column` in a row filter. */
       name: string;
@@ -54721,6 +54730,8 @@ export namespace Schemas {
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
       /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
       readonly webhook_not_registered: boolean;
+      /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+      readonly webhook_issue: WebhookIssueEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -76640,10 +76651,14 @@ export namespace Schemas {
          * @nullable
          */
       cost_multiplier?: string | null;
+      /** Largest context window the model accepts, in tokens. */
+      context_window?: number;
+      /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
+      allowed?: boolean;
     }
 
     export interface ModelCatalogueResponse {
-      /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+      /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
       models: ModelChoice[];
     }
 
@@ -77490,7 +77505,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       name: string;
-      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+      /** Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'. */
       type: string;
       /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
       value?: unknown;
@@ -93918,6 +93933,8 @@ export namespace Schemas {
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
       /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
       readonly webhook_not_registered?: boolean;
+      /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+      readonly webhook_issue?: WebhookIssueEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -122373,6 +122390,13 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
+    }
+
+    export interface SlackAppRepositoryOptions {
+      /** Repositories as owner/name from this person's own GitHub installs, sorted by name. */
+      repositories: string[];
+      /** Whether this person connected a personal GitHub account. False means repositories is empty. */
+      github_connected: boolean;
     }
 
     export interface SlackAppWorkspaceSettings {

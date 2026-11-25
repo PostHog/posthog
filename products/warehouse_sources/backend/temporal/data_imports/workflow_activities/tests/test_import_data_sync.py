@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -737,13 +741,21 @@ async def test_unknown_resource_error_reraised_as_non_reportable():
 
 
 @pytest.mark.asyncio
-async def test_temporary_host_resolution_error_reraised_as_non_reportable():
-    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
-    # source is fine and a fresh attempt recovers. The message carries the host, so no source could
-    # list it in get_retryable_errors, and the activity interceptor captures whatever escapes unless
-    # it is a NonReportableError — without this branch a resolver outage mints one captured
-    # exception per attempt, across every direct SQL source at once.
-    error = TemporaryHostResolutionError("db.example.com")
+@pytest.mark.parametrize(
+    ("error", "expected_fragment"),
+    [
+        # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+        # source is fine and a fresh attempt recovers. The message carries the host, so no source could
+        # list it in get_retryable_errors, and the activity interceptor captures whatever escapes unless
+        # it is a NonReportableError — without this branch a resolver outage mints one captured
+        # exception per attempt, across every direct SQL source at once.
+        (TemporaryHostResolutionError("db.example.com"), "db.example.com"),
+        # An SSH server at its limit of new connections closes the excess ones, while it serves the
+        # other schemas of the same source. A later attempt gets through, so it must not report.
+        (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR),
+    ],
+)
+async def test_transient_connect_error_reraised_as_non_reportable(error: Exception, expected_fragment: str):
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -758,7 +770,7 @@ async def test_temporary_host_resolution_error_reraised_as_non_reportable():
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
-    assert "db.example.com" in str(exc_info.value)
+    assert expected_fragment in str(exc_info.value)
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
