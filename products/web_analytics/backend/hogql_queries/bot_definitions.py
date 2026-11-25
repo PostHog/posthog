@@ -181,6 +181,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Anthropic",
         documentation_url="https://code.claude.com/docs/en/tools-reference",
     ),
+    "claude-code-mcp-client": BotDefinition(
+        "Claude Code",
+        "ai_assistant",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://code.claude.com/docs/en/tools-reference",
+    ),
     "GitHubCopilot": BotDefinition(
         "GitHub Copilot", "ai_assistant", "AI Agent", "GitHub", documentation_url="https://github.com/features/copilot"
     ),
@@ -497,6 +504,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     # HTTP Clients
     "curl/": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
+    # Anchored so the bare token cannot match a browser UA or another product name that contains "curl".
+    "^curl$": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
     "Wget": BotDefinition(
         "Wget", "http_client", "Automation", "GNU", documentation_url="https://www.gnu.org/software/wget/"
     ),
@@ -665,6 +674,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Blackboard": BotDefinition("blackboard-crawler", "search_crawler", "Bot", "Blackboard"),
     "Foregenix": BotDefinition("Foregenix ThreatView/WebScan", "monitoring", "Bot", "Foregenix"),
     "FirecrawlAgent": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
+    "firecrawl-search/": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
+    "FirecrawlLocal/": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
     "Seekport": BotDefinition("seekport-crawler", "search_crawler", "Bot", "Seekport"),
     "ev-crawler": BotDefinition("Headline", "search_crawler", "Bot", "Headline"),
     "bitdiscovery": BotDefinition("Tenable.asm", "monitoring", "Bot", "Tenable.asm"),

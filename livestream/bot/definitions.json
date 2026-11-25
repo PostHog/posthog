@@ -246,6 +246,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "claude-code-mcp-client",
+    "name": "Claude Code",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "GitHubCopilot",
     "name": "GitHub Copilot",
     "category": "ai_assistant",
@@ -1231,6 +1237,18 @@
   },
   {
     "pattern": "FirecrawlAgent",
+    "name": "FirecrawlAgent",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "firecrawl-search/",
+    "name": "FirecrawlAgent",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "FirecrawlLocal/",
     "name": "FirecrawlAgent",
     "category": "ai_crawler",
     "traffic_type": "AI Agent"
