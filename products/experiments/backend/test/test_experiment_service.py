@@ -43,13 +43,13 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
-    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.facade.contracts import ExperimentVersionConflict
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -1922,7 +1922,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2793,7 +2793,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}

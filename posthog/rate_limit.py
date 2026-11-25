@@ -233,7 +233,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not self.units_to_charge:
             return
         try:
-            self.cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
+            self.primary_cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
         except Exception as e:
             capture_exception(e)
 
@@ -269,7 +269,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return SimpleRateThrottle.allow_request(self, request, view)
         if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
             return False
-        return self.key is None or self.throttle_success()
+        self.charge_units()
+        return True
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):

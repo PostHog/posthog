@@ -179,7 +179,14 @@ export class SymbolSetClient {
         await this.throttle.wait()
         const url = this.projectUrl(path)
         const response = await this.session.send(
-            (token) => sendRequest(this.runtime.fetch, url, { method, body, token, timeoutMs: REQUEST_TIMEOUT_MS }),
+            (token) =>
+                sendRequest(this.runtime.fetch, url, {
+                    method,
+                    body,
+                    token,
+                    timeoutMs: REQUEST_TIMEOUT_MS,
+                    posthog: true,
+                }),
             (answer) => answer.status === 401
         )
         if (!response.ok) {

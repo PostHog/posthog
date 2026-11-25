@@ -98,7 +98,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
             start_running: evaluation.enabled,
             uses_decision_model: usesDecisionModel,
             reports_enabled: reportLogic.isMounted()
-                ? reportLogic.values.configDraft.enabled && isReportableEvaluation
+                ? reportLogic.values.draftReportsEnabled && isReportableEvaluation
                 : null,
             report_frequency: reportLogic.isMounted() ? reportLogic.values.configDraft.frequency : null,
             report_destinations: reportLogic.isMounted()

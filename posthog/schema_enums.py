@@ -2281,6 +2281,10 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
     PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+    POSTHOG_CONVERSIONS_NOT_READY = "posthog_conversions_not_ready"
+    POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
+    POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
+    POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):

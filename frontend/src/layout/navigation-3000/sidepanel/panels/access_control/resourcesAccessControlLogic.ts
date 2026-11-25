@@ -48,7 +48,6 @@ export function isResourceRolledOut(
 const RESOURCES_HIDDEN_FROM_ACCESS_CONTROLS: ReadonlySet<AccessControlResourceType> = new Set([
     AccessControlResourceType.RevenueAnalytics,
     AccessControlResourceType.CodeReviewApproval,
-    AccessControlResourceType.Tagger,
 ])
 
 export function isResourceShownInAccessControls(

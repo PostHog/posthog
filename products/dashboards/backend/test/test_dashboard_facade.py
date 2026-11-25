@@ -511,7 +511,7 @@ class TestTilePlacements(APIBaseTest):
         # The stale dashboard was opened before `since`, and the removed tile does not count.
         assert placements == ([self.asked[0]] if found else [])
 
-    def test_live_tile_placements_lists_live_tiles_of_any_kind(self) -> None:
+    def test_live_tile_reads_list_live_tiles_of_any_kind(self) -> None:
         deleted_dashboard = create_dashboard(team_id=self.team.id, deleted=True)
         create_insight_tile(dashboard_id=deleted_dashboard, insight_id=self.insight.id)
 
@@ -525,6 +525,9 @@ class TestTilePlacements(APIBaseTest):
         ]
         with self.assertRaises(ValueError):
             api.live_tile_placements()
+        assert api.live_tile_layouts(self.opened, limit=3) == [{}, {}]
+        assert api.live_tile_layouts(self.opened, limit=1) == [{}]
+        assert api.live_tile_layouts(deleted_dashboard, limit=3) == []
 
     @parameterized.expand([("live", False), ("including_deleted", True)])
     def test_insight_placements_match_the_tile_query_they_replace(self, _name: str, include_deleted: bool) -> None:
@@ -654,6 +657,13 @@ class TestDashboardTemplatesForCore(APIBaseTest):
         assert api.create_global_template_if_missing(definition) is True
         assert api.create_global_template_if_missing(definition) is False
         assert global_dashboard_template_exists(template_name="Seeded")
+        stored = DashboardTemplate.objects.get(template_name="Seeded", team__isnull=True)
+        assert (stored.dashboard_description, stored.tiles, stored.variables, stored.scope) == (
+            "From a seed",
+            [{"type": "TEXT", "body": "hi", "layouts": {}}],
+            [{"code_name": "v"}],
+            "global",
+        )
 
     def test_create_starter_dashboard_applies_the_signup_template(self) -> None:
         template = DashboardTemplate.default_signup_template()

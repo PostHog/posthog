@@ -429,6 +429,7 @@ describe('seriesBreakdownLogic', () => {
             const { xData, seriesData } = logic.values.seriesBreakdownData
             if (xColumn === 'event') {
                 expect(xData.data).toEqual(['Pageview', 'signed_up'])
+                expect(xData.rawData).toEqual(['$pageview', 'signed_up'])
                 expect(seriesData.map((series) => series.name)).toEqual(['Safari'])
             } else {
                 expect(xData.data).toEqual(['Safari'])

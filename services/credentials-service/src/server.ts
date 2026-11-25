@@ -123,8 +123,10 @@ export class CredentialsServer {
     private apply(source: SecretSource, snapshot: SecretSnapshot | null): void {
         // Keys before secrets: a revocation and a rotation can land in one secret
         // edit, and the revoked caller must not see the new values in the gap between.
-        this.signingKeys?.reloadFrom(snapshot?.values ?? null)
-        this.applySecrets(source, snapshot)
+        // A snapshot whose keys are refused does not reach the secrets either, because the
+        // keys still held would then read the values that edit rotated.
+        const keysLoaded = this.signingKeys?.reloadFrom(snapshot?.values ?? null) ?? true
+        this.applySecrets(source, keysLoaded ? snapshot : null)
     }
 
     private applySecrets(source: SecretSource, snapshot: SecretSnapshot | null): void {

@@ -4,6 +4,8 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { sameTopic } from './utils'
+
 type TopicRow = AEOPromptSetTopicCountsApi
 type TopicColumn = LemonTableColumn<TopicRow, keyof TopicRow | undefined>
 
@@ -78,7 +80,7 @@ export const ContentAutopilotPromptsTopicTable = ({
             rowKey="topic"
             columns={columns}
             defaultSorting={{ columnKey: 'mention_rate', order: -1 }}
-            rowStatus={(row) => (row.topic === selectedTopic ? 'highlighted' : null)}
+            rowStatus={(row) => (sameTopic(row.topic, selectedTopic) ? 'highlighted' : null)}
             rowClassName="cursor-pointer"
             onRow={(row) => ({ onClick: () => onSelect(row.topic) })}
             emptyState="No topics yet"

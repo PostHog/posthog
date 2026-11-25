@@ -1,6 +1,7 @@
 """Test module for the Postgres batch export activity."""
 
 import uuid
+import datetime as dt
 
 import pytest
 
@@ -8,6 +9,8 @@ from django.test import override_settings
 
 import pytest_asyncio
 from psycopg import sql
+
+from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
@@ -44,10 +47,8 @@ pytestmark = [
 ]
 
 
-async def _run_activity(
+async def _export_to_postgres(
     activity_environment,
-    postgres_connection,
-    clickhouse_client,
     postgres_config,
     team,
     data_interval_start,
@@ -56,13 +57,9 @@ async def _run_activity(
     batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    sort_key: str = "event",
-    expected_fields=None,
-    expect_duplicates: bool = False,
     integration_id: int | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
 ):
-    """Helper function to run Postgres main activity and assert records are exported."""
     if integration_id is not None:
         config = postgres_config.copy()
         for conn_param in ("host", "port", "user", "password"):
@@ -94,7 +91,7 @@ async def _run_activity(
             data_interval_start=insert_inputs.data_interval_start,
             data_interval_end=insert_inputs.data_interval_end,
             exclude_events=insert_inputs.exclude_events,
-            include_events=None,
+            include_events=insert_inputs.include_events,
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
@@ -105,7 +102,41 @@ async def _run_activity(
     )
     insert_inputs.stage_folder = stage_result.stage_folder
     insert_inputs.records_total = stage_result.records_total
-    result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
+    return await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
+
+
+async def _run_activity(
+    activity_environment,
+    postgres_connection,
+    clickhouse_client,
+    postgres_config,
+    team,
+    data_interval_start,
+    data_interval_end,
+    table_name: str,
+    batch_export_model: AnyBatchExportModel | None = None,
+    exclude_events: list[str] | None = None,
+    include_events: list[str] | None = None,
+    sort_key: str = "event",
+    expected_fields=None,
+    expect_duplicates: bool = False,
+    integration_id: int | None = None,
+    destination_default_fields: list[BatchExportField] | None = None,
+):
+    """Helper function to run Postgres main activity and assert records are exported."""
+    result = await _export_to_postgres(
+        activity_environment=activity_environment,
+        postgres_config=postgres_config,
+        team=team,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=batch_export_model,
+        exclude_events=exclude_events,
+        include_events=include_events,
+        integration_id=integration_id,
+        destination_default_fields=destination_default_fields,
+    )
 
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
@@ -716,3 +747,45 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
         sort_key="person_id",
         expected_fields=expected_fields,
     )
+
+
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+@pytest.mark.parametrize("days_ago", [0, 10], ids=["events-json-recent", "events-json"])
+async def test_insert_into_postgres_activity_exports_ip_when_using_native_events(
+    clickhouse_client, activity_environment, postgres_connection, postgres_config, ateam, days_ago: int
+):
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=days_ago)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
+    sent_ips = {"with-ip": "203.0.113.7", "without-ip": None}
+    await insert_event_values_in_clickhouse(
+        clickhouse_client,
+        [
+            sent_event
+            for event, ip in sent_ips.items()
+            for sent_event in generate_test_events(
+                count=1,
+                team_id=ateam.pk,
+                possible_datetimes=[data_interval_start + dt.timedelta(minutes=30)],
+                event_name=event,
+                inserted_at="_timestamp",
+                properties={"$browser": "Chrome"} if ip is None else {"$browser": "Chrome", "$ip": ip},
+            )
+        ],
+    )
+    table_name = f"test_native_ip__{ateam.pk}"
+
+    await _export_to_postgres(
+        activity_environment=activity_environment,
+        postgres_config=postgres_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+    )
+
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(
+            sql.SQL("SELECT event, ip FROM {}").format(sql.Identifier(postgres_config["schema"], table_name))
+        )
+        exported_ips = dict(await cursor.fetchall())
+    assert exported_ips == sent_ips

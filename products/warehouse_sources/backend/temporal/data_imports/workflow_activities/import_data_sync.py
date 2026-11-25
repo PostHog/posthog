@@ -903,7 +903,11 @@ async def _import_data_with_reporting(
                     # `last_full_run_at`; a fast return deliberately does not).
                     await database_sync_to_async_pool(
                         ExternalDataSchema.objects.filter(id=schema.id, team_id=inputs.team_id).update
-                    )(last_synced_at=model.created_at, updated_at=dt.datetime.now(dt.UTC))
+                    )(
+                        last_synced_at=model.created_at,
+                        last_checked_at=model.created_at,
+                        updated_at=dt.datetime.now(dt.UTC),
+                    )
                     return PipelineResult(
                         should_trigger_cdp_producer=False,
                         skip_post_import_activities=True,

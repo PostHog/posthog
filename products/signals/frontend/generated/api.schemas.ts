@@ -951,6 +951,13 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
+    /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
     default_autostart_priority?: AutonomyPriorityEnumApi
     /**
      * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -1276,6 +1283,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `analytics` - Product analytics
+ * * `slack` - Slack
  * * `freshdesk` - Freshdesk
  * * `freshservice` - Freshservice
  * * `front` - Front
@@ -1438,6 +1446,7 @@ export const SignalSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -1651,6 +1660,7 @@ export interface InboxOnboardingSourceApi {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `slack` - Slack
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -5064,6 +5074,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `analytics` - analytics
+ * * `slack` - slack
  * * `freshdesk` - freshdesk
  * * `freshservice` - freshservice
  * * `front` - front
@@ -5226,6 +5237,7 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -7147,6 +7159,7 @@ export interface SignalNodeApi {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `slack` - slack
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -12884,6 +12897,67 @@ export interface ScoutSuggestionRefreshApi {
     workflow_id: string
 }
 
+export interface SlackChannelScoutCreateApi {
+    /**
+     * Name shown wherever people identify this scout. The scout's skill name is generated from it.
+     * @maxLength 200
+     */
+    display_name: string
+    /** Id of the Slack data warehouse source to read. */
+    source_id: string
+    /**
+     * Ids of the channels to read, at most 20. Every channel must already have synced its message table.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    channel_ids: string[]
+    /**
+     * What the scout looks for in the messages, in plain words. Blank uses a default focus on bug reports, repeated requests, and complaints.
+     * @maxLength 4000
+     */
+    steer?: string
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '0 9 * * 1-5'. Occurrences must be at least 30 minutes apart. Omit for the daily default.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /** Whether the scout files reports in the inbox. False is a dry run: it runs and logs only. */
+    emit?: boolean
+}
+
+export interface SlackChannelScoutCreateResponseApi {
+    /** True when this request created the scout. */
+    created: boolean
+    /** The new scout's skill name, its permanent identifier. Its config records the Slack source as owner. */
+    skill_name: string
+}
+
+export interface SlackScoutChannelApi {
+    /** The Slack channel id, which is also the name of its warehouse schema. */
+    id: string
+    /** The channel name, without the leading #. */
+    name: string
+    /**
+     * HogQL name of the channel's message table. Null until the channel's first sync writes the table.
+     * @nullable
+     */
+    table_name: string | null
+}
+
+export interface SlackScoutChannelSourceApi {
+    /** Id of the Slack data warehouse source. */
+    id: string
+    /** Channels the source syncs, ordered by name. */
+    channels: SlackScoutChannelApi[]
+}
+
+export interface SlackScoutChannelSourcesApi {
+    /** The project's Slack data warehouse sources. Empty when the project has not connected Slack. */
+    sources: SlackScoutChannelSourceApi[]
+}
+
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
 
@@ -13151,6 +13225,13 @@ export interface SourceFilterPreviewRequestApi {
      * @maxLength 16384
      */
     expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
 }
 
 /**
@@ -13210,6 +13291,21 @@ export interface SourceFilterPreviewRecordApi {
 }
 
 export interface SourceFilterPreviewResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
     /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
      *
      * * `ok` - ok
@@ -13229,7 +13325,7 @@ export interface SourceFilterPreviewResponseApi {
     catalog_version: number
     /** The preview reads records created in this many past days. */
     lookback_days: number
-    /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+    /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
     total_count: number
     /** Records in the window that pass the filter. */
     passing_count: number
@@ -14373,6 +14469,11 @@ export type SignalsScoutConfigListParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet.
+     * @minLength 1
+     */
+    source_product?: string
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
