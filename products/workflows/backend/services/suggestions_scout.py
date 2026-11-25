@@ -159,10 +159,15 @@ class _OptedInWorkflow:
     opted_in_at: datetime
     conversion: dict[str, Any] | None
     trigger: dict[str, Any] | None
+    actions: list[Any]
 
     @property
     def version_source_id(self) -> str:
         return f"{self.id}/{self.version}"
+
+    @property
+    def has_email_step(self) -> bool:
+        return any(isinstance(action, dict) and action.get("type") == "function_email" for action in self.actions)
 
 
 def suggestions_scout_run_reason(
@@ -189,14 +194,18 @@ def suggestions_scout_run_reason(
             opted_in_at=created_at,
             conversion=conversion,
             trigger=trigger,
+            actions=actions or [],
         )
-        for flow_id, team_id, version, created_at, conversion, trigger in _live_opt_ins(project_id).values_list(
+        for flow_id, team_id, version, created_at, conversion, trigger, actions in _live_opt_ins(
+            project_id
+        ).values_list(
             "hog_flow_id",
             "hog_flow__team_id",
             "hog_flow__version",
             "created_at",
             "hog_flow__conversion",
             "hog_flow__trigger",
+            "hog_flow__actions",
         )
     ]
     if not opted_in:
@@ -308,7 +317,8 @@ def _has_settled_conversions(
     team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
 ) -> bool:
     """Whether runs of a live version finished their conversion window after `last_run_at`, with a sample to judge."""
-    with_conversion = [workflow for workflow in opted_in if workflow.conversion]
+    # A suggestion aimed at conversion changes an email step, so a workflow without one has nothing to read.
+    with_conversion = [workflow for workflow in opted_in if workflow.conversion and workflow.has_email_step]
     # The scheduler has no team context, so this names its team instead of relying on the scope.
     published = {
         (flow_id, version): ConversionBasis(conversion=conversion, trigger=trigger)
@@ -333,7 +343,7 @@ def _has_settled_conversions(
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutSettledRuns")
     rows = sync_execute(
         """
-        SELECT app_source_id, toStartOfDay(timestamp, 'UTC') AS day, sum(count)
+        SELECT app_source_id, toDate(timestamp, 'UTC') AS day, sum(count)
         FROM app_metrics2
         WHERE team_id = %(team_id)s
           AND app_source = %(app_source)s
@@ -360,10 +370,10 @@ def _has_settled_conversions(
         runs_by_day = [
             (day, count)
             for source, day, count in rows
-            if source == source_id and settled.start <= day < settled.end and count > 0
+            if source == source_id and settled.start.date() <= day < settled.end.date() and count > 0
         ]
         if sum(count for _, count in runs_by_day) >= MIN_EVIDENCE_SAMPLE and any(
-            day >= settled.new_from for day, _ in runs_by_day
+            day >= settled.new_from.date() for day, _ in runs_by_day
         ):
             return True
     return False

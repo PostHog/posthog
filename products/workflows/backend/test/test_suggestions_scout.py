@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import time_machine
@@ -138,25 +139,71 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
     def test_settled_conversions(
         self, _name: str, window: str | None, trigger: str, runs: list[tuple[str, int]], expected: str | None
     ) -> None:
-        conversion = {"filters": {"events": [{"id": "paid"}]}, **({"window": window} if window else {})}
-        HogFlowRevision.objects.unscoped().filter(pk=self.revision.pk).update(
+        self._set_goal(self.flow, window, trigger=trigger)
+        for started_at, count in runs:
+            self._start_runs(self.flow, started_at, count)
+
+        assert self._reason_in_december() == expected
+
+    @parameterized.expand(
+        [
+            ("runs_of_a_version_no_longer_live", "old_version", None),
+            ("no_email_step_to_change", "no_email_step", None),
+            ("only_the_draft_has_a_goal", "revision_without_goal", None),
+            ("version_without_a_revision", "no_revision", "conversions_settled"),
+            ("another_workflow_has_the_shorter_window", "other_window", None),
+            ("workflow_in_a_child_environment", "child_environment", "conversions_settled"),
+        ]
+    )
+    def test_settled_conversions_read_the_live_version(self, _name: str, case: str, expected: str | None) -> None:
+        flow = self.flow
+        if case == "child_environment":
+            environment = Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Staging"
+            )
+            flow = self._flow(environment, "active")
+            self._opt_in(flow, days_ago=5)
+        self._set_goal(flow, "14d" if case == "other_window" else "7d")
+        if case == "no_email_step":
+            HogFlow.objects.filter(pk=flow.pk).update(actions=[{"id": "step-1", "type": "function"}])
+        elif case == "revision_without_goal":
+            HogFlowRevision.objects.unscoped().filter(hog_flow=flow).update(content={"conversion": None})
+        elif case == "no_revision":
+            HogFlowRevision.objects.unscoped().filter(hog_flow=flow).delete()
+        elif case == "other_window":
+            other = self._flow(self.team, "active")
+            self._opt_in(other, days_ago=5)
+            self._set_goal(other, "7d")
+        self._start_runs(flow, "2026-12-12T10:00:00", 25, version=1 if case == "old_version" else None)
+
+        assert self._reason_in_december() == expected
+
+    def _set_goal(self, flow: HogFlow, window: str | None, *, trigger: str = "event") -> None:
+        conversion: dict[str, Any] = {"filters": [], "events": [{"filters": {"events": [{"id": "paid"}]}}]}
+        if window:
+            conversion["window"] = window
+        HogFlow.objects.filter(pk=flow.pk).update(
+            conversion=conversion, trigger={"type": trigger}, actions=[{"id": "step-1", "type": "function_email"}]
+        )
+        HogFlowRevision.objects.unscoped().filter(hog_flow=flow).update(
             content={"conversion": conversion, "trigger": {"type": trigger}}
         )
-        HogFlow.objects.filter(pk=self.flow.pk).update(conversion=conversion, trigger={"type": trigger})
-        for started_at, count in runs:
-            create_app_metric2(
-                team_id=self.team.pk,
-                app_source="hog_flow_version",
-                app_source_id=f"{self.flow.id}/{self.flow.version}",
-                instance_id="trigger",
-                metric_kind="other",
-                metric_name="triggered",
-                count=count,
-                timestamp=datetime.fromisoformat(started_at).replace(tzinfo=UTC),
-            )
 
+    def _start_runs(self, flow: HogFlow, started_at: str, count: int, *, version: int | None = None) -> None:
+        create_app_metric2(
+            team_id=flow.team_id,
+            app_source="hog_flow_version",
+            app_source_id=f"{flow.id}/{version or flow.version}",
+            instance_id="trigger",
+            metric_kind="other",
+            metric_name="triggered",
+            count=count,
+            timestamp=datetime.fromisoformat(started_at).replace(tzinfo=UTC),
+        )
+
+    def _reason_in_december(self) -> str | None:
         now = datetime(2026, 12, 20, 12, 30, tzinfo=UTC)
-        assert suggestions_scout_run_reason(self.team.pk, last_run_at=now - timedelta(hours=24), now=now) == expected
+        return suggestions_scout_run_reason(self.team.pk, last_run_at=now - timedelta(hours=24), now=now)
 
     def test_quiet_for_a_week_runs(self) -> None:
         assert self._reason(last_run_at=NOW - timedelta(days=7)) == "backstop"
