@@ -6,7 +6,8 @@ their app reloads flags, so the share of people with the new value rises over ti
 compares errors against this curve, not against the edit time.
 
 The query reads every event, because `$feature/<key>` is on every event. `flag_windows/query.py` holds the counting
-rules.
+rules. The people whose events don't carry the flag are only in the counts of `flag_windows/last_values.py`, so the
+score reads the curve from those when it has them.
 """
 
 from collections.abc import Mapping, Sequence
@@ -18,6 +19,7 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.feature_flags.backend.flag_windows.last_values import LastValueCounts
 from products.feature_flags.backend.flag_windows.query import (
     ConditionMatch,
     EditCounts,
@@ -51,7 +53,7 @@ class ExposureCounts:
     in_condition: Mapping[ConditionMatch, ConditionExposure] = field(default_factory=dict)
 
 
-def exposure_share(counts: ExposureCounts) -> float:
+def exposure_share(counts: ExposureCounts | LastValueCounts) -> float:
     return counts.exposed / counts.with_flag if counts.with_flag else 0.0
 
 

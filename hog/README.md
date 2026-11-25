@@ -564,6 +564,9 @@ Describe the change for users.
 
 The `weekly-pr-<number>.md` changesets that CI once added wait for the weekly run too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
+> [!NOTE]
+> The approver check is off for now: the workflow still needs one approval in `hog-release`, but it doesn't check who gave it. Steps 2 and 4 describe the check as it runs when it is on.
+
 When a release starts, the workflow:
 
 1. Posts an approval request in the hog releases Slack channel, naming the pull requests the release ships and who can't approve it.

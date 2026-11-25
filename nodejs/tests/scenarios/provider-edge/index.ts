@@ -33,7 +33,11 @@ export const WEBHOOK_HOST = 'hooks.example.com'
 const FAULT_OBSERVED_WITHIN_MS = 10_000
 const FAULT_POLL_MS = 100
 
-export type FaultHold = { observed(holdEnds?: AbortSignal): Promise<boolean>; release(): Promise<void> }
+export type FaultHold = {
+    observed(holdEnds?: AbortSignal): Promise<boolean>
+    accepted?(until: AbortSignal): Promise<boolean>
+    release(): Promise<void>
+}
 
 export type ProviderEdgeOptions = {
     port: number
@@ -58,6 +62,8 @@ export type ProviderEdge = {
 type Reply = { status: number; body?: object; errorType?: string }
 
 type Silence = 'drop-connection' | 'no-answer' | 'stalled-body'
+
+type Held = { heldBy: string; reply: Reply }
 
 const silenceOf = ({ kind }: SesAnswer): Silence | undefined =>
     kind === 'drop-connection' || kind === 'no-answer' || kind === 'stalled-body' ? kind : undefined
@@ -100,7 +106,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         return { actionId: tracked?.actionId, flowId: tracked?.functionId }
     }
 
-    const sendEmail = (body: unknown): Reply | Silence => {
+    const sendEmail = (body: unknown): Reply | Silence | Held => {
         const request = readSendEmail(body, options.configurationSets)
         if ('error' in request) {
             truth.append({ kind: 'ses.send', status: request.error.status, detail: { error: request.error.message } })
@@ -142,7 +148,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (fault?.answer.kind === 'bounce' && feedback) {
             setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
         }
-        return fault?.answer.kind === 'ambiguous' ? 'drop-connection' : { status: 200, body: { MessageId: messageId } }
+        const reply = { status: 200, body: { MessageId: messageId } }
+        if (fault?.answer.kind === 'hold-answer') {
+            return { heldBy: fault.id, reply }
+        }
+        return fault?.answer.kind === 'ambiguous' ? 'drop-connection' : reply
     }
 
     const sendFeedback = async (
@@ -188,7 +198,29 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         return { status: 201, body: { id: faults.add(rule) } }
     }
 
-    const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | Silence => {
+    const held = new Map<string, { res: http.ServerResponse; reply: Reply }[]>()
+
+    const answerHeld = (id: string): void => {
+        for (const { res, reply } of held.get(id) ?? []) {
+            if (!res.destroyed && res.socket && !res.socket.destroyed) {
+                respond(res, reply)
+            }
+        }
+        held.delete(id)
+    }
+
+    const removeFault = (id: string): boolean => {
+        const removed = faults.remove(id)
+        answerHeld(id)
+        return removed
+    }
+
+    const clearFaults = (): void => {
+        faults.clear()
+        ;[...held.keys()].forEach(answerHeld)
+    }
+
+    const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | Silence | Held => {
         const faultId = /^\/_faults\/([^/]+)$/.exec(url.pathname)?.[1]
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
@@ -208,10 +240,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case 'POST /_faults':
                 return addCardFault(body)
             case 'DELETE /_faults':
-                faults.clear()
+                clearFaults()
                 return { status: 204 }
             case 'DELETE /_faults/:id':
-                return { status: faults.remove(faultId!) ? 204 : 404 }
+                return { status: removeFault(faultId!) ? 204 : 404 }
             default:
                 return sesError({
                     status: 404,
@@ -237,6 +269,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             req.socket.destroy()
         } else if (reply === 'stalled-body') {
             res.writeHead(200, { 'content-type': 'application/json' }).write('{"MessageId":')
+        } else if (reply !== 'no-answer' && 'heldBy' in reply) {
+            held.set(reply.heldBy, [...(held.get(reply.heldBy) ?? []), { res, reply: reply.reply }])
         } else if (reply !== 'no-answer') {
             respond(res, reply)
         }
@@ -326,13 +360,19 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                     }
                     return answeredInWindow()
                 },
+                accepted: async (until) => {
+                    while (!until.aborted && faults.firstAppliedAt(id) === undefined) {
+                        await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
+                    }
+                    return faults.firstAppliedAt(id) !== undefined
+                },
                 release: () => {
-                    faults.remove(id)
+                    removeFault(id)
                     return Promise.resolve()
                 },
             }
         },
-        clearFaults: () => faults.clear(),
+        clearFaults,
         close: async () => {
             proxy?.close()
             server.closeAllConnections()

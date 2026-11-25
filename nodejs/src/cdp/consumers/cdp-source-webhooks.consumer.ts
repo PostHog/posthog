@@ -8,12 +8,13 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from '../intake/intake-producer'
-import { Claim, Produced, Recalled, Run, RunIntake, carriesSecret, keyedRunId } from '../intake/run-intake'
+import { IntakeProducer, intakeClusterOf } from '../intake/intake-producer'
+import { Produced, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotentJobQueue, JobQueue } from '../services/job-queue/job-queue.interface'
+import { createInvocationSanitizer } from '../services/job-queue/shared'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -143,12 +144,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.hogflowQueue = jobQueues.hogflowQueue
         this.runIntake = new RunIntake({
             hogflowQueue: this.hogflowQueue,
-            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-            // Read on each launch, so a team-list change in the settings reaches the next webhook.
-            intake: {
-                modeOf: (teamId) => intakeModeOf(this.config)(teamId),
-                producer: new IntakeProducer(this.outputs, undefined, undefined, intakeClusterOf(this.config)),
-            },
+            producer: new IntakeProducer(
+                this.outputs,
+                undefined,
+                createInvocationSanitizer(this.config).sealIntakeRun,
+                intakeClusterOf(this.config)
+            ),
         })
     }
 
@@ -323,8 +324,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 globals
             )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
-            let queuedInvocationId: string | null = null
-
             // Slightly different handling for hog flows
             // Run the initial step - this allows functions not using fetches to respond immediately
             const functionResult = await this.hogFlowFunctionsService.execute(invocation)
@@ -399,50 +398,23 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
-                if (this.runIntake.modeOf(hogFlow.team_id) === 'async' && !carriesSecret(run.invocation)) {
-                    return await this.produceRun(run, functionResult, {
-                        answerDuplicate,
-                        answerQuotaLimited,
-                        isQuotaLimited: () => this.isHogFlowQuotaLimited(hogFlow),
-                        addLog,
-                        addMetric,
-                    })
-                }
-
-                if (idempotencyKey) {
-                    const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
-                    if (recalled.status !== 'absent') {
-                        return answerDuplicate()
-                    }
-                }
-
-                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow)
-                if (quotaLimited) {
-                    return answerQuotaLimited()
-                }
-
-                const committed = (await this.runIntake.launch([run]))[0]
-                if (committed.outcome !== 'created') {
-                    return answerDuplicate()
-                }
-                addMetric({
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
-                })
-                queuedInvocationId = committed.runId
-            } else {
-                addMetric({
-                    metric_kind: 'failure',
-                    metric_name: 'trigger_failed',
-                    count: 1,
+                return await this.produceRun(run, functionResult, {
+                    answerDuplicate,
+                    answerQuotaLimited,
+                    isQuotaLimited: () => this.isHogFlowQuotaLimited(hogFlow),
+                    addLog,
+                    addMetric,
                 })
             }
+            addMetric({
+                metric_kind: 'failure',
+                metric_name: 'trigger_failed',
+                count: 1,
+            })
             // Always set to false for hog flows as this triggers the flow to continue so we dont want metrics for this
             functionResult.finished = false
 
-            return { result: functionResult, queuedInvocationId }
+            return { result: functionResult, queuedInvocationId: null }
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
             addMetric({
@@ -501,20 +473,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return { result: functionResult, queuedInvocationId: null }
         }
         return { result: functionResult, queuedInvocationId: run.invocation.id }
-    }
-
-    // The claim made at launch still deduplicates the run, so a failed lookup only costs an earlier answer.
-    private async recallQuietly(claim: Claim, hogFlow: HogFlow): Promise<Recalled> {
-        try {
-            return await this.runIntake.recall(claim)
-        } catch (error) {
-            logger.warn('Hog flow run claim lookup failed, deduplicating at launch instead', {
-                team_id: hogFlow.team_id,
-                hog_flow_id: hogFlow.id,
-                error: error instanceof Error ? error.message : String(error),
-            })
-            return { status: 'absent' }
-        }
     }
 
     private async executeHogFunction(
