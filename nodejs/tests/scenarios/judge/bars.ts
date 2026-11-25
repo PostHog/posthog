@@ -45,8 +45,8 @@ export type BarResult = {
     reading?: Read
 }
 
-export type StepReading = Pick<BarResult, 'name' | 'unit' | 'limit' | 'unjudged'> &
-    ({ value: number; key?: string; part: string; passed: boolean } | { value: null; passed: null })
+export type StepReading = Pick<BarResult, 'name' | 'unit' | 'limit'> &
+    ({ value: number; key?: string; part: string; passed: boolean } | { value: null; passed: null; unjudged: string })
 
 type Window = { from: number; to: number; last: boolean; idle?: boolean }
 
@@ -173,7 +173,7 @@ const pickupP99Under: BarDefinition = {
     unit: 's',
     read: ({ samples }, { from, to, last, idle }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
-        const until = last ? Math.max(to, ...samples.map(({ at }) => at)) : to
+        const until = last ? samples.reduce((latest, { at }) => Math.max(latest, at), to) : to
         const pickups = pickupsBetween(
             samples,
             queues.map((queue) => WORKER_OF[queue]),
@@ -288,22 +288,26 @@ function judgeStepOf(
     return { verdict: passed ? {} : { breakingPoint: { ...point(), ...read } }, reading: read }
 }
 
-function verdictOf(
+function settledStepOf(
     definition: BarDefinition,
     params: unknown,
     evidence: BarEvidence,
     i: number,
-    last: boolean,
-    live?: BarResult
-): StepVerdict {
+    name: string
+): StepJudgment {
+    const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
     if (live?.breakingPoint) {
-        return { breakingPoint: { ...live.breakingPoint, offeredPerSecond: offeredRateOf(evidence, i) } }
+        const { key, value, part } = live.breakingPoint
+        return {
+            verdict: { breakingPoint: { ...live.breakingPoint, offeredPerSecond: offeredRateOf(evidence, i) } },
+            reading: { ...(key && { key }), value, part },
+        }
     }
-    const { verdict: nominal } = judgeStepOf(definition, params, evidence, i, last)
-    if (nominal.breakingPoint) {
+    const nominal = judgeStepOf(definition, params, evidence, i, i === evidence.steps.length - 1)
+    if (nominal.verdict.breakingPoint || !live?.passed) {
         return nominal
     }
-    return live?.passed ? {} : nominal
+    return { verdict: {}, reading: nominal.reading ?? live.reading }
 }
 
 const definitionOf = (name: string): BarDefinition => BARS.find((bar) => bar.name === name)!
@@ -326,26 +330,20 @@ export function judgeStep(bars: Named[], evidence: BarEvidence, i: number): BarR
     })
 }
 
-// Reads every step on its own, where judgeBars stops at the first break, and prefers the reading the verdict used:
-// the live judge's break, then the final evidence, then the live judge's reading when the final evidence was unread.
 export function stepReadingsOf(bars: Named[], evidence: BarEvidence): StepReading[][] {
     return evidence.steps.map((_step, i) =>
         bars.map(({ name, params }) => {
             const definition = definitionOf(name)
             const bar = { name, unit: definition.unit, limit: definition.limit(params) }
-            const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
-            const nominal = judgeStepOf(definition, params, evidence, i, i === evidence.steps.length - 1)
-            if (live?.breakingPoint) {
-                const { key, value, part } = live.breakingPoint
-                return { ...bar, value, ...(key && { key }), part, passed: false }
-            }
-            if (nominal.reading) {
-                return { ...bar, ...nominal.reading, passed: nominal.verdict.breakingPoint === undefined }
-            }
-            if (live?.reading) {
-                return { ...bar, ...live.reading, passed: live.passed }
-            }
-            return { ...bar, value: null, passed: null, unjudged: nominal.verdict.unjudged }
+            const { verdict, reading } = settledStepOf(definition, params, evidence, i, name)
+            return reading
+                ? { ...bar, ...reading, passed: verdict.breakingPoint === undefined }
+                : {
+                      ...bar,
+                      value: null,
+                      passed: null,
+                      unjudged: verdict.unjudged ?? 'the live judge kept no reading of the step',
+                  }
         })
     )
 }
@@ -358,8 +356,7 @@ export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
             return { ...result, passed: false, unjudged: 'the drive ended before its first step' }
         }
         for (let i = 0; i < evidence.steps.length; i++) {
-            const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
-            const verdict = verdictOf(definition, params, evidence, i, i === evidence.steps.length - 1, live)
+            const { verdict } = settledStepOf(definition, params, evidence, i, name)
             if (Object.keys(verdict).length > 0) {
                 return { ...result, passed: false, ...verdict }
             }

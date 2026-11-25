@@ -53,15 +53,15 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
 type Readings = NonNullable<NonNullable<RunVerdict['ramp']>['readings']>[number]
 
 const barsOf = (readings: Readings | undefined): unknown[] | null =>
-    readings?.map(({ name, unit, limit, value, passed, unjudged, ...read }) => ({
-        name,
-        unit,
-        limit,
-        value,
-        key: ('key' in read && read.key) || null,
-        part: ('part' in read && read.part) || null,
-        passed,
-        unjudged: unjudged ?? null,
+    readings?.map((reading) => ({
+        name: reading.name,
+        unit: reading.unit,
+        limit: reading.limit,
+        value: reading.value,
+        key: reading.value === null ? null : (reading.key ?? null),
+        part: reading.value === null ? null : reading.part,
+        passed: reading.passed,
+        unjudged: reading.value === null ? reading.unjudged : null,
     })) ?? null
 
 function onTimeOf(readings: Readings | undefined): boolean | null {

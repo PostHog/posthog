@@ -419,6 +419,23 @@ describe('stepReadingsOf', () => {
             ],
         ],
         [
+            'reads the last step of a ramp that scraped more samples than one function call takes',
+            {
+                samples: [
+                    ...scrapedEvery5s(120, prompt),
+                    ...Array.from({ length: 200_000 }, (_, replica) => ({
+                        ...scrapedEvery5s(0, prompt)[0],
+                        role: 'cdp-api',
+                        replica,
+                    })),
+                ],
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
             'reads the step a bar broke in at its breaking value',
             { samples: scrapedEvery5s(120, lateAfter('email', 60)), writerCpu: cpu({ 0: 40, 1: 80 }) },
             [
@@ -427,11 +444,14 @@ describe('stepReadingsOf', () => {
             ],
         ],
         [
-            'says a step the drive never reached was not judged, with no value',
-            { drive: { startedAt: T, endedAt: T + MINUTE } },
+            'says a step the run host was too busy to judge was not judged, with no value',
+            { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.95 },
             [
                 [writer(40), pickup(1, 'hogflow')],
-                [unread(0, 'the drive ended before the 10x step'), unread(1, 'the drive ended before the 10x step')],
+                [
+                    unread(0, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                    unread(1, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                ],
             ],
         ],
         [

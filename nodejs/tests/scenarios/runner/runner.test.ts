@@ -2133,6 +2133,7 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ scale: 1, lost: null }),
                     expect.objectContaining({ scale: 2, lost: null }),
                 ],
+                readings: [[], []],
             },
         })
     }, 30_000)
