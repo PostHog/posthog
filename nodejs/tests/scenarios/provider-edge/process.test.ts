@@ -81,6 +81,26 @@ describe('provider edge process', () => {
         process.kill(edge.pid!, 'SIGKILL')
 
         await expect(holding).rejects.toThrow('the provider edge process exited with SIGKILL')
+        const signals = jest.spyOn(process, 'kill')
+        try {
+            await edge.close()
+
+            expect(signals).not.toHaveBeenCalled()
+        } finally {
+            signals.mockRestore()
+        }
+    }, 10_000)
+
+    it('rejects a call the edge answered only after its deadline', async () => {
+        await edge.close()
+        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 200 })
+        const holding = edge.hold(REJECT)
+        const busyUntil = Date.now() + 1000
+        while (Date.now() < busyUntil) {
+            // the runner stays busy past the deadline while the edge answers
+        }
+
+        await expect(holding).rejects.toThrow('the provider edge process did not answer add within 200 ms')
     }, 10_000)
 
     it('gives up on an edge process that stops answering, and rejects every later call', async () => {
@@ -115,7 +135,7 @@ describe('provider edge process', () => {
         writeFileSync(path.join(bin, 'openssl'), '#!/bin/sh\necho $$ > "$EDGE_OPENSSL_PID"\nexec sleep 600\n')
         chmodSync(path.join(bin, 'openssl'), 0o755)
         const runner = `require(${EDGE_PROCESS})
-            .startEdgeProcess({ port: 0, caDir: ${JSON.stringify(path.join(bin, 'ca'))} }, { startsWithinMs: 5000 })
+            .startEdgeProcess({ port: 0, caDir: ${JSON.stringify(path.join(bin, 'ca'))} }, { startsWithinMs: 10_000 })
             .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
             .then((outcome) => process.stdout.write(outcome))`
         const stillRuns = (pid: string): boolean => {
@@ -140,7 +160,7 @@ describe('provider edge process', () => {
             )
 
             expect({ outcome, opensslRuns: stillRuns(readFileSync(pidFile, 'utf8').trim()) }).toEqual({
-                outcome: 'the provider edge process did not start within 5000 ms',
+                outcome: 'the provider edge process did not start within 10000 ms',
                 opensslRuns: false,
             })
         } finally {
