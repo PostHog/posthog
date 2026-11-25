@@ -120,6 +120,44 @@ class TestSlackAppSettings(APIBaseTest):
             "working": {"emoji": "rocket"}
         }
 
+    def test_personal_settings_round_trip_and_a_cleared_project_falls_back(self) -> None:
+        self._link_slack_user()
+
+        response = self.client.patch(
+            self._url("personal/"),
+            {
+                "default_integration_id": self.integration.id,
+                "untagged_followup_mode": "never",
+                "thread_join_mode": "ask_per_person",
+                "feature_tips_enabled": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        personal = response.json()["personal"]
+        assert personal["default_integration_id"] == self.integration.id
+        assert personal["untagged_followup_mode"] == "never"
+        assert personal["untagged_question_mode"] == "ask"
+        assert personal["thread_join_mode"] == "ask_per_person"
+        assert personal["feature_tips_enabled"] is False
+
+        cleared = self.client.patch(self._url("personal/"), {"default_integration_id": None}, format="json")
+
+        assert cleared.json()["personal"]["default_integration_id"] is None
+        assert cleared.json()["personal"]["untagged_followup_mode"] == "never"
+
+    def test_personal_project_must_be_one_the_person_can_open(self) -> None:
+        self._link_slack_user()
+        other_org_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        other_install = self._slack_install(other_org_team)
+
+        response = self.client.patch(
+            self._url("personal/"), {"default_integration_id": other_install.id}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_invalid_emoji_name_is_refused(self) -> None:
         self._link_slack_user()
 

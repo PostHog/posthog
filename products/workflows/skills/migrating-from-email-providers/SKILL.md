@@ -109,9 +109,12 @@ Follow the same steps, with these differences.
 | Unsubscribes for all mail | Opted out of all marketing email              | Nothing                                          |
 | Unsubscribes for a tag    | Opted out of a new category named after it    | Puts the matching templates in that category     |
 | Allowlists                | A list only                                   | Removes test addresses meant to bounce           |
-| Mailing lists             | A category, and opt-outs for who left         | Builds the audience from its own data            |
+| Mailing lists             | A category, and opt-outs for who left         | Puts the matching templates in that category     |
+| List members              | People, matched by email, and cohorts         | Checks the people and cohorts                    |
 | Templates                 | Library templates in Liquid                   | Fixes the notes, passes variables, sends a test  |
 | Domains and DNS records   | A list only                                   | Adds each domain and publishes new records       |
+
+**Contacts.** `contacts` and `new_people` appear only where they're turned on. Without them, list members don't become people. `contacts` needs `bounces`, `complaints`, `unsubscribes` and `mailing_lists` in the same run. Each list gets a cohort of the members subscribed to it, and one cohort per account and region, named after the account's oldest Mailgun domain, holds everyone subscribed to at least one list. A member who left every list becomes a person but joins no cohort. Importing again takes people who unsubscribed or left a list out of its cohort. A list deleted in Mailgun keeps its cohort as it was, and so does a region that has no lists left. More than 500 lists or 250,000 memberships don't fit one import.
 
 Mailgun's API documents no automations, so nothing becomes a workflow. Routes, webhooks, tracking settings, send history and stats stay behind, and Mailjet is a separate product.
 
@@ -125,7 +128,7 @@ Follow the same steps, with these differences.
 
 **Key.** A Marketing API key, created in Mailchimp under Profile, Extras, API keys. It ends in the account's data center, such as `-us21`, and PostHog sends the key only to that data center. Every Mailchimp key can read and change the whole account, so ask the user to delete it once the import ends. Mailchimp Transactional (Mandrill) keys don't work here.
 
-**Contacts.** Only contacts subscribed to an audience become people, so unsubscribed, pending, transactional, archived and cleaned contacts don't. `contacts` needs `audiences`, `groups`, `cleaned` and `complaints` in the same run. Each tag and saved segment becomes a cohort of its subscribed members. Importing again takes anyone who left an audience, tag or segment out of its cohort. The cohorts don't update on their own, so rebuild a segment as a dynamic cohort if it has to stay current.
+**Contacts.** Only contacts subscribed to an audience become people, so unsubscribed, pending, transactional, archived and cleaned contacts don't. `contacts` needs `audiences`, `groups`, `cleaned` and `complaints` in the same run. Each tag and saved segment becomes a cohort of its subscribed members. Importing again takes anyone who left an audience, tag or segment out of its cohort, and everyone out of the cohorts of an audience deleted in Mailchimp. That needs the key of an account owner or admin. The run names each emptied cohort. Ask the user to import once more right before they delete an audience, because PostHog can't see who unsubscribed after that. The cohorts don't update on their own, so rebuild a segment as a dynamic cohort if it has to stay current.
 
 **Campaigns.** Drafts, paused and scheduled campaigns import by default. Pass `campaigns: "recent"` to add campaigns sent in the last 90 days, or `"all"` for every campaign. Each becomes a draft template, so ask before importing years of sent campaigns.
 

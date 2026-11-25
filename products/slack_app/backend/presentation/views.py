@@ -29,10 +29,13 @@ from products.slack_app.backend.facade.enums import (
     SlackReactionKind,
     SlackSetupEntry,
     SlackSetupStepKey,
+    SlackThreadJoinMode,
+    SlackUntaggedMode,
 )
 from products.slack_app.backend.facade.types import (
     MAX_CHANNELS_TO_JOIN,
     ChannelCatalogBusy,
+    SlackPersonalSettingsChange,
     SlackReactionChoice,
     SlackSettingsInvalid,
     SlackSetupNotFound,
@@ -276,6 +279,31 @@ class SlackAppPersonalSettingsSerializer(serializers.Serializer):
     effective_reactions = SlackAppResolvedReactionsSerializer(
         help_text="The reactions PostHog adds to this person's messages, after the workspace and default fallbacks."
     )
+    default_integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the Slack integration of this person's own default project. Null uses the workspace default.",
+    )
+    project_options = SlackAppProjectOptionSerializer(
+        many=True, help_text="Projects connected to this Slack workspace that this person can open."
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        help_text="What PostHog does with untagged replies in threads this person started.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        help_text="What PostHog does with this person's top-level channel questions that do not tag it.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        help_text="What PostHog does when someone else tags it in a thread this person started.",
+    )
+    auto_model_choice = serializers.BooleanField(
+        help_text="Whether PostHog picks the model for each task this person starts from Slack."
+    )
+    feature_tips_enabled = serializers.BooleanField(
+        help_text="Whether PostHog sends this person short tips about Slack app features."
+    )
 
 
 class SlackAppSettingsSerializer(serializers.Serializer):
@@ -302,7 +330,34 @@ class SlackAppWorkspaceSettingsUpdateSerializer(serializers.Serializer):
 
 class SlackAppPersonalSettingsUpdateSerializer(serializers.Serializer):
     reactions = SlackAppReactionChoicesSerializer(
-        help_text="Replaces this person's reaction choices. A reaction left out inherits the workspace choice."
+        required=False,
+        help_text="Replaces this person's reaction choices. A reaction left out inherits the workspace choice.",
+    )
+    default_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the Slack integration of the project this person's mentions route to. Null uses the workspace default.",
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        help_text="What PostHog does with untagged replies in threads this person started.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        help_text="What PostHog does with this person's top-level channel questions that do not tag it.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        required=False,
+        help_text="What PostHog does when someone else tags it in a thread this person started.",
+    )
+    auto_model_choice = serializers.BooleanField(
+        required=False, help_text="Whether PostHog picks the model for each task this person starts from Slack."
+    )
+    feature_tips_enabled = serializers.BooleanField(
+        required=False, help_text="Whether PostHog sends this person short tips about Slack app features."
     )
 
 
@@ -353,6 +408,23 @@ def _reactions(data: dict[str, dict[str, Any]]) -> dict[SlackReactionKind, Slack
         SlackReactionKind(kind): SlackReactionChoice(emoji=choice.get("emoji"), enabled=choice.get("enabled"))
         for kind, choice in data.items()
     }
+
+
+def _personal_change(data: dict[str, Any]) -> SlackPersonalSettingsChange:
+    fields: dict[str, Any] = {key: data[key] for key in PERSONAL_SETTING_FIELDS if key in data}
+    if "reactions" in data:
+        fields["reactions"] = _reactions(data["reactions"])
+    return SlackPersonalSettingsChange(**fields)
+
+
+PERSONAL_SETTING_FIELDS = (
+    "default_integration_id",
+    "untagged_followup_mode",
+    "untagged_question_mode",
+    "thread_join_mode",
+    "auto_model_choice",
+    "feature_tips_enabled",
+)
 
 
 class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -422,7 +494,7 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 self.team_id,
                 self._integration_id(pk),
                 cast(User, request.user),
-                reactions=_reactions(request.validated_data["reactions"]),
+                _personal_change(request.validated_data),
             )
         except SlackSetupNotFound as error:
             raise NotFound() from error

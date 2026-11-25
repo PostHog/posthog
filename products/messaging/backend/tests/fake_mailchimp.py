@@ -29,6 +29,7 @@ _ROUTES = (
     ("root", r"/3\.0/"),
     ("ping", r"/3\.0/ping"),
     ("lists", r"/3\.0/lists"),
+    ("list", r"/3\.0/lists/(?P<list>[^/]+)"),
     ("members", r"/3\.0/lists/(?P<list>[^/]+)/members"),
     ("segments", r"/3\.0/lists/(?P<list>[^/]+)/segments"),
     ("segment_members", r"/3\.0/lists/(?P<list>[^/]+)/segments/(?P<segment>[^/]+)/members"),
@@ -98,12 +99,24 @@ class FakeMailchimp:
         lists = [] if key == EMPTY_KEY else self.data["lists"]
         by_id = {row["id"]: row for row in lists}
         if route == "root":
-            return 200, dict(self.data.get("account", {"account_id": "acct1", "account_name": "Example Co"})), {}
+            return (
+                200,
+                dict(self.data.get("account", {"account_id": "acct1", "account_name": "Example Co", "role": "owner"})),
+                {},
+            )
         if route == "ping":
             return 200, {"health_status": "Everything's Chimpy!"}, {}
         if route == "lists":
-            rows = [{k: v for k, v in row.items() if k not in _NESTED} for row in lists]
+            # A key of a user without access to an audience doesn't list it.
+            rows = [{k: v for k, v in row.items() if k not in _NESTED} for row in lists if not row.get("hidden")]
             return 200, self._page("lists", rows, query), {}
+        if route == "list":
+            audience = by_id.get(params["list"])
+            return (
+                (200, {"id": audience["id"]}, {})
+                if audience
+                else (404, {"title": "Resource Not Found", "status": 404}, {})
+            )
         if route in ("members", "abuse", "categories", "interests", "segments", "segment_members"):
             audience = by_id.get(params.get("list", ""))
             if audience is None:

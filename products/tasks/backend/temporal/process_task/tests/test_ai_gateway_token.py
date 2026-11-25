@@ -357,6 +357,7 @@ class TestMintScopedToken:
         if product != "review_hog":
             expected -= {
                 "deepseek-ai/deepseek-v4-flash-0731",
+                "deepseek-ai/deepseek-v4.1-flash-1017",
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
                 "zai-org/glm-5.3-flash",
@@ -1433,6 +1434,7 @@ class TestSlackAppMint:
         routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
         reserved = {
             "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
             "deepseek-ai/deepseek-v4.1-flash-1017-fast",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
@@ -1799,6 +1801,7 @@ class TestPosthogCodeSandboxMint:
             "@cf/zai-org/glm-5.2",
             "zai-org/glm-5.2",
             "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
             "moonshotai/kimi-k3",
             "moonshotai/kimi-k3.1-pro",
             "zai-org/glm-5.3-flash",
@@ -1813,6 +1816,8 @@ class TestPosthogCodeSandboxMint:
             "zai-org/glm-5.3-flash",
             "moonshotai/kimi-k3",
             "moonshotai/kimi-k3.1-pro",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
         ],
     )
     def test_free_pin_admits_each_free_tier_spelling(self, model):

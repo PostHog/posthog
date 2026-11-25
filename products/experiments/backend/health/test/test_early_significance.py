@@ -168,6 +168,11 @@ class TestEarlySignificance(TestCase):
             ("ended", replace(SMALL_SIGNIFICANT_LIFT, **ENDED), Status.NOT_APPLICABLE),
             ("unreadable_results", replace(SMALL_SIGNIFICANT_LIFT, primary_metric=None), Status.NOT_CHECKED),
             (
+                "warehouse_native_unreadable_results",
+                replace(SMALL_SIGNIFICANT_LIFT, warehouse_native_exposures=True, primary_metric=None),
+                Status.NOT_APPLICABLE,
+            ),
+            (
                 "mean_metric",
                 replace(
                     SMALL_SIGNIFICANT_LIFT,
