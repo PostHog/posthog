@@ -286,7 +286,7 @@ describe('resolveModelCostForProvider()', () => {
             expect(result!.cost.prompt_token).toBe(0.000002)
         })
 
-        it('resolves "or" to default without partially matching another key', () => {
+        it('resolves "or" to default when the row has no openrouter key', () => {
             const costs = createMockCosts({
                 fireworks: { prompt_token: 0.000001, completion_token: 0.000002 },
                 default: { prompt_token: 0.000004, completion_token: 0.000018 },
