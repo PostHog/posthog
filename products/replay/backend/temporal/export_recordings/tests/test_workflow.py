@@ -105,21 +105,22 @@ async def run_export(
 async def test_runs_every_shard_oldest_day_first_across_continue_as_new() -> None:
     started, summaries, totals = await run_export()
 
-    # The pool wait and the first viewport read run side by side, so only the pool's place before the shards is fixed.
-    pools = [i for i, s in enumerate(started) if s[0] == "pool"]
-    assert len(pools) == 2
-    assert pools[0] < started.index(("2026-01-30", 0)) and pools[1] < started.index(("2026-01-31", 1))
-    # Each run reads a day's viewports before the day's first shard, so the day split by continue-as-new reads twice.
-    assert [s for s in started if s[0] != "pool"] == [
+    # Each run reads a day's viewports, then waits for the pool, before the day's first shard, so the day split by
+    # continue-as-new does both twice.
+    assert started == [
         ("check", 0),
         ("2026-01-30", -1),
+        ("pool", 1),
         ("2026-01-30", 0),
         ("2026-01-30", 1),
         ("2026-01-31", -1),
+        ("pool", 1),
         ("2026-01-31", 0),
         ("2026-01-31", -1),
+        ("pool", 1),
         ("2026-01-31", 1),
         ("2026-02-01", -1),
+        ("pool", 1),
         ("2026-02-01", 0),
         ("2026-02-01", 1),
     ]
@@ -132,7 +133,7 @@ async def test_a_failed_shard_keeps_the_other_shards_and_fails_the_run_after_the
     # The failed shard is in the first run, so the failure has to survive continue-as-new.
     started, summaries, result = await run_export(failing_shard=("2026-01-30", 1))
 
-    assert len(started) == 13
+    assert len(started) == 15
     assert [(s.totals, s.failed_shards) for s in summaries] == [
         (ExportTotals(exported=10, missing=5, bytes=500), ("2026-01-30:1",))
     ]
@@ -143,7 +144,7 @@ async def test_a_failed_shard_keeps_the_other_shards_and_fails_the_run_after_the
 async def test_only_shards_runs_just_those_shards() -> None:
     started, _, _ = await run_export(only_shards=("2026-01-31:1",))
 
-    assert [s for s in started if s[0] != "pool"] == [("check", 0), ("2026-01-31", -1), ("2026-01-31", 1)]
+    assert started == [("check", 0), ("2026-01-31", -1), ("pool", 1), ("2026-01-31", 1)]
 
 
 @pytest.mark.asyncio

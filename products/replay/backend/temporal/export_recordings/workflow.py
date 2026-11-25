@@ -61,10 +61,11 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
         plan = shard_plan(input)
         batch = plan[input.next_shard : input.next_shard + MAX_SHARDS_PER_RUN]
         semaphore = asyncio.Semaphore(input.max_parallel_shards)
-        # The pool scales while the first day's viewports load, and no shard starts before it is ready.
-        export_pool = asyncio.create_task(self._wait_for_export_pool(input, min(input.max_parallel_shards, len(batch))))
+        pool_shards = min(input.max_parallel_shards, len(batch))
         # A day's shards share one viewport read, which the day's first shard to start begins.
         day_viewports: dict[str, asyncio.Task[None]] = {}
+        # A viewport read can outlast the pool's scale-down window, so each day waits for the pool after its read.
+        day_pools: dict[str, asyncio.Task[None]] = {}
 
         async def run_shard(day: str, shard: int) -> ExportTotals | None:
             async with semaphore:
@@ -72,7 +73,9 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                     if day not in day_viewports:
                         day_viewports[day] = asyncio.create_task(self._load_day_viewports(input, day))
                     await day_viewports[day]
-                    await export_pool
+                    if day not in day_pools:
+                        day_pools[day] = asyncio.create_task(self._wait_for_export_pool(input, pool_shards))
+                    await day_pools[day]
                     return await self._export_shard(input, day, shard)
                 except ActivityError:
                     # One shard out of retries must not throw away the others' work. The summary lists it.
