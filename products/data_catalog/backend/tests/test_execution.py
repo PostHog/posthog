@@ -264,6 +264,18 @@ class TestMetricRunPreparation(APIBaseTest):
             ("date_to", _HOGQL, {"date_to": "-1d"}, "date_to"),
             ("interval", _HOGQL, {"interval": "week"}, "interval"),
             ("interval_on_sql_with_filters", _HOGQL_WITH_FILTERS, {"interval": "week"}, "interval"),
+            (
+                "date_from_on_bound_filters_without_a_timestamp",
+                {"kind": "HogQLQuery", "query": "select count() as c from events where {filters(null AS timestamp)}"},
+                {"date_from": "-7d"},
+                "date_from",
+            ),
+            (
+                "date_to_on_native_filters_without_a_timestamp",
+                {"kind": "HogQLQuery", "query": "select count() as c from events where {filters.native(null)}"},
+                {"date_to": "-1d"},
+                "date_to",
+            ),
             ("offset_on_trends", _EVENTS_NODE, {"offset": 1000}, "offset"),
             (
                 "offset_past_page_limit",

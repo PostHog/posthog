@@ -28,6 +28,7 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
@@ -206,15 +207,41 @@ class TestValidateMetricDefinition(BaseTest):
         _, tables = validate_metric_definition({"kind": "HogQLQuery", "query": query}, self.team, self.user)
         assert tables == expected
 
-    def test_filters_definition_keeps_its_window_and_reads_its_tables(self) -> None:
-        definition = {
-            "kind": "HogQLQuery",
-            "query": _FILTERS_SQL,
-            "filters": {"dateRange": {"date_from": "-30d"}, "filterTestAccounts": True},
-        }
+    @parameterized.expand(
+        [
+            (
+                "test_account_filter",
+                _FILTERS_SQL,
+                {"dateRange": {"date_from": "-30d"}, "filterTestAccounts": True},
+                ["events"],
+            ),
+            (
+                "subquery_in_a_property_filter",
+                _FILTERS_SQL,
+                {
+                    "dateRange": {"date_from": "-30d"},
+                    "properties": [{"type": "hogql", "key": "person_id in (select id from persons)"}],
+                },
+                ["events", "persons"],
+            ),
+            (
+                "saved_view_resolves_to_the_tables_it_reads",
+                "select {filters.interval('day')} as grain, count() from signups_view",
+                {"interval": "week"},
+                ["events"],
+            ),
+        ]
+    )
+    def test_filters_definition_keeps_its_window_and_reads_its_tables(
+        self, _name: str, query: str, filters: dict, expected_tables: list[str]
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="signups_view", query={"kind": "HogQLQuery", "query": "select event from events"}
+        )
+        definition = {"kind": "HogQLQuery", "query": query, "filters": filters}
         canonical, tables = validate_metric_definition(definition, self.team, self.user)
-        assert canonical["filters"] == definition["filters"]
-        assert tables == ["events"]
+        assert canonical["filters"] == filters
+        assert tables == expected_tables
 
     def test_insight_viz_node_is_unwrapped(self) -> None:
         canonical, _ = validate_metric_definition(

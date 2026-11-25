@@ -25,9 +25,9 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import BOUND_TIMESTAMP_KEY, replace_filters
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders
+from posthog.hogql.placeholders import FindPlaceholders, is_filters_placeholder
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -225,12 +225,71 @@ def table_names_as_written(definition: dict, *, keep_table_functions: bool = Fal
     return sorted(collector.tables)
 
 
+_DATE_RANGE_CHAINS = (
+    ["filters"],
+    ["filters", "previous"],
+    ["filters", "dateRange", "from"],
+    ["filters", "dateRange", "to"],
+    ["filters", "previous", "dateRange", "from"],
+    ["filters", "previous", "dateRange", "to"],
+)
+
+
+def _is_null(expr: ast.Expr) -> bool:
+    return isinstance(expr, ast.Constant) and expr.value is None
+
+
+def _binds_a_timestamp(args: list[ast.Expr]) -> bool:
+    return any(
+        isinstance(arg, ast.Alias) and arg.alias == BOUND_TIMESTAMP_KEY and not _is_null(arg.expr) for arg in args
+    )
+
+
+def _applies_date_range(node: ast.Placeholder) -> bool:
+    if node.chain:
+        return node.chain in _DATE_RANGE_CHAINS
+    expr = node.expr
+    if isinstance(expr, ast.Call):
+        return _binds_a_timestamp(expr.args)
+    if isinstance(expr, ast.ExprCall) and isinstance(expr.expr, ast.Field):
+        chain = expr.expr.chain
+        if chain in (["filters", "native"], ["filters", "previous", "native"]):
+            return len(expr.args) == 1 and not _is_null(expr.args[0])
+        if chain == ["filters", "previous"]:
+            return _binds_a_timestamp(expr.args)
+    return False
+
+
+class _FindFilterPlaceholders(FindPlaceholders):
+    """Also records whether a ``{filters}`` form applies ``filters.dateRange`` to the result.
+
+    ``has_date_filters`` also counts the forms that opt out of date filtering, such as
+    ``{filters(null AS timestamp)}`` and ``{filters.native(null)}``. They resolve to no date
+    condition, so a window that the definition stores or a run passes changes nothing for them.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.applies_date_range = False
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        super().visit_placeholder(node)
+        if is_filters_placeholder(node) and _applies_date_range(node):
+            self.applies_date_range = True
+
+
+def _find_filter_placeholders(node: ast.SelectQuery | ast.SelectSetQuery) -> _FindFilterPlaceholders:
+    finder = _FindFilterPlaceholders()
+    finder.visit(node)
+    return finder
+
+
 def uses_date_filters(definition: dict) -> bool:
-    """Whether a HogQL definition's SQL has a ``{filters}`` form that ``filters.dateRange`` bounds.
+    """Whether a HogQL definition's SQL applies ``filters.dateRange`` through a ``{filters}`` form.
 
     Without one, a date range in ``filters`` changes nothing, so the SQL alone fixes the window.
     """
-    return find_placeholders(_parse_hogql_definition(definition)).has_date_filters
+    return _find_filter_placeholders(_parse_hogql_definition(definition)).applies_date_range
 
 
 def _stored_date_from(definition: dict) -> object:
@@ -252,13 +311,13 @@ def _validate_hogql(
     _ensure_valid_schema(definition, HogQLQuery)
 
     ast_node = _parse_hogql_definition(definition)
-    placeholders = find_placeholders(ast_node)
+    placeholders = _find_filter_placeholders(ast_node)
 
     # Without a date range, {filters} adds no date bound and every run reads all time. A direct
     # definition must state its window, so that a dropped date range fails here and not silently
     # at run time. A saved insight without a date range already shows its all-time number, so the
     # snapshot writes that window down.
-    if placeholders.has_date_filters and not _stored_date_from(definition):
+    if placeholders.applies_date_range and not _stored_date_from(definition):
         if not from_insight:
             _fail(
                 "The query uses {filters} but the definition sets no date range.",
@@ -293,8 +352,12 @@ def _validate_hogql(
         capture_exception(e)
         _fail("Unexpected error resolving the query.", "Simplify the query and try again.")
 
+    # Collect from the prepared tree, not from the parsed query. Preparation replaces each saved view
+    # with its body, and the resolved {filters} can read tables of its own, for example through a
+    # subquery in a HogQL property filter. The catalog's denied-table filter must see every table
+    # that the query reads.
     collector = _TableReferenceCollector()
-    collector.visit(ast_node)
+    collector.visit(printable)
     return definition, sorted(collector.tables)
 
 
