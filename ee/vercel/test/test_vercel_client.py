@@ -431,7 +431,7 @@ class TestVercelAPIClient:
         )
 
         with (
-            patch("ee.vercel.client.cache.get", side_effect=ConnectionError("cache down")),
-            patch("ee.vercel.client.cache.set", side_effect=ConnectionError("cache down")),
+            patch("ee.vercel.client.token_cache.get", side_effect=ConnectionError("cache down")),
+            patch("ee.vercel.client.token_cache.set", side_effect=ConnectionError("cache down")),
         ):
             assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
