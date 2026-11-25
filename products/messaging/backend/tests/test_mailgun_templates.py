@@ -24,12 +24,38 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("text", "handlebars", "<p>{{x}}</p>", f"<p>{ESCAPED_X}</p>"),
             ("spaces", "handlebars", "<p>{{ x }}</p>", f"<p>{ESCAPED_X}</p>"),
             ("raw_in_text", "handlebars", "<p>{{{x}}}</p>", '<p>{{ variables.x | join: "," | raw }}</p>'),
-            ("handlebars_link", "handlebars", '<a href="{{x}}">', f'<a href="{ESCAPED_X}">'),
+            (
+                "handlebars_link",
+                "handlebars",
+                '<a href="{{x}}" title="{{#if x}}y{{/if}}">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{% if '
+                "variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or "
+                'variables.x != empty %}y{% endif %}">',
+            ),
+            (
+                "condition_that_ends_the_attribute",
+                "handlebars",
+                '<a href="{{#equal x "y"}}a">{{else}}b">{{/equal}}',
+                '<a href="{% assign text1 = variables.x | join: &quot;,&quot; | append: &quot;&quot; %}'
+                '{% if text1 == &quot;y&quot; %}a">{% else %}b">{% endif %}',
+            ),
+            (
+                "recipient_variable_in_a_link",
+                "handlebars",
+                '<a href="%recipient.x%" title="z">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="z">',
+            ),
             (
                 "after_a_style",
                 "handlebars",
                 "<style>p{}</style><p>{{x}}</p>",
                 f"<style>p{{}}</style><p>{ESCAPED_X}</p>",
+            ),
+            (
+                "in_the_title_and_after_a_script",
+                "handlebars",
+                "<title>{{x}}</title><script>a</script><p>{{x}}</p>",
+                f"<title>{ESCAPED_X}</title><script>a</script><p>{ESCAPED_X}</p>",
             ),
             ("after_a_stray_less_than", "handlebars", "a<3 {{x}}", f"a<3 {ESCAPED_X}"),
             ("brace_before_a_value", "handlebars", "{ {{x}}", f"{{ {ESCAPED_X}"),
@@ -57,7 +83,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
             ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
-            ("after_any_script", "<script>x</script><p>{{x}}</p>", "{{x}}"),
+            ("after_a_script_in_an_svg", """<svg><script><a title="</script>" onclick="f('{{x}}')">""", "{{x}}"),
+            (
+                "a_closing_tag_with_a_long_s_in_a_script",
+                """<script>var a="</\u017fcript>"; f({{x}})</script>""",
+                "{{x}}",
+            ),
+            ("after_a_title_in_an_svg", """<svg><title/></svg><a onclick="f('{{x}}')">""", "{{x}}"),
+            ("raw_in_the_title", "<title>{{{x}}}</title>", "{{{x}}}"),
+            ("after_the_start_of_a_closing_title", "<title></titl{{x}}></title>", "{{x}}"),
+            ("a_loop_that_opens_a_comment_in_a_script", "<script><!{{#each a}}-{{/each}}</script>", "{{#each a}}"),
             ("script", "<script>var x = {{x}};</script>", "{{x}}"),
             ("style", "<style>p { color: {{x}} }</style>", "{{x}}"),
             ("html_comment", "<!-- {{x}} -->", "{{x}}"),
@@ -86,7 +121,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),
             ("go_plain_attribute", "go", '<a title="{{.x}}">'),
             ("go_size_property", "go", "<p>{{.Order.size}}</p>"),
-            ("go_after_any_script", "go", "<script>x</script><p>{{.x}}</p>"),
+            ("go_after_a_comment_in_a_script", "go", "<script><!--</script><p>{{.x}}</p>"),
         ]
     )
     def test_a_go_template_or_invalid_handlebars_stays_as_text(self, _name: str, engine: str, source: str) -> None:
@@ -117,7 +152,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "after_raw_html",
                 "{{{a}}}%recipient.x%",
                 True,
-                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}',
             ),
         ]
     )

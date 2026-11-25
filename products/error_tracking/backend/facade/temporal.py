@@ -22,6 +22,9 @@ from products.error_tracking.backend.temporal.spike_event_cleanup.schedule impor
 from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
     create_error_tracking_symbol_set_cleanup_schedule,
 )
+from products.error_tracking.backend.temporal.tag_rule_sweep.schedule import (
+    create_error_tracking_tag_rule_sweep_schedule,
+)
 from products.error_tracking.backend.temporal.weekly_digest.schedule import create_error_tracking_weekly_digest_schedule
 
 __all__ = [
@@ -34,6 +37,7 @@ __all__ = [
     "create_error_tracking_issue_change_cleanup_schedule",
     "create_error_tracking_spike_event_cleanup_schedule",
     "create_error_tracking_symbol_set_cleanup_schedule",
+    "create_error_tracking_tag_rule_sweep_schedule",
     "create_error_tracking_weekly_digest_schedule",
 ]
 
@@ -54,5 +58,6 @@ TEMPORAL = TemporalRegistration(
         create_error_tracking_issue_change_cleanup_schedule,
         create_error_tracking_weekly_digest_schedule,
         create_error_tracking_built_in_filters_refresh_schedule,
+        create_error_tracking_tag_rule_sweep_schedule,
     ),
 )

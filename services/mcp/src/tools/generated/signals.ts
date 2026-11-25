@@ -154,6 +154,32 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
     },
 })
 
+const InboxMonitorPrSchema = () => {
+    const SignalsMonitorPrCreateBody = orvalSchemas.SignalsMonitorPrCreateBody()
+    return SignalsMonitorPrCreateBody
+}
+
+const inboxMonitorPr = (): ToolBase<ReturnType<typeof InboxMonitorPrSchema>, Schemas.MonitorPRResponse> => ({
+    name: 'inbox-monitor-pr',
+    schema: InboxMonitorPrSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxMonitorPrSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.pr_url !== undefined) {
+            body['pr_url'] = params.pr_url
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<Schemas.MonitorPRResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/monitor_pr/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxMySettingsGetSchema = () => {
     const UsersSignalAutonomyRetrieveParams = orvalSchemas.UsersSignalAutonomyRetrieveParams()
     return UsersSignalAutonomyRetrieveParams.extend({
@@ -883,6 +909,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 plan: params.plan,
+                pr_targets: params.pr_targets,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
@@ -911,7 +938,7 @@ const inboxReportsList = (): ToolBase<
                 pickResponseFields(item, [
                     'id',
                     'title',
-                    'summary',
+                    'summary_lead',
                     'metrics',
                     'tags',
                     'status',
@@ -1606,6 +1633,9 @@ const inboxSourceFilterPreview = (): ToolBase<
         if (params.expression !== undefined) {
             body['expression'] = params.expression
         }
+        if (params.scope_ids !== undefined) {
+            body['scope_ids'] = params.scope_ids
+        }
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
@@ -1878,6 +1908,7 @@ const scoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -3545,6 +3576,7 @@ const signalsScoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -4195,6 +4227,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
+    'inbox-monitor-pr': inboxMonitorPr,
     'inbox-my-settings-get': inboxMySettingsGet,
     'inbox-my-settings-update': inboxMySettingsUpdate,
     'inbox-ranking-outcomes-list': inboxRankingOutcomesList,

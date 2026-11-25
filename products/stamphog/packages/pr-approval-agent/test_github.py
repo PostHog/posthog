@@ -257,28 +257,44 @@ def test_normalize_reviews_excludes_stamphogs_own_prior_reviews(login: str, expe
 
 
 @pytest.mark.parametrize(
-    "login,user_type,author_association,expected_count",
+    "login,user_type,author_association,expected_count,body",
     [
-        pytest.param("stamphog[bot]", "Bot", "NONE", 0, id="own-refuse-comment-excluded"),
-        pytest.param("github-actions[bot]", "Bot", "NONE", 0, id="own-approve-identity-excluded"),
-        pytest.param("greptile-apps[bot]", "Bot", "NONE", 1, id="other-bot-kept"),
-        pytest.param("alice", "User", "MEMBER", 1, id="trusted-member-kept"),
-        pytest.param("owner", "User", "OWNER", 1, id="trusted-owner-kept"),
+        pytest.param(
+            "posthog[bot]",
+            "Bot",
+            "NONE",
+            0,
+            "<!-- stamphog-reviewer-routing -->\nOwners left out: billing, because the PR was reviewed.",
+            id="routing-comment-excluded",
+        ),
+        pytest.param(
+            "alice",
+            "User",
+            "MEMBER",
+            1,
+            "<!-- stamphog-reviewer-routing -->\nplease hold",
+            id="person-quoting-the-marker-kept",
+        ),
+        pytest.param("stamphog[bot]", "Bot", "NONE", 0, "a comment", id="own-refuse-comment-excluded"),
+        pytest.param("github-actions[bot]", "Bot", "NONE", 0, "a comment", id="own-approve-identity-excluded"),
+        pytest.param("greptile-apps[bot]", "Bot", "NONE", 1, "a comment", id="other-bot-kept"),
+        pytest.param("alice", "User", "MEMBER", 1, "a comment", id="trusted-member-kept"),
+        pytest.param("owner", "User", "OWNER", 1, "a comment", id="trusted-owner-kept"),
         # A drive-by external commenter must not reach the prompt: the
         # maintainer-hold norm makes an untrusted "please hold" both griefable
         # and forgeable, so discussion gets the same trust gate as reviews.
-        pytest.param("outsider", "User", "NONE", 0, id="untrusted-external-excluded"),
+        pytest.param("outsider", "User", "NONE", 0, "a comment", id="untrusted-external-excluded"),
     ],
 )
 def test_normalize_discussion_filters_by_trust_and_own_comments(
-    login: str, user_type: str, author_association: str, expected_count: int
+    login: str, user_type: str, author_association: str, expected_count: int, body: str
 ) -> None:
     normalized = _normalize_discussion_for_prompt(
         [
             {
                 "user": {"login": login, "type": user_type},
                 "author_association": author_association,
-                "body": "a comment",
+                "body": body,
                 "created_at": "2026-04-07T20:14:03Z",
             }
         ]

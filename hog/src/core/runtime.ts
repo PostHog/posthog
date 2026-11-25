@@ -1,7 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+    access,
+    chmod,
+    copyFile,
+    link,
+    lstat,
+    mkdir,
+    readdir,
+    readFile,
+    realpath,
+    rename,
+    rm,
+    stat,
+    writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, win32 } from 'node:path'
 
 import type {
     ApiToolLibrary,
@@ -19,11 +33,17 @@ import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
+export interface ExecutableFile {
+    path: string
+    contents: Uint8Array
+}
+
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
 // `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
+// `posthogApi` marks a request `sendRequest` sends to the PostHog API, whose answer can carry notices.
 export type RuntimeFetch = (
     input: string | URL | Request,
-    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
+    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean; posthogApi?: boolean }
 ) => Promise<Response>
 
 // The operating system's secret store: Keychain on macOS, Credential Manager on Windows and Secret
@@ -50,8 +70,10 @@ export interface Runtime {
     execPath: string
     isMusl: () => Promise<boolean>
     runCommand: (argv: string[]) => Promise<number>
-    // Windows can't replace a running exe, so it renames the old one to hog.old.exe, which the next run deletes.
-    replaceExecutable: (path: string, contents: Uint8Array) => Promise<void>
+    // Replaces every file or none, in the order given. `hog upgrade` passes hog-worker and then hog,
+    // which must come from one release. Windows can't replace a running exe, so it renames each old
+    // one to <name>.old.exe, which the next run deletes.
+    replaceExecutables: (files: ExecutableFile[]) => Promise<void>
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -131,7 +153,7 @@ function browserCommand(url: string): string[] {
 }
 
 // `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
-const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
+export const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
 
 // Keychain calls that haven't settled. A call hog stopped waiting for, such as one behind a dialog
 // nobody answers, keeps the process alive, so the entry point ends the process when this is not zero.
@@ -227,25 +249,73 @@ async function realPath(path: string): Promise<string> {
     }
 }
 
-async function replaceExecutable(path: string, contents: Uint8Array): Promise<void> {
-    const temporary = join(dirname(path), `.hog.${randomUUID()}.tmp`)
-    const old = join(dirname(path), 'hog.old.exe')
-    let movedAside = false
+const EXECUTABLE_MODE = 0o755
+
+function exists(path: string): Promise<boolean> {
+    return access(path).then(
+        () => true,
+        () => false
+    )
+}
+
+export function keptPath(path: string, id: string, platform: NodeJS.Platform = process.platform): string {
+    return platform === 'win32'
+        ? win32.join(win32.dirname(path), `${win32.basename(path).replace(/\.exe$/i, '')}.old.exe`)
+        : join(dirname(path), `.${basename(path)}.${id}.old`)
+}
+
+// A link keeps the old file under a second name while a rename puts the new one in place, so the
+// path always names a whole executable. A file system without links gets a copy.
+async function keepCopy(path: string, kept: string): Promise<void> {
     try {
-        await writeFile(temporary, contents, { flag: 'wx', mode: 0o755 })
-        await chmod(temporary, 0o755)
-        if (process.platform === 'win32') {
-            await rm(old, { force: true })
-            await rename(path, old)
-            movedAside = true
+        await link(path, kept)
+    } catch {
+        await copyFile(path, kept)
+    }
+}
+
+export async function replaceExecutables(files: ExecutableFile[]): Promise<void> {
+    const id = randomUUID()
+    const swaps = files.map((file) => ({
+        ...file,
+        temporary: join(dirname(file.path), `.${basename(file.path)}.${id}.tmp`),
+        kept: keptPath(file.path, id),
+        hadOld: false,
+        replaced: false,
+    }))
+
+    try {
+        for (const swap of swaps) {
+            await writeFile(swap.temporary, swap.contents, { flag: 'wx', mode: EXECUTABLE_MODE })
+            await chmod(swap.temporary, EXECUTABLE_MODE)
         }
-        await rename(temporary, path)
+
+        for (const swap of swaps) {
+            await rm(swap.kept, { force: true })
+            if (await exists(swap.path)) {
+                await (process.platform === 'win32' ? rename(swap.path, swap.kept) : keepCopy(swap.path, swap.kept))
+                swap.hadOld = true
+            }
+            await rename(swap.temporary, swap.path)
+            swap.replaced = true
+        }
     } catch (error) {
-        await rm(temporary, { force: true })
-        if (movedAside) {
-            await rename(old, path).catch(() => {})
+        for (const swap of [...swaps].reverse()) {
+            await rm(swap.temporary, { force: true }).catch(() => {})
+            if (swap.hadOld) {
+                await rename(swap.kept, swap.path).catch(() => {})
+            } else if (swap.replaced) {
+                await rm(swap.path, { force: true }).catch(() => {})
+            }
         }
         throw error
+    }
+
+    // On Windows the old hog.exe is this process, which can't delete its own file.
+    if (process.platform !== 'win32') {
+        for (const swap of swaps) {
+            await rm(swap.kept, { force: true }).catch(() => {})
+        }
     }
 }
 
@@ -273,7 +343,7 @@ export function processRuntime(): Runtime {
             const child = Bun.spawn(argv, { cwd: homedir(), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
             return child.exited
         },
-        replaceExecutable,
+        replaceExecutables,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -285,7 +355,7 @@ export function processRuntime(): Runtime {
             process.stderr.write(text)
         },
         fetch: (input, options) => {
-            const { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = options ?? {}
+            const { timeoutMs, skipRateLimit: _skipRateLimit, posthogApi: _posthogApi, ...init } = options ?? {}
             return globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
@@ -304,11 +374,7 @@ export function processRuntime(): Runtime {
             }
         },
         cwd: () => process.cwd(),
-        exists: (path) =>
-            access(path).then(
-                () => true,
-                () => false
-            ),
+        exists,
         readFile: (path) => readFile(path, 'utf8'),
         isDirectory: (path) =>
             stat(path).then(

@@ -267,6 +267,33 @@ class TestRejectVariablesInRawQuery(SimpleTestCase):
 
 
 class TestNotebookVariableSerializerValue(SimpleTestCase):
+    @parameterized.expand([("empty", []), ("multiple", ["North, East", "King's Cross"])])
+    def test_list_binds_as_separate_values_in_each_engine(self, _name: str, selected: list[str]) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "regions", "type": "list", "value": selected})
+        assert serializer.is_valid(), serializer.errors
+        variables = build_notebook_variables([serializer.validated_data])
+        assert python_variable_bindings(variables) == {"regions": selected}
+        assert substitute_duckdb_variables("select {regions}", variables) == ("select $regions", {"regions": selected})
+        query = parse_select(substitute_hogql_variables("select 1 where region IN {regions}", variables))
+        assert isinstance(query, ast.SelectQuery) and isinstance(query.where, ast.Call)
+        bound = query.where.args[1]
+        assert isinstance(bound, ast.Array)
+        assert [item.value for item in bound.exprs if isinstance(item, ast.Constant)] == selected
+
+    @parameterized.expand(
+        [
+            ("scalar", "one"),
+            ("number", [1]),
+            ("nested", [["one"]]),
+            ("too_many", [""] * 101),
+            ("too_long", ["x" * 501, "y" * 500]),
+        ]
+    )
+    def test_list_requires_bounded_text_items(self, _name: str, value: object) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "regions", "type": "list", "value": value})
+        assert not serializer.is_valid()
+        assert "value" in serializer.errors
+
     @parameterized.expand(
         [
             ("dict", {"a": "b"}),

@@ -19,10 +19,12 @@ from products.error_tracking.backend.facade import api as error_tracking_api
 ISSUE_TAGS_OFF = "Issue tags are off for this project."
 
 FILTERS_HELP_TEXT = (
-    "Property-group filters on event properties, evaluated against the first event of each new issue. "
+    "Property-group filters on event properties. They are checked against the first event of each new issue, and "
+    "once a day against the events of the past day. A rule that filters on `$exception_list` is checked against "
+    "the first event only. "
     "At least one filter is required. Person, cohort, HogQL and other filter types are rejected."
 )
-LABEL_HELP_TEXT = "Display name of the tag the rule applies to each new issue whose first event matches the filters."
+LABEL_HELP_TEXT = "Display name of the tag the rule applies to matching issues."
 DESCRIPTION_HELP_TEXT = "What the tag means. Shown with the tag."
 # The bounds of the Postgres integer column that stores the order key.
 ORDER_KEY_MIN, ORDER_KEY_MAX = -(2**31), 2**31 - 1
@@ -87,7 +89,7 @@ class ErrorTrackingIssueTagRuleSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Why the rule was turned off after it failed on an event, or null when the rule is active. "
-        "A turned-off rule tags no new issues until its filters are saved again.",
+        "A turned-off rule tags no issues until its filters are saved again.",
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the rule was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the rule was last updated.")
@@ -132,8 +134,9 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,
         help_text="Replacement event property filters, with at least one filter. Omit to keep the existing filters. "
-        "New filters apply only to issues created after the update. Existing tags stay when the new filters read "
-        "the same properties. When they read different properties, the rule gets a new key and loses its tags.",
+        "New filters apply to new issues, and once a day to other issues that had a matching event in the past day. "
+        "Existing tags stay when the new filters read the same properties. "
+        "When they read different properties, the rule gets a new key and loses its tags.",
     )
 
 

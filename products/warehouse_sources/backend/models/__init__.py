@@ -7,6 +7,7 @@ from .external_data_destination import (
     ExternalDataSchemaDestination,
     ExternalDataSourceDestination,
 )
+from .external_data_destination_delivery import ExternalDataDestinationDelivery
 from .external_data_job import ExternalDataJob
 from .external_data_schema import ExternalDataSchema
 from .external_data_source import ExternalDataSource
@@ -20,6 +21,7 @@ __all__ = [
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "ExternalDataDestination",
+    "ExternalDataDestinationDelivery",
     "ExternalDataJob",
     "ExternalDataSchema",
     "ExternalDataSchemaDestination",

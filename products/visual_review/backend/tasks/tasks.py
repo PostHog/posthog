@@ -44,6 +44,9 @@ _BASELINE_LEDGER_LOCK_SECONDS = 15 * 60
 _BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS = (5, 15, 45)
 # A notice that sat in a backed-up queue no longer reports something that just happened.
 QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
+# How long a notice waits for more quarantines in the same repo. Long enough for a person to work
+# through several snapshots one dialog at a time, so the team gets one post for all of them.
+QUARANTINE_NOTICE_QUIET_SECONDS = 3 * 60
 # The retry delays together outlast GitHub's one-hour rate limit window, so a status refused for a
 # rate limit is still posted after the limit resets.
 _COMMIT_STATUS_MAX_RETRIES = 8
@@ -263,14 +266,29 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
 )
 @with_team_scope()
 def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
-    """Tell the team that owns a just-quarantined story, in its Slack channel."""
+    """Tell the teams that own the repo's just-quarantined stories, in their Slack channels.
+
+    Every quarantine that asks for a notice queues this task. The first one to run after the
+    quarantines stop coming in posts the whole burst.
+    """
     from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
 
     try:
-        quarantine_notice.send_quarantine_notice(UUID(entry_id), team_id)
+        run = quarantine_notice.send_pending_notices(UUID(entry_id), team_id)
     except Exception:
         # Nothing retries a notice: a late one no longer reports something that just happened.
         logger.warning("visual_review.quarantine_notice_failed", entry_id=entry_id, team_id=team_id, exc_info=True)
+        return
+    if run.recheck_in_seconds is None:
+        return
+    try:
+        notify_quarantine_owners.apply_async(
+            args=(team_id, entry_id),
+            countdown=run.recheck_in_seconds,
+            expires=run.recheck_in_seconds + QUARANTINE_NOTICE_EXPIRY_SECONDS,
+        )
+    except Exception:
+        logger.warning("visual_review.quarantine_notice_recheck_failed", entry_id=entry_id, exc_info=True)
 
 
 @shared_task(

@@ -18,6 +18,7 @@ from products.ai_observability.backend.logic.traces.trace_selection import (
     InvalidTraceCursorError,
     InvalidTraceSelectionError,
     InvalidTraceWindowError,
+    TraceGroupScope,
     TracePosition,
     TraceSelection,
     TraceWindow,
@@ -241,3 +242,32 @@ def test_a_selection_accepts_every_filter_type_traces_support_up_to_the_limit() 
 def test_a_selection_rejects_filters_it_cannot_apply(_name: str, filters: list[dict[str, Any]]) -> None:
     with pytest.raises(InvalidTraceSelectionError):
         selection_with(*filters)
+
+
+@parameterized.expand(
+    [
+        (
+            "properties",
+            {
+                "properties": (
+                    _PROPERTY_FILTER.validate_python({"type": "event", "key": "k", "operator": "exact", "value": "v"}),
+                )
+            },
+        ),
+        ("search", {"search": "refund"}),
+        ("person_id", {"person_id": "person-1"}),
+        ("group", {"group": TraceGroupScope(key="acme", type_index=0)}),
+        ("quick_filter", {"quick_filter": "errors"}),
+        ("filter_test_accounts", {"filter_test_accounts": True}),
+    ]
+)
+def test_session_scope_rejects_list_filters(_name: str, filters: dict[str, Any]) -> None:
+    with pytest.raises(InvalidTraceSelectionError):
+        TraceSelection(window=WINDOW, session_id="session-1", **filters)
+
+
+def test_session_scope_accepts_window_and_support_flag() -> None:
+    selection = TraceSelection(
+        window=WINDOW, session_id="session-1", include_support_traces=True, filter_test_accounts=False
+    )
+    assert selection.session_id == "session-1"

@@ -206,6 +206,15 @@ class EvalSuggestionListSerializer(serializers.Serializer):
     )
 
 
+class EvalSuggestionSettingsSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text=(
+            "Whether the project gets suggestions. While false, the list returns none and the weekly run skips the "
+            "project."
+        )
+    )
+
+
 class EvalSuggestionDismissSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=EvalSuggestionDismissReason.choices,
@@ -259,8 +268,8 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     schema = _EnvelopeSchema()
     scope_object = "evaluation"
-    scope_object_read_actions = ["list", "retrieve", "accept_estimate"]
-    scope_object_write_actions = ["accept", "dismiss", "apply_fix"]
+    scope_object_read_actions = ["list", "retrieve", "accept_estimate", "project_settings"]
+    scope_object_write_actions = ["accept", "dismiss", "apply_fix", "update_project_settings"]
 
     @property
     def requires_resource_level_access(self) -> bool:
@@ -302,6 +311,24 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs: Any) -> Response:
         """The latest suggestions. Loading them records the visit, and the first visit starts a run."""
         return Response(EvalSuggestionListSerializer(facade.list_eval_suggestions(self.team, self._access())).data)
+
+    @extend_schema(request=None, responses={200: EvalSuggestionSettingsSerializer})
+    # Not named `settings`, which would shadow DRF's APIView.settings.
+    @action(detail=False, methods=["get"], url_path="settings", pagination_class=None)
+    def project_settings(self, request: Request, **kwargs: Any) -> Response:
+        """Whether the project gets suggestions."""
+        return Response(EvalSuggestionSettingsSerializer(facade.get_eval_suggestion_settings(self.team)).data)
+
+    @extend_schema(request=EvalSuggestionSettingsSerializer, responses={200: EvalSuggestionSettingsSerializer})
+    @project_settings.mapping.patch
+    def update_project_settings(self, request: Request, **kwargs: Any) -> Response:
+        """Turn suggestions off or back on for the project. A body without `enabled` changes nothing."""
+        body = EvalSuggestionSettingsSerializer(data=request.data, partial=True)
+        body.is_valid(raise_exception=True)
+        if "enabled" not in body.validated_data:
+            return Response(EvalSuggestionSettingsSerializer(facade.get_eval_suggestion_settings(self.team)).data)
+        updated = facade.update_eval_suggestion_settings(self.team, enabled=body.validated_data["enabled"])
+        return Response(EvalSuggestionSettingsSerializer(updated).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db.models import QuerySet
 
 from posthog.hogql.property_access_types import RestrictedProperty
@@ -47,6 +49,19 @@ def issue_tag_definitions_for_enabled_team(team_id: int) -> tuple[IssueTagDefini
     return _enabled_code_definitions(team_id) + tuple(
         _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),)) for rule in rules
     )
+
+
+def lock_active_rule_definition(team_id: int, rule_id: UUID) -> IssueTagDefinition | None:
+    """The definition of the team's enabled rule, with its rule tagger, or None without one. The caller checked
+    ISSUE_TAGS_FLAG.
+
+    Call it inside a transaction. It locks the rule row until the transaction ends, so an edit or a delete of the rule
+    waits for the caller's write, and a write after the edit or the delete reads the new state.
+    """
+    rule = _active_rules(team_id).select_for_update(no_key=True).filter(id=rule_id).first()
+    if rule is None:
+        return None
+    return _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),))
 
 
 def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
