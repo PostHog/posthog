@@ -450,73 +450,20 @@ describe('messageTemplateLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
-            })
-                .toDispatchActions(['saveTemplateSuccess'])
-                .toMatchValues({ hasDraft: false, hasUnsavedChanges: false })
+            }).toFinishAllListeners()
 
             expect(bodies).toHaveLength(1)
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
             expect(bodies[0]).not.toHaveProperty('sensitive')
             expect(bodies[0]).not.toHaveProperty('click_tracking_enabled')
-        })
-
-        it('reconciles a concurrent sensitivity turn-off when saving click tracking', async () => {
-            jest.clearAllMocks()
-            logic.unmount()
-            const sensitiveServerTemplate = {
-                ...serverTemplate,
-                sensitive: true,
-                click_tracking_enabled: true as boolean | null,
-                updated_at: '2026-01-01T00:00:00Z',
-            }
-            useMocks({
-                get: { '/api/environments/:team_id/messaging_templates/:id/': sensitiveServerTemplate },
-                patch: {
-                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
-                        const body = (await request.json()) as Record<string, unknown>
-                        bodies.push(body)
-                        return [
-                            200,
-                            {
-                                ...sensitiveServerTemplate,
-                                ...body,
-                                sensitive: false,
-                                click_tracking_enabled: null,
-                                updated_at: '2026-01-01T00:02:00Z',
-                            },
-                        ]
-                    },
-                },
-            })
-            logic = messageTemplateLogic({ id: 'existing-id' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
-
-            await expectLogic(logic, () => {
-                logic.actions.setClickTrackingEnabled(false)
-                resourceEditedLogic.actions.resourceEdited({
-                    notification_type: 'resource_edited',
-                    team_id: 1,
-                    resource_type: 'MessageTemplate',
-                    resource_id: 'existing-id',
-                    updated_at: '2026-01-01T00:01:00Z',
-                    actor_user_id: null,
-                })
-            }).toFinishAllListeners()
-
-            expect(bodies).toEqual([{ click_tracking_enabled: null }])
-            expect(logic.values.originalTemplate.sensitive).toBe(false)
-            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
-            expect(logic.values.deferredExternalEdit).toBeNull()
-            expect(mockToast.info).toHaveBeenCalledWith(
-                'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
-            )
+            expect(logic.values.hasDraft).toBe(false)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
         })
 
         it.each([
             { description: 'reloads newer published content on a clean form', dirty: false },
-            { description: 'flags an external conflict while preserving unsaved local edits', dirty: true },
+            { description: 'flags an external conflict, preserves local edits, and stops autosave', dirty: true },
         ])('reconciles a concurrent publish during a click tracking save: $description', async ({ dirty }) => {
             logic.unmount()
             const sensitiveServerTemplate = {
@@ -554,28 +501,199 @@ describe('messageTemplateLogic', () => {
             })
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
 
             if (dirty) {
                 logic.actions.setTemplateValue('content', unsavedEdit)
             }
 
-            await expectLogic(logic, () => {
-                logic.actions.setClickTrackingEnabled(true)
-                resourceEditedLogic.actions.resourceEdited({
-                    notification_type: 'resource_edited',
-                    team_id: 1,
-                    resource_type: 'MessageTemplate',
-                    resource_id: 'existing-id',
-                    updated_at: '2026-01-01T00:01:00Z',
-                    actor_user_id: null,
-                })
-            }).toFinishAllListeners()
+            logic.actions.setClickTrackingEnabled(true)
+            resourceEditedLogic.actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: 1,
+                resource_type: 'MessageTemplate',
+                resource_id: 'existing-id',
+                updated_at: '2026-01-01T00:01:00Z',
+                actor_user_id: null,
+            })
+            await jest.advanceTimersByTimeAsync(3000)
+            await expectLogic(logic).toFinishAllListeners()
 
+            expect(bodies).toEqual([{ click_tracking_enabled: true }])
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
             expect(logic.values.externallyEdited).toBe(dirty)
             expect(logic.values.hasDraft).toBe(dirty)
             expect(logic.values.template.content).toEqual(dirty ? unsavedEdit : publishedElsewhere)
+        })
+
+        it('waits for an in-flight draft save before toggling click tracking and does not raise a false conflict', async () => {
+            logic.unmount()
+            let currentServer: Record<string, unknown> = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null,
+                draft_content: null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            const firstEdit = {
+                templating: 'liquid' as const,
+                email: { subject: 'Plain text edit', html: '', design: null },
+            } as any
+            const secondEdit = {
+                templating: 'liquid' as const,
+                email: { subject: 'Follow-up edit', html: '', design: null },
+            } as any
+            let releaseDraftSave!: () => void
+            const draftSaveGate = new Promise<void>((resolve) => {
+                releaseDraftSave = resolve
+            })
+            let tick = 1
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, currentServer] },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        if ('draft_content' in body && tick === 1) {
+                            await draftSaveGate
+                        }
+                        currentServer = {
+                            ...currentServer,
+                            ...body,
+                            updated_at: `2026-01-01T00:0${tick++}:00Z`,
+                        }
+                        return [200, currentServer]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            // Trigger autosave with design: null so the server stores the stripped draft_content.
+            logic.actions.setTemplateValue('content', firstEdit)
+            await jest.advanceTimersByTimeAsync(1500)
+            expect(bodies).toEqual([
+                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit', html: '' } } },
+            ])
+
+            // Toggle click tracking while that draft save is still pending.
+            logic.actions.setClickTrackingEnabled(true)
+            releaseDraftSave()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(bodies).toEqual([
+                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit', html: '' } } },
+                { click_tracking_enabled: true },
+            ])
+            expect(logic.values.externallyEdited).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+
+            // Another edit followed by toggling again before autosave should still not conflict on design: null.
+            logic.actions.setTemplateValue('content', secondEdit)
+            logic.actions.setClickTrackingEnabled(false)
+            await jest.advanceTimersByTimeAsync(200)
+            expect(logic.values.externallyEdited).toBe(false)
+
+            // Autosave remains active after the setting save finishes.
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(bodies.at(-1)).toEqual({
+                draft_content: { templating: 'liquid', email: { subject: 'Follow-up edit', html: '' } },
+            })
+        })
+
+        it('keeps a discarded draft cleared when discard overlaps a click tracking save', async () => {
+            logic.unmount()
+            let currentServer: Record<string, unknown> = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            let releaseSettingSave!: () => void
+            const settingSaveGate = new Promise<void>((resolve) => {
+                releaseSettingSave = resolve
+            })
+            let tick = 1
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, currentServer] },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        if ('click_tracking_enabled' in body) {
+                            await settingSaveGate
+                        }
+                        currentServer = {
+                            ...currentServer,
+                            ...body,
+                            updated_at: `2026-01-01T00:0${tick++}:00Z`,
+                        }
+                        return [200, currentServer]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            logic.actions.setClickTrackingEnabled(true)
+            logic.actions.confirmDiscardDraft()
+            releaseSettingSave()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(bodies).toEqual([{ click_tracking_enabled: true }, { draft_content: null }])
+            expect(logic.values.hasDraft).toBe(false)
+            expect(logic.values.template.content).toEqual(live)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+        })
+
+        it('ignores a stale out-of-order setting response instead of restoring a discarded draft', async () => {
+            logic.unmount()
+            const latestServer = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: true,
+                draft_content: null,
+                updated_at: '2026-01-01T00:02:00Z',
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, latestServer] },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        // Return an older response (00:01) that still carries the discarded draft.
+                        return [
+                            200,
+                            {
+                                ...serverTemplate,
+                                ...body,
+                                sensitive: true,
+                                draft_content: draft,
+                                updated_at: '2026-01-01T00:01:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setClickTrackingEnabled(true)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasDraft).toBe(false)
+            expect(logic.values.template.content).toEqual(live)
+            expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z')
         })
     })
 

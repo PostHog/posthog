@@ -5,12 +5,15 @@ import { Provider } from 'kea'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+
+import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { MessageTemplate } from './MessageTemplate'
 
@@ -299,6 +302,57 @@ describe('MessageTemplate', () => {
         fireEvent.click(screen.getByText('Protect sensitive data'))
         await waitFor(() => expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'false'))
         expect(patchBodies).toEqual([{ sensitive: false }, { sensitive: true }])
+    })
+
+    it('hides Track link clicks and shows a notice if another tab turned sensitive off before saving', async () => {
+        const toastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
+        const serverState = {
+            ...PASSWORD_RESET_WITH_DRAFT,
+            sensitive: true,
+            click_tracking_enabled: true as boolean | null,
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, serverState] },
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    resourceEditedLogic.actions.resourceEdited({
+                        notification_type: 'resource_edited',
+                        team_id: 1,
+                        resource_type: 'MessageTemplate',
+                        resource_id: TEMPLATE_ID,
+                        updated_at: '2026-01-01T00:01:00Z',
+                        actor_user_id: null,
+                    })
+                    return [
+                        200,
+                        {
+                            ...serverState,
+                            ...body,
+                            sensitive: false,
+                            click_tracking_enabled: null,
+                            updated_at: '2026-01-01T00:02:00Z',
+                        },
+                    ]
+                },
+            },
+        })
+        try {
+            await renderAs(AccessControlLevel.Editor, serverState.name)
+
+            fireEvent.click(screen.getByText('API'))
+            const clickToggle = await screen.findByLabelText('Track link clicks')
+            fireEvent.click(clickToggle)
+
+            await waitFor(() => expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument())
+            expect(screen.getByLabelText('Protect sensitive data')).toHaveAttribute('aria-checked', 'false')
+            expect(toastInfoSpy).toHaveBeenCalledWith(
+                'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
+            )
+        } finally {
+            toastInfoSpy.mockRestore()
+        }
     })
 
     it('hides the nested click tracking toggle on a non-sensitive template', async () => {

@@ -473,7 +473,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                               ? 'There is no draft to discard'
                                                                               : isSavingDraft || isDiscardingDraft
                                                                                 ? 'Wait for the draft to finish saving'
-                                                                                : undefined),
+                                                                                : isSavingSensitive ||
+                                                                                    isSavingClickTracking
+                                                                                  ? 'Saving the setting'
+                                                                                  : undefined),
                                                                       'data-attr': 'message-template-discard-draft',
                                                                   },
                                                               ]}

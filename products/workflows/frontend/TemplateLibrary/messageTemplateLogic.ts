@@ -71,6 +71,10 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
+function normalizeContent(content: TemplateContent | null): TemplateContent | null {
+    return content?.email ? { ...content, email: omitNullDesign(content.email) } : content
+}
+
 // Reconcile non-setting fields before advancing updated_at so a deferred realtime event
 // for an intervening edit (such as a publish or sensitive change) is never silently masked.
 function applySettingUpdate(
@@ -83,17 +87,45 @@ function applySettingUpdate(
         hasUnsavedChanges: boolean
         externallyEdited: boolean
         templateChanged: boolean
+        isDiscardingDraft: boolean
+        isTemplateSubmitting: boolean
     },
     actions: {
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => void
         setOriginalTemplate: (template: MessageTemplate) => void
         resetTemplate: (values?: MessageTemplate) => void
         setExternallyEdited: (externallyEdited: boolean) => void
+        syncExternalEdit: () => void
         setTemplateValues: (
-            values: Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>
+            values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>>
         ) => void
     }
 ): void {
+    const loadedUpdatedAt = values.originalTemplate.updated_at
+    if (loadedUpdatedAt && updated.updated_at && dayjs(updated.updated_at).isBefore(dayjs(loadedUpdatedAt))) {
+        // A newer write already advanced the loaded snapshot. Never roll back updated_at or restore a cleared draft.
+        if (!values.hasUnsavedChanges && !values.externallyEdited) {
+            actions.syncExternalEdit()
+        } else {
+            actions.setExternallyEdited(true)
+        }
+        return
+    }
+
+    if (values.isDiscardingDraft || values.isTemplateSubmitting) {
+        const settingChanges = {
+            sensitive: updated.sensitive,
+            click_tracking_enabled: updated.click_tracking_enabled,
+        }
+        actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
+        if (values.templateChanged) {
+            actions.setTemplateValues(settingChanges)
+        } else {
+            actions.resetTemplate({ ...values.template, ...settingChanges })
+        }
+        return
+    }
+
     const {
         form: serverForm,
         draft: serverDraft,
@@ -105,8 +137,8 @@ function applySettingUpdate(
         !objectsEqual(serverForm.tags ?? [], values.originalTemplate.tags ?? []) ||
         (serverForm.transactional_hog_flow_id ?? null) !==
             (values.originalTemplate.transactional_hog_flow_id ?? null) ||
-        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
-        !objectsEqual(serverDraft, values.savedDraft)
+        !objectsEqual(normalizeContent(serverPublished ?? null), normalizeContent(values.publishedContent)) ||
+        !objectsEqual(normalizeContent(serverDraft), normalizeContent(values.savedDraft))
 
     if (hasExternalChanges && !values.hasUnsavedChanges && !values.externallyEdited) {
         actions.setDraftState(serverDraft, serverPublished)
@@ -960,7 +992,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 values.externallyEdited ||
                 values.isTemplateSubmitting ||
                 values.isSavingDraft ||
-                values.isDiscardingDraft
+                values.isDiscardingDraft ||
+                values.isSavingSensitive ||
+                values.isSavingClickTracking
             ) {
                 return
             }
@@ -1001,8 +1035,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
         confirmDiscardDraft: async (_, breakpoint) => {
-            // A draft save that lands after the discard would bring the draft back, so let it finish first.
-            while (values.isSavingDraft) {
+            // Wait for any in-flight draft or setting save so an older response cannot bring the draft back.
+            while (values.isSavingDraft || values.isSavingSensitive || values.isSavingClickTracking) {
                 await breakpoint(100)
             }
             try {
@@ -1064,7 +1098,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
         },
-        setSensitive: async ({ sensitive }) => {
+        setSensitive: async ({ sensitive }, breakpoint) => {
+            // Wait for an in-flight draft save so savedDraft matches the server before we reconcile.
+            while (values.isSavingDraft) {
+                await breakpoint(100)
+            }
             try {
                 // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
@@ -1077,8 +1115,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             actions.setSensitiveDone()
             actions.replayDeferredExternalEdit()
+            actions.autoSaveDraft()
         },
-        setClickTrackingEnabled: async ({ clickTrackingEnabled }) => {
+        setClickTrackingEnabled: async ({ clickTrackingEnabled }, breakpoint) => {
+            while (values.isSavingDraft) {
+                await breakpoint(100)
+            }
             try {
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     click_tracking_enabled: clickTrackingEnabled ? true : null,
@@ -1099,6 +1141,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             actions.setClickTrackingEnabledDone()
             actions.replayDeferredExternalEdit()
+            actions.autoSaveDraft()
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.
