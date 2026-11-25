@@ -1,12 +1,18 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from rest_framework.exceptions import ValidationError
+
 from products.meep.backend.authoring import finish_view
 from products.meep.backend.board import finish_board
 from products.meep.backend.chat import finish_turn
+from products.meep.backend.child_input import answer_child
+from products.meep.backend.delegation import spawn_child, wait_for_children
 from products.meep.backend.models import BoardRun, ChatTurn, Topic, ViewJob
+from products.meep.backend.replication import apply_command
+from products.meep.backend.tasks import reconcile_topic_tasks, schedule_delegated_task_recovery
 from products.tasks.backend.facade import access, api
 from products.tasks.backend.models import TaskRun
 
@@ -205,3 +211,145 @@ class TestTopics(APIBaseTest):
         finish_board(job.run_id, self.team.pk)
         row = self.client.get(url + f"topics/{topic}/").json()["state"]["tasks"][0]
         assert (row["column"], row["result"]) == ("Done", "Signup volume rose.")
+        conversation_url = url + f"topics/{topic}/tasks/{item}/conversation/"
+        conversation = self.client.get(conversation_url)
+        assert conversation.status_code == 200, conversation.content
+        assert conversation.json()["brief"] == "Explain activation"
+        assert [attempt["reply"] for attempt in conversation.json()["attempts"]] == ["Signup volume rose."]
+        with (
+            patch("products.meep.backend.board.check_access"),
+        ):
+            message = self.client.post(url + f"topics/{topic}/tasks/{item}/messages/", {"text": "Which week?"})
+        assert message.status_code == 200, message.content
+        followup = BoardRun.objects.exclude(pk=job.pk).get(topic_id=topic, item_id=item)
+        assert followup.task_id == job.task_id
+        assert TaskRun.objects.get(pk=followup.run_id).state["pending_user_message"] == "Which week?"
+
+    def test_offline_child_question_answer_and_recovery(self) -> None:
+        topic_id, message_id = uuid4(), uuid4()
+        apply_command(
+            self.team.pk,
+            self.user,
+            uuid4(),
+            topic_id,
+            {"kind": "CreateTopicWithoutSort", "name": "Research", "mission": "Review the chart"},
+        )
+        original_create = api.create_and_run_task
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch.object(
+                api, "create_and_run_task", side_effect=lambda **kw: original_create(**kw, start_workflow=False)
+            ),
+            patch("products.meep.backend.chat.usage.task_run_usage_limited", return_value=False),
+            patch(
+                "products.meep.backend.chat.access.get_desktop_access_decision",
+                return_value=access.DesktopAccessDecision.ALLOWED,
+            ),
+        ):
+            apply_command(
+                self.team.pk,
+                self.user,
+                uuid4(),
+                topic_id,
+                {
+                    "kind": "Chat",
+                    "message_id": str(message_id),
+                    "task_id": str(uuid4()),
+                    "text": "Investigate the chart.",
+                },
+            )
+            topic = Topic.objects.for_team(self.team.pk).get(pk=topic_id)
+            parent = topic.turns.get()
+            child = spawn_child(
+                team=self.team,
+                user=self.user,
+                topic_id=topic_id,
+                parent_task_id=topic.conversation_id,
+                parent_run_id=parent.run_id,
+                request_id=uuid4(),
+                title="Check date ranges",
+                instructions="Compare the chart windows",
+            )
+            sibling = spawn_child(
+                team=self.team,
+                user=self.user,
+                topic_id=topic_id,
+                parent_task_id=topic.conversation_id,
+                parent_run_id=parent.run_id,
+                request_id=uuid4(),
+                title="Check volume",
+                instructions="Count signups",
+            )
+            wait_for_children(
+                team=self.team,
+                user=self.user,
+                topic_id=topic_id,
+                parent_task_id=topic.conversation_id,
+                parent_run_id=parent.run_id,
+                request_id=uuid4(),
+                item_ids=[UUID(child["item_id"]), UUID(sibling["item_id"])],
+            )
+            TaskRun.objects.filter(pk=parent.run_id).update(status="completed", output={"reply": "Checking."})
+            TaskRun.objects.filter(pk=sibling["run_id"]).update(
+                status="completed", output={"reply": "Volume is stable.", "needs_input": False}
+            )
+            reconcile_topic_tasks(self.team.pk, str(topic_id))
+            assert topic.turns.count() == 1
+            TaskRun.objects.filter(pk=child["run_id"]).update(
+                status="completed", output={"reply": "Which week?", "needs_input": True}
+            )
+            with patch.object(reconcile_topic_tasks, "delay", side_effect=reconcile_topic_tasks.run):
+                schedule_delegated_task_recovery()
+                schedule_delegated_task_recovery()
+            parent_question = topic.turns.get(target_message_id=message_id)
+            delivered = TaskRun.objects.get(pk=parent_question.run_id)
+            assert "Volume is stable." in delivered.state["pending_user_message"]
+            assert "Which week?" in delivered.state["pending_user_message"]
+            assert child["run_id"] in delivered.state["pending_user_message"]
+            TaskRun.objects.filter(pk=parent_question.run_id).update(
+                status="completed", output={"reply": "Which week?"}
+            )
+            finish_turn(parent_question.run_id, self.team.pk)
+            answer_message_id = uuid4()
+            apply_command(
+                self.team.pk,
+                self.user,
+                uuid4(),
+                topic_id,
+                {"kind": "Chat", "message_id": str(answer_message_id), "task_id": str(uuid4()), "text": "Last week"},
+            )
+            answer_turn = topic.turns.get(message_id=answer_message_id)
+            args = {
+                "team": self.team,
+                "user": self.user,
+                "parent_task_id": topic.conversation_id,
+                "parent_run_id": answer_turn.run_id,
+                "topic_id": topic_id,
+                "item_id": UUID(child["item_id"]),
+                "request_id": uuid4(),
+                "question_run_id": UUID(child["run_id"]),
+                "answer": "Last week",
+            }
+            with self.assertRaisesMessage(ValidationError, "no longer waiting"):
+                answer_child(**{**args, "question_run_id": uuid4()})
+            result = answer_child(**args)
+            assert answer_child(**args) == result
+            assert result["task_id"] == child["task_id"]
+            assert TaskRun.objects.get(pk=result["run_id"]).state["pending_user_message"] == "Last week"
+            TaskRun.objects.filter(pk=answer_turn.run_id).update(status="completed", output={"reply": "Following up."})
+            TaskRun.objects.filter(pk=result["run_id"]).update(
+                status="completed", output={"reply": "The windows match.", "needs_input": False}
+            )
+            reconcile_topic_tasks(self.team.pk, str(topic_id))
+            resumed = topic.turns.last()
+            assert resumed.target_message_id == message_id
+            assert "The windows match." in TaskRun.objects.get(pk=resumed.run_id).state["pending_user_message"]
+            TaskRun.objects.filter(pk=resumed.run_id).update(
+                status="completed", output={"reply": "Both weeks use the same dates."}
+            )
+            reconcile_topic_tasks(self.team.pk, str(topic_id))
+            topic.refresh_from_db()
+            assert topic.state["threads"][0]["outcomes"][-1] == {
+                "Reply": {"to": "User", "text": "Both weeks use the same dates."}
+            }
+            assert next(item for item in topic.state["tasks"] if item["id"] == child["item_id"])["column"] == "Done"

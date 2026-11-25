@@ -70,7 +70,7 @@ pub(super) struct TopicChatList {
     pub topic: TopicId,
     pub list: ListState,
     pub messages: Vec<meep_protocol::sessions::AgentMessage>,
-    pub linked: Option<TaskId>,
+    pub linked: Vec<Vec<crate::details::ChatTask>>,
     pub running: bool,
     /// Keep selected text mounted until the selection is cleared.
     pub full_selection: bool,
@@ -273,6 +273,7 @@ pub(super) struct Desktop {
     pub sending_runs: HashSet<TaskId>,
     pub run_scroll: ScrollHandle,
     pub chat_list: std::cell::RefCell<Option<TopicChatList>>,
+    pub chat_tick: std::cell::Cell<bool>,
     pub pending_turns: std::collections::HashMap<TaskId, Vec<PendingTurn>>,
     pub run_models: Entity<meep_shell::model_picker::ModelPicker>,
     pub run_model: Option<String>,
@@ -368,6 +369,35 @@ impl Desktop {
                             s.views.refresh(w, cx);
                         }
                         cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.spawn_in(w, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(4))
+                    .await;
+                if this
+                    .update_in(cx, |s, w, cx| {
+                        let Some((topic, task)) = s.chat_task() else {
+                            return;
+                        };
+                        if s.states
+                            .iter()
+                            .find(|state| state.topic.id == topic)
+                            .is_some_and(|state| {
+                                state.tasks.iter().any(|item| {
+                                    item.id == task && item.column == Column::InProgress
+                                })
+                            })
+                        {
+                            s.load_run(w, cx);
+                        }
                     })
                     .is_err()
                 {
@@ -580,6 +610,7 @@ impl Desktop {
             sending_runs: Default::default(),
             run_scroll: ScrollHandle::new(),
             chat_list: std::cell::RefCell::new(None),
+            chat_tick: Default::default(),
             pending_turns: Default::default(),
             run_models,
             run_model: None,
@@ -1687,27 +1718,6 @@ pub(super) fn badge(n: usize) -> Div {
     ui::nav::count(n.to_string())
 }
 
-/// A topic's mark. Topics are addressed with @; only views carry icons.
-/// A topic's @ in a list row. It keeps the 16pt icon column so names line up
-/// with views, but draws smaller and leans toward the name so the two read
-/// as one handle.
-pub(super) fn row_at(selected: bool) -> Div {
-    div()
-        .flex_none()
-        .size(px(ui::nav::ICON_BOX))
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
-            meep_ui::gpui_kit::component::Icon::new(Glyph::AtSign)
-                .size(px(13.5))
-                .text_color(rgb(ui::theme::color(if selected {
-                    ui::INK
-                } else {
-                    ui::SECONDARY
-                }))),
-        )
-}
 pub(super) fn at_mark(size: f32) -> Div {
     div()
         .flex_none()
@@ -1779,6 +1789,7 @@ pub(super) fn crumbs(
 pub(super) fn topic_crumbs(
     topic: TopicId,
     name: &str,
+    icon: Option<&TopicIcon>,
     tab: Tab,
     current: Option<(Option<AnyElement>, String)>,
     cx: &Context<Desktop>,
@@ -1820,18 +1831,18 @@ pub(super) fn topic_crumbs(
                 .child(label),
         )
     };
-    let mut row = ui::row().min_w_0().gap(px(6.));
+    let mut row = ui::row()
+        .min_w_0()
+        .gap(px(6.))
+        .children(icon.map(|icon| super::topic_icon::picker(topic, icon, cx)));
     if tab == Tab::Chat && current.is_none() {
-        return row.child(here(
-            Some(ui::nav::glyph(Glyph::AtSign, true).into_any_element()),
-            name.to_owned(),
-        ));
+        return row.child(here(None, name.to_owned()));
     }
     row = row
         .child(link(
             "crumb-topic".into(),
             name.to_owned(),
-            Some(Glyph::AtSign),
+            None,
             Page::Topic(topic, Tab::Chat, None),
         ))
         .child(chevron());

@@ -183,9 +183,10 @@ export function meepToolsToExclude(
         return names
     }
     const definitions = getToolDefinitions()
-    return names.filter(
-        (name) =>
-            definitions[name]?.required_scopes?.includes('meep_scout:write') && !scopes.includes('meep_scout:write')
+    return names.filter((name) =>
+        definitions[name]?.required_scopes?.some(
+            (scope) => (scope === 'meep_scout:write' || scope === 'meep_task:write') && !scopes.includes(scope)
+        )
     )
 }
 

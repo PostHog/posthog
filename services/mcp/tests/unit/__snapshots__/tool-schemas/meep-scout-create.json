@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cron": {
+            "description": "Optional five-field schedule in the project's timezone. Defaults to the native scout cadence.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "instructions": {
+            "maxLength": 16000,
+            "type": "string"
+        },
+        "name": {
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["id", "name", "instructions"],
+    "type": "object"
+}

@@ -1,3 +1,6 @@
+from products.meep.backend.board import send_task_message, task_conversation
+from products.meep.backend.child_input import answer_child
+from products.meep.backend.delegation import spawn_child, wait_for_children
 from products.meep.backend.scouts import create_topic_scout, set_topic_scout_enabled
 from products.meep.backend.service import (
     acknowledge,
@@ -22,6 +25,7 @@ from products.meep.backend.service import (
 
 __all__ = [
     "acknowledge",
+    "answer_child",
     "bind_conversation",
     "changes",
     "chat_models",
@@ -29,6 +33,8 @@ __all__ = [
     "command",
     "create_topic",
     "create_topic_scout",
+    "spawn_child",
+    "wait_for_children",
     "set_topic_scout_enabled",
     "cursor",
     "edit_view",
@@ -38,6 +44,8 @@ __all__ = [
     "read_file",
     "read_topic",
     "topic_snapshot",
+    "task_conversation",
+    "send_task_message",
     "upload",
     "views",
     "view_source",

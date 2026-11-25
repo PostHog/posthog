@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.meep.backend.models import ChatTurn, Topic
+from products.meep.backend.models import BoardRun, ChatTurn, Topic
 from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.tasks.backend.facade import api
@@ -74,6 +74,43 @@ class TestTopicScouts(APIBaseTest):
             "instructions": "Look for unusual changes in activation",
             "cron": "0 9 * * *",
         }
+
+    def test_parent_credential_starts_a_child_and_stale_or_child_credentials_cannot_delegate(self):
+        create = api.create_and_run_task
+        body = {"request_id": str(uuid4()), "title": "Investigate", "brief": "Find the cause."}
+        with (
+            patch("products.meep.backend.board.check_access"),
+            patch(
+                "products.meep.backend.board.api.create_and_run_task",
+                side_effect=lambda **kwargs: create(**kwargs, start_workflow=False),
+            ) as create_child,
+        ):
+            response = self.agent.post(self.url + "tasks/start/", body, format="json")
+            assert response.status_code == 200, response.content
+            assert self.agent.post(self.url + "tasks/start/", body, format="json").json() == response.json()
+        job = BoardRun.objects.get(run_id=response.json()["run_id"])
+        child = TaskRun.objects.get(pk=job.run_id)
+        assert child.state["agent_parent_task_id"] == str(self.task_id)
+        assert child.state["agent_parent_run_id"] == str(self.task_run.pk)
+        assert "meep_task:write" not in create_child.call_args.kwargs["options"].mcp_scopes
+
+        old_turn = ChatTurn.objects.get(run_id=self.task_run.pk)
+        old_turn.finished_at = timezone.now()
+        old_turn.save(update_fields=["finished_at"])
+        ChatTurn.objects.create(topic=self.topic, run_id=uuid4(), message_id=uuid4(), text="A new turn")
+        assert (
+            self.agent.post(self.url + "tasks/start/", {**body, "request_id": str(uuid4())}, format="json").status_code
+            == 403
+        )
+
+        self.token.sandbox_task_id = job.task_id
+        self.token.save(update_fields=["sandbox_task_id"])
+        child.state = {**child.state, "sandbox_oauth_token_ids": [str(self.token.pk)]}
+        child.save(update_fields=["state"])
+        assert (
+            self.agent.post(self.url + "tasks/start/", {**body, "request_id": str(uuid4())}, format="json").status_code
+            == 403
+        )
 
     def test_native_scout_retries_pause_resume_and_report_delivery(self):
         created = self.agent.post(self.url + "scouts/", self.create_body, format="json")

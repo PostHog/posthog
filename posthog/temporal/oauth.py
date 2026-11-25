@@ -549,7 +549,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         )
     # Meep registers a writable tool under an internal scope. Its presence disables the MCP
     # annotation filter for this run without granting that scope to general-purpose presets.
-    return any(scope in MCP_WRITE_SCOPES or scope == "meep_scout:write" for scope in scopes)
+    return any(scope in MCP_WRITE_SCOPES or scope in {"meep_scout:write", "meep_task:write"} for scope in scopes)
 
 
 def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:

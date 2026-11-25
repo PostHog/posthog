@@ -1,7 +1,9 @@
 //! The Overview: the topic's other surfaces, minimised beside its conversation.
 //! One flat list of sections; each folds open to a short preview, and anything
 //! in it opens in the topic's main pane under a breadcrumb.
-use super::pages::{UNREAD, ago, attention, ordered_threads};
+use super::pages::{
+    UNREAD, ago, attention_glyph, attention_groups, attention_section, ordered_threads,
+};
 use super::*;
 use chrono::Utc;
 use meep_ui::gpui_kit::component::Icon;
@@ -85,11 +87,9 @@ impl Desktop {
                             .truncate()
                             .text_right()
                             .text_size(px(12.))
-                            .text_color(if attention_tone {
-                                rgb(UNREAD)
-                            } else {
-                                rgb(ui::theme::color(ui::TERTIARY))
-                            })
+                            .text_color(rgb(
+                                attention_tone.unwrap_or(ui::theme::color(ui::TERTIARY))
+                            ))
                             .child(summary),
                     )
                     .child(
@@ -171,19 +171,26 @@ impl Desktop {
         &self,
         state: &TopicState,
         tab: Tab,
-    ) -> Option<(Glyph, String, bool)> {
+    ) -> Option<(Glyph, String, Option<u32>)> {
         let t = &state.topic;
         Some(match tab {
             Tab::Needs => {
-                let n = self
-                    .needs
-                    .iter()
-                    .filter(|n| attention(n, state).is_some())
-                    .count();
-                if n == 0 {
+                let groups = attention_groups(&self.needs, state);
+                if groups.is_empty() {
                     return None;
                 }
-                (Glyph::Bell, format!("{n} waiting"), true)
+                let urgent = groups
+                    .iter()
+                    .any(|g| matches!(g.latest.kind, "Failed" | "Problem"));
+                (
+                    Glyph::Bell,
+                    format!("{} waiting", groups.len()),
+                    Some(if urgent {
+                        super::pages::warning()
+                    } else {
+                        UNREAD
+                    }),
+                )
             }
             Tab::Tasks => {
                 if state.tasks.iter().all(|t| t.hidden()) {
@@ -194,7 +201,7 @@ impl Desktop {
                     .iter()
                     .filter(|t| t.column == Column::InProgress && !t.hidden())
                     .count();
-                (Glyph::SquareCheck, format!("{running} running"), false)
+                (Glyph::SquareCheck, format!("{running} running"), None)
             }
             Tab::Inbox => {
                 let reports = ordered_threads(state, true);
@@ -209,7 +216,7 @@ impl Desktop {
                     } else {
                         reports.len().to_string()
                     },
-                    false,
+                    None,
                 )
             }
             Tab::Files => {
@@ -217,7 +224,7 @@ impl Desktop {
                 if n == 0 {
                     return None;
                 }
-                (Glyph::FileText, n.to_string(), false)
+                (Glyph::FileText, n.to_string(), None)
             }
             Tab::Routines => {
                 if t.routines.is_empty() && state.scouts.is_empty() {
@@ -225,13 +232,13 @@ impl Desktop {
                 }
                 let on = t.routines.iter().filter(|r| r.enabled).count()
                     + state.scouts.iter().filter(|s| s.enabled).count();
-                (Glyph::Repeat, format!("{on} on"), false)
+                (Glyph::Repeat, format!("{on} on"), None)
             }
             Tab::Mission => {
                 if t.mission.trim().is_empty() {
                     return None;
                 }
-                (Glyph::Flag, String::new(), false)
+                (Glyph::Flag, String::new(), None)
             }
             Tab::Goals => {
                 if t.goals.is_empty() {
@@ -246,7 +253,7 @@ impl Desktop {
                     } else {
                         format!("{on_track} of {} on track", t.goals.len())
                     },
-                    false,
+                    None,
                 )
             }
             Tab::Facts => {
@@ -254,19 +261,19 @@ impl Desktop {
                 if n == 0 {
                     return None;
                 }
-                (Glyph::Pencil, n.to_string(), false)
+                (Glyph::Pencil, n.to_string(), None)
             }
             Tab::Linked => {
                 if t.context_sources.is_empty() {
                     return None;
                 }
-                (Glyph::Link, t.context_sources.len().to_string(), false)
+                (Glyph::Link, t.context_sources.len().to_string(), None)
             }
             Tab::Rules => {
                 if t.rules.is_empty() {
                     return None;
                 }
-                (Glyph::ShieldCheck, t.rules.len().to_string(), false)
+                (Glyph::ShieldCheck, t.rules.len().to_string(), None)
             }
             Tab::Chat => return None,
         })
@@ -307,28 +314,43 @@ impl Desktop {
         };
         match tab {
             Tab::Needs => {
-                for (i, a) in self
-                    .needs
-                    .iter()
-                    .filter_map(|n| attention(n, state))
-                    .enumerate()
-                {
-                    let page = a.page.clone();
-                    let here = self.page == page;
+                let groups = attention_groups(&self.needs, state);
+                let mut start = 0;
+                while start < groups.len() {
+                    let kind = groups[start].latest.kind;
+                    let end = groups[start..]
+                        .iter()
+                        .position(|g| g.latest.kind != kind)
+                        .map_or(groups.len(), |n| start + n);
+                    let (glyph, tone, _) = attention_glyph(kind);
                     body = body.child(
-                        line(format!("ov-need-{i}"), here)
-                            .child(mark(div().size(px(6.)).rounded_full().bg(rgb(UNREAD))))
-                            .child(div().flex_1().min_w_0().truncate().child(a.title.clone()))
-                            .child(ui::caption(a.kind).flex_none())
-                            .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx))),
+                        line(format!("ov-need-{kind}"), false)
+                            .child(mark(Icon::new(glyph).size(px(13.)).text_color(rgb(tone))))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(attention_section(kind)),
+                            )
+                            .child(
+                                ui::caption((end - start).to_string())
+                                    .flex_none()
+                                    .mr(px(20.)),
+                            )
+                            .on_click(cx.listener(move |s, _, w, cx| {
+                                s.go(Page::Topic(id, Tab::Needs, None), w, cx)
+                            })),
                     );
+                    start = end;
                 }
+                return body;
             }
             Tab::Tasks => {
                 let active: Vec<_> = state
                     .tasks
                     .iter()
-                    .filter(|t| t.column != Column::Done && !t.hidden())
+                    .filter(|t| !matches!(t.column, Column::Done | Column::NeedsYou) && !t.hidden())
                     .take(4)
                     .collect();
                 for task in active {

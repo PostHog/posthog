@@ -12,7 +12,7 @@ from products.meep.backend.board import apply_board_action
 from products.meep.backend.chat import start_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.files import choose_revision
-from products.meep.backend.models import CommandReceipt, Topic
+from products.meep.backend.models import ChatTurn, CommandReceipt, Topic
 from products.meep.backend.scouts import pause_scouts
 
 
@@ -32,7 +32,13 @@ def snapshot(topic: Topic) -> dict[str, Any]:
 
 @transaction.atomic
 def apply_command(
-    team_id: int, owner: User, command_id: UUID, topic_id: UUID, command: dict[str, Any]
+    team_id: int,
+    owner: User,
+    command_id: UUID,
+    topic_id: UUID,
+    command: dict[str, Any],
+    *,
+    delegated_parent: ChatTurn | None = None,
 ) -> dict[str, Any]:
     User.objects.select_for_update().only("pk").get(pk=owner.pk)
     topic = Topic.objects.for_team(team_id).filter(owner=owner, pk=topic_id).first()
@@ -61,7 +67,7 @@ def apply_command(
     else:
         if command["kind"] in {"DeleteTopic", "ArchiveTopic"}:
             pause_scouts(topic)
-        state = apply_board_action(topic, state, command)
+        state = apply_board_action(topic, state, command, delegated_parent=delegated_parent)
         if command.get("kind") == "Answer":
             choose_revision(topic, state, command, command_id)
         if command.get("kind") == "Chat":

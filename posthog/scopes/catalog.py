@@ -147,6 +147,7 @@ APIScopeObject = Literal[
     "field_note",
     "meep",
     "meep_scout",
+    "meep_task",
     "uploaded_media",
     "usage_metric",
     "user",

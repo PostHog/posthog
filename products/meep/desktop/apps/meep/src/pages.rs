@@ -1,7 +1,9 @@
 use super::*;
 use chrono::Utc;
 use meep_ui::gpui_kit::component::input::{Enter, Textarea};
-use meep_ui::gpui_kit::component::{Disableable, Icon, Sizable, switch::Switch};
+use meep_ui::gpui_kit::component::{
+    Disableable, Icon, Sizable, button::ButtonVariants as _, switch::Switch,
+};
 use std::collections::BTreeSet;
 
 pub(super) fn count(n: usize, word: &str) -> String {
@@ -18,7 +20,180 @@ pub(super) struct Attention {
     pub detail: String,
     pub page: Page,
     pub action: String,
+    pub task: Option<TaskId>,
+    pub version: Option<u64>,
+    pub since: Option<chrono::DateTime<Utc>>,
+    pub retry: bool,
 }
+
+pub(super) struct AttentionGroup {
+    pub latest: Attention,
+    pub earlier: Vec<Attention>,
+}
+
+pub(super) fn attention_rank(kind: &str) -> u8 {
+    match kind {
+        "Problem" => 0,
+        "Failed" => 1,
+        "Question" => 2,
+        "Approve" => 3,
+        "Assigned" => 4,
+        _ => 5,
+    }
+}
+
+pub(super) fn attention_word(kind: &str) -> &'static str {
+    match kind {
+        "Problem" => "broken connection",
+        "Failed" => "failed run",
+        "Question" => "question",
+        "Approve" => "approval",
+        "Assigned" => "task for you",
+        _ => "decision",
+    }
+}
+
+pub(super) fn attention_section(kind: &str) -> &'static str {
+    match kind {
+        "Problem" => "Broken connections",
+        "Failed" => "Failed runs",
+        "Question" => "Questions",
+        "Approve" => "Approvals",
+        "Assigned" => "Assigned to you",
+        _ => "Decisions",
+    }
+}
+
+pub(super) fn attention_tally(groups: &[AttentionGroup]) -> String {
+    let mut tally: Vec<(&'static str, usize)> = vec![];
+    for g in groups {
+        match tally.iter_mut().find(|t| t.0 == g.latest.kind) {
+            Some(t) => t.1 += 1,
+            None => tally.push((g.latest.kind, 1)),
+        }
+    }
+    tally.sort_by_key(|(kind, _)| attention_rank(kind));
+    tally
+        .iter()
+        .map(|(kind, n)| match (*n, attention_word(kind)) {
+            (1, word) => format!("1 {word}"),
+            (n, "task for you") => format!("{n} tasks for you"),
+            (n, word) => format!("{n} {word}s"),
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+pub(super) fn attention_groups(needs: &[NeedsYouItem], state: &TopicState) -> Vec<AttentionGroup> {
+    let mut groups: Vec<AttentionGroup> = vec![];
+    for a in needs.iter().filter_map(|n| attention(n, state)) {
+        let same = |g: &&mut AttentionGroup| {
+            false
+                && a.task.is_some()
+                && g.latest.task.is_some()
+                && g.latest.kind == a.kind
+                && g.latest.title.trim().eq_ignore_ascii_case(a.title.trim())
+        };
+        if let Some(g) = groups.iter_mut().find(|g| same(g)) {
+            if a.since > g.latest.since {
+                let older = std::mem::replace(&mut g.latest, a);
+                g.earlier.push(older);
+            } else {
+                g.earlier.push(a);
+            }
+            g.earlier.sort_by_key(|e| std::cmp::Reverse(e.since));
+        } else {
+            groups.push(AttentionGroup {
+                latest: a,
+                earlier: vec![],
+            });
+        }
+    }
+    groups.sort_by_key(|g| attention_rank(g.latest.kind));
+    groups
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum AttentionStep {
+    Open(Page),
+    Reconnect(String),
+    Retry(TaskId, u64),
+    Resolve(TaskId, u64),
+}
+
+pub(super) fn attention_plan(
+    kind: &str,
+    retry: bool,
+    page: &Page,
+    attempts: &[(TaskId, u64)],
+    dismiss: bool,
+) -> Vec<AttentionStep> {
+    let resolve = |list: &[(TaskId, u64)]| {
+        list.iter()
+            .map(|&(task, version)| AttentionStep::Resolve(task, version))
+            .collect::<Vec<_>>()
+    };
+    match (kind, attempts.first()) {
+        ("Problem", _) => match page {
+            Page::Topic(_, _, Some(Detail::Problem(connection))) => {
+                vec![AttentionStep::Reconnect(connection.clone())]
+            }
+            _ => vec![AttentionStep::Open(page.clone())],
+        },
+        ("Failed", Some(_)) if dismiss => resolve(attempts),
+        ("Failed", Some(&(task, version))) if retry => {
+            let mut plan = vec![AttentionStep::Retry(task, version)];
+            plan.extend(resolve(&attempts[1..]));
+            plan
+        }
+        ("Approve" | "Assigned", Some(&(task, version))) => {
+            vec![AttentionStep::Resolve(task, version)]
+        }
+        _ => vec![AttentionStep::Open(page.clone())],
+    }
+}
+
+pub(super) fn failure_reason(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let code = |c: &str| words.contains(&c);
+    let has = |phrase: &str| lower.contains(phrase);
+    let known = if code("402") || has("payment required") || has("billing") || has("credit balance")
+    {
+        Some("Model billing limit reached.")
+    } else if code("401") || code("403") || has("unauthorized") || has("invalid api key") {
+        Some("The model provider rejected the credentials.")
+    } else if code("429") || has("rate limit") {
+        Some("Rate limited by the model provider.")
+    } else if has("timed out") || has("timeout") {
+        Some("The run took too long and stopped.")
+    } else if code("500") || code("502") || code("503") || code("529") || has("overloaded") {
+        Some("Temporary model provider error.")
+    } else {
+        None
+    };
+    if let Some(known) = known {
+        return known.to_owned();
+    }
+    let line = raw
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    let line = match line.split_once(": ") {
+        Some((head, rest)) if head.contains('_') && !head.contains(' ') => rest,
+        _ => line,
+    };
+    if line.is_empty() {
+        "The run stopped before it finished.".to_owned()
+    } else {
+        line.to_owned()
+    }
+}
+
 /// The "you're done here" state: a check, "Nothing needs you", and a line
 /// on why. Needs you and a skipped-only inbox both use it.
 fn all_clear(why: impl Into<SharedString>) -> Div {
@@ -53,14 +228,23 @@ fn all_clear(why: impl Into<SharedString>) -> Div {
 }
 /// What kind of thing waits on you, as an icon on a tinted tile: a choice, a
 /// question, an approval, a run that failed, a broken connection.
-fn kind_tile(kind: &str) -> Stateful<Div> {
-    let (glyph, tone, name) = match kind {
+pub(super) fn attention_glyph(kind: &str) -> (Glyph, u32, &'static str) {
+    match kind {
         "Decide" => (Glyph::GitBranch, UNREAD, "Decision"),
         "Question" => (Glyph::MessageCircle, UNREAD, "Question"),
         "Approve" => (Glyph::ShieldCheck, ui::POSITIVE, "Approval"),
+        "Assigned" => (
+            Glyph::CircleUser,
+            ui::theme::color(ui::SECONDARY),
+            "Assigned to you",
+        ),
         "Problem" => (Glyph::Plug, warning(), "Broken connection"),
         _ => (Glyph::TriangleAlert, warning(), "Failed run"),
-    };
+    }
+}
+
+pub(super) fn kind_tile(kind: &str) -> Stateful<Div> {
+    let (glyph, tone, name) = attention_glyph(kind);
     // The icon is the kind; hover or a screen reader names it.
     div()
         .id(SharedString::from(format!("kind-{name}")))
@@ -88,71 +272,115 @@ pub(super) fn thread_tab(thread: &Thread) -> Tab {
 }
 pub(super) fn attention(n: &NeedsYouItem, state: &TopicState) -> Option<Attention> {
     let id = state.topic.id;
-    let (kind, title, detail, tab, item, action) = match n {
+    match n {
         NeedsYouItem::Decide {
             topic,
             thread,
             title,
             detail,
-        } if *topic == id => (
-            "Decide",
-            title,
-            detail,
-            state
+        } if *topic == id => {
+            let found = state
                 .threads
                 .iter()
-                .find(|item| item.id.to_string() == *thread)
-                .map_or(Tab::Facts, thread_tab),
-            Detail::Thread(thread.parse().ok()?),
-            "Decide",
-        ),
+                .find(|item| item.id.to_string() == *thread);
+            Some(Attention {
+                kind: "Decide",
+                title: title.clone(),
+                detail: detail.clone(),
+                page: Page::Topic(
+                    id,
+                    found.map_or(Tab::Facts, thread_tab),
+                    Some(Detail::Thread(thread.parse().ok()?)),
+                ),
+                action: "Decide".into(),
+                task: None,
+                version: None,
+                since: found.map(message_time),
+                retry: false,
+            })
+        }
         NeedsYouItem::Approve {
             topic,
             task,
             title,
             detail,
             action,
-        } if *topic == id => (
-            if action.as_deref() == Some("Reply") {
-                "Question"
+        } if *topic == id => {
+            let task_id: TaskId = task.parse().ok()?;
+            let t = state.tasks.iter().find(|t| t.id == task_id);
+            let in_chat = t.is_some_and(|t| t.is_session());
+            let failed = t.is_some_and(|t| {
+                !t.is_session()
+                    && t.column == Column::NeedsYou
+                    && t.input_question.is_none()
+                    && t.action.is_none()
+                    && !t.review_before_start
+                    && t.assignment.as_ref() != Some(&InboxAssignment::Human)
+                    && t.result.is_some()
+            });
+            let routine =
+                t.is_some_and(|t| matches!(t.assignment, Some(InboxAssignment::Routine(_))));
+            let question =
+                t.is_some_and(|t| t.input_question.is_some()) || action.as_deref() == Some("Reply");
+            let genuine = t.is_some_and(|t| t.action.is_some() || t.review_before_start) || in_chat;
+            let (kind, detail, action) = if failed {
+                (
+                    "Failed",
+                    failure_reason(t.and_then(|t| t.result.as_deref()).unwrap_or(detail)),
+                    if routine { "See why" } else { "Try again" }.to_owned(),
+                )
+            } else if question {
+                ("Question", detail.clone(), "Reply".to_owned())
+            } else if genuine {
+                let detail = if !detail.trim().is_empty() {
+                    detail.clone()
+                } else if t.is_some_and(|t| t.review_before_start) {
+                    "Starts once you approve.".to_owned()
+                } else {
+                    "Waiting for your approval.".to_owned()
+                };
+                (
+                    "Approve",
+                    detail,
+                    action.clone().unwrap_or_else(|| "Approve".into()),
+                )
             } else {
-                "Approve"
-            },
-            title,
-            detail,
-            Tab::Tasks,
-            Detail::Task(task.parse().ok()?),
-            action.as_deref().unwrap_or("Approve"),
-        ),
+                ("Assigned", detail.clone(), "Mark done".to_owned())
+            };
+            Some(Attention {
+                kind,
+                title: title.clone(),
+                detail,
+                page: if in_chat {
+                    Page::Topic(id, Tab::Chat, None)
+                } else {
+                    Page::Topic(id, Tab::Tasks, Some(Detail::Task(task_id)))
+                },
+                action,
+                task: Some(task_id),
+                version: t.map(|t| t.review_version),
+                since: t.map(|t| t.updated_at),
+                retry: failed && !routine,
+            })
+        }
         NeedsYouItem::Problem {
             topics,
             connection,
             title,
             detail,
-        } if topics.contains(&id) => (
-            "Problem",
-            title,
-            detail,
-            Tab::Routines,
-            Detail::Problem(connection.clone()),
-            "Reconnect",
-        ),
-        _ => return None,
-    };
-    // The conversation's own permission prompt is answered in the chat.
-    let in_chat = matches!(n, NeedsYouItem::Approve { task, .. }
-        if state.tasks.iter().any(|t| t.is_session() && t.id.to_string() == *task));
-    Some(Attention {
-        kind,
-        title: title.clone(),
-        detail: detail.clone(),
-        page: if in_chat {
-            Page::Topic(id, Tab::Chat, None)
-        } else {
-            Page::Topic(id, tab, Some(item))
-        },
-        action: action.into(),
-    })
+        } if topics.contains(&id) => Some(Attention {
+            kind: "Problem",
+            title: title.clone(),
+            detail: detail.clone(),
+            page: Page::Topic(id, Tab::Routines, Some(Detail::Problem(connection.clone()))),
+            action: "Reconnect".into(),
+            task: None,
+            version: None,
+            since: None,
+            retry: false,
+        }),
+        _ => None,
+    }
 }
 /// Opening the inspector marks a thread seen. Its displayed date follows the conversation.
 pub(super) fn message_time(t: &Thread) -> chrono::DateTime<Utc> {
@@ -675,12 +903,13 @@ impl Desktop {
         for state in &self.states {
             let id = state.topic.id;
             // Connection problems are listed once, above the topics they affect.
-            let rows: Vec<_> = self
+            let needs: Vec<NeedsYouItem> = self
                 .needs
                 .iter()
                 .filter(|n| !matches!(n, NeedsYouItem::Problem { .. }))
-                .filter_map(|n| attention(n, state))
+                .cloned()
                 .collect();
+            let rows = attention_groups(&needs, state);
             let approved = self
                 .just_approved
                 .filter(|a| a.0 == id)
@@ -730,195 +959,11 @@ impl Desktop {
                         })),
                 );
             // A topic's items sit together on one card under its name.
-            let mut section = ui::column()
-                .gap_0()
-                .flex_none()
-                .rounded(px(12.))
-                .border_1()
-                .border_color(ui::ink(0x10))
-                .overflow_hidden();
-            for (i, mut a) in rows.into_iter().enumerate() {
-                let page = a.page.clone();
-                let review_page = a.page.clone();
-                let dest = a.page;
-                let task = match &dest {
-                    Page::Topic(_, _, Some(Detail::Task(id))) => {
-                        state.tasks.iter().find(|t| t.id == *id)
-                    }
-                    // The conversation's own prompt: its row opens the chat.
-                    Page::Topic(_, Tab::Chat, None) => state.tasks.iter().find(|t| {
-                        t.is_session() && t.column == Column::NeedsYou && t.action.is_some()
-                    }),
-                    _ => None,
-                };
-                let prompt = task.filter(|t| t.is_session()).map(|t| t.id);
-                let review = task.map(|t| t.review_version);
-                // How long it has waited: the thread's last message, or the
-                // task's last change.
-                let since = match &dest {
-                    Page::Topic(_, _, Some(Detail::Thread(t))) => state
-                        .threads
-                        .iter()
-                        .find(|th| th.id == *t)
-                        .map(message_time),
-                    _ => task.map(|t| t.updated_at),
-                };
-                // A run that could not start waits on the person with no
-                // proposed action; it reads as that, not as its error text.
-                let failed = task.is_some_and(|t| {
-                    t.column == Column::NeedsYou
-                        && t.action.is_none()
-                        && !t.review_before_start
-                        && t.assignment.as_ref() != Some(&InboxAssignment::Human)
-                        && t.result.is_some()
-                });
-                // A routine retries itself; only other work is sent back.
-                let retry = failed
-                    && !task
-                        .is_some_and(|t| matches!(t.assignment, Some(InboxAssignment::Routine(_))));
-                if failed {
-                    a.kind = "Needs attention";
-                    a.detail = if retry {
-                        "It couldn’t start. Try again runs it from the beginning."
-                    } else {
-                        "It couldn’t start. See why opens the run and its error."
-                    }
-                    .into();
-                    a.action = if retry { "Try again" } else { "See why" }.into();
-                }
-                tally_one(a.kind);
-                let button = control(
-                    format!("attention-act-{id}-{i}"),
-                    a.action,
-                    false,
-                    cx,
-                    move |s, w, cx| match &dest {
-                        Page::Topic(_, _, Some(Detail::Task(task))) if retry => {
-                            if let Some(version) = review {
-                                s.issue(
-                                    id,
-                                    Command::SendBack {
-                                        task: *task,
-                                        expected_review: Some(version),
-                                        note: String::new(),
-                                    },
-                                );
-                            }
-                        }
-                        Page::Topic(_, _, Some(Detail::Task(_))) if failed => {
-                            s.go(dest.clone(), w, cx)
-                        }
-                        Page::Topic(_, _, Some(Detail::Task(task)))
-                            if let Some(version) = review =>
-                        {
-                            s.approve(id, *task, version, None)
-                        }
-                        Page::Topic(_, Tab::Chat, None)
-                            if let (Some(task), Some(version)) = (prompt, review) =>
-                        {
-                            s.approve(id, task, version, None)
-                        }
-                        Page::Topic(_, _, Some(Detail::Problem(connection))) => {
-                            s.issue(
-                                id,
-                                Command::Reconnect {
-                                    connection: connection.clone(),
-                                },
-                            );
-                        }
-                        _ => s.go(dest.clone(), w, cx),
-                    },
-                );
-                section = section.child(
-                    line(format!("attention-row-{id}-{i}"), false)
-                        // Icon, title and age share the row's top line.
-                        .items_start()
-                        .px(px(14.))
-                        .py(px(12.))
-                        .gap(px(14.))
-                        .rounded_none()
-                        .when(i > 0, |r| r.border_t_1().border_color(ui::ink(0x0d)))
-                        .child(kind_tile(a.kind).self_start())
-                        .child(
-                            ui::column()
-                                .flex_1()
-                                .min_w_0()
-                                .gap(px(3.))
-                                .child(
-                                    // Two lines before a long title gives way.
-                                    div()
-                                        .min_w_0()
-                                        .text_size(px(14.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .line_clamp(2)
-                                        .child(short_subject(&a.title)),
-                                )
-                                // Agent text can be markdown; one plain sentence previews it.
-                                .child(
-                                    ui::caption(plain_line(
-                                        a.detail
-                                            .split("\n\n")
-                                            .find(|p| !p.trim().is_empty())
-                                            .unwrap_or_default(),
-                                    ))
-                                    // The why behind the ask: two lines before it gives way.
-                                    .line_clamp(2),
-                                ),
-                        )
-                        // When it arrived, then what to do about it. Past a day of
-                        // waiting, the age turns amber.
-                        .child(
-                            ui::column()
-                                .flex_none()
-                                .self_start()
-                                .items_end()
-                                .gap(px(6.))
-                                .children(since.map(|at| {
-                                    let waited = Utc::now() - at;
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(rgb(if waited > chrono::Duration::days(1) {
-                                            warning()
-                                        } else {
-                                            ui::theme::color(ui::TERTIARY)
-                                        }))
-                                        .child(ago(waited))
-                                }))
-                                .child(
-                                    ui::row()
-                                        .gap(px(4.))
-                                        // An approval acts at once; Review opens what it would send.
-                                        .when(a.kind == "Approve", |r| {
-                                            let open = review_page.clone();
-                                            r.child(
-                                                div()
-                                                    .id(SharedString::from(format!(
-                                                        "attention-review-{id}-{i}"
-                                                    )))
-                                                    .role(Role::Link)
-                                                    .flex_none()
-                                                    .self_center()
-                                                    .px(px(6.))
-                                                    .cursor_pointer()
-                                                    .text_size(px(13.))
-                                                    .text_color(rgb(ui::theme::color(
-                                                        ui::SECONDARY,
-                                                    )))
-                                                    .hover(|s| {
-                                                        s.text_color(rgb(ui::theme::color(ui::INK)))
-                                                    })
-                                                    .child("Review")
-                                                    .on_click(cx.listener(move |s, _, w, cx| {
-                                                        cx.stop_propagation();
-                                                        s.go(open.clone(), w, cx)
-                                                    })),
-                                            )
-                                        })
-                                        .child(button.w(px(116.)).flex_none()),
-                                ),
-                        )
-                        .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx))),
-                );
+            let mut section = ui::column().gap_0().flex_none().mx(px(-12.));
+            for (i, group) in rows.iter().enumerate() {
+                tally_one(group.latest.kind);
+                section =
+                    section.child(self.attention_row(id, &format!("{id}-{i}"), group, i == 0, cx));
             }
             if let Some(task) = approved {
                 showed_approval = true;
@@ -927,27 +972,12 @@ impl Desktop {
             body = body.child(ui::column().gap_0().child(heading).child(section));
         }
         // "1 failed run · 3 decisions · across 3 topics": what is broken first.
-        let rank = |kind: &str| match kind {
-            "Problem" => 0,
-            "Needs attention" => 1,
-            "Approve" => 2,
-            "Decide" => 3,
-            _ => 4,
-        };
-        tally.sort_by_key(|(kind, _)| rank(kind));
+        tally.sort_by_key(|(kind, _)| attention_rank(kind));
         let mut parts: Vec<String> = tally
             .iter()
-            .map(|(kind, n)| {
-                count(
-                    *n,
-                    match *kind {
-                        "Decide" => "decision",
-                        "Question" => "question",
-                        "Approve" => "approval",
-                        "Problem" => "broken connection",
-                        _ => "failed run",
-                    },
-                )
+            .map(|(kind, n)| match (*n, attention_word(kind)) {
+                (n, "task for you") if n > 1 => format!("{n} tasks for you"),
+                (n, word) => count(n, word),
             })
             .collect();
         if topics > 1 {
@@ -1120,7 +1150,10 @@ impl Desktop {
             body = body.child(self.task_composer(w, cx));
         }
         // Every page keeps the conversation one line away, about what it shows.
-        let talks = task.is_none() && !(tab == Tab::Chat && detail.is_none()) && !self.new_routine;
+        let talks = task.is_none()
+            && !(tab == Tab::Chat && detail.is_none())
+            && !(tab == Tab::Needs && detail.is_none())
+            && !self.new_routine;
         if talks {
             let answering = Self::chat_answer_in_progress(state).map(|t| t.id);
             body = body.child(
@@ -1161,7 +1194,18 @@ impl Desktop {
                     .map(|x| (None, x.label.clone())),
                 _ => None,
             };
-            crumb_bar(topic_crumbs(id, &topic.name, tab, current, cx), None, tools)
+            crumb_bar(
+                topic_crumbs(
+                    id,
+                    &topic.name,
+                    Some(&topic.display_icon()),
+                    tab,
+                    current,
+                    cx,
+                ),
+                None,
+                tools,
+            )
         });
         ui::column()
             .size_full()
@@ -1277,53 +1321,57 @@ impl Desktop {
     }
     /// The topic's own Needs you: its decisions, approvals and problems.
     fn topic_needs(&self, state: &TopicState, cx: &Context<Self>) -> Div {
-        let items: Vec<_> = self
-            .needs
-            .iter()
-            .filter_map(|n| attention(n, state))
-            .collect();
-        if items.is_empty() {
-            return ui::column()
-                .w_full()
-                .max_w(px(720.))
-                .mx_auto()
-                .pt(px(40.))
-                .items_center()
-                .child(ui::caption("Nothing needs you here."));
-        }
-        let mut list = ui::column().w_full().max_w(px(720.)).mx_auto();
-        for (i, a) in items.into_iter().enumerate() {
-            let page = a.page.clone();
-            list = list.child(
-                ui::row()
-                    .id(SharedString::from(format!("topic-need-{i}")))
-                    .gap(px(12.))
-                    .px(px(12.))
-                    // The dot hangs in the margin, as in the inbox.
-                    .ml(px(-31.))
-                    .mr(px(-12.))
-                    .py(px(10.))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(ui::ink(0x06)))
-                    .child(div().size(px(7.)).rounded_full().bg(rgb(UNREAD)))
-                    .child(
-                        ui::column()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(a.title.clone()),
-                            )
-                            .child(ui::caption(a.detail.clone()).truncate()),
-                    )
-                    .child(ui::caption(a.kind))
-                    .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx))),
+        let id = state.topic.id;
+        let groups = attention_groups(&self.needs, state);
+        if groups.is_empty() {
+            return all_clear(
+                "Failed runs, questions and approvals from this topic show up here. \
+                 Everything else it does on its own.",
             );
         }
-        list
+        let mut page = ui::column().w_full().gap(px(20.)).pt(px(4.)).pb(px(40.));
+        let mut start = 0;
+        while start < groups.len() {
+            let kind = groups[start].latest.kind;
+            let end = groups[start..]
+                .iter()
+                .position(|g| g.latest.kind != kind)
+                .map_or(groups.len(), |n| start + n);
+            let mut rows = ui::column().gap_0().mx(px(-12.));
+            for (n, group) in groups[start..end].iter().enumerate() {
+                rows = rows.child(self.attention_row(
+                    id,
+                    &format!("{id}-{}", start + n),
+                    group,
+                    n == 0,
+                    cx,
+                ));
+            }
+            page = page.child(
+                ui::column()
+                    .gap_0()
+                    .child(
+                        ui::row()
+                            .gap(px(6.))
+                            .pb(px(2.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                    .child(attention_section(kind)),
+                            )
+                            .child(
+                                div()
+                                    .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                    .child((end - start).to_string()),
+                            ),
+                    )
+                    .child(rows),
+            );
+            start = end;
+        }
+        page
     }
     fn inbox(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Div {
         // These match the fixed two-line rows and section headings below. Keep
@@ -2513,15 +2561,16 @@ impl Desktop {
                     .into_any_element(),
             );
         }
+        let topic = self
+            .states
+            .iter()
+            .find(|s| s.topic.id == id)
+            .map(|s| &s.topic);
         crumb_bar(
             topic_crumbs(
                 id,
-                &self
-                    .states
-                    .iter()
-                    .find(|s| s.topic.id == id)
-                    .map(|s| s.topic.name.clone())
-                    .unwrap_or_default(),
+                topic.map_or("", |topic| topic.name.as_str()),
+                topic.map(Topic::display_icon).as_ref(),
                 Tab::Routines,
                 Some((None, r.binding.name.clone())),
                 cx,
@@ -3220,4 +3269,327 @@ fn goal_card(id: TopicId, g: &meep_topic::Goal, cx: &Context<Desktop>) -> AnyEle
                 .rounded(px(3.)),
         )
         .into_any_element()
+}
+
+impl Desktop {
+    fn act_on_attention(
+        &mut self,
+        topic: TopicId,
+        plan: Vec<AttentionStep>,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for step in plan {
+            match step {
+                AttentionStep::Open(page) => self.go(page, w, cx),
+                AttentionStep::Reconnect(connection) => {
+                    self.issue(topic, Command::Reconnect { connection });
+                }
+                AttentionStep::Retry(task, version) => {
+                    if !self.issue(
+                        topic,
+                        Command::SendBack {
+                            task,
+                            expected_review: Some(version),
+                            note: String::new(),
+                        },
+                    ) {
+                        return;
+                    }
+                }
+                AttentionStep::Resolve(task, version) => self.approve(topic, task, version, None),
+            }
+        }
+    }
+
+    pub(super) fn needs_count(&self) -> usize {
+        let problems = self
+            .needs
+            .iter()
+            .filter(|n| matches!(n, NeedsYouItem::Problem { .. }))
+            .count();
+        let rest: Vec<NeedsYouItem> = self
+            .needs
+            .iter()
+            .filter(|n| !matches!(n, NeedsYouItem::Problem { .. }))
+            .cloned()
+            .collect();
+        problems
+            + self
+                .states
+                .iter()
+                .map(|state| attention_groups(&rest, state).len())
+                .sum::<usize>()
+    }
+
+    pub(super) fn attention_row(
+        &self,
+        topic: TopicId,
+        key: &str,
+        group: &AttentionGroup,
+        first: bool,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        let a = &group.latest;
+        let kind = a.kind;
+        let retry = a.retry;
+        let page = a.page.clone();
+        let attempts: std::sync::Arc<Vec<(TaskId, u64)>> = std::sync::Arc::new(
+            std::iter::once(a)
+                .chain(&group.earlier)
+                .filter_map(|e| Some((e.task?, e.version?)))
+                .collect(),
+        );
+        let (glyph, tone, name) = attention_glyph(kind);
+        let quiet = rgb(ui::theme::color(ui::TERTIARY));
+        let primary = {
+            let page = page.clone();
+            let attempts = attempts.clone();
+            control(
+                format!("attention-act-{key}"),
+                a.action.clone(),
+                false,
+                cx,
+                move |s, w, cx| {
+                    let plan = attention_plan(kind, retry, &page, &attempts, false);
+                    s.act_on_attention(topic, plan, w, cx)
+                },
+            )
+            .min_w(px(84.))
+        };
+        let secondary = match kind {
+            "Failed" if retry => Some("Dismiss"),
+            "Approve" | "Assigned" => Some("Review"),
+            _ => None,
+        }
+        .map(|label| {
+            let page = page.clone();
+            let attempts = attempts.clone();
+            ui::button(SharedString::from(format!("attention-alt-{key}")), label)
+                .h(px(28.))
+                .px(px(10.))
+                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                .on_click(cx.listener(move |s, _, w, cx| {
+                    cx.stop_propagation();
+                    if label == "Dismiss" {
+                        let plan = attention_plan(kind, retry, &page, &attempts, true);
+                        s.act_on_attention(topic, plan, w, cx)
+                    } else {
+                        s.go(page.clone(), w, cx)
+                    }
+                    cx.notify()
+                }))
+        });
+        let mut meta = ui::row()
+            .flex_wrap()
+            .gap(px(6.))
+            .text_size(px(12.))
+            .text_color(quiet);
+        if let Some(at) = a.since {
+            let waited = Utc::now() - at;
+            meta = meta.child(
+                div()
+                    .when(waited > chrono::Duration::days(1), |d| {
+                        d.text_color(rgb(warning()))
+                    })
+                    .child(ago(waited)),
+            );
+        }
+        if kind == "Failed" || !group.earlier.is_empty() {
+            let tries = group.earlier.len() + 1;
+            let mut runs: Vec<&Attention> = group.earlier.iter().collect();
+            runs.reverse();
+            runs.push(a);
+            if a.since.is_some() {
+                meta = meta.child("·");
+            }
+            if tries > 1 {
+                meta = meta
+                    .child(if tries == 2 {
+                        "Tried twice".to_owned()
+                    } else {
+                        format!("Tried {tries} times")
+                    })
+                    .child("·");
+            }
+            meta = meta.child(if tries == 1 { "Run" } else { "Runs" });
+            for (n, run) in runs.into_iter().enumerate() {
+                let dest = run.page.clone();
+                let when = run
+                    .since
+                    .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
+                    .unwrap_or_else(|| format!("{}", n + 1));
+                meta = meta.child(
+                    Button::new(SharedString::from(format!("attention-run-{key}-{n}")))
+                        .ghost()
+                        .h(px(18.))
+                        .px(px(3.))
+                        .mx(px(-3.))
+                        .rounded(px(4.))
+                        .role(Role::Link)
+                        .accessibility_label(format!("Open run from {when}"))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .underline()
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                .child(when),
+                        )
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            cx.stop_propagation();
+                            s.go(dest.clone(), w, cx)
+                        })),
+                );
+            }
+        }
+        let detail = plain_line(
+            a.detail
+                .split("\n\n")
+                .find(|p| !p.trim().is_empty())
+                .unwrap_or_default(),
+        );
+        line(format!("attention-row-{key}"), false)
+            .items_start()
+            .px(px(12.))
+            .py(px(12.))
+            .gap(px(12.))
+            .rounded(px(8.))
+            .when(!first, |r| r.mt(px(2.)))
+            .child(
+                div()
+                    .id(SharedString::from(format!("attention-kind-{key}")))
+                    .aria_label(name)
+                    .flex_none()
+                    .mt(px(2.))
+                    .child(Icon::new(glyph).size(px(16.)).text_color(rgb(tone))),
+            )
+            .child(
+                ui::column()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_size(px(14.))
+                            .line_height(relative(1.35))
+                            .font_weight(FontWeight::MEDIUM)
+                            .line_clamp(2)
+                            .child(short_subject(&a.title)),
+                    )
+                    .when(!detail.is_empty(), |c| {
+                        c.child(
+                            div()
+                                .text_size(px(13.))
+                                .line_height(relative(1.45))
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                .line_clamp(2)
+                                .child(detail),
+                        )
+                    })
+                    .child(meta),
+            )
+            .child(
+                ui::row()
+                    .flex_none()
+                    .self_center()
+                    .gap(px(4.))
+                    .children(secondary)
+                    .child(primary),
+            )
+            .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn needs_you_separates_failures_questions_and_approvals_and_folds_retries() {
+        let at = chrono::DateTime::parse_from_rfc3339("2026-01-05T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let id = TopicId(Uuid::new_v4());
+        let mut state = TopicState::new(Topic::new(id, "Brief", at));
+        let mut add = |title: &str, minutes: i64, shape: &dyn Fn(&mut meep_topic::Task)| {
+            let task = TaskId(Uuid::new_v4());
+            state.add_task(task, title, Actor::Agent, None, at).unwrap();
+            let t = state.tasks.iter_mut().find(|t| t.id == task).unwrap();
+            t.column = Column::NeedsYou;
+            t.updated_at = at + chrono::Duration::minutes(minutes);
+            shape(t);
+            task
+        };
+        let failed =
+            |t: &mut meep_topic::Task| t.result = Some("agent_error: API Error: 402".into());
+        let first = add("Make the checklist", 1, &failed);
+        let second = add("Make the checklist", 9, &failed);
+        add("Confirm the time zone", 5, &|t| {
+            t.input_question = Some("Berlin or New York?".into())
+        });
+        add("Book the room", 3, &|t| t.review_before_start = true);
+        let needs = meep_wire::NeedsYou::from_states([&state], std::iter::empty()).items;
+        let groups = attention_groups(&needs, &state);
+        let shown: Vec<_> = groups
+            .iter()
+            .map(|g| {
+                (
+                    g.latest.kind,
+                    g.latest.title.as_str(),
+                    g.latest.detail.as_str(),
+                    g.latest.action.as_str(),
+                    g.earlier.len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "Failed",
+                    "Make the checklist",
+                    "Model billing limit reached.",
+                    "Try again",
+                    1
+                ),
+                (
+                    "Question",
+                    "Confirm the time zone",
+                    "Berlin or New York?",
+                    "Reply",
+                    0
+                ),
+                (
+                    "Approve",
+                    "Book the room",
+                    "Starts once you approve.",
+                    "Approve start",
+                    0
+                ),
+            ]
+        );
+        assert_eq!(groups[0].latest.task, Some(second));
+        let page = groups[0].latest.page.clone();
+        let attempts = [(second, 0), (first, 0)];
+        assert_eq!(
+            attention_plan("Failed", true, &page, &attempts, false),
+            [
+                AttentionStep::Retry(second, 0),
+                AttentionStep::Resolve(first, 0)
+            ]
+        );
+        assert_eq!(
+            attention_plan("Failed", true, &page, &attempts, true),
+            [
+                AttentionStep::Resolve(second, 0),
+                AttentionStep::Resolve(first, 0)
+            ]
+        );
+        assert_eq!(
+            attention_tally(&groups),
+            "1 failed run · 1 question · 1 approval"
+        );
+    }
 }

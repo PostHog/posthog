@@ -2,6 +2,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
@@ -105,14 +106,23 @@ def finish_turn(run_id: UUID, team_id: int) -> None:
         User.objects.select_for_update().only("pk").get(pk=turn.topic.owner_id)
         if ChatTurn.objects.filter(pk=turn.pk, finished_at=None).update(reply=str(reply), finished_at=timezone.now()):
             topic = Topic.objects.for_team(team_id).select_for_update().get(pk=turn.topic_id)
+            if run.status == "cancelled":
+                origin = turn.target_message_id or turn.message_id
+                related = topic.turns.filter(Q(message_id=origin) | Q(target_message_id=origin))
+                topic.board_runs.filter(parent_turn__in=related).update(notified=True)
+                topic.child_waits.filter(turn__in=related, status="waiting").update(status="cancelled")
             topic.revision += 1
             for thread in topic.state.get("threads", []):
-                if thread["id"] == str(turn.message_id):
+                if thread["id"] == str(turn.target_message_id or turn.message_id):
                     thread["state"] = "Handled"
                     thread.setdefault("outcomes", []).append({"Reply": {"to": "User", "text": str(reply)}})
                     break
             topic.save(update_fields=["revision", "state"])
             CommandReceipt.objects.create(command_id=uuid4(), topic=topic, revision=topic.revision)
+            if topic.board_runs.filter(parent_turn__isnull=False, notified=False).exists():
+                from products.meep.backend.tasks import reconcile_topic_tasks  # noqa: PLC0415
+
+                transaction.on_commit(lambda: reconcile_topic_tasks.delay(team_id, str(topic.pk)), robust=True)
 
 
 def run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -132,4 +142,8 @@ def run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) -> None:
     if isinstance(instance.state, dict) and (
         instance.state.get("meep_topic_id") or instance.state.get("resume_from_run_id")
     ):
+        if instance.state.get("resume_from_run_id") and instance.origin_product == MEEP.origin_product:
+            from products.meep.backend.board import finish_board  # noqa: PLC0415
+
+            transaction.on_commit(lambda: finish_board(instance.id, instance.team_id), robust=True)
         transaction.on_commit(lambda: finish_turn(instance.id, instance.team_id), robust=True)

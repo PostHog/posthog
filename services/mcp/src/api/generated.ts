@@ -76258,6 +76258,61 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    export interface MeepTaskAnswer {
+      /** A stable ID for this answer, reused when retrying. */
+      request_id: string;
+      /** The board item asking for input. */
+      item_id: string;
+      /** The run ID that asked the question. */
+      question_run_id: string;
+      /**
+         * The person's answer to the child task.
+         * @maxLength 16000
+         */
+      answer: string;
+    }
+
+    export interface MeepTaskStart {
+      /** A stable ID for this request, reused when retrying. */
+      request_id: string;
+      /**
+         * A short title for the board task.
+         * @maxLength 255
+         */
+      title: string;
+      /**
+         * The independent work and expected result.
+         * @maxLength 16000
+         */
+      brief: string;
+    }
+
+    export interface MeepTaskStartResult {
+      /** The created board item ID. */
+      item_id: string;
+      /** The child task ID. */
+      task_id: string;
+      /** The child run ID. */
+      run_id: string;
+    }
+
+    export interface MeepTaskWait {
+      /** A stable ID for this wait, reused when retrying. */
+      request_id: string;
+      /**
+         * Up to 20 board item IDs to wait for.
+         * @maxItems 20
+         */
+      item_ids: string[];
+    }
+
+    export interface MeepTaskWaitResult {
+      /** The wait status. */
+      status: string;
+      /** The selected board item IDs. */
+      item_ids: string[];
+    }
+
     export interface MeepTopic {
       readonly id: string;
       /** @maxLength 255 */

@@ -295,6 +295,10 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    from posthog.products import load_product_modules  # noqa: PLC0415
+
+    for module in load_product_modules("periodic_tasks"):
+        module.register_periodic_tasks(sender)
     if settings.QUOTA_LIMITING_REDIS_URL:
         add_periodic_task_with_expiry(
             sender,

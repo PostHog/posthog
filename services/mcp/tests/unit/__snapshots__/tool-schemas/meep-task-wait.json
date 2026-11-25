@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "item_ids": {
+            "description": "Up to 20 board item IDs to wait for.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "request_id": {
+            "description": "A stable ID for this wait, reused when retrying.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "request_id", "item_ids"],
+    "type": "object"
+}

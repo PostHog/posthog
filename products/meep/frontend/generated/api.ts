@@ -13,6 +13,11 @@ import type {
     MeepScoutApi,
     MeepScoutCreateApi,
     MeepScoutStatusApi,
+    MeepTaskAnswerApi,
+    MeepTaskStartApi,
+    MeepTaskStartResultApi,
+    MeepTaskWaitApi,
+    MeepTaskWaitResultApi,
     MeepTopicApi,
     MeepTopicDetailsApi,
     MeepTopicsListParams,
@@ -146,5 +151,59 @@ export const meepTopicsCreateScout = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(meepScoutCreateApi),
+    })
+}
+
+export const getMeepTopicsAnswerTaskUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/tasks/answer/`
+}
+
+export const meepTopicsAnswerTask = async (
+    projectId: string,
+    id: string,
+    meepTaskAnswerApi: MeepTaskAnswerApi,
+    options?: RequestInit
+): Promise<MeepTaskStartResultApi> => {
+    return apiMutator<MeepTaskStartResultApi>(getMeepTopicsAnswerTaskUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepTaskAnswerApi),
+    })
+}
+
+export const getMeepTopicsStartTaskUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/tasks/start/`
+}
+
+export const meepTopicsStartTask = async (
+    projectId: string,
+    id: string,
+    meepTaskStartApi: MeepTaskStartApi,
+    options?: RequestInit
+): Promise<MeepTaskStartResultApi> => {
+    return apiMutator<MeepTaskStartResultApi>(getMeepTopicsStartTaskUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepTaskStartApi),
+    })
+}
+
+export const getMeepTopicsWaitTasksUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/tasks/wait/`
+}
+
+export const meepTopicsWaitTasks = async (
+    projectId: string,
+    id: string,
+    meepTaskWaitApi: MeepTaskWaitApi,
+    options?: RequestInit
+): Promise<MeepTaskWaitResultApi> => {
+    return apiMutator<MeepTaskWaitResultApi>(getMeepTopicsWaitTasksUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepTaskWaitApi),
     })
 }

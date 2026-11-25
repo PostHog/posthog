@@ -13,6 +13,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
         "context_layer_internal",
         # Topic-bound native scout operations issued only to private Meep task sessions.
         "meep_scout",
+        "meep_task",
         # Files a suggestion on a workflow, and nothing else. Programmatic-only so no personal key,
         # OAuth app or logged-in session can queue one: PostHog's own scout is the only producer, and
         # a person resolves suggestions rather than writing them.

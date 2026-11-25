@@ -38414,6 +38414,141 @@
             "validators": []
         }
     },
+    "meep-task-answer": {
+        "name": "meep-task-answer",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/tasks/answer/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "request_id",
+                    "key": "request_id"
+                },
+                {
+                    "param": "item_id",
+                    "key": "item_id"
+                },
+                {
+                    "param": "question_run_id",
+                    "key": "question_run_id"
+                },
+                {
+                    "param": "answer",
+                    "key": "answer"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "meep-task-start": {
+        "name": "meep-task-start",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/tasks/start/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "request_id",
+                    "key": "request_id"
+                },
+                {
+                    "param": "title",
+                    "key": "title"
+                },
+                {
+                    "param": "brief",
+                    "key": "brief"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "meep-task-wait": {
+        "name": "meep-task-wait",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/tasks/wait/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "request_id",
+                    "key": "request_id"
+                },
+                {
+                    "param": "item_ids",
+                    "key": "item_ids"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "meep-topic-get": {
         "name": "meep-topic-get",
         "kind": "http",

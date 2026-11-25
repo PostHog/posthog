@@ -3,6 +3,7 @@ use chrono::Utc;
 use meep_protocol::sessions::{AgentApproval, AgentMessage, AgentSession};
 use meep_ui::gpui_kit::component::{
     Disableable, Icon, Sizable,
+    button::ButtonVariants as _,
     input::{Enter, Textarea},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
 };
@@ -11,6 +12,376 @@ use meep_ui::gpui_kit::component::{
 pub(super) const PAGE_X: f32 = 24.;
 /// Space between the crumb bar and a screen's first line.
 pub(super) const PAGE_TOP: f32 = 16.;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ChatTask {
+    id: TaskId,
+    title: String,
+    column: Column,
+    stalled: bool,
+    detail: String,
+    started: chrono::DateTime<Utc>,
+    updated: chrono::DateTime<Utc>,
+}
+
+impl ChatTask {
+    fn new(task: &meep_topic::Task) -> Self {
+        let first_line = |text: &str| {
+            text.lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let stalled = task.column == Column::NeedsYou
+            && task.input_question.is_none()
+            && task.action.is_none()
+            && !task.review_before_start
+            && task.assignment.as_ref() != Some(&InboxAssignment::Human)
+            && task.result.is_some();
+        let detail = match task.column {
+            Column::NeedsYou if let Some(question) = &task.input_question => first_line(question),
+            Column::NeedsYou if stalled => {
+                super::pages::failure_reason(task.result.as_deref().unwrap_or_default())
+            }
+            Column::NeedsYou if task.review_before_start => "Starts once you approve".to_owned(),
+            Column::NeedsYou => task.action.as_ref().map_or_else(
+                || "Waiting for your approval".to_owned(),
+                |action| format!("Approve “{}”", action.label),
+            ),
+            Column::InProgress => "Working".to_owned(),
+            Column::Todo if task.queued => "Waiting to start".to_owned(),
+            Column::Todo => "Not started".to_owned(),
+            Column::Done => task
+                .result
+                .as_deref()
+                .map(first_line)
+                .filter(|line| !line.is_empty())
+                .unwrap_or_else(|| "Done".to_owned()),
+        };
+        Self {
+            id: task.id,
+            title: meep_topic::title_line(&task.title).to_owned(),
+            column: task.column,
+            stalled,
+            detail,
+            started: task.created_at,
+            updated: task.updated_at,
+        }
+    }
+
+    fn status(&self) -> &'static str {
+        match self.column {
+            _ if self.stalled => "Failed",
+            Column::Todo => "Queued",
+            Column::InProgress => "Working",
+            Column::NeedsYou => "Needs you",
+            Column::Done => "Done",
+        }
+    }
+
+    fn elapsed(&self, now: chrono::DateTime<Utc>) -> Option<String> {
+        let end = match self.column {
+            Column::Todo => return None,
+            Column::InProgress => now,
+            Column::NeedsYou | Column::Done => self.updated,
+        };
+        let seconds = (end - self.started).num_seconds().max(0);
+        Some(if seconds >= 3600 {
+            format!(
+                "{}:{:02}:{:02}",
+                seconds / 3600,
+                seconds / 60 % 60,
+                seconds % 60
+            )
+        } else {
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        })
+    }
+
+    fn tone(&self) -> u32 {
+        match self.column {
+            _ if self.stalled => warning(),
+            Column::NeedsYou => super::pages::UNREAD,
+            _ => ui::theme::color(ui::SECONDARY),
+        }
+    }
+
+    fn mark(&self) -> Div {
+        if self.stalled {
+            div()
+                .flex_none()
+                .size(px(14.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Icon::new(Glyph::TriangleAlert)
+                        .size(px(13.))
+                        .text_color(rgb(warning())),
+                )
+        } else {
+            super::tasks_view::status_icon(self.column)
+        }
+    }
+}
+
+fn chat_task_summary(tasks: &[ChatTask]) -> Vec<(String, u32)> {
+    let count = |matches: fn(&ChatTask) -> bool| tasks.iter().filter(|t| matches(t)).count();
+    let quiet = ui::theme::color(ui::SECONDARY);
+    [
+        (count(|t| t.stalled), "failed", "failed", warning()),
+        (
+            count(|t| t.column == Column::NeedsYou && !t.stalled),
+            "needs you",
+            "need you",
+            super::pages::UNREAD,
+        ),
+        (
+            count(|t| t.column == Column::InProgress),
+            "working",
+            "working",
+            quiet,
+        ),
+        (
+            count(|t| t.column == Column::Todo),
+            "queued",
+            "queued",
+            quiet,
+        ),
+        (count(|t| t.column == Column::Done), "done", "done", quiet),
+    ]
+    .into_iter()
+    .filter(|(n, ..)| *n > 0)
+    .map(|(n, one, many, tone)| (format!("{n} {}", if n == 1 { one } else { many }), tone))
+    .collect()
+}
+
+fn chat_groups_task(state: &TopicState, task: TaskId) -> bool {
+    let from = state
+        .tasks
+        .iter()
+        .find(|t| t.id == task)
+        .and_then(|t| t.from_thread);
+    state.threads.iter().any(|thread| {
+        thread.is_topic_chat()
+            && (from == Some(thread.id)
+                || thread
+                    .outcomes
+                    .iter()
+                    .any(|outcome| matches!(outcome, Outcome::Task(id) if *id == task)))
+    })
+}
+
+fn chat_linked_tasks(
+    state: &TopicState,
+    thread_rows: &BTreeMap<ThreadId, usize>,
+    count: usize,
+) -> Vec<Vec<ChatTask>> {
+    let mut rows = vec![Vec::new(); count];
+    for task in state.tasks.iter().filter(|task| !task.is_session()) {
+        let Some(index) = state
+            .threads
+            .iter()
+            .filter(|thread| thread.is_topic_chat())
+            .find(|thread| {
+                task.from_thread == Some(thread.id)
+                    || thread
+                        .outcomes
+                        .iter()
+                        .any(|outcome| matches!(outcome, Outcome::Task(id) if *id == task.id))
+            })
+            .and_then(|thread| thread_rows.get(&thread.id))
+        else {
+            continue;
+        };
+        rows[*index].push(ChatTask::new(task));
+    }
+    rows
+}
+
+impl Desktop {
+    fn chat_task_group(&self, topic: TopicId, tasks: &[ChatTask], cx: &Context<Desktop>) -> Div {
+        let Some(first) = tasks.first() else {
+            return div();
+        };
+        let key = format!("chat-tasks-folded-{}", first.id);
+        let grouped = tasks.len() > 1;
+        let open = !grouped || !self.expanded.contains(&key);
+        let now = Utc::now();
+        let mut card = ui::column()
+            .w_full()
+            .p(px(4.))
+            .gap(px(1.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(ui::ink(0x16))
+            .bg(ui::ink(0x05));
+        if grouped {
+            let summary = chat_task_summary(tasks);
+            let spoken = summary
+                .iter()
+                .map(|(text, _)| text.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut line = ui::row().min_w_0().gap(px(6.));
+            for (i, (text, tone)) in summary.into_iter().enumerate() {
+                if i > 0 {
+                    line = line.child(
+                        div()
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                            .child("·"),
+                    );
+                }
+                line = line.child(div().flex_none().text_color(rgb(tone)).child(text));
+            }
+            card = card.child(
+                Button::new(SharedString::from(key.clone()))
+                    .ghost()
+                    .w_full()
+                    .h(px(32.))
+                    .px(px(8.))
+                    .rounded(px(6.))
+                    .accessibility_label(format!(
+                        "{} {} tasks, {spoken}",
+                        if open { "Hide" } else { "Show" },
+                        tasks.len()
+                    ))
+                    .child(
+                        ui::row()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(10.))
+                            .text_size(px(13.))
+                            .child(
+                                Icon::new(Glyph::ListChecks)
+                                    .size(px(14.))
+                                    .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(rgb(ui::theme::color(ui::INK)))
+                                    .child(format!("{} tasks", tasks.len())),
+                            )
+                            .child(line.flex_1().overflow_hidden().text_size(px(12.5)))
+                            .child(
+                                Icon::new(if open {
+                                    Glyph::ChevronDown
+                                } else {
+                                    Glyph::ChevronRight
+                                })
+                                .size(px(13.))
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY))),
+                            ),
+                    )
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        cx.stop_propagation();
+                        if !s.expanded.remove(&key) {
+                            s.expanded.insert(key.clone());
+                        }
+                        cx.notify()
+                    })),
+            );
+        }
+        if !open {
+            return card;
+        }
+        for task in tasks {
+            let id = task.id;
+            let elapsed = task.elapsed(now);
+            let spoken = match &elapsed {
+                Some(time) => format!("{}, {}, {}, {time}", task.title, task.status(), task.detail),
+                None => format!("{}, {}, {}", task.title, task.status(), task.detail),
+            };
+            let detail_tone = match task.column {
+                Column::NeedsYou => task.tone(),
+                _ => ui::theme::color(ui::SECONDARY),
+            };
+            card = card.child(
+                Button::new(SharedString::from(format!("chat-task-{id}")))
+                    .ghost()
+                    .w_full()
+                    .h(px(32.))
+                    .px(px(8.))
+                    .rounded(px(6.))
+                    .role(Role::Link)
+                    .accessibility_label(spoken)
+                    .tooltip(task.detail.clone())
+                    .child(
+                        ui::row()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(10.))
+                            .text_size(px(13.))
+                            .child(task.mark())
+                            .child(
+                                div()
+                                    .min_w(px(48.))
+                                    .max_w(relative(0.55))
+                                    .truncate()
+                                    .text_color(rgb(ui::theme::color(ui::INK)))
+                                    .child(task.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(12.5))
+                                    .text_color(rgb(detail_tone))
+                                    .child(task.detail.clone()),
+                            )
+                            .when_some(elapsed, |row, time| {
+                                row.child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(12.5))
+                                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                        .child(time),
+                                )
+                            })
+                            .child(
+                                Icon::new(Glyph::ArrowUpRight)
+                                    .size(px(13.))
+                                    .text_color(rgb(ui::theme::color(ui::TERTIARY))),
+                            ),
+                    )
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        cx.stop_propagation();
+                        s.go(
+                            Page::Topic(topic, Tab::Tasks, Some(Detail::Task(id))),
+                            w,
+                            cx,
+                        );
+                        cx.notify()
+                    })),
+            );
+        }
+        card
+    }
+
+    fn tick_running_chat_tasks(&self, linked: &[Vec<ChatTask>], cx: &mut Context<Self>) {
+        let running = linked
+            .iter()
+            .flatten()
+            .any(|task| task.column == Column::InProgress);
+        if !running || self.chat_tick.replace(true) {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(1))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.chat_tick.set(false);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
 
 struct Pane {
     kicker: String,
@@ -512,6 +883,7 @@ impl Desktop {
             topic_crumbs(
                 id,
                 &state.topic.name,
+                Some(&state.topic.display_icon()),
                 tab,
                 Some((
                     None,
@@ -1727,7 +2099,8 @@ impl Desktop {
         }
         let has_run = !self.run_messages.is_empty() || self.sending_runs.contains(&t.id);
         // Finished work with no transcript adds nothing, not even a gap.
-        if has_run
+        if panel
+            || has_run
             || t.instructions.is_some()
             || matches!(t.column, Column::Todo | Column::InProgress)
         {
@@ -1873,6 +2246,11 @@ impl Desktop {
                                     .child("Needs attention"),
                             ),
                     )
+                    .child(
+                        div()
+                            .line_height(relative(1.45))
+                            .child(super::pages::failure_reason(reason)),
+                    )
                     // The raw service error is for diagnosis, behind a disclosure.
                     .child({
                         let key = format!("task-failure-{task}");
@@ -1884,6 +2262,7 @@ impl Desktop {
             && t.draft.as_ref() != Some(result)
             // The run's own last answer already says it.
             && !has_run
+            && !panel
         {
             body = body.child(section(
                 "Result",
@@ -2190,6 +2569,7 @@ impl Desktop {
             topic_crumbs(
                 state.topic.id,
                 &state.topic.name,
+                Some(&state.topic.display_icon()),
                 Tab::Tasks,
                 Some((
                     Some(mark.into_any_element()),
@@ -2238,17 +2618,8 @@ impl Desktop {
                 .child(Icon::new(Glyph::Workflow).size(px(13.)))
                 .child(pane.kicker.clone())
         });
-        // The same head as every item page, then where the work came from.
         let body = ui::column()
             .gap(px(SECTION_GAP))
-            .child(item_title(
-                match t.assignment {
-                    Some(InboxAssignment::Human) => "Task for you",
-                    Some(InboxAssignment::Session) => "Task for the topic agent",
-                    _ => "Task",
-                },
-                meep_topic::title_line(&t.title),
-            ))
             .children(origin)
             .child(body);
         ui::column()
@@ -2348,26 +2719,29 @@ impl Desktop {
                 .instructions
                 .clone()
                 .filter(|b| !b.trim().is_empty())
-                .or_else(|| {
-                    matches!(t.column, Column::Todo | Column::InProgress)
-                        .then(|| meep_topic::title_line(&t.title))
+                .unwrap_or_else(|| meep_topic::title_line(&t.title));
+            session
+                .messages
+                .push(meep_protocol::sessions::AgentMessage {
+                    role: "user".into(),
+                    text: brief,
+                    created_at: t.created_at.timestamp_millis(),
+                    ..Default::default()
                 });
-            if let Some(brief) = brief {
+            if t.column == Column::Done
+                && let Some(result) = &t.result
+            {
                 session
                     .messages
                     .push(meep_protocol::sessions::AgentMessage {
-                        role: "user".into(),
-                        agent_name: String::new(),
-                        text: brief,
-                        blocks: vec![],
-                        references: vec![],
-                        attachments: vec![],
-                        created_at: t.created_at.timestamp_millis(),
+                        role: "assistant".into(),
+                        text: result.clone(),
+                        created_at: t.updated_at.timestamp_millis(),
+                        ..Default::default()
                     });
             }
-            // Finished work without a run transcript says nothing rather than apologise.
             let note = match (t.column, self.run_notice.as_deref()) {
-                (_, Some(n)) if n.starts_with("Couldn") => n.to_owned(),
+                (_, Some(n)) => n.to_owned(),
                 (Column::Todo, _) if t.queued => {
                     "Queued. Start it, or send a note and it starts with that.".into()
                 }
@@ -2376,14 +2750,15 @@ impl Desktop {
                     return self.chat_transcript(Some(&session), w, cx);
                 }
                 (Column::Todo, _) => "Starting the agent…".into(),
-                _ if session.messages.is_empty() => return div(),
                 _ => String::new(),
             };
             return ui::column()
                 .gap(px(12.))
-                .when(!session.messages.is_empty(), |c| {
-                    c.child(self.chat_transcript(Some(&session), w, cx))
-                })
+                .child(div().mx(px(-ui::PANEL_INSET)).child(self.chat_transcript(
+                    Some(&session),
+                    w,
+                    cx,
+                )))
                 .when(!note.is_empty(), |c| {
                     c.child(
                         ui::row()
@@ -2510,10 +2885,12 @@ impl Desktop {
             return self.task_panel(state, t, w, cx);
         }
         let mut messages = vec![];
+        let mut thread_rows = BTreeMap::new();
         for t in &state.threads {
             if !t.is_topic_chat() {
                 continue;
             }
+            thread_rows.insert(t.id, messages.len());
             for m in &t.messages {
                 // Meep's own lines (setup, a to-do it picked up) are notes, not the person.
                 if m.producer == meep_topic::Producer::System {
@@ -2599,7 +2976,7 @@ impl Desktop {
                         _ => None,
                     }
                 } else {
-                    Some(t.summary.clone())
+                    Some(t.summary.clone()).filter(|summary| !summary.trim().is_empty())
                 };
                 if let Some(status) = status {
                     messages.push(AgentMessage {
@@ -2668,7 +3045,18 @@ impl Desktop {
                 ..Default::default()
             });
         }
+        let mut order: Vec<_> = (0..messages.len()).collect();
+        order.sort_by_key(|&index| messages[index].created_at);
+        let mut sorted_rows = vec![0; messages.len()];
+        for (sorted, original) in order.into_iter().enumerate() {
+            sorted_rows[original] = sorted;
+        }
+        for index in thread_rows.values_mut() {
+            *index = sorted_rows[*index];
+        }
         messages.sort_by_key(|m| m.created_at);
+        let linked = chat_linked_tasks(state, &thread_rows, messages.len());
+        self.tick_running_chat_tasks(&linked, cx);
         let receipts = std::sync::Arc::new(chat_receipts(state, &messages));
         let answering = Self::chat_answer_in_progress(state).map(|t| t.id);
         let reduced = cx.reduce_motion();
@@ -2699,40 +3087,22 @@ impl Desktop {
         let virtual_chat =
             !session.messages.is_empty() && !w.is_a11y_active() && !cx.has_active_drag();
         if !virtual_chat && !session.messages.is_empty() {
-            // The transcript carries its own panel inset; pull it out so its text sits on
-            // the pane's gutter with the header and the empty state.
-            stream = stream.child(div().mx(px(-16.)).child(self.chat_transcript(
-                Some(&session),
-                w,
-                cx,
-            )));
-            if let Some(task) = state
-                .threads
-                .iter()
-                .rev()
-                .filter(|t| t.is_topic_chat())
-                .flat_map(|t| &t.outcomes)
-                .find_map(|o| {
-                    if let Outcome::Task(id) = o {
-                        state
-                            .tasks
-                            .iter()
-                            .find(|task| task.id == *id && !task.is_session())
-                    } else {
-                        None
-                    }
-                })
-            {
-                let tid = task.id;
-                stream = stream.child(control(
-                    "chat-task",
-                    format!("Task · {}", meep_topic::title_line(&task.title)),
-                    false,
-                    cx,
-                    move |s, w, cx| {
-                        s.go(Page::Topic(id, Tab::Tasks, Some(Detail::Task(tid))), w, cx)
+            for (index, message) in session.messages.iter().enumerate() {
+                let key = format!("{}-{index}", session.id);
+                stream = stream.child(self.transcript_row(
+                    &session,
+                    meep_shell::transcript::TranscriptRow {
+                        message,
+                        key: &key,
+                        index,
+                        active: index + 1 == session.messages.len() && session.status == "running",
                     },
+                    w,
+                    cx,
                 ));
+                if !linked[index].is_empty() {
+                    stream = stream.child(self.chat_task_group(id, &linked[index], cx));
+                }
             }
         } else if session.messages.is_empty() {
             const STARTERS: [(Glyph, &str); 3] = [
@@ -2780,8 +3150,7 @@ impl Desktop {
                 .child(starters)
         }
         let stream = if virtual_chat {
-            let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
-            self.virtual_topic_chat(state, session, receipts, selecting, w, cx)
+            self.virtual_topic_chat(state, session, linked, receipts, w, cx)
                 .into_any_element()
         } else {
             stream.into_any_element()
@@ -2795,7 +3164,14 @@ impl Desktop {
             .pb(px(12.))
             .child(
                 crumb_bar(
-                    topic_crumbs(id, &state.topic.name, Tab::Chat, None, cx),
+                    topic_crumbs(
+                        id,
+                        &state.topic.name,
+                        Some(&state.topic.display_icon()),
+                        Tab::Chat,
+                        None,
+                        cx,
+                    ),
                     None,
                     self.show_overview_button(w, cx),
                 )
@@ -2841,139 +3217,75 @@ impl Desktop {
     /// What needs the person, waiting in the conversation when they arrive.
     fn briefing(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Option<Div> {
         let id = state.topic.id;
-        if self.briefing_dismissed.contains(&id) {
+        if self.briefing_dismissed.contains(&id) || self.overview_docked(w) {
             return None;
         }
-        let items: Vec<_> = self
-            .needs
-            .iter()
-            .filter_map(|n| super::pages::attention(n, state))
-            // The conversation's own prompt already shows below as its own card.
-            .filter(|a| !matches!(a.page, Page::Topic(_, Tab::Chat, None)))
+        let groups: Vec<_> = super::pages::attention_groups(&self.needs, state)
+            .into_iter()
+            .filter(|g| !matches!(g.latest.page, Page::Topic(_, Tab::Chat, None)))
             .collect();
-        if items.is_empty() {
+        if groups.is_empty() {
             return None;
         }
-        let count = items.len();
-        // A short window keeps the conversation in view: one item, then a count.
-        let shown = if w.viewport_size().height < px(640.) {
-            1
-        } else {
-            2
-        };
-        let mut card = ui::column()
-            .flex_none()
-            .rounded(px(10.))
-            .border_1()
-            .border_color(ui::ink(0x12))
-            .child(
-                ui::row()
-                    .px(px(14.))
-                    .pt(px(10.))
-                    .pb(px(4.))
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(super::pages::UNREAD))
-                            .child(if count == 1 {
-                                "1 thing needs you".to_owned()
-                            } else {
-                                format!("{count} things need you")
-                            }),
-                    )
-                    .child(
-                        ui::icon_button("dismiss-briefing", Glyph::X, "Not now")
-                            .size(px(22.))
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                s.briefing_dismissed.insert(id);
-                                cx.notify()
-                            })),
-                    ),
-            );
-        for (i, a) in items.into_iter().take(shown).enumerate() {
-            let page = a.page.clone();
-            card = card.child(
-                ui::row()
-                    .id(SharedString::from(format!("briefing-{i}")))
-                    .px(px(14.))
-                    .py(px(8.))
-                    .gap(px(12.))
-                    .border_t_1()
-                    .border_color(ui::ink(0x0c))
-                    .child(
-                        ui::column()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(a.title.clone()),
-                            )
-                            .child(ui::caption(a.detail.clone()).truncate()),
-                    )
-                    .child(control(
-                        SharedString::from(format!("briefing-open-{i}")),
-                        a.action.clone(),
-                        i == 0,
-                        cx,
-                        move |s, w, cx| s.go(page.clone(), w, cx),
-                    )),
-            );
-        }
-        if count > shown {
-            card = card.child(
-                ui::row()
-                    .id("briefing-all")
-                    .px(px(14.))
-                    .py(px(7.))
-                    .border_t_1()
-                    .border_color(ui::ink(0x0c))
-                    .cursor_pointer()
-                    .child(ui::caption(format!("See all {count}")))
-                    .on_click(cx.listener(move |s, _, w, cx| {
+        Some(
+            ui::row()
+                .flex_none()
+                .h(px(40.))
+                .pl(px(14.))
+                .pr(px(6.))
+                .gap(px(10.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(ui::ink(0x12))
+                .child(
+                    Icon::new(Glyph::Bell)
+                        .size(px(14.))
+                        .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child("Needs you"),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(13.))
+                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                        .child(super::pages::attention_tally(&groups)),
+                )
+                .child(
+                    control("briefing-review", "Review", false, cx, move |s, w, cx| {
                         s.go(Page::Topic(id, Tab::Needs, None), w, cx)
-                    })),
-            );
-        }
-        Some(card)
+                    })
+                    .self_center(),
+                )
+                .child(
+                    ui::icon_button("dismiss-briefing", Glyph::X, "Not now")
+                        .size(px(24.))
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            s.briefing_dismissed.insert(id);
+                            cx.notify()
+                        })),
+                ),
+        )
     }
     fn virtual_topic_chat(
         &self,
         state: &TopicState,
         session: AgentSession,
+        linked: Vec<Vec<ChatTask>>,
         receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
-        selecting: bool,
         w: &mut Window,
-        cx: &Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Div {
         let topic = state.topic.id;
-        let linked = state
-            .threads
-            .iter()
-            .rev()
-            .filter(|t| t.is_topic_chat())
-            .flat_map(|t| &t.outcomes)
-            .find_map(|o| {
-                if let Outcome::Task(id) = o {
-                    state
-                        .tasks
-                        .iter()
-                        .find(|task| task.id == *id && !task.is_session())
-                } else {
-                    None
-                }
-            })
-            .map(|task| (task.id, meep_topic::title_line(&task.title).to_owned()));
-        let linked_id = linked.as_ref().map(|(id, _)| *id);
-        let count = if selecting {
-            1
-        } else {
-            session.messages.len() + usize::from(linked.is_some())
-        };
+        let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
+        let count = if selecting { 1 } else { session.messages.len() };
         let running = session.status == "running";
         let (list_state, selection_rows, anchor) = {
             let mut cached = self.chat_list.borrow_mut();
@@ -2988,7 +3300,7 @@ impl Desktop {
                     list
                 },
                 messages: session.messages.clone(),
-                linked: linked_id,
+                linked: linked.clone(),
                 running,
                 full_selection: selecting,
                 selection_rows: Vec::new(),
@@ -3044,7 +3356,7 @@ impl Desktop {
                 }
             } else if selecting {
                 if cache.messages != session.messages
-                    || cache.linked != linked_id
+                    || cache.linked != linked
                     || cache.running != running
                 {
                     cache.list.remeasure_items(0..1);
@@ -3058,18 +3370,19 @@ impl Desktop {
                     .count();
                 if prefix != cache.messages.len()
                     || prefix != session.messages.len()
-                    || cache.linked != linked_id
+                    || cache.linked != linked
                 {
+                    let changed = if cache.linked != linked { 0 } else { prefix };
                     cache
                         .list
-                        .splice(prefix..cache.list.item_count(), count - prefix);
+                        .splice(changed..cache.list.item_count(), count - changed);
                 } else if cache.running != running && !session.messages.is_empty() {
                     let last = session.messages.len() - 1;
                     cache.list.remeasure_items(last..last + 1);
                 }
             }
             cache.messages = session.messages.clone();
-            cache.linked = linked_id;
+            cache.linked = linked.clone();
             cache.running = running;
             cache.full_selection = selecting;
             if selecting {
@@ -3146,26 +3459,17 @@ impl Desktop {
                                             .inset_0(),
                                     ),
                                 );
+                                if !linked[index].is_empty() {
+                                    transcript = transcript.child(s.chat_task_group(
+                                        topic,
+                                        &linked[index],
+                                        cx,
+                                    ));
+                                }
                             }
-                            let mut content = ui::column()
+                            let content = ui::column()
                                 .w_full()
                                 .child(div().mx(px(-16.)).child(transcript));
-                            if let Some((task, title)) = &linked {
-                                let tid = *task;
-                                content = content.child(control(
-                                    "chat-task",
-                                    format!("Task · {title}"),
-                                    false,
-                                    cx,
-                                    move |s, w, cx| {
-                                        s.go(
-                                            Page::Topic(topic, Tab::Tasks, Some(Detail::Task(tid))),
-                                            w,
-                                            cx,
-                                        )
-                                    },
-                                ));
-                            }
                             content.into_any_element()
                         } else if let Some(message) = session.messages.get(index) {
                             let key = format!("{}-{index}", session.id);
@@ -3191,23 +3495,12 @@ impl Desktop {
                                         .filter(|r| !r.is_empty())
                                         .map(|r| receipt_rows(index, r, cx)),
                                 )
-                                .into_any_element()
-                        } else if let Some((task, title)) = &linked {
-                            let tid = *task;
-                            control(
-                                "chat-task",
-                                format!("Task · {title}"),
-                                false,
-                                cx,
-                                move |s, w, cx| {
-                                    s.go(
-                                        Page::Topic(topic, Tab::Tasks, Some(Detail::Task(tid))),
-                                        w,
-                                        cx,
+                                .when(!linked[index].is_empty(), |el| {
+                                    el.child(
+                                        s.chat_task_group(topic, &linked[index], cx).mt(px(10.)),
                                     )
-                                },
-                            )
-                            .into_any_element()
+                                })
+                                .into_any_element()
                         } else {
                             div().into_any_element()
                         }
@@ -3834,6 +4127,7 @@ fn receipt(id: TopicId, state: &TopicState, a: &meep_topic::Activity) -> Option<
         Ref::Task(t) => {
             // The conversation's own run and any run's progress are not changes it made.
             if state.tasks.iter().any(|x| x.id == *t && x.is_session())
+                || chat_groups_task(state, *t)
                 || a.text.starts_with("Started work")
                 || a.text.starts_with("Updated progress")
             {
@@ -4151,4 +4445,136 @@ pub(super) fn item_title(kind: impl Into<SharedString>, title: impl Into<SharedS
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.into()),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    fn request(state: &mut TopicState, text: &str, at: chrono::DateTime<Utc>) -> ThreadId {
+        let thread = ThreadId(Uuid::new_v4());
+        state
+            .receive(
+                Message {
+                    id: MessageId(thread.0),
+                    producer: Producer::User,
+                    origin: Some(Source::User.into_origin("You".into(), at, None)),
+                    author: "You".into(),
+                    at,
+                    text: text.into(),
+                    external_id: None,
+                },
+                thread.to_string(),
+                thread,
+                at,
+            )
+            .unwrap();
+        thread
+    }
+
+    fn start(
+        state: &mut TopicState,
+        thread: ThreadId,
+        title: &str,
+        at: chrono::DateTime<Utc>,
+        shape: impl FnOnce(&mut meep_topic::Task),
+    ) {
+        let id = TaskId(Uuid::new_v4());
+        state
+            .add_task(id, title, Actor::Agent, Some(thread), at)
+            .unwrap();
+        let index = state.threads.iter().position(|t| t.id == thread).unwrap();
+        state.threads[index].outcomes.push(Outcome::Task(id));
+        let task = state.tasks.iter_mut().find(|t| t.id == id).unwrap();
+        task.created_at = at;
+        task.updated_at = at;
+        shape(task);
+    }
+
+    #[test]
+    fn parallel_tasks_group_under_the_request_that_started_them() {
+        let at = chrono::DateTime::parse_from_rfc3339("2026-01-05T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut state = TopicState::new(Topic::new(TopicId(Uuid::new_v4()), "Launch", at));
+        let first = request(&mut state, "Check the plan and onboarding.", at);
+        start(&mut state, first, "Review the plan", at, |t| {
+            t.column = Column::Done;
+            t.result = Some("Ready for review.\nTwo dates moved.".into());
+            t.updated_at = at + chrono::Duration::seconds(688);
+        });
+        start(&mut state, first, "Check onboarding", at, |t| {
+            t.column = Column::NeedsYou;
+            t.input_question = Some("Web or mobile?".into());
+            t.result = Some("Partial notes".into());
+        });
+        start(&mut state, first, "Summarize the changelog", at, |t| {
+            t.column = Column::NeedsYou;
+            t.result = Some("GitHub connection expired.".into());
+        });
+        start(&mut state, first, "Answer in chat", at, |t| {
+            t.assignment = Some(InboxAssignment::ChatAnswer);
+        });
+        let later = at + chrono::Duration::minutes(5);
+        let second = request(&mut state, "Draft the email.", later);
+        start(&mut state, second, "Draft the email", later, |t| {
+            t.column = Column::InProgress;
+        });
+        let rows = BTreeMap::from([(first, 0), (second, 1)]);
+        let linked = chat_linked_tasks(&state, &rows, 2);
+        let now = later + chrono::Duration::seconds(75);
+        let shown = |group: &[ChatTask]| {
+            group
+                .iter()
+                .map(|t| {
+                    (
+                        t.title.clone(),
+                        t.status(),
+                        t.detail.clone(),
+                        t.elapsed(now),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shown(&linked[0]),
+            [
+                (
+                    "Review the plan".to_owned(),
+                    "Done",
+                    "Ready for review.".to_owned(),
+                    Some("11:28".to_owned()),
+                ),
+                (
+                    "Check onboarding".to_owned(),
+                    "Needs you",
+                    "Web or mobile?".to_owned(),
+                    Some("0:00".to_owned()),
+                ),
+                (
+                    "Summarize the changelog".to_owned(),
+                    "Failed",
+                    "GitHub connection expired.".to_owned(),
+                    Some("0:00".to_owned()),
+                ),
+            ]
+        );
+        assert_eq!(
+            shown(&linked[1]),
+            [(
+                "Draft the email".to_owned(),
+                "Working",
+                "Working".to_owned(),
+                Some("1:15".to_owned()),
+            )]
+        );
+        assert_eq!(
+            chat_task_summary(&linked[0])
+                .into_iter()
+                .map(|(text, _)| text)
+                .collect::<Vec<_>>(),
+            ["1 failed", "1 needs you", "1 done"]
+        );
+    }
 }

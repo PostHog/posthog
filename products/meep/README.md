@@ -16,7 +16,7 @@ Stack startup initializes the Postgres tables. The launcher builds the stateless
 
 Select the local account in the browser. Opening the app again reuses the Keychain session. The region, project and user determine the replica filename. To connect to a deployed version in another region, run `cargo run --locked -p meep -- --posthog us` or `--posthog eu` from `products/meep/desktop`.
 
-Meep starts empty for each project member. Creating a topic starts its mission in PostHog Tasks. Board items run when explicitly started.
+Meep starts empty for each project member. Creating a topic starts its mission in PostHog Tasks. The topic conversation can start up to three independent board tasks at once per project member. Each task appears beside the message that started it and in the Tasks tab. Open a task to see its conversation, tool activity, and results, or send a follow-up. Results and questions return to the topic conversation even while the desktop is closed. New topic conversations receive the delegation scope when they start.
 
 The desktop can read project data and approved read-only tools from installed MCP servers when rendering a view. PostHog Tasks handles chat, board work and view authoring. Ask in topic chat for a Scout to investigate something regularly. Its findings are available in chat and its details appear under Routines. Scheduled workflows, external webhook and SaaS delivery, and full run artifact handling are tracked in the [MCP architecture and feature plan](MCP.md).
 

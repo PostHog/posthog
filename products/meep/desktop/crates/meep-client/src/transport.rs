@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use futures_util::{Stream, StreamExt};
 use meep_topic::TopicId;
 use meep_wire::views::{View, ViewEnvelope};
@@ -103,10 +104,6 @@ pub trait Transport: Send + Sync {
     /// Discover and rank the sources granted to this topic.
     async fn sources_for(&self, _topic: TopicId) -> Result<Vec<meep_wire::WatchableSource>> {
         Err(protocol("Topic source ranking is unavailable"))
-    }
-    /// Discover watchable resources from the server's connected accounts.
-    async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>> {
-        Err(protocol("this transport does not support source discovery"))
     }
     /// Fetch the current task conversation.
     async fn task_conversation(
@@ -352,11 +349,6 @@ impl HttpTransport {
         let mut transport = Self::new(&format!("{origin}/api/projects/{project}/meep"), "")?;
         transport.account = Some(account);
         Ok(transport)
-    }
-
-    /// Read the authenticated owner identity and server status.
-    pub async fn health(&self) -> Result<meep_wire::ServerHealth> {
-        json(self.request(Method::GET, &["health"]).await?).await
     }
 
     async fn change_page(
@@ -634,8 +626,25 @@ impl Transport for HttpTransport {
         topic: TopicId,
         task: meep_topic::TaskId,
     ) -> Result<meep_wire::TaskConversation> {
-        json(
-            self.request(
+        #[derive(Deserialize)]
+        struct Attempt {
+            id: uuid::Uuid,
+            started_at: Option<DateTime<Utc>>,
+            finished_at: Option<DateTime<Utc>>,
+            initial: bool,
+            logs: String,
+            reply: Option<String>,
+            followup: Option<String>,
+            status: String,
+        }
+        #[derive(Deserialize)]
+        struct Conversation {
+            status: String,
+            brief: String,
+            attempts: Vec<Attempt>,
+        }
+        let request = self
+            .request(
                 Method::GET,
                 &[
                     "topics",
@@ -645,9 +654,69 @@ impl Transport for HttpTransport {
                     "conversation",
                 ],
             )
-            .await?,
-        )
-        .await
+            .await?;
+        if self.account.is_none() {
+            return json(request).await;
+        }
+        let conversation: Conversation = json(request).await?;
+        let mut messages = Vec::new();
+        for attempt in conversation.attempts {
+            use meep_posthog::chat::{History, Turn};
+
+            let mut history = History::default();
+            for entry in attempt
+                .logs
+                .lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+            {
+                history.apply(attempt.id, &entry, attempt.started_at);
+            }
+            let mut turns: Vec<_> = history
+                .turns()
+                .iter()
+                .map(|turn| turn.message.clone())
+                .collect();
+            // The initial provider prompt also contains Meep's instructions and topic context.
+            if let Some(first) = turns.first_mut().filter(|first| {
+                first.role == "user"
+                    && first
+                        .text
+                        .contains("Investigate this board task for topic ")
+            }) {
+                first.text.clone_from(&conversation.brief);
+            } else if let Some(prompt) = attempt
+                .followup
+                .filter(|_| !turns.iter().any(|turn| turn.role == "user"))
+                .or_else(|| attempt.initial.then(|| conversation.brief.clone()))
+            {
+                let brief = Turn::new(attempt.id.to_string(), "You", prompt, attempt.started_at);
+                turns.insert(0, brief.message);
+            }
+            let outcome = match attempt.status.as_str() {
+                "failed" => Some("The run failed.".to_owned()),
+                "cancelled" => Some("The run was stopped.".to_owned()),
+                _ => attempt.reply.filter(|reply| {
+                    !turns.last().is_some_and(|turn| {
+                        turn.role == "assistant"
+                            && (turn.text.contains(reply)
+                                || serde_json::from_str::<serde_json::Value>(turn.text.trim())
+                                    .is_ok_and(|output| {
+                                        output["reply"].as_str() == Some(reply.as_str())
+                                    }))
+                    })
+                }),
+            };
+            if let Some(reply) = outcome {
+                turns.push(
+                    Turn::new(attempt.id.to_string(), "Agent", reply, attempt.finished_at).message,
+                );
+            }
+            messages.extend(turns);
+        }
+        Ok(meep_wire::TaskConversation {
+            status: conversation.status,
+            messages,
+        })
     }
     async fn task_artifacts(&self, topic: TopicId) -> Result<Vec<meep_wire::TaskArtifact>> {
         json(
@@ -771,18 +840,6 @@ impl Transport for HttpTransport {
                 .await?
                 .query(&[("complete", true)])
                 .query(&[("topic", topic)]),
-            |v| v,
-        )
-        .await
-    }
-    async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>> {
-        if let Some(account) = &self.account {
-            return account.sources().await;
-        }
-        pages(
-            self.request(Method::GET, &["sources"])
-                .await?
-                .query(&[("complete", true)]),
             |v| v,
         )
         .await

@@ -298,6 +298,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
         [
             (["feature_flag:read", "feature_flag:write"], False),
             (["meep:read", "meep_scout:read", "meep_scout:write"], False),
+            (["meep:read", "meep_scout:read", "meep_task:write"], False),
             (["meep:read", "meep_scout:read"], True),
             (["feature_flag:read", "insight:read"], True),
         ]

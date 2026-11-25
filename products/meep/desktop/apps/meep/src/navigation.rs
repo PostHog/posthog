@@ -6,6 +6,9 @@ use meep_ui::gpui_kit::component::{
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
 };
 
+const TOPIC_ROW_HEIGHT: f32 = 34.;
+const TOPIC_ICON_SIZE: f32 = 22.;
+
 impl Desktop {
     /// New routine, in the New view pattern: describe it, or start from a template.
     pub(super) fn routine_page(&self, w: &Window, cx: &Context<Self>) -> Div {
@@ -546,10 +549,14 @@ impl Desktop {
             format!("topic-{tid}"),
             self.topic_id() == Some(tid) && self.sheet != Some(Sheet::New),
         )
+        .h(px(TOPIC_ROW_HEIGHT))
         .relative()
         .group(gname.clone())
         .when(lifted, |r| r.opacity(0.35))
-        .child(row_at(self.topic_id() == Some(tid)))
+        .child(super::topic_icon::tile(
+            &s.topic.display_icon(),
+            TOPIC_ICON_SIZE,
+        ))
         .child(ui::nav::title(name.clone()))
         .when(problem, |row| {
             // Steps aside for the row's actions on hover, like the decision dot.
@@ -696,6 +703,13 @@ impl Desktop {
     fn sidebar_list(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
         use meep_ui::gpui_kit::component::ActiveTheme;
         const PITCH: f32 = ui::nav::PITCH;
+        let item_pitch = |key: &str| {
+            if key.starts_with("topic:") {
+                TOPIC_ROW_HEIGHT + ui::nav::GAP
+            } else {
+                PITCH
+            }
+        };
         let space_above = ui::nav::SECTION_SPACE;
         let arrangement = self.arrangement();
         let hint = cx
@@ -718,13 +732,16 @@ impl Desktop {
         let mut y = 0.;
         let mut loose_tops = vec![];
         for key in &arrangement.loose {
-            loose_tops.push(y);
             if let Some(row) = self.sidebar_row(key, cx) {
+                loose_tops.push(y);
                 list = list.child(div().pb(px(ui::nav::GAP)).child(row));
-                y += PITCH;
+                y += item_pitch(key);
             }
         }
         let drawn_loose = loose_tops.len();
+        if drawn_loose > 0 {
+            loose_tops.push(y);
+        }
         let mut header_tops = vec![];
         let mut section_tops: Vec<Vec<f32>> = vec![];
         for (k, section) in arrangement.sections.iter().enumerate() {
@@ -741,18 +758,11 @@ impl Desktop {
                     .child(self.section_header(section, lit == Some(section.id), w, cx)),
             );
             y += space + PITCH;
-            let rows = section.items.len().max(1);
-            let open = rows as f32 * PITCH;
-            let height = meep_ui::gpui_kit::base::spring(
-                ElementId::from(SharedString::from(format!("section-height-{}", section.id))),
-                if section.collapsed { 0. } else { open },
-                cx.theme().motion_tokens().spring_control,
-                w,
-                cx,
-            );
+            let mut open = 0.;
             let mut tops = vec![];
             let mut body = ui::column().gap_0();
             if section.items.is_empty() {
+                open = PITCH;
                 body = body.child(
                     div().pb(px(ui::nav::GAP)).child(
                         div()
@@ -766,13 +776,24 @@ impl Desktop {
                     ),
                 );
             }
-            for (i, key) in section.items.iter().enumerate() {
-                tops.push(y + i as f32 * PITCH);
+            for key in &section.items {
                 if let Some(row) = self.sidebar_row(key, cx) {
+                    tops.push(y + open);
                     body = body.child(div().pb(px(ui::nav::GAP)).child(row));
+                    open += item_pitch(key);
                 }
             }
+            if !tops.is_empty() {
+                tops.push(y + open);
+            }
             section_tops.push(tops);
+            let height = meep_ui::gpui_kit::base::spring(
+                ElementId::from(SharedString::from(format!("section-height-{}", section.id))),
+                if section.collapsed { 0. } else { open },
+                cx.theme().motion_tokens().spring_control,
+                w,
+                cx,
+            );
             if height > 0.5 {
                 list = list.child(
                     div()
@@ -784,12 +805,9 @@ impl Desktop {
             y += height;
         }
         let line = |tops: &[f32], index: usize, fallback: f32| -> f32 {
-            match tops.get(index) {
-                Some(top) => top - ui::nav::GAP / 2.,
-                None => tops
-                    .last()
-                    .map_or(fallback, |top| top + ui::nav::ROW + ui::nav::GAP / 2.),
-            }
+            tops.get(index)
+                .or_else(|| tops.last())
+                .map_or(fallback, |top| top - ui::nav::GAP / 2.)
         };
         let line_y = match &hint {
             Some(super::sidebar::Drop::Item {
@@ -1001,7 +1019,7 @@ impl Desktop {
             .into_any_element()
     }
     fn sidebar(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
-        let n = self.needs.len();
+        let n = self.needs_count();
         // Arc's command bar: one quiet field at the top of the glass.
         let top = ui::column()
             .gap(px(ui::nav::GAP))
@@ -1142,6 +1160,7 @@ impl Desktop {
                 };
                 group = group.child(
                     nav_line(format!("archived-{tid}"), self.topic_id() == Some(tid))
+                        .h(px(TOPIC_ROW_HEIGHT))
                         .group(gname.clone())
                         .child(
                             div()
@@ -1151,7 +1170,10 @@ impl Desktop {
                                 .gap(px(8.))
                                 .items_center()
                                 .opacity(0.7)
-                                .child(row_at(self.topic_id() == Some(tid)))
+                                .child(super::topic_icon::tile(
+                                    &s.topic.display_icon(),
+                                    TOPIC_ICON_SIZE,
+                                ))
                                 .child(ui::nav::title(name.clone())),
                         )
                         .child(

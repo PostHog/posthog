@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "type": "boolean"
+        },
+        "id": {
+            "type": "string"
+        },
+        "scout_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "scout_id", "enabled"],
+    "type": "object"
+}

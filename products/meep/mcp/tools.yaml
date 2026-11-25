@@ -3,6 +3,33 @@ feature: meep
 url_prefix: /
 ui_apps: {}
 tools:
+    meep-task-start:
+        operation: meep_topics_start_task
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Start a topic task
+        description: Start independent work on the topic board. Reuse the request ID when retrying.
+    meep-task-wait:
+        operation: meep_topics_wait_tasks
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Wait for topic tasks
+        description: Wait for the selected board tasks. Reuse the request ID when retrying.
+    meep-task-answer:
+        operation: meep_topics_answer_task
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Answer a topic task
+        description: Send the person's answer to a board task asking for input. Reuse the request ID when retrying.
     meep-topic-list:
         operation: meep_topics_list
         enabled: true

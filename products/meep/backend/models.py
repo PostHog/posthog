@@ -43,6 +43,7 @@ class ChatTurn(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True)
     reply = models.TextField(blank=True)
+    target_message_id = models.UUIDField(null=True)
 
     class Meta:
         ordering = ["id"]
@@ -105,10 +106,27 @@ class BoardRun(models.Model):
     task_id = models.UUIDField()
     run_id = models.UUIDField(unique=True)
     finished = models.BooleanField(default=False)
+    parent_turn = models.ForeignKey(ChatTurn, on_delete=models.SET_NULL, null=True, related_name="children")
+    request_id = models.UUIDField(null=True)
+    notified = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(fields=["topic", "request_id"], name="meep_unique_child_request"),
             models.UniqueConstraint(
                 fields=["topic", "item_id"], condition=models.Q(finished=False), name="meep_one_live_board_run"
-            )
+            ),
         ]
+
+
+class ChildWait(models.Model):
+    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="child_waits")
+    turn = models.ForeignKey(ChatTurn, on_delete=models.CASCADE, related_name="child_waits")
+    request_id = models.UUIDField()
+    parent_run_id = models.UUIDField()
+    item_ids = models.JSONField(default=list)
+    child_run_ids = models.JSONField(default=list)
+    status = models.CharField(max_length=16, default="waiting")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["topic", "request_id"], name="meep_unique_child_wait")]

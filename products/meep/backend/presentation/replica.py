@@ -36,13 +36,18 @@ class EnvelopeSerializer(serializers.Serializer):
     command = serializers.DictField()
 
 
+class TaskMessageSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=32000)
+    model = serializers.CharField(max_length=255, required=False, allow_null=True)
+
+
 @extend_schema(exclude=True)
 class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "meep"
     scope_object_read_actions = ["file_contents", "topic_models"]
     scope_object_write_actions = ["upload_file", "choose_model"]
     permission_classes = [IsAuthenticated]
-    path_parameters = {"topic_id": UUID, "view_id": UUID}
+    path_parameters = {"topic_id": UUID, "view_id": UUID, "item_id": UUID}
     records_have_object_access_rules = False
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
@@ -88,6 +93,34 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def topic_snapshot(self, request: Request, topic_id: UUID, **kwargs: Any) -> Response:
         return Response(api.topic_snapshot(self.team_id, request.user.pk, topic_id, include_scouts=show_scouts(self)))
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"topics/(?P<topic_id>[0-9a-fA-F-]{36})/tasks/(?P<item_id>[0-9a-fA-F-]{36})/conversation",
+        required_scopes=["meep:read", "task:read"],
+    )
+    def task_conversation(self, request: Request, topic_id: UUID, item_id: UUID, **kwargs: Any) -> Response:
+        return Response(api.task_conversation(self.team_id, request.user.pk, topic_id, item_id))
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"topics/(?P<topic_id>[0-9a-fA-F-]{36})/tasks/(?P<item_id>[0-9a-fA-F-]{36})/messages",
+        required_scopes=["meep:write", "task:write"],
+    )
+    def task_messages(self, request: Request, topic_id: UUID, item_id: UUID, **kwargs: Any) -> HttpResponse:
+        message = TaskMessageSerializer(data=request.data)
+        message.is_valid(raise_exception=True)
+        api.send_task_message(
+            self.team_id,
+            request.user.pk,
+            topic_id,
+            item_id,
+            message.validated_data["text"],
+            message.validated_data.get("model"),
+        )
+        return HttpResponse("null", content_type="application/json")
 
     @action(detail=False, methods=["get"], required_scopes=["meep:read"])
     def connections(self, request: Request, **kwargs: Any) -> Response:

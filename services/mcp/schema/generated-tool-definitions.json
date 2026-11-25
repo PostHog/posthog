@@ -12687,6 +12687,51 @@
             "readOnlyHint": false
         }
     },
+    "meep-task-answer": {
+        "description": "Send the person's answer to a board task asking for input. Reuse the request ID when retrying.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Answer a topic task",
+        "title": "Answer a topic task",
+        "required_scopes": ["meep_task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/tasks/answer/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "meep-task-start": {
+        "description": "Start independent work on the topic board. Reuse the request ID when retrying.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Start a topic task",
+        "title": "Start a topic task",
+        "required_scopes": ["meep_task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/tasks/start/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "meep-task-wait": {
+        "description": "Wait for the selected board tasks. Reuse the request ID when retrying.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Wait for topic tasks",
+        "title": "Wait for topic tasks",
+        "required_scopes": ["meep_task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/tasks/wait/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "meep-topic-get": {
         "description": "Read the mission and linked PostHog task for one topic.",
         "category": "Meep",

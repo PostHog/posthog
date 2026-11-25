@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "answer": {
+            "description": "The person's answer to the child task.",
+            "maxLength": 16000,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "item_id": {
+            "description": "The board item asking for input.",
+            "type": "string"
+        },
+        "question_run_id": {
+            "description": "The run ID that asked the question.",
+            "type": "string"
+        },
+        "request_id": {
+            "description": "A stable ID for this answer, reused when retrying.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "request_id", "item_id", "question_run_id", "answer"],
+    "type": "object"
+}

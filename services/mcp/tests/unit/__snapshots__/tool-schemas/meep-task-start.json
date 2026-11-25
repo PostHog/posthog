@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "brief": {
+            "description": "The independent work and expected result.",
+            "maxLength": 16000,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "request_id": {
+            "description": "A stable ID for this request, reused when retrying.",
+            "type": "string"
+        },
+        "title": {
+            "description": "A short title for the board task.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id", "request_id", "title", "brief"],
+    "type": "object"
+}

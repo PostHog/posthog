@@ -15,6 +15,7 @@ from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_re
 from products.meep.backend.facade import api
 from products.meep.backend.presentation.scout_access import canonical_scout_access, show_scouts
 from products.signals.backend.facade.source_scouts import cron_schedule_error
+from products.tasks.backend.facade import agent_run_starts, contracts
 
 
 class MeepScoutCreateSerializer(serializers.Serializer):
@@ -48,6 +49,40 @@ class MeepConversationBindingSerializer(serializers.Serializer):
     task_id = serializers.UUIDField()
 
 
+class MeepTaskStartSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField(help_text="A stable ID for this request, reused when retrying.")
+    title = serializers.CharField(max_length=255, help_text="A short title for the board task.")
+    brief = serializers.CharField(max_length=16000, help_text="The independent work and expected result.")
+
+
+class MeepTaskStartResultSerializer(serializers.Serializer):
+    item_id = serializers.UUIDField(help_text="The created board item ID.")
+    task_id = serializers.UUIDField(help_text="The child task ID.")
+    run_id = serializers.UUIDField(help_text="The child run ID.")
+
+
+class MeepTaskWaitSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField(help_text="A stable ID for this wait, reused when retrying.")
+    item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=20,
+        help_text="Up to 20 board item IDs to wait for.",
+    )
+
+
+class MeepTaskAnswerSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField(help_text="A stable ID for this answer, reused when retrying.")
+    item_id = serializers.UUIDField(help_text="The board item asking for input.")
+    question_run_id = serializers.UUIDField(help_text="The run ID that asked the question.")
+    answer = serializers.CharField(max_length=16000, help_text="The person's answer to the child task.")
+
+
+class MeepTaskWaitResultSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="The wait status.")
+    item_ids = serializers.ListField(child=serializers.UUIDField(), help_text="The selected board item IDs.")
+
+
 class MeepTopicSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     title = serializers.CharField(max_length=255)
@@ -74,6 +109,19 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise PermissionDenied("The task credential must identify its task.")
             return key
         return None
+
+    def _delegating_run(self, request: Request) -> contracts.SandboxRunStarter:
+        task_id = self._conversation(request)
+        token = get_oauth_access_token(request)
+        starter = agent_run_starts.resolve_sandbox_run_starter(
+            self.team_id,
+            sandbox_task_id=task_id,
+            token_id=getattr(token, "id", None),
+            user_id=request.user.pk,
+        )
+        if isinstance(starter, contracts.SandboxRunStartDenial):
+            raise PermissionDenied("This task credential cannot delegate work.")
+        return starter
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         topics = api.list_topics(self.team_id, request.user.pk, self._conversation(request))
@@ -108,6 +156,68 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data.is_valid(raise_exception=True)
         topic = api.bind_conversation(self.team_id, request.user.pk, pk, data.validated_data["task_id"])
         return Response(MeepTopicSerializer(topic).data)
+
+    @extend_schema(
+        operation_id="meep_topics_start_task", request=MeepTaskStartSerializer, responses=MeepTaskStartResultSerializer
+    )
+    @action(methods=["post"], detail=True, url_path="tasks/start", required_scopes=["meep_task:write"])
+    def start_task(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        starter = self._delegating_run(request)
+        payload = MeepTaskStartSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        result = api.spawn_child(
+            team=self.team,
+            user=request.user,
+            parent_task_id=starter.parent_task_id,
+            parent_run_id=starter.parent_run_id,
+            topic_id=pk,
+            request_id=payload.validated_data["request_id"],
+            title=payload.validated_data["title"],
+            instructions=payload.validated_data["brief"],
+        )
+        return Response(MeepTaskStartResultSerializer(result).data)
+
+    @extend_schema(
+        operation_id="meep_topics_wait_tasks", request=MeepTaskWaitSerializer, responses=MeepTaskWaitResultSerializer
+    )
+    @action(methods=["post"], detail=True, url_path="tasks/wait", required_scopes=["meep_task:write"])
+    def wait_tasks(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        starter = self._delegating_run(request)
+        payload = MeepTaskWaitSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        result = api.wait_for_children(
+            team=self.team,
+            user=request.user,
+            parent_task_id=starter.parent_task_id,
+            parent_run_id=starter.parent_run_id,
+            topic_id=pk,
+            request_id=payload.validated_data["request_id"],
+            item_ids=payload.validated_data["item_ids"],
+        )
+        return Response(MeepTaskWaitResultSerializer(result).data)
+
+    @extend_schema(
+        operation_id="meep_topics_answer_task",
+        request=MeepTaskAnswerSerializer,
+        responses=MeepTaskStartResultSerializer,
+    )
+    @action(methods=["post"], detail=True, url_path="tasks/answer", required_scopes=["meep_task:write"])
+    def answer_task(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        starter = self._delegating_run(request)
+        payload = MeepTaskAnswerSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        result = api.answer_child(
+            team=self.team,
+            user=request.user,
+            parent_task_id=starter.parent_task_id,
+            parent_run_id=starter.parent_run_id,
+            topic_id=pk,
+            request_id=payload.validated_data["request_id"],
+            item_id=payload.validated_data["item_id"],
+            question_run_id=payload.validated_data["question_run_id"],
+            answer=payload.validated_data["answer"],
+        )
+        return Response(MeepTaskStartResultSerializer(result).data)
 
     @extend_schema(
         operation_id="meep_topics_create_scout",

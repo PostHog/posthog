@@ -720,7 +720,7 @@ def test_only_meep_profile_receives_reserved_scout_scopes(mock_create: MagicMock
         origin_product="meep",
         stored_profile=get_task_profile(profile_key) if profile_key else None,
     )
-    grants = ["meep_scout:read", "meep_scout:write"]
+    grants = ["meep_scout:read", "meep_scout:write", "meep_task:write"]
     create_oauth_access_token(task, scopes=grants)
     withheld = mock_create.call_args.kwargs.get("withhold_scopes", [])
     assert set(grants).intersection(withheld) == (set() if profile_key == "meep" else set(grants))

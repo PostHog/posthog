@@ -9,6 +9,7 @@ anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
+meep-posthog = { path = "../meep-posthog", features = ["chat"] }
 meep-store = { path = "../meep-store" }
 meep-topic = { path = "../meep-topic" }
 meep-wire = { path = "../meep-wire" }

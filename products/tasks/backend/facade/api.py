@@ -6253,7 +6253,7 @@ def _merge_by_timestamp(entries: list[dict], extra: list[dict]) -> list[dict]:
 
 
 def read_task_run_history(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int | None, include_ancestors: bool = True
 ) -> list[dict] | None:
     """Every frame of the conversation across the run's resume chain, oldest first.
 
@@ -6269,7 +6269,7 @@ def read_task_run_history(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return []
-    logs = [ancestor.log for ancestor in run.get_resume_chain()]
+    logs = [ancestor.log for ancestor in run.get_resume_chain()] if include_ancestors else [run.log]
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         TASK_RUN_STREAM_MAX_LENGTH,
     )
@@ -6281,7 +6281,7 @@ def read_task_run_history(
         and not any(entry.get("event_id") for entry in stream_entries)
         and _holds_user_prompt(stream_entries)
     )
-    if logs and get_task_run_log_size(logs) > max_bytes:
+    if max_bytes is not None and logs and get_task_run_log_size(logs) > max_bytes:
         return None
     if stream_is_whole_run:
         earlier_entries = list(parse_task_run_log_entries(read_task_run_log_content(logs[:-1]))) if logs[:-1] else []

@@ -5,6 +5,96 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/meep/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const MeepTaskStartSchema = () => {
+    const MeepTopicsStartTaskBody = orvalSchemas.MeepTopicsStartTaskBody()
+    const MeepTopicsStartTaskParams = orvalSchemas.MeepTopicsStartTaskParams()
+    return MeepTopicsStartTaskParams.omit({ project_id: true }).extend(MeepTopicsStartTaskBody.shape)
+}
+
+const meepTaskStart = (): ToolBase<ReturnType<typeof MeepTaskStartSchema>, Schemas.MeepTaskStartResult> => ({
+    name: 'meep-task-start',
+    schema: MeepTaskStartSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MeepTaskStartSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.request_id !== undefined) {
+            body['request_id'] = params.request_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.brief !== undefined) {
+            body['brief'] = params.brief
+        }
+        const result = await context.api.request<Schemas.MeepTaskStartResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/tasks/start/`,
+            body,
+        })
+        return result
+    },
+})
+
+const MeepTaskWaitSchema = () => {
+    const MeepTopicsWaitTasksBody = orvalSchemas.MeepTopicsWaitTasksBody()
+    const MeepTopicsWaitTasksParams = orvalSchemas.MeepTopicsWaitTasksParams()
+    return MeepTopicsWaitTasksParams.omit({ project_id: true }).extend(MeepTopicsWaitTasksBody.shape)
+}
+
+const meepTaskWait = (): ToolBase<ReturnType<typeof MeepTaskWaitSchema>, Schemas.MeepTaskWaitResult> => ({
+    name: 'meep-task-wait',
+    schema: MeepTaskWaitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MeepTaskWaitSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.request_id !== undefined) {
+            body['request_id'] = params.request_id
+        }
+        if (params.item_ids !== undefined) {
+            body['item_ids'] = params.item_ids
+        }
+        const result = await context.api.request<Schemas.MeepTaskWaitResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/tasks/wait/`,
+            body,
+        })
+        return result
+    },
+})
+
+const MeepTaskAnswerSchema = () => {
+    const MeepTopicsAnswerTaskBody = orvalSchemas.MeepTopicsAnswerTaskBody()
+    const MeepTopicsAnswerTaskParams = orvalSchemas.MeepTopicsAnswerTaskParams()
+    return MeepTopicsAnswerTaskParams.omit({ project_id: true }).extend(MeepTopicsAnswerTaskBody.shape)
+}
+
+const meepTaskAnswer = (): ToolBase<ReturnType<typeof MeepTaskAnswerSchema>, Schemas.MeepTaskStartResult> => ({
+    name: 'meep-task-answer',
+    schema: MeepTaskAnswerSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MeepTaskAnswerSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.request_id !== undefined) {
+            body['request_id'] = params.request_id
+        }
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.question_run_id !== undefined) {
+            body['question_run_id'] = params.question_run_id
+        }
+        if (params.answer !== undefined) {
+            body['answer'] = params.answer
+        }
+        const result = await context.api.request<Schemas.MeepTaskStartResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/tasks/answer/`,
+            body,
+        })
+        return result
+    },
+})
+
 const MeepTopicListSchema = () => {
     const MeepTopicsListQueryParams = orvalSchemas.MeepTopicsListQueryParams()
     return MeepTopicsListQueryParams
@@ -103,6 +193,9 @@ const meepScoutSetEnabled = (): ToolBase<ReturnType<typeof MeepScoutSetEnabledSc
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'meep-task-start': meepTaskStart,
+    'meep-task-wait': meepTaskWait,
+    'meep-task-answer': meepTaskAnswer,
     'meep-topic-list': meepTopicList,
     'meep-topic-get': meepTopicGet,
     'meep-scout-create': meepScoutCreate,

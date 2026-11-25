@@ -31,7 +31,7 @@ MEEP_READ_SCOPES = [
     "feature_flag:read",
 ]
 
-MEEP_MCP_SCOPES = [*MEEP_READ_SCOPES, "meep_scout:write"]
+MEEP_MCP_SCOPES = [*MEEP_READ_SCOPES, "meep_scout:write", "meep_task:write"]
 
 MEEP = TaskProfile(
     key="meep",
