@@ -106,8 +106,7 @@ def fetch_query_usage(team: Team, app_source: str, instance_ids: list[str]) -> d
 def _cache_key(team_id: int, app_source: str, windows: QueryUsageWindows, instance_id: str) -> str:
     # Definition names can contain characters that are invalid in cache keys, so hash the instance id.
     digest = hashlib.sha256(instance_id.encode()).hexdigest()[:32]
-    # The window start is in the key because the window moves at midnight in the team's timezone. Without it, an
-    # entry written late in the day serves the previous day's 30 days for up to a day.
+    # The window moves at midnight in the team's timezone, so the key includes its start.
     return f"query_usage:v1:{team_id}:{app_source}:{windows.current_start.isoformat()}:{digest}"
 
 

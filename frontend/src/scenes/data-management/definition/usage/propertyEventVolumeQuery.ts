@@ -26,7 +26,6 @@ export function propertyEventVolumeQuery(propertyName: string, timezone: string)
         interval: 'day',
         compareFilter: { compare: true },
         filterTestAccounts: false,
-        // The definition scene keeps this query out of the property's own query usage count.
         tags: {
             productKey: ProductKey.PRODUCT_ANALYTICS,
             scene: Scene.PropertyDefinition,

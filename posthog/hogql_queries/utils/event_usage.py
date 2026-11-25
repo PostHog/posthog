@@ -18,8 +18,7 @@ PROPERTY_USAGE_TRACKING_FLAG = "property-usage-tracking"
 MAX_EVENTS_LOGGED_PER_QUERY = 50
 MAX_PROPERTIES_LOGGED_PER_QUERY = 50
 
-# A definition page queries the definition it shows, for example its recent events or its event volume.
-# Logging those queries would count each view of the page as a use of the definition.
+# A definition page's own queries describe that definition, so logging them would count page views as usage.
 USAGE_UNTRACKED_SCENES = frozenset({"EventDefinition", "PropertyDefinition"})
 
 

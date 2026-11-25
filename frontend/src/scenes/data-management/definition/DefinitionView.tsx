@@ -170,7 +170,6 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 select: columnsToUse,
                 event: definition.name,
                 after: '-24h',
-                // The definition scene keeps this query out of the event's own query usage count.
                 tags: {
                     productKey: ProductKey.PRODUCT_ANALYTICS,
                     scene: Scene.EventDefinition,
