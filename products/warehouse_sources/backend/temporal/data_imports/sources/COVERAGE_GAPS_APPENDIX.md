@@ -8982,10 +8982,10 @@ Note: Lightfield's full resource list is account, contact, email, file, list, me
 
 Re-audited 2026-11-19 against: <https://docs.lightfield.app/llms.txt>
 
-- [ ] `Sequences (GET /v1/sequences)` — outbound sequences with status, channels and activation dates, to analyse outreach programs (high)
-- [ ] `Sequence enrollments (GET /v1/sequences/{id}/enrollments)` — who is enrolled in each sequence and their state, the base for reply and conversion analysis (high)
-- [ ] `Messages (GET /v1/messages)` — sent and received sequence or chat messages, sorted by createdAt, with messages:read scope (medium)
-- [ ] `List members: accounts, contacts, opportunities (GET /v1/lists/{listId}/accounts; /v1/lists/{listId}/contacts; /v1/lists/{listId}/opportunities)` — membership join tables for the lists we already sync (medium)
+- [x] `Sequences (GET /v1/sequences)` — outbound sequences with status, channels and activation dates, to analyse outreach programs (high)
+- [x] `Sequence enrollments (GET /v1/sequences/{id}/enrollments)` — who is enrolled in each sequence and their state, the base for reply and conversion analysis (high)
+- [x] `Messages (GET /v1/messages)` — sent and received sequence or chat messages, sorted by createdAt, with messages:read scope (medium)
+- [x] `List members: accounts, contacts, opportunities (GET /v1/lists/{listId}/accounts; /v1/lists/{listId}/contacts; /v1/lists/{listId}/opportunities)` — membership join tables for the lists we already sync (medium)
 - [ ] `Senders (GET /v1/senders)` — email and LinkedIn senders with health and owner, a lookup for sequences (low)
 - [ ] `Channels (GET /v1/channels)` — channel records, filtered per caller to those they can see (low)
 - [ ] `Meeting recordings (GET /v1/meetings/{id}/recordings)` — recording and transcript file ids for each meeting we already sync (low)
