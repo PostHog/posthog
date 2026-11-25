@@ -5,9 +5,10 @@ import datetime as dt
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing, contextmanager
 from datetime import UTC, datetime, timedelta
-from threading import Event
+from threading import Event, Semaphore
 from typing import Any, cast
 from urllib.parse import parse_qsl
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -37,7 +38,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
-from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
 from products.dashboards.backend.v2 import query_batch as query_batch_module
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
@@ -227,8 +228,41 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         with patch("products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=run):
             lines = self._lines([_insight("$pageview")])
 
-        self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
+        self.assertEqual(lines, [{"i": 0, "refId": "$pageview", "error": "The query failed."}])
         self.assertEqual(features, ["query"])
+
+    def test_misses_past_a_users_query_share_are_busy_and_the_share_comes_back(self) -> None:
+        # A worker hands its share back after its line is streamed, so the test waits for both hand-backs.
+        ended = Semaphore(0)
+        query_ended = query_batch_module._query_ended
+
+        def counted(keys: tuple[Any, ...], future: Any) -> None:
+            query_ended(keys, future)
+            ended.release()
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch.MAX_RUN_QUERIES_PER_USER", 2),
+            patch("products.dashboards.backend.v2.query_batch.process_query_dict", return_value={"results": []}),
+            patch.object(query_batch_module, "_query_ended", counted),
+        ):
+            lines = self._lines([_insight("$pageview"), _insight("$autocapture"), _insight("$pageleave")])
+            self.assertTrue(all(ended.acquire(timeout=10) for _ in range(2)))
+
+        self.assertEqual(
+            [line.get("error") for line in lines],
+            [None, None, "Too many dashboards are loading at once. Try again shortly."],
+        )
+        self.assertEqual(query_batch_module._org_queries, {})
+
+    def test_a_batch_that_cannot_start_its_workers_gives_its_shares_back(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.query_batch.ThreadPoolExecutor.submit", side_effect=RuntimeError),
+            self.assertRaises(RuntimeError),
+        ):
+            self._lines([_insight("$pageview"), _insight("$autocapture")])
+
+        self.assertEqual(query_batch_module._org_queries, {})
+        self.assertEqual(query_batch_module._org_batches, {})
 
     def test_a_disconnect_cancels_running_queries_with_tags_set(self) -> None:
         cancelled = Event()
@@ -277,10 +311,11 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         ):
             lines = self._lines([_insight("$pageview", cacheOnly=True)] * 7)
 
-        self.assertEqual(lines, [{"i": i, **too_large} for i in range(7)])
+        self.assertEqual(lines, [{"i": i, "refId": "$pageview", **too_large} for i in range(7)])
         self.assertEqual(reads.call_count, 1)
 
-    def test_a_client_that_stops_reading_gives_its_place_back_when_the_stream_expires(self) -> None:
+    @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
+    def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
 
         def open_batch(asynchronous: bool) -> Any:
@@ -306,16 +341,16 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             reader.cancel()
             return ended
 
-        with (
-            patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1),
-            patch("products.dashboards.backend.v2.query_batch.MAX_STREAM_SECONDS", 0.0),
-            patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
-        ):
-            ended = asyncio.run(ended_by_the_batch())
+        with patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1):
+            with (
+                patch(f"products.dashboards.backend.v2.query_batch.{deadline}", 0.0),
+                patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
+            ):
+                ended = asyncio.run(ended_by_the_batch())
             next_batch = b"".join(cast(Iterator[bytes], open_batch(asynchronous=False)))
 
         self.assertTrue(ended)
-        self.assertEqual(json.loads(next_batch), {"i": 0, "error": "The dashboard took too long to load. Try again."})
+        self.assertEqual(json.loads(next_batch)["result"]["cache"]["hit"], False)
 
     def test_a_batch_dropped_before_it_streams_stops_its_watchdog(self) -> None:
         batch = QueryBatch(
@@ -327,6 +362,43 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         watchdog.join(timeout=5)
 
         self.assertFalse(watchdog.is_alive())
+
+    def test_a_batch_whose_cancel_thread_cannot_start_still_frees_its_slot(self) -> None:
+        batch = QueryBatch(
+            team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="no-thread"
+        )
+        batch._watchdog.cancel()
+        self.addCleanup(batch._open.release)
+        batch._admitted = query_batch_module._admit_batch(batch._shares)
+        batch._active.add("running")
+
+        with patch.object(query_batch_module, "Thread", side_effect=RuntimeError), self.assertRaises(RuntimeError):
+            batch._close(False)
+
+        self.assertEqual(query_batch_module._org_batches, {})
+
+    def test_a_client_still_reading_a_long_line_is_not_idle(self) -> None:
+        # The reader receives 16 bytes per idle window, so a line split into 8-byte slices marks progress twice per
+        # window, while the same line handed over whole would take several windows to arrive.
+        idle_bytes_per_second = 16 / query_batch_module.MAX_IDLE_SECONDS
+        now = [0.0]
+        with (
+            patch.object(query_batch_module, "monotonic", lambda: now[0]),
+            patch.object(query_batch_module, "MAX_STREAM_SECONDS", 1e9),
+            patch.object(query_batch_module, "PULL_SLICE_BYTES", 8),
+        ):
+            batch = QueryBatch(
+                team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="slow"
+            )
+            batch._watchdog.cancel()
+            received = b""
+            for piece in batch.stream():
+                now[0] += len(piece) / idle_bytes_per_second
+                self.assertIsNotNone(batch._check_deadlines())
+                received += piece
+
+        self.assertGreater(len(received), 32)
+        self.assertEqual(json.loads(received)["i"], 0)
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
@@ -386,6 +458,37 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             ["dashboard-v2-batch-none-t_1-A", "dashboard-v2-batch-none-none-C"],
         )
 
+    def test_each_line_carries_its_target_also_when_panels_share_a_cached_body(self) -> None:
+        node = json.dumps(_events_node("$pageview")["source"])
+        queries: list[dict[str, Any]] = [
+            {
+                "target": {
+                    "refId": "A",
+                    "language": "query",
+                    "query": node,
+                    "legend": " {{event}} ",
+                    "format": "table",
+                },
+                "time": _LAST_7_DAYS,
+            },
+            # Same query, so the second read serves both panels from one cached body.
+            {"target": {"refId": "B", "language": "query", "query": node}, "time": _LAST_7_DAYS},
+            {
+                "target": {"refId": "C", "language": "hogql", "query": "select number from numbers(150)"},
+                "time": _LAST_7_DAYS,
+            },
+        ]
+
+        first = self._lines(queries)
+        second = self._lines(queries)
+
+        for lines in (first, second):
+            self.assertEqual(
+                [(line["refId"], line.get("legend"), line.get("format"), line.get("truncated")) for line in lines],
+                [("A", " {{event}} ", "table", None), ("B", None, None, None), ("C", None, None, True)],
+            )
+        self.assertEqual([line["result"]["cache"]["hit"] for line in second], [True, True, True])
+
     def test_a_stale_refresh_runs_under_its_target_query_id_and_traceparent(self) -> None:
         traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
         query = resolve_query(
@@ -416,6 +519,28 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         query_id = "dashboard-v2-batch-none-t_1-a-0123abcd"
         self.assertEqual(runs, [(query_id, query_id, traceparent)])
+
+
+class TestQueryShares(SimpleTestCase):
+    def test_one_users_large_batches_leave_room_for_another_organization(self) -> None:
+        org_a, org_b = uuid4(), uuid4()
+        member, colleague, other_org = (
+            query_batch_module._share_keys(org, user) for org, user in ((org_a, 1), (org_a, 2), (org_b, 3))
+        )
+        with (
+            patch.object(query_batch_module, "MAX_RUN_QUERIES", 4),
+            patch.object(query_batch_module, "MAX_RUN_QUERIES_PER_ORG", 3),
+            patch.object(query_batch_module, "MAX_RUN_QUERIES_PER_USER", 2),
+            patch.object(query_batch_module, "_org_queries", {}),
+        ):
+            granted = [
+                query_batch_module._reserve_queries(member, 500),
+                query_batch_module._reserve_queries(member, 500),
+                query_batch_module._reserve_queries(colleague, 500),
+                query_batch_module._reserve_queries(other_org, 500),
+            ]
+
+        self.assertEqual(granted, [2, 0, 1, 1])
 
 
 _NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)
@@ -496,12 +621,35 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
         self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
 
+    @parameterized.expand([("at_the_limit", 1000, None), ("past_the_limit", 1001, True)])
+    def test_log_lines_past_the_limit_are_marked_truncated(
+        self, _name: str, returned: int, truncated: bool | None
+    ) -> None:
+        # Two streams, so the line dropped is the oldest across them, not the last of one stream.
+        streams = [
+            {"stream": {"service_name": "api"}, "values": [[str(10**18 + i * 2), "a"] for i in range(returned // 2)]},
+            {
+                "stream": {"service_name": "web"},
+                "values": [[str(10**18 + i * 2 + 1), "b"] for i in range(returned - returned // 2)],
+            },
+        ]
+        payload = {"status": "success", "data": {"resultType": "streams", "result": streams}}
+        with _snuffle_requests(200, payload) as request:
+            (line,) = self._lines([_telemetry("logql", '{service_name=~"api|web"}')])
+
+        self.assertEqual(self._snuffle_calls(request)["http://logs.test/loki/api/v1/query_range"]["limit"], "1001")
+        sent_back = line["result"]["result"]["results"]["result"]
+        timestamps = sorted(int(value[0]) for stream in sent_back for value in stream["values"])
+        self.assertEqual(len(timestamps), 1000)
+        self.assertEqual(timestamps[0], 10**18 + returned - 1000)
+        self.assertEqual(line.get("truncated"), truncated)
+
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
     def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:
         with _snuffle_requests(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"}):
             lines = self._lines([_telemetry(language, query)])
 
-        self.assertEqual(lines, [{"i": 0, "error": "parse error at char 5"}])
+        self.assertEqual(lines, [{"i": 0, "refId": language, "error": "parse error at char 5"}])
 
     def test_a_relative_logql_range_moves_with_the_clock(self) -> None:
         sent_ends = []
@@ -542,7 +690,9 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         ):
             lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
 
-        self.assertEqual(lines, [{"i": 0, "error": "The LogQL query timed out. Try a shorter date range."}])
+        self.assertEqual(
+            lines, [{"i": 0, "refId": "logql", "error": "The LogQL query timed out. Try a shorter date range."}]
+        )
         self.assertTrue(response.is_closed)
 
     @parameterized.expand([("headers", False), ("body", True)])
@@ -713,7 +863,14 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
                     self.assertFalse(done, "The worker finished before its HTTP response cleanup was released")
                     blocked = await consume(batches[1])
                     self.assertEqual(
-                        blocked, [{"i": 0, "error": "Too many dashboards are loading at once. Try again shortly."}]
+                        blocked,
+                        [
+                            {
+                                "i": 0,
+                                "refId": "logs",
+                                "error": "Too many dashboards are loading at once. Try again shortly.",
+                            }
+                        ],
                     )
                     release_cleanup()
                     release_cleanup = None
@@ -752,7 +909,9 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
             lines = self._lines([logql, {**logql, "target": {**logql["target"], "refId": "b"}}])
 
         refused = "This project has used its query budget for now. Try again later."
-        self.assertEqual(lines, [{"i": 0, "error": refused}, {"i": 1, "error": refused}])
+        self.assertEqual(
+            lines, [{"i": 0, "refId": "logql", "error": refused}, {"i": 1, "refId": "b", "error": refused}]
+        )
         request.assert_not_called()
         # The budget spec reads Postgres, so the batch resolves it once for all its LogQL targets.
         events_last_year.assert_called_once_with(self.team.pk)
@@ -760,7 +919,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
     def test_a_huge_relative_date_fails_only_its_own_panel(self) -> None:
         lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
 
-        self.assertEqual(lines, [{"i": 0, "error": "Unsupported time expression: 'now-99999999y'."}])
+        self.assertEqual(lines, [{"i": 0, "refId": "promql", "error": "Unsupported time expression: 'now-99999999y'."}])
 
     @parameterized.expand([("no_access", "none", False), ("viewer", "viewer", True)])
     def test_a_member_runs_logql_only_with_logs_access(self, _name: str, access_level: str, runs: bool) -> None:
@@ -779,7 +938,11 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         else:
             self.assertEqual(
                 line,
-                {"i": 0, "error": "Access control failure. You don't have `viewer` access to the `logs` resource."},
+                {
+                    "i": 0,
+                    "refId": "logql",
+                    "error": "Access control failure. You don't have `viewer` access to the `logs` resource.",
+                },
             )
             request.assert_not_called()
 
@@ -817,6 +980,44 @@ class TestResolveQuery(SimpleTestCase):
         resolved = resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))
 
         self.assertEqual(resolved.filters, {"date_from": "-90d"})
+
+    @parameterized.expand(
+        [
+            ("bare_node", QueryBatchLanguage.QUERY, json.dumps({"kind": "EventsQuery", "select": ["count()"]}), None),
+            (
+                "wrapped_node_keeps_its_modifiers",
+                QueryBatchLanguage.INSIGHT,
+                json.dumps(
+                    {"query": {**_events_node("$pageview"), "source": {"kind": "EventsQuery", "modifiers": {"x": 1}}}}
+                ),
+                "source",
+            ),
+            ("hogql", QueryBatchLanguage.HOGQL, "select 1", None),
+            (
+                "bi_visualization",
+                QueryBatchLanguage.QUERY,
+                json.dumps(
+                    {
+                        "kind": "BIVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "select 1", "modifiers": {"x": 1}},
+                    }
+                ),
+                "source",
+            ),
+        ]
+    )
+    def test_the_new_engine_sets_its_modifiers_on_the_node_that_runs(
+        self, _name: str, language: QueryBatchLanguage, query: str, nested: str | None
+    ) -> None:
+        target = QueryBatchTarget(ref_id="a", language=language, query=query, engine=QueryBatchEngine.NEW)
+
+        resolved = resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))
+
+        runs = resolved.query[nested] if nested else resolved.query
+        expected = {"useNewEventsSchema": True, "useMaterializedViews": True}
+        self.assertEqual(runs["modifiers"], {"x": 1, **expected} if nested else expected)
+        if nested:
+            self.assertNotIn("modifiers", resolved.query)
 
     def test_rejects_an_unknown_time_expression(self) -> None:
         with self.assertRaises(InvalidTarget):

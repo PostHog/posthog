@@ -8399,11 +8399,11 @@ Diffed against: <https://docs.onkernel.com/llms.txt>
 - [x] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
 - [x] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
 - [x] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
-- [ ] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
-- [ ] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
-- [ ] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
+- [x] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
+- [x] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
+- [x] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
 - [x] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
-- [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low)
+- [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low) Skipped: returns only currently active browser sessions, so it is a live snapshot, not a stable join table.
 - [ ] `extensions (list browser extensions)` — extension inventory per project (low)
 - [x] `browsers/{id_or_name}/telemetry/events` — archived per-session telemetry events (console, network, page, interaction) within the 30-day retention window (medium)
 
@@ -16566,9 +16566,9 @@ Diffed against: <https://help.getzep.com/sitemap.xml>
 - [x] `graph/node/user/{user_id} and graph/node/graph/{graph_id} (nodes/entities)` — the extracted entities in the knowledge graph, the lookup table every edge and observation points at (high)
 - [x] `graph/episodes/user/{user_id} and graph/episodes/graph/{graph_id}` — the ingested source episodes that produced each node and edge - the provenance link back to thread messages (high)
 - [x] `graph/list-all (graphs)` — lookup enumerating non-user graphs; without it the entire graph-scoped side of the API is unreachable (high)
-- [ ] `graph/observation/user/{user_id} and graph/observation/graph/{graph_id}` — per-entity observations, the granular memory records behind summarized facts (medium)
-- [ ] `graph thread summaries (get-user-thread-summaries / get-graph-thread-summaries)` — generated summaries per thread, the analytical rollup of the thread_messages we already sync (medium)
-- [ ] `graph/list-ontology (entity and edge type definitions)` — lookup resolving the type labels stamped on nodes and edges (medium)
+- [x] `graph/observation/user/{user_id} and graph/observation/graph/{graph_id}` — per-entity observations, the granular memory records behind summarized facts (medium) → `graph_observations`
+- [x] `graph thread summaries (get-user-thread-summaries / get-graph-thread-summaries)` — generated summaries per thread, the analytical rollup of the thread_messages we already sync (medium) → `graph_thread_summaries`
+- [x] `graph/list-ontology (entity and edge type definitions)` — lookup resolving the type labels stamped on nodes and edges (medium) → `graph_ontology_types`
 
 Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the doc sitemap (which enumerates every SDK reference page) and confirmed the concrete /api/v2 paths by fetching individual pages. The connector currently covers only the thread/user memory surface; the entire graph surface - which is what Zep now leads with - is unsynced, hence 'thin'. Batch jobs, context templates, user instructions and project settings were excluded as plumbing or config.
 
