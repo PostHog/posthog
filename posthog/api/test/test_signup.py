@@ -2011,7 +2011,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_01ABC")
     @patch("posthog.workos_radar._log_radar_event")
@@ -3453,7 +3453,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
 
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_02DEF")
     @patch("posthog.workos_radar._log_radar_event")

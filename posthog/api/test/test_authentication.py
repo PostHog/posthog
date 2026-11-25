@@ -850,7 +850,7 @@ class TestLoginRadar(APIBaseTest):
             return self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
 
     @parameterized.expand([("correct_password", True, 1), ("wrong_password", False, 0)])
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -875,7 +875,7 @@ class TestLoginRadar(APIBaseTest):
             ("with_2fa_while_the_cache_is_down_signs_in_without_a_report", True, True, 0),
         ]
     )
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -907,7 +907,7 @@ class TestLoginRadar(APIBaseTest):
 
     @parameterized.expand([("without_a_resend", None, 20), ("after_a_resend", 25, 50)])
     @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -936,7 +936,7 @@ class TestLoginRadar(APIBaseTest):
         assert response.status_code == 200
         assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
 
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
