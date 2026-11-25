@@ -438,6 +438,12 @@ class TestFullRefresh:
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1)
 
         assert "BigQuery" not in str(excinfo.value)
+        # Regression: `abort_destinations` skips `abort_run` for a configuration error, on the
+        # contract that it is raised before anything is staged. This one fires after the first
+        # batch already loaded real rows into the staging table, so without deleting it here the
+        # table would never be cleaned up and would sit in the customer's dataset forever.
+        with pytest.raises(NotFound):
+            client.get_table(f"proj.dataset.{staging_table_name(ctx)}")
 
 
 @pytest.mark.asyncio

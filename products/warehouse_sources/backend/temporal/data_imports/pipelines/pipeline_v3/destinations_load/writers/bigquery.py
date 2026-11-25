@@ -446,7 +446,16 @@ class BigQueryDestinationWriter:
             # has load as a different type (e.g. a batch with every value null autodetected as
             # STRING, followed by a batch sending real integers), which fails the load outright
             # on every retry without this.
-            table = self._align_to_target(table, client.get_table(staging_ref), staging=True)
+            try:
+                table = self._align_to_target(table, client.get_table(staging_ref), staging=True)
+            except DestinationConfigurationError:
+                # `abort_destinations` skips `abort_run` for a configuration error, on the
+                # contract that one is raised before anything is staged. This one is raised
+                # mid-run, after earlier batches already loaded into this staging table, so
+                # without deleting it here it is never cleaned up and sits in the customer's
+                # dataset under every run's own id, forever.
+                client.delete_table(staging_ref, not_found_ok=True)
+                raise
 
         bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
         if first_chunk and staging_absent:
