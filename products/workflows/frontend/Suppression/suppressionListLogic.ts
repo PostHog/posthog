@@ -131,7 +131,9 @@ const fetchPage = async (
     search: string
 ): Promise<PaginatedMessageSuppressionApi> => {
     const trimmedSearch = search.trim()
-    if (projectId === null || trimmedSearch.length > SEARCH_MAX_LENGTH) {
+    // Count code points, as the backend's len() does. String.length counts UTF-16 units,
+    // so it would skip a valid search for an address with characters outside the BMP.
+    if (projectId === null || Array.from(trimmedSearch).length > SEARCH_MAX_LENGTH) {
         return EMPTY_SUPPRESSIONS
     }
     return await messagingSuppressionsSuppressionsRetrieve(String(projectId), {
