@@ -92,17 +92,17 @@ describe('error tracking ActivityDescriber', () => {
             name: 'a plain resolve reads as a status change',
             item: makeLogItem('updated', [
                 activeToResolved,
-                { field: 'resolved_until', before: null, after: 'new_release' },
+                { field: 'resolved_until', before: null, after: 'next_occurrence' },
             ]),
             summary: 'Changed status from active to resolved',
         },
         {
-            name: 'a resolve until the next occurrence names the mode',
+            name: 'a resolve in the next release names the mode',
             item: makeLogItem('updated', [
                 activeToResolved,
-                { field: 'resolved_until', before: null, after: 'next_occurrence' },
+                { field: 'resolved_until', before: null, after: 'new_release' },
             ]),
-            summary: 'Resolved until the next occurrence',
+            summary: 'Resolved in the next release',
         },
         {
             name: 'a mode change on a resolved issue names the new mode',

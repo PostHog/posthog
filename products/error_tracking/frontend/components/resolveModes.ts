@@ -9,13 +9,13 @@ export interface ResolveMode {
 // The issue page offers these in this order, so a plain resolve comes first.
 export const RESOLVE_MODES: ResolveMode[] = [
     {
-        value: 'new_release',
+        value: 'next_occurrence',
         action: 'Resolve',
-        description: 'Reopens only if it happens again in a newer release.',
+        description: 'Reopens the next time it happens.',
     },
     {
-        value: 'next_occurrence',
-        action: 'Resolve until next occurrence',
-        description: 'Reopens the next time it happens, even in an existing release.',
+        value: 'new_release',
+        action: 'Resolve in the next release',
+        description: 'Reopens only if it happens again in a newer release.',
     },
 ]

@@ -27,8 +27,8 @@ import { assigneeSelectLogic } from './Assignee/assigneeSelectLogic'
 // Pinned: the trigger job type of the activity entry that ingestion writes when it reopens an issue.
 // It must match INGESTION_REOPEN_TRIGGER_JOB_TYPE in the backend.
 const INGESTION_REOPEN_JOB_TYPE = 'error_tracking_ingestion'
-// Pinned: the resolved_until value the backend logs for an issue resolved until the next occurrence.
-const RESOLVED_UNTIL_NEXT_OCCURRENCE = 'next_occurrence'
+// Pinned: the resolved_until value the backend logs for an issue resolved in the next release.
+const RESOLVED_UNTIL_NEW_RELEASE = 'new_release'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
@@ -73,9 +73,9 @@ function hasChangedField(logItem: ActivityLogItem | undefined, field: string): b
     return (logItem?.detail.changes ?? []).some((change) => change.field === field)
 }
 
-function resolvedUntilNextOccurrence(logItem?: ActivityLogItem): boolean {
+function resolvedInNextRelease(logItem?: ActivityLogItem): boolean {
     return (logItem?.detail.changes ?? []).some(
-        (change) => change.field === 'resolved_until' && change.after === RESOLVED_UNTIL_NEXT_OCCURRENCE
+        (change) => change.field === 'resolved_until' && change.after === RESOLVED_UNTIL_NEW_RELEASE
     )
 }
 
@@ -188,10 +188,10 @@ const errorTrackingIssueActionsMapping: Record<
         if (logItem?.detail.trigger?.job_type === INGESTION_REOPEN_JOB_TYPE) {
             return describeIngestionReopen(logItem)
         }
-        if (after === 'resolved' && resolvedUntilNextOccurrence(logItem)) {
+        if (after === 'resolved' && resolvedInNextRelease(logItem)) {
             return {
-                summary: ['Resolved until the next occurrence'],
-                description: [<>resolved {nameAndLink(logItem)} until the next occurrence</>],
+                summary: ['Resolved in the next release'],
+                description: [<>resolved {nameAndLink(logItem)} in the next release</>],
             }
         }
         return {
@@ -214,14 +214,14 @@ const errorTrackingIssueActionsMapping: Record<
         if (!change?.after || hasChangedField(logItem, 'status')) {
             return null
         }
-        return change.after === RESOLVED_UNTIL_NEXT_OCCURRENCE
+        return change.after === RESOLVED_UNTIL_NEW_RELEASE
             ? {
-                  summary: ['Changed to reopen on the next occurrence'],
-                  description: [<>changed {nameAndLink(logItem)} to reopen on the next occurrence</>],
-              }
-            : {
                   summary: ['Changed to reopen only in a newer release'],
                   description: [<>changed {nameAndLink(logItem)} to reopen only in a newer release</>],
+              }
+            : {
+                  summary: ['Changed to reopen the next time it happens'],
+                  description: [<>changed {nameAndLink(logItem)} to reopen the next time it happens</>],
               }
     },
 
