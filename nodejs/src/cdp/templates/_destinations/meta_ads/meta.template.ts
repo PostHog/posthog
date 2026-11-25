@@ -39,10 +39,9 @@ const numItems = '{arrayReduce((acc, curr) -> acc + curr.quantity, event.propert
 
 // Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`. Candidates in order: a
 // value the event carries, a value the site stores on the person, and the $fbc PostHog stamps when it
-// sees the fbclid. The code sends the newest one Meta would accept. An fbclid on this event only
-// applies when none of them is set, because a click already dated must not come back redated.
-const fbc =
-    "{not empty(event.properties.fbc) or not empty(person.properties.fbc) or not empty(person.properties.$fbc) ? [event.properties.fbc, person.properties.fbc, person.properties.$fbc] : (not empty(event.properties.fbclid) ? f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{event.properties.fbclid}' : '')}"
+// sees the fbclid. The code sends the newest one Meta would accept, and falls back to an fbclid on
+// this event when none is valid.
+const fbc = '{[event.properties.fbc, person.properties.fbc, person.properties.$fbc]}'
 
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
@@ -152,6 +151,25 @@ fn newestClickId(value) {
     return newest
 }
 
+// An fbclid on this event is a click no candidate has dated yet, so it is stamped with the event
+// time. That only happens when no candidate is valid and none dates this same click, because a stale
+// click must be dropped, not redated.
+fn clickIdFromEvent(value) {
+    if (typeof(event.properties.fbclid) != 'string') {
+        return null
+    }
+    let fbclid := trimSpace(event.properties.fbclid)
+    if (not match(fbclid, '^[A-Za-z0-9_-]+\$')) {
+        return null
+    }
+    for (let candidate in (typeof(value) == 'array' ? value : [value])) {
+        if (typeof(candidate) == 'string' and match(trimSpace(candidate), concat('^fb[.][0-9]+[.][0-9]+[.]', fbclid, '([.][A-Za-z0-9_-]+)?\$'))) {
+            return null
+        }
+    }
+    return f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{fbclid}'
+}
+
 // The first well-formed browser ID wins. It is sent as is, never hashed or regenerated.
 fn firstBrowserId(value) {
     for (let candidate in (typeof(value) == 'array' ? value : [value])) {
@@ -177,25 +195,25 @@ let MAX_NORMALIZED_FIELD_LENGTH := 255
 let MAX_USER_DATA_LIST_LENGTH := 50
 
 // splitByString splits on UTF-16 code units, so a character outside the Basic Multilingual Plane
-// arrives as two halves that each fail to match any character. They are joined before the check.
+// arrives as two halves. Two adjacent units that match as a single character are such a pair, and
+// are checked together. This holds whether or not the regex engine reads a lone half as a character.
 fn keepMatching(value, pattern) {
     if (length(value) > MAX_NORMALIZED_FIELD_LENGTH) {
         return ''
     }
+    let units := splitByString('', value)
     let kept := ''
-    let pending := ''
-    for (let char in splitByString('', value)) {
-        let token := char
-        if (not empty(pending)) {
-            token := concat(pending, char)
-            pending := ''
-        } else if (not empty(char) and not match(char, '^(?s:.)\$')) {
-            pending := char
-            token := ''
+    let i := 1
+    while (i <= length(units)) {
+        let token := units[i]
+        if (i < length(units) and match(concat(units[i], units[i + 1]), '^(?s:.)\$')) {
+            token := concat(units[i], units[i + 1])
+            i := i + 1
         }
         if (not empty(token) and match(token, pattern)) {
             kept := concat(kept, token)
         }
+        i := i + 1
     }
     return kept
 }
@@ -334,7 +352,7 @@ fn hashUserData(key, value) {
 for (let key, value in inputs.userData) {
     let cleaned := null
     if (key == 'fbc') {
-        cleaned := newestClickId(value)
+        cleaned := newestClickId(value) ?? clickIdFromEvent(value)
     } else if (key == 'fbp') {
         cleaned := firstBrowserId(value)
     } else if (has(HASHED_USER_KEYS, key)) {
@@ -349,7 +367,7 @@ for (let key, value in inputs.userData) {
 
 // Meta rejects an event without customer information (error 2804050), so it is skipped instead.
 if (empty(body.data.1.user_data)) {
-    print('No customer information left after normalization. Skipping...')
+    print('No customer information left after normalization. Check the User data mapping. Skipping...')
     return
 }
 

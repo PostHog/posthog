@@ -181,7 +181,7 @@ describe('meta ads template', () => {
         expect(response.invocation.queueParameters).toBeUndefined()
         expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
             [
-              "No customer information left after normalization. Skipping...",
+              "No customer information left after normalization. Check the User data mapping. Skipping...",
             ]
         `)
     })
@@ -276,6 +276,18 @@ describe('meta ads template', () => {
                 event: { fbc: `fb.1.${eventMs}.event-owned` },
                 person: { fbc: `fb.1.${eventMs}.site-owned` },
                 expected: `fb.1.${eventMs}.event-owned`,
+            },
+            {
+                name: 'stamps an fbclid on this event when the event carries a malformed fbc',
+                event: { fbc: 'invalid', fbclid: 'AbC_123-x' },
+                person: {},
+                expected: `fb.1.${eventMs}.AbC_123-x`,
+            },
+            {
+                name: 'stamps a new fbclid on this event when the only dated click is stale',
+                event: { fbclid: 'new-click' },
+                person: { $fbc: `fb.1.${eventMs - 91 * dayMs}.old-click` },
+                expected: `fb.1.${eventMs}.new-click`,
             },
             {
                 name: 'sends the event when a person holds a non-string fbc',
