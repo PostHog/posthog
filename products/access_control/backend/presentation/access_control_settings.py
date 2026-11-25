@@ -12,9 +12,8 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from django.core.cache import cache as django_cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Max, Model, Prefetch, Q, QuerySet
+from django.db.models import Model, Prefetch, Q, QuerySet
 from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
@@ -31,7 +30,6 @@ from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
-from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade import api as access_control_api
@@ -47,7 +45,6 @@ from products.access_control.backend.facade.object_names import (
     resources_with_object_access_controls,
     visible_object_ids,
 )
-from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -72,7 +69,6 @@ from .serializers import (
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
     AccessControlPropertyRulesResponseSerializer,
-    AccessControlResolutionAcceptResponseSerializer,
     AccessControlRoleRuleRequestSerializer,
     AccessControlRolesResponseSerializer,
     AccessControlRuleRequestSerializer,
@@ -160,7 +156,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_objects",
             "access_control_role_properties",
             "access_control_object_search",
-            "access_control_resolution_preview",
             "access_control_management",
         ]:
             return ["access_control:read"]
@@ -172,117 +167,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_management",
         ]:
             return ["access_control:write"]
-        if request.method == "POST" and self.action == "access_control_resolution_accept":
-            return ["access_control:write"]
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
-
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="access_control_resolution_preview")
-    def access_control_resolution_preview(self, request: Request, *args, **kwargs):
-        """Every access rule in this organization that resolves differently under
-        most-specific-wins, across the projects the requester administers.
-
-        Admin only: the records describe other subjects' access. When the organization hides
-        its member list, only organization admins may read them — the records name members a
-        project admin could not otherwise see. Cached per rule set, so the answer updates the
-        moment any rule changes and repeat opens cost nothing."""
-        team = cast(Team, self.team)  # type: ignore
-        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-        if not user_access_control.check_can_modify_access_levels_for_object(team):
-            raise exceptions.PermissionDenied("Only administrators can view the resolution preview.")
-        if not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin:
-            raise exceptions.PermissionDenied("Only organization admins can view the resolution preview.")
-
-        # Organization-wide: every project with rules that the requester administers. An org
-        # admin sees them all; a project admin sees only their own projects. A credential
-        # scoped to specific projects never reaches beyond them.
-        ruled_team_ids = set(
-            AccessControl.objects.filter(team__organization_id=team.organization_id).values_list("team_id", flat=True)
-        )
-        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
-        if scoped_team_ids is not None:
-            ruled_team_ids &= set(scoped_team_ids)
-        visible_teams: list[tuple[Team, UserAccessControl]] = []
-        for candidate in Team.objects.filter(organization_id=team.organization_id, id__in=ruled_team_ids).order_by(
-            "id"
-        ):
-            candidate_access = (
-                user_access_control
-                if candidate.id == team.id
-                else UserAccessControl(user_access_control.user, candidate)
-            )
-            if candidate_access.check_can_modify_access_levels_for_object(candidate):
-                visible_teams.append((candidate, candidate_access))
-
-        fingerprint = AccessControl.objects.filter(team__organization_id=team.organization_id).aggregate(
-            count=Count("id"), latest=Max("updated_at")
-        )
-        visible_ids = ",".join(str(candidate.id) for candidate, _ in visible_teams)
-        # Per requester and credential, because a product's visibility rule can hide some objects
-        # from them, and a sandbox token may see less than its user
-        sandboxed = is_sandbox_oauth_request(request)
-        cache_key = (
-            f"access_control_resolution_preview/{team.organization_id}/{request.user.pk}/{int(sandboxed)}"
-            f"/{visible_ids}/{fingerprint['count']}/{fingerprint['latest']}"
-        )
-        cached = django_cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        changes: list[dict[str, Any]] = []
-        for candidate, candidate_access in visible_teams:
-            candidate_changes = build_resolution_preview(candidate, candidate_access)
-            visible_by_resource = {
-                resource: self._visible_ids(candidate, resource)
-                for resource in {change.resource for change in candidate_changes if change.scope == "object"}
-            }
-            changes.extend(
-                {**asdict(change), "project_id": candidate.id, "project_name": candidate.name}
-                for change in candidate_changes
-                if change.scope != "object"
-                or (visible := visible_by_resource[change.resource]) is None
-                or str(change.object_id) in visible
-            )
-        payload = {
-            "changes": changes,
-            "summary": {
-                "total": len(changes),
-                "gains": sum(1 for change in changes if change["direction"] == "gains"),
-                "loses": sum(1 for change in changes if change["direction"] == "loses"),
-                "resources": len({change["resource"] for change in changes if change["scope"] == "resource"}),
-                "objects": len(
-                    {(change["resource"], change["object_id"]) for change in changes if change["scope"] == "object"}
-                ),
-            },
-        }
-        django_cache.set(cache_key, payload, timeout=300)
-        return Response(payload)
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True, url_path="access_control_resolution_accept")
-    def access_control_resolution_accept(self, request: Request, *args, **kwargs) -> Response:
-        """Switch the organization to most-specific access resolution.
-
-        Organization admins only: the switch applies to every project in the organization, so
-        a project admin cannot make it. The change is logged on the organization."""
-        team = cast(Team, self.team)  # type: ignore
-        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-        if not user_access_control.is_organization_admin:
-            raise exceptions.PermissionDenied("Only organization admins can accept the new resolution.")
-        # The switch reaches every project, so a credential limited to some projects may not make it
-        if get_authenticator_scoped_team_ids(request.successful_authenticator) is not None:
-            raise exceptions.PermissionDenied(
-                "A credential scoped to specific projects cannot accept the new resolution."
-            )
-
-        organization = team.organization
-        if not organization.uses_most_specific_access_resolution:
-            organization.uses_most_specific_access_resolution = True
-            organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
-        return Response(
-            AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
-        )
 
     @extend_schema(
         methods=["GET"],

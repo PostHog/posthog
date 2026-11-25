@@ -147,6 +147,7 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 only_flagged: params.only_flagged,
                 order: params.order,
                 search: params.search,
+                viewed_within_days: params.viewed_within_days,
             },
         })
         return result
@@ -882,6 +883,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 plan: params.plan,
+                pr_targets: params.pr_targets,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
@@ -1605,6 +1607,9 @@ const inboxSourceFilterPreview = (): ToolBase<
         if (params.expression !== undefined) {
             body['expression'] = params.expression
         }
+        if (params.scope_ids !== undefined) {
+            body['scope_ids'] = params.scope_ids
+        }
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
@@ -1877,6 +1882,7 @@ const scoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -3544,6 +3550,7 @@ const signalsScoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })

@@ -389,6 +389,17 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('saves an emptied email to the draft without the null design the server refuses', async () => {
+            jest.useFakeTimers()
+            const emptied = { ...draft, email: { ...draft.email, html: '', design: null } } as any
+
+            logic.actions.setTemplateValue('content', emptied)
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+
+            expect(bodies).toEqual([{ draft_content: { ...draft, email: { subject: 'Draft subject', html: '' } } }])
+        })
+
         it('holds autosave while an edit from elsewhere is unresolved, then saves once the person keeps theirs', async () => {
             jest.useFakeTimers()
             const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }

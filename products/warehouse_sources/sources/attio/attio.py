@@ -1,21 +1,29 @@
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.sources.attio.settings import ATTIO_ENDPOINTS
+from products.warehouse_sources.sources.attio.settings import ATTIO_ENDPOINTS, AttioEndpointConfig, FanoutTarget
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    BearerTokenAuth,
     Endpoint,
     EndpointResource,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
+    SinglePagePaginator,
+    SortMode,
     SourceResponse,
+    create_response_hooks,
     frozen,
     lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
+
+BASE_URL = "https://api.attio.com"
 
 
 @frozen
@@ -24,6 +32,21 @@ class AttioResumeConfig:
     # endpoints. The Redis key is per job, so one job never reads another endpoint's position.
     offset: int | None = None
     cursor: str | None = None
+    # Fan-out tables only: the key of a child read (`<target>/<parent id>[/<attribute id>]`). With
+    # `offset` set, the child is read up to that offset. Without it, the child is read completely.
+    fanout_key: str | None = None
+
+
+@frozen
+class _FanoutChild:
+    # `<target>/<parent id>[/<attribute id>]`. Children are read in ascending key order.
+    key: str
+    target: FanoutTarget
+    path: str
+
+
+# An object, list or attribute can be deleted between the parent listing and the child request.
+_IGNORE_NOT_FOUND = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="attio")
 
 
 class AttioOffsetPaginator(BasePaginator):
@@ -108,6 +131,144 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return lift_nested(item, "id", on_clash="nested")
 
 
+def _parent_id(row: dict[str, Any], target: FanoutTarget) -> str | None:
+    ids = row.get("id")
+    if not isinstance(ids, dict):
+        return None
+    value = ids.get("list_id" if target == "lists" else "object_id")
+    return str(value) if value else None
+
+
+def _parent_keys(
+    client: RESTClient,
+    config: AttioEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
+) -> list[tuple[FanoutTarget, str]]:
+    """List the objects and lists to fan out over, in a stable order so resume keys compare."""
+    parents: list[tuple[FanoutTarget, str]] = []
+    for target in config.fanout_targets:
+        for page in client.paginate(path=f"/v2/{target}", paginator=SinglePagePaginator(), data_selector="data"):
+            parents.extend(
+                (target, parent_id)
+                for row in page
+                if isinstance(row, dict) and (parent_id := _parent_id(row, target)) is not None
+            )
+        resumable_source_manager.safe_point()
+    return sorted(parents)
+
+
+def _attribute_ids(
+    client: RESTClient,
+    target: FanoutTarget,
+    parent_id: str,
+    attribute_type: str,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
+) -> list[str]:
+    attribute_ids: list[str] = []
+    for page in client.paginate(
+        path=f"/v2/{target}/{parent_id}/attributes",
+        params={"show_archived": "true"},
+        paginator=AttioOffsetPaginator(limit=ATTIO_ENDPOINTS["attributes"].page_size),
+        data_selector="data",
+        hooks=_IGNORE_NOT_FOUND,
+    ):
+        for row in page:
+            if not isinstance(row, dict) or row.get("type") != attribute_type:
+                continue
+            ids = row.get("id")
+            if isinstance(ids, dict) and ids.get("attribute_id"):
+                attribute_ids.append(str(ids["attribute_id"]))
+        resumable_source_manager.safe_point()
+    return sorted(attribute_ids)
+
+
+def _fanout_children(
+    client: RESTClient,
+    config: AttioEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
+    resume_key: str | None,
+) -> Iterator[_FanoutChild]:
+    """Yield each child read, in ascending key order."""
+    for target, parent_id in _parent_keys(client, config, resumable_source_manager):
+        parent_key = f"{target}/{parent_id}"
+        path = config.path.replace("{target}", target).replace("{identifier}", parent_id)
+        if config.fanout == "parent":
+            yield _FanoutChild(key=parent_key, target=target, path=path)
+            continue
+        # Every child key of this parent sorts before the resume key, so skip the attribute listing.
+        if resume_key is not None and parent_key < resume_key[: len(parent_key)]:
+            continue
+        assert config.attribute_type is not None
+        for attribute_id in _attribute_ids(client, target, parent_id, config.attribute_type, resumable_source_manager):
+            yield _FanoutChild(
+                key=f"{parent_key}/{attribute_id}", target=target, path=path.replace("{attribute}", attribute_id)
+            )
+
+
+def _fanout_rows(
+    client: RESTClient,
+    config: AttioEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the child endpoint for each object or list, in ascending order of the child key.
+
+    The resume state is the key of the last child read, so it stays small however many objects,
+    lists and attributes a workspace has.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_key = resume.fanout_key if resume else None
+    resume_offset = resume.offset if resume else None
+    next_page_state: Optional[dict[str, Any]] = None
+
+    def track_child_page(state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
+        nonlocal next_page_state
+        next_page_state = state
+
+    for child in _fanout_children(client, config, resumable_source_manager, resume_key):
+        key = child.key
+        if resume_key is not None and (key < resume_key or (key == resume_key and resume_offset is None)):
+            continue
+        start_offset = resume_offset if key == resume_key else None
+
+        paginator: BasePaginator
+        if config.pagination == "single":
+            paginator = SinglePagePaginator()
+        else:
+            paginator = AttioOffsetPaginator(limit=config.page_size, use_json_body=config.method == "POST")
+
+        yielded = False
+        for page in client.paginate(
+            path=child.path,
+            method=config.method,
+            params=dict(config.params) or None,
+            paginator=paginator,
+            data_selector="data",
+            hooks=_IGNORE_NOT_FOUND,
+            initial_paginator_state={"offset": start_offset} if start_offset is not None else None,
+            page_state_hook=track_child_page,
+        ):
+            rows = [_shape_fanout_row(row, config, child.target) for row in page if isinstance(row, dict)]
+            if not rows:
+                continue
+            offset = next_page_state.get("offset") if next_page_state else None
+            resumable_source_manager.save_state(
+                AttioResumeConfig(fanout_key=key, offset=int(offset) if offset is not None else None)
+            )
+            yield rows
+            yielded = True
+
+        if not yielded:
+            resumable_source_manager.safe_point()
+
+
+def _shape_fanout_row(row: dict[str, Any], config: AttioEndpointConfig, target: FanoutTarget) -> dict[str, Any]:
+    shaped = _flatten_item(row)
+    if len(config.fanout_targets) > 1:
+        # `object_id` holds the id of an object or a list, so name which one it is.
+        shaped["target"] = target
+    return shaped
+
+
 def get_resource(name: str) -> EndpointResource:
     """Build an EndpointResource from the endpoint configuration.
 
@@ -127,6 +288,8 @@ def get_resource(name: str) -> EndpointResource:
         endpoint_config["paginator"] = AttioOffsetPaginator(
             limit=config.page_size, use_json_body=True, initial_json=json_body
         )
+    elif config.pagination == "single":
+        endpoint_config["paginator"] = SinglePagePaginator()
     elif config.pagination == "cursor":
         endpoint_config["params"] = {"limit": config.page_size}
         endpoint_config["paginator"] = JSONResponseCursorPaginator(
@@ -197,9 +360,19 @@ def attio_source(
     """
     endpoint_config = ATTIO_ENDPOINTS[endpoint]
 
+    if endpoint_config.fanout is not None:
+        client = RESTClient(
+            base_url=BASE_URL,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            auth=BearerTokenAuth(token=api_key),
+        )
+        return _source_response(
+            endpoint_config, lambda: _fanout_rows(client, endpoint_config, resumable_source_manager), sort_mode=None
+        )
+
     config: RESTAPIConfig = {
         "client": {
-            "base_url": "https://api.attio.com",
+            "base_url": BASE_URL,
             "auth": {
                 "type": "bearer",
                 "token": api_key,
@@ -245,14 +418,18 @@ def attio_source(
         initial_paginator_state=initial_paginator_state,
     ).add_map(_flatten_item)
 
+    return _source_response(endpoint_config, lambda: resource, sort_mode="asc")
+
+
+def _source_response(config: AttioEndpointConfig, items: Any, sort_mode: Optional[SortMode]) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime",
-        partition_format="week",
-        partition_keys=[endpoint_config.partition_key],
-        sort_mode="asc",
+        name=config.name,
+        items=items,
+        primary_keys=list(config.primary_keys),
+        partition_count=1 if config.partition_key else None,
+        partition_size=1 if config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=sort_mode,
     )

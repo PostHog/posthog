@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { signupGenericError } from 'scenes/authentication/auth/signupLogic'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
@@ -380,12 +381,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
 
                     actions.resetChallenge()
                     posthog.captureException(e)
-                    actions.setSignupManualErrors({
-                        generic: {
-                            code: error.code,
-                            detail: error.detail,
-                        },
-                    })
+                    actions.setSignupManualErrors({ generic: signupGenericError(e) })
                     throw e
                 }
             },

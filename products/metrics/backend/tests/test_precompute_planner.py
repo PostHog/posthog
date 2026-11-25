@@ -298,6 +298,7 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
                 "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
                 return_value=True,
             ),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             time_machine.travel(NOW, tick=False) as traveller,
         ):
             for _ in range(2):
@@ -331,7 +332,7 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMetricsQueryRunnerPrecompute(ClickhouseTestMixin, APIBaseTest):
-    def _run(self, *, flag_on: bool, dashboard_id: int | None):
+    def _run(self, *, flag_on: bool, dashboard_id: int | None, in_audience: bool = True):
         runner = MetricsQueryRunner(
             query=MetricsQuery(
                 clauses=[MetricsQueryClause(name="a", metricName=COUNTER, aggregation="increase")],
@@ -346,12 +347,24 @@ class TestMetricsQueryRunnerPrecompute(ClickhouseTestMixin, APIBaseTest):
                 return_value=True,
             ),
             patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=flag_on),
+            patch(
+                "posthog.permissions.posthog_feature_flag_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_on if flag == "dashboard-v2" else in_audience,
+            ),
         ):
             return runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
 
-    @parameterized.expand([("flag_off", False, 1), ("not_a_dashboard_tile", True, None)])
-    def test_runs_exactly_as_before_without_dashboard_v2_on_a_tile(self, _name: str, flag_on: bool, dashboard_id):
-        response = self._run(flag_on=flag_on, dashboard_id=dashboard_id)
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, 1),
+            ("not_a_dashboard_tile", True, True, None),
+            ("member_not_in_the_audience", True, False, 1),
+        ]
+    )
+    def test_runs_exactly_as_before_without_dashboard_v2_on_a_tile(
+        self, _name: str, flag_on: bool, in_audience: bool, dashboard_id
+    ):
+        response = self._run(flag_on=flag_on, dashboard_id=dashboard_id, in_audience=in_audience)
 
         assert response.provenance is None
         assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()

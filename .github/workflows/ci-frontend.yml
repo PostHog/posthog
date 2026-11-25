@@ -469,19 +469,25 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Every tool below is a root devDependency, and the complexity check resolves
+            # typescript from the root too, so the job installs the root package only. Nothing
+            # here reads a workspace package's build output, so no turbo prepare either.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root install --frozen-lockfile
+                  # A small store of its own, written cold by pnpm-store-cache.yml.
+                  store-key-prefix: pnpm-root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Prepare frontend
-              run: bin/turbo --filter=@posthog/frontend prepare
-
-            # Seven read-only checks that read no other step's output. Run in sequence their
+            # Read-only checks that read no other step's output. Run in sequence their
             # walls add up, dominated by the repository-wide markdown scan. A `parallel:`
             # block runs them as background steps and waits for the longest one at the end,
             # so the shorter checks run concurrently with the markdown scan.
+            #
+            # No `turbo prepare` here: every tool below is a root devDependency and nothing
+            # reads a workspace package's build output, so there is no build output to wait
+            # for before the block starts.
             #
             # Every step here is a `run:` step. An action inside the block that writes
             # `$GITHUB_PATH` or `$GITHUB_ENV` races its neighbours and crashes the runner.

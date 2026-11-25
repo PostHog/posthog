@@ -4,11 +4,13 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 import json
 import time
+import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from email.utils import parseaddr
-from typing import Any, Literal, Protocol
+from functools import cache
+from typing import Any, Literal, Protocol, TypeGuard
 from uuid import UUID
 
 from django.db import transaction
@@ -23,7 +25,9 @@ from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     prepare_transactional_email_attachment_uploads,
     send_accepted_transactional_email,
+    send_accepted_transactional_email_batch,
     send_transactional_email as run_transactional_workflow,
+    send_transactional_email_batch as run_transactional_workflow_batch,
 )
 
 from products.messaging.backend.facade.contracts import (
@@ -32,10 +36,15 @@ from products.messaging.backend.facade.contracts import (
     AttachmentUploadRequest,
     AttachmentUploadSlot,
     AttachmentUploadTarget,
+    BatchRecipient,
+    BatchTooLarge,
+    BatchUnavailable,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailBatchSent,
+    EmailNotQueued,
     EmailTracking,
     FieldNotAccepted,
     IdempotencyKeyInFlight,
@@ -75,6 +84,7 @@ from products.messaging.backend.models.message_category import MessageCategoryTy
 from products.messaging.backend.models.transactional_email_key import lock_team_keys as _lock_team_keys
 from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.services.transactional_email_status import keyed_message_id
 from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
@@ -110,6 +120,18 @@ CDP_SEND_RESULTS = Counter(
     "messaging_transactional_email_cdp_requests_total",
     "Requests to the CDP service to queue one transactional email, by result: success (202), the HTTP status class "
     "of any other answer, timeout, connection_error, or error.",
+    labelnames=["result"],
+)
+CDP_BATCH_DURATION = Histogram(
+    "messaging_transactional_email_cdp_batch_request_duration_seconds",
+    "Time for the CDP service to answer a request to queue a batch of transactional emails, including failed requests.",
+    buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10, 15, 20, 25, 30),
+)
+CDP_BATCH_RESULTS = Counter(
+    "messaging_transactional_email_cdp_batch_requests_total",
+    "Requests to the CDP service to queue a batch of transactional emails, by result: success (200 with one answer "
+    "per recipient), malformed (200 with any other body), the HTTP status class of any other answer, timeout, "
+    "connection_error, or error.",
     labelnames=["result"],
 )
 SANDBOX_FALLBACKS = Counter(
@@ -232,13 +254,41 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "The PostHog test sender isn't available for this organization, so this email wasn't sent. Verify a sending "
         "domain at {setup_url} to send email.",
     ),
+    "batch_unavailable": (
+        BatchUnavailable,
+        "Batch sends aren't available for this project yet, so PostHog didn't send any of these emails. Send each "
+        "email on its own instead.",
+    ),
 }
+
+BATCH_REFUSALS = frozenset(
+    {
+        "batch_unavailable",
+        "quota_limited",
+        "sending_suspended",
+        "sending_paused",
+        "not_sendable",
+        "sandbox_sender_unavailable",
+    }
+)
+RECIPIENT_REFUSALS = frozenset(
+    {"idempotency_key_reused", "recipient_suppressed", "recipient_unreachable", "sandbox_recipient_not_member"}
+)
+BATCH_INVALID_RECIPIENT = (
+    "PostHog can't send to this recipient as given. Check its `to`, `distinct_id` and `message_data`, then send it "
+    "again."
+)
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
     "This email goes out from the PostHog test sender, because this project has no verified sending domain. The "
     "PostHog test sender only sends to members of your organization. Verify a sending domain to send to anyone from "
     "your own address."
+)
+BATCH_SANDBOX_SENDER_WARNING = (
+    "PostHog accepted these emails to send from the PostHog test sender, because this project has no verified "
+    "sending domain. The PostHog test sender only sends to members of your organization. Verify a sending domain to "
+    "send to anyone from your own address."
 )
 
 FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
@@ -275,6 +325,14 @@ FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
+
+
+def is_idempotency_key(value: str) -> bool:
+    return IDEMPOTENCY_KEY_PATTERN.fullmatch(value) is not None
+
+
+BATCH_SHARED_MAX_BYTES = 256 * 1024
+BATCH_TIMEOUT_SECONDS = 30
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 
@@ -710,8 +768,67 @@ def send_code_email(
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
 
+def check_email_batch(
+    recipients: Sequence[BatchRecipient], *, message_data: dict[str, Any] | None = None, email: CodeEmail | None = None
+) -> tuple[BatchRecipient, ...]:
+    if not _within_batch_shared_limit(message_data if email is None else email):
+        raise ContentTooLarge(
+            f"The content or `message_data` that a batch sends to every recipient can be at most "
+            f"{BATCH_SHARED_MAX_BYTES // 1024} KiB. Send larger emails one at a time."
+        )
+    return tuple(_checked_recipient(recipient) for recipient in recipients)
+
+
+def send_email_batch(
+    team: Team,
+    template: TransactionalTemplate,
+    recipients: Sequence[BatchRecipient],
+    *,
+    message_data: dict[str, Any],
+) -> EmailBatchSent:
+    with transactional_email_stage("workflow_lookup"):
+        hog_flow_id = _sendable_workflow_id(team.id, template)
+    return _queue_batch(team.id, hog_flow_id, {"variables": message_data}, recipients, run_transactional_workflow_batch)
+
+
+def send_code_email_batch(team: Team, email: CodeEmail, recipients: Sequence[BatchRecipient]) -> EmailBatchSent:
+    with transactional_email_stage("workflow_lookup"):
+        accepted_send, fallback_warning = _accepted_send(team, email)
+        hog_flow_id = _code_workflow_id(team.id, email.key, email.sensitive)
+    return _queue_batch(
+        team.id,
+        hog_flow_id,
+        {"send": accepted_send},
+        recipients,
+        send_accepted_transactional_email_batch,
+        sandbox_ignored=_fields_the_sandbox_ignores(email) if fallback_warning is not None else (),
+    )
+
+
+def _within_batch_shared_limit(shared: dict[str, Any] | CodeEmail | None) -> bool:
+    if not isinstance(shared, CodeEmail):
+        return _encoded_size(shared or {}) <= BATCH_SHARED_MAX_BYTES
+    if _encoded_size([shared.subject, shared.html, shared.text]) > BATCH_SHARED_MAX_BYTES:
+        return False
+    return _encoded_size(_accepted_content(shared)) <= BATCH_SHARED_MAX_BYTES
+
+
+def _encoded_size(value: Any) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode(errors="surrogatepass"))
+
+
+def _checked_recipient(recipient: BatchRecipient) -> BatchRecipient:
+    if recipient.refusal is not None:
+        return recipient
+    try:
+        _check_send_request(recipient.to, recipient.idempotency_key)
+    except InvalidRecipient as e:
+        return dataclasses.replace(recipient, refusal=e)
+    return recipient
+
+
 def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
-    if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+    if idempotency_key is not None and not is_idempotency_key(idempotency_key):
         raise InvalidIdempotencyKey(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
         )
@@ -910,6 +1027,146 @@ def _queue(
     )
 
 
+def _queue_batch(
+    team_id: int,
+    hog_flow_id: UUID,
+    shared: dict[str, Any],
+    recipients: Sequence[BatchRecipient],
+    post: _PipelinePost,
+    *,
+    sandbox_ignored: tuple[str, ...] = (),
+) -> EmailBatchSent:
+    sent = [recipient for recipient in recipients if recipient.refusal is None]
+    payload = {**shared, "recipients": [_batch_recipient_payload(recipient) for recipient in sent]}
+    answers = iter(_batch_answers(team_id, hog_flow_id, payload, sent, post) if sent else ())
+    results = tuple(
+        _refused_recipient(team_id, recipient, recipient.refusal) if recipient.refusal is not None else next(answers)
+        for recipient in recipients
+    )
+    from_sandbox = any(isinstance(result, QueuedEmail) and result.sent_from_sandbox for result in results)
+    warnings = (
+        (_sandbox_sender_warning(team_id, sandbox_ignored, message=BATCH_SANDBOX_SENDER_WARNING),)
+        if from_sandbox
+        else ()
+    )
+    return EmailBatchSent(results=results, warnings=warnings)
+
+
+def _refused_recipient(
+    team_id: int, recipient: BatchRecipient, error: TransactionalEmailError | DeliveryUnavailable
+) -> EmailNotQueued:
+    return EmailNotQueued(message_id=str(keyed_message_id(team_id, recipient.idempotency_key)), error=error)
+
+
+def _batch_recipient_payload(recipient: BatchRecipient) -> dict[str, Any]:
+    payload = _send_payload(recipient.to, recipient.distinct_id, recipient.message_data, recipient.idempotency_key)
+    if not payload["variables"]:
+        del payload["variables"]
+    return payload
+
+
+def _batch_answers(
+    team_id: int, hog_flow_id: UUID, payload: dict[str, Any], recipients: Sequence[BatchRecipient], post: _PipelinePost
+) -> tuple[QueuedEmail | EmailNotQueued, ...]:
+    started_at = time.monotonic()
+    try:
+        response = post(team_id, str(hog_flow_id), payload, timeout=BATCH_TIMEOUT_SECONDS)
+    except Exception as e:
+        CDP_BATCH_DURATION.observe(time.monotonic() - started_at)
+        CDP_BATCH_RESULTS.labels(result=_cdp_error_result(e)).inc()
+        logger.exception("transactional_email_batch_queue_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
+        raise DeliveryUnavailable() from e
+    CDP_BATCH_DURATION.observe(time.monotonic() - started_at)
+    answer = _answer(response)
+    answered = answer.get("results")
+    if response.status_code == 200 and _answers_each(answered, recipients):
+        CDP_BATCH_RESULTS.labels(result="success").inc()
+        setup_url = cache(lambda: sending_domain_setup(team_id).setup_url)
+        return tuple(
+            _recipient_result(team_id, recipient, result["status"], result["body"], setup_url)
+            for recipient, result in zip(recipients, answered)
+        )
+    CDP_BATCH_RESULTS.labels(
+        result="malformed" if response.status_code == 200 else f"{response.status_code // 100}xx"
+    ).inc()
+    refusal_code = _refusal_code(answer)
+    if response.status_code == 413:
+        raise BatchTooLarge()
+    if response.status_code == 400 and refusal_code == "sandbox_fields_unsupported":
+        raise InvalidRequest(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=sending_domain_setup(team_id).setup_url))
+    if 400 <= response.status_code < 500 and refusal_code in BATCH_REFUSALS:
+        raise _pipeline_refusal(refusal_code, lambda: sending_domain_setup(team_id).setup_url)
+    logger.error(
+        "transactional_email_batch_queue_rejected",
+        team_id=team_id,
+        hog_flow_id=str(hog_flow_id),
+        status_code=response.status_code,
+        refusal_code=refusal_code if refusal_code in PIPELINE_REFUSALS else None,
+    )
+    if response.status_code == 400:
+        raise _pipeline_refusal("invalid_request", lambda: sending_domain_setup(team_id).setup_url)
+    raise DeliveryUnavailable()
+
+
+def _answers_each(answered: Any, recipients: Sequence[BatchRecipient]) -> TypeGuard[list[dict[str, Any]]]:
+    return (
+        isinstance(answered, list)
+        and len(answered) == len(recipients)
+        and all(
+            isinstance(result, dict) and type(result.get("status")) is int and isinstance(result.get("body"), dict)
+            for result in answered
+        )
+    )
+
+
+def _recipient_result(
+    team_id: int,
+    recipient: BatchRecipient,
+    status_code: int,
+    body: dict[str, Any],
+    setup_url: Callable[[], str],
+) -> QueuedEmail | EmailNotQueued:
+    message_id = str(keyed_message_id(team_id, recipient.idempotency_key))
+    if status_code == 202:
+        from_sandbox = body.get("sender_kind") == SANDBOX_SENDER_KIND
+        replayed = body.get("replayed") is True
+        if from_sandbox and not replayed:
+            SANDBOX_FALLBACKS.labels(outcome="sandbox").inc()
+        return QueuedEmail(message_id=message_id, replayed=replayed, sent_from_sandbox=from_sandbox)
+    refusal_code = _refusal_code(body)
+    error: TransactionalEmailError | DeliveryUnavailable
+    if status_code == 413:
+        error = ContentTooLarge(
+            "The email is larger than PostHog can send. Make its content or data smaller, and link to large "
+            "images and files instead of embedding them."
+        )
+    elif status_code == 400:
+        error = (
+            _pipeline_refusal("invalid_request", setup_url)
+            if refusal_code == "invalid_request"
+            else InvalidRecipient(BATCH_INVALID_RECIPIENT)
+        )
+    elif status_code == 422 and refusal_code in RECIPIENT_REFUSALS:
+        if refusal_code == "sandbox_recipient_not_member":
+            SANDBOX_FALLBACKS.labels(outcome="recipient_not_member").inc()
+        error = _pipeline_refusal(refusal_code, setup_url)
+    else:
+        error = DeliveryUnavailable()
+    if isinstance(error, InvalidRequest | DeliveryUnavailable):
+        logger.error(
+            "transactional_email_batch_recipient_rejected",
+            team_id=team_id,
+            status_code=status_code,
+            refusal_code=refusal_code if refusal_code in PIPELINE_REFUSALS else None,
+        )
+    return EmailNotQueued(message_id=message_id, error=error)
+
+
+def _pipeline_refusal(code: str, setup_url: Callable[[], str]) -> TransactionalEmailError:
+    error_class, message = PIPELINE_REFUSALS[code]
+    return error_class(message.format(setup_url=setup_url()) if "{setup_url}" in message else message)
+
+
 def _schedule(answer: dict[str, Any]) -> dict[str, Any]:
     scheduled_at = answer.get("scheduled_at")
     if not isinstance(scheduled_at, str) or not scheduled_at:
@@ -942,7 +1199,9 @@ def _explanation(answer: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _sandbox_sender_warning(team_id: int, ignored: tuple[str, ...]) -> SendWarning:
+def _sandbox_sender_warning(
+    team_id: int, ignored: tuple[str, ...], message: str = SANDBOX_SENDER_WARNING
+) -> SendWarning:
     setup = sending_domain_setup(team_id)
     if setup.unverified_sender_id is None:
         agent_action = (
@@ -957,7 +1216,6 @@ def _sandbox_sender_warning(team_id: int, ignored: tuple[str, ...]) -> SendWarni
             f"integrations-email-status-retrieve for integration {setup.unverified_sender_id} to get the DNS records "
             "to publish."
         )
-    message = SANDBOX_SENDER_WARNING
     if ignored:
         names = " and ".join(f"`{field}`" for field in ignored)
         ignored_note = f" PostHog ignored {names}, because the PostHog test sender only sends from its own address."

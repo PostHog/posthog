@@ -16,11 +16,12 @@ The rerun worker also re-checks each invocation's latest status before it
 enqueues it.
 """
 
+import time
 import uuid
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.core.cache import caches
 
@@ -362,6 +363,11 @@ class FunctionReplayResult:
     invocation_count: int
     status_code: int
     detail: str
+    # Where the request's runs start in the function's invocation IDs, and when it was sent, so the outcome
+    # check can find each run and tell a new attempt from the failed one it replays.
+    offset: int = 0
+    sent_at: str = ""
+    may_have_queued: bool = False
 
 
 @frozen
@@ -694,6 +700,10 @@ def _claim_key(fingerprint: str) -> str:
     return f"cdp:invocation_replay:claim:{fingerprint}"
 
 
+def _invocations_key(fingerprint: str) -> str:
+    return f"cdp:invocation_replay:invocations:{fingerprint}"
+
+
 class ReplayOverlapError(Exception):
     """Another replay still holds some of the same destinations."""
 
@@ -734,6 +744,12 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
                     "Wait for its runs to finish, or release it on its status page, then preview again."
                 )
             reserved.append(function.function_id)
+        if plan.invocation_count <= OUTCOME_MAX_RUNS:
+            replay_cache.set(
+                _invocations_key(fingerprint),
+                {function.function_id: list(function.invocation_ids) for function in plan.replayable_functions},
+                timeout=REPLAY_STATE_TTL_SECONDS,
+            )
         replay_cache.set(
             _state_key(fingerprint),
             {
@@ -743,6 +759,7 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
                 "invocation_count": plan.invocation_count,
                 "request_count": plan.request_count,
                 "function_ids": reserved,
+                "window_start": plan.criteria.window_start.isoformat(),
                 "results": [],
             },
             timeout=REPLAY_STATE_TTL_SECONDS,
@@ -901,6 +918,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str, claim: str) -> list[Function
                     )
                     return results
                 chunk = list(function.invocation_ids[offset : offset + HOG_INVOCATION_RERUN_MAX_COUNT])
+                sent_at = datetime.now(UTC)
                 in_flight = True
                 uncertain = False
                 try:
@@ -940,6 +958,9 @@ def execute_replay(plan: ReplayPlan, *, actor: str, claim: str) -> list[Function
                     invocation_count=len(chunk),
                     status_code=status_code,
                     detail=detail,
+                    offset=offset,
+                    sent_at=sent_at.isoformat(),
+                    may_have_queued=status_code == 200 or uncertain,
                 )
                 results.append(result)
                 _save_state(
@@ -952,6 +973,9 @@ def execute_replay(plan: ReplayPlan, *, actor: str, claim: str) -> list[Function
                             "invocation_count": r.invocation_count,
                             "status_code": r.status_code,
                             "detail": r.detail,
+                            "offset": r.offset,
+                            "sent_at": r.sent_at,
+                            "may_have_queued": r.may_have_queued,
                         }
                         for r in results
                     ],
@@ -979,3 +1003,143 @@ def execute_replay(plan: ReplayPlan, *, actor: str, claim: str) -> list[Function
             replay_cache.touch(_function_reservation_key(function_id), timeout=FUNCTION_RESERVATION_SECONDS)
     logger.info("invocation_replay_finished", actor=actor, fingerprint=fingerprint, failed_requests=failed_requests)
     return results
+
+
+OutcomeStatus = Literal["succeeded", "failed", "running", "canceled", "waiting", "missing"]
+
+OUTCOME_LABELS: dict[OutcomeStatus, str] = {
+    "succeeded": "Delivered",
+    "failed": "Failed again",
+    "running": "Sending",
+    "canceled": "Canceled",
+    "waiting": "No new attempt yet",
+    "missing": "Not found",
+}
+
+# Invocation IDs go into the query text, so a chunk keeps the query well under ClickHouse's maximum query size.
+_OUTCOME_ID_CHUNK = 1000
+# The outcome reads one query per chunk on every refresh, so a larger replay is not tracked.
+OUTCOME_MAX_RUNS = 10_000
+# A run the rerun skipped never gets a new attempt, so after this the status page stops waiting for one.
+OUTCOME_WAIT = timedelta(minutes=30)
+# The status page waits for these queries, and it must render when ClickHouse accepts a connection and then stalls.
+_OUTCOME_QUERY_SECONDS = 30
+_OUTCOME_TOTAL_SECONDS = 60
+
+_OUTCOME_QUERY = """
+SELECT
+    invocation_id,
+    argMax(status, version) AS latest_status,
+    max(version) AS latest_version,
+    argMax(error_message, version) AS latest_error
+FROM hog_invocation_results
+WHERE function_kind IN ('hog_function', 'hog_flow')
+    AND team_id IN %(team_ids)s
+    AND function_id IN %(function_ids)s
+    AND scheduled_at >= %(window_start)s
+    AND invocation_id IN %(invocation_ids)s
+GROUP BY invocation_id
+HAVING argMax(is_deleted, version) = 0
+"""
+
+
+@frozen
+class ReplayOutcome:
+    counts: dict[OutcomeStatus, int]
+    errors: tuple[tuple[str, int], ...]
+    last_sent_at: datetime
+
+    @property
+    def settled(self) -> bool:
+        if datetime.now(UTC) - self.last_sent_at > OUTCOME_WAIT:
+            return True
+        return not self.counts.get("running") and not self.counts.get("waiting")
+
+
+@frozen
+class _SentRun:
+    team_id: int
+    function_id: str
+    invocation_id: str
+    # A row with a higher version was written after the rerun request, so it belongs to the new attempt.
+    sent_after_version: int
+
+
+def _sent_runs(state: dict[str, Any], invocation_ids: dict[str, list[str]]) -> list[_SentRun] | None:
+    runs: list[_SentRun] = []
+    for result in state.get("results", []):
+        if "offset" not in result:
+            return None
+        if not result["may_have_queued"]:
+            continue
+        sent_after = int(datetime.fromisoformat(result["sent_at"]).timestamp() * 1_000_000)
+        ids = invocation_ids.get(result["function_id"], [])
+        runs.extend(
+            _SentRun(
+                team_id=result["team_id"],
+                function_id=result["function_id"],
+                invocation_id=invocation_id,
+                sent_after_version=sent_after,
+            )
+            for invocation_id in ids[result["offset"] : result["offset"] + result["invocation_count"]]
+        )
+    return runs
+
+
+def get_replay_outcome(fingerprint: str) -> ReplayOutcome | None:
+    """The latest attempt of every run a replay queued, read from the lifecycle rows.
+
+    The send only knows whether the CDP API accepted each rerun request, not whether the destination accepted the runs.
+    """
+    state = get_replay_state(fingerprint)
+    invocation_ids = replay_cache.get(_invocations_key(fingerprint))
+    if not state or invocation_ids is None or "window_start" not in state:
+        return None
+    runs = _sent_runs(state, invocation_ids)
+    if not runs:
+        return None
+    window_start = datetime.fromisoformat(state["window_start"])
+    last_sent_at = max(
+        datetime.fromisoformat(result["sent_at"]) for result in state["results"] if result["may_have_queued"]
+    )
+    latest: dict[str, tuple[str, int, str]] = {}
+    deadline = time.monotonic() + _OUTCOME_TOTAL_SECONDS
+    with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
+        for offset in range(0, len(runs), _OUTCOME_ID_CHUNK):
+            if time.monotonic() > deadline:
+                raise TimeoutError("The outcome of the replay took too long to read")
+            chunk = runs[offset : offset + _OUTCOME_ID_CHUNK]
+            rows = sync_execute(
+                _OUTCOME_QUERY,
+                {
+                    "team_ids": sorted({run.team_id for run in chunk}),
+                    "function_ids": sorted({run.function_id for run in chunk}),
+                    "window_start": window_start,
+                    "invocation_ids": [run.invocation_id for run in chunk],
+                },
+                settings={"max_execution_time": _OUTCOME_QUERY_SECONDS},
+                send_receive_timeout=_OUTCOME_QUERY_SECONDS,
+            )
+            for invocation_id, status, version, error in rows:
+                latest[str(invocation_id)] = (str(status), int(version), str(error))
+    counts: Counter[OutcomeStatus] = Counter()
+    errors: Counter[str] = Counter()
+    for run in runs:
+        row = latest.get(run.invocation_id)
+        if row is None:
+            counts["missing"] += 1
+            continue
+        status, version, error = row
+        if version <= run.sent_after_version:
+            counts["waiting"] += 1
+        elif status in OUTCOME_LABELS:
+            counts[cast(OutcomeStatus, status)] += 1
+            if status == "failed":
+                errors[error[:200] or "No error message"] += 1
+        else:
+            counts["running"] += 1
+    return ReplayOutcome(
+        counts={status: counts[status] for status in OUTCOME_LABELS if counts[status]},
+        errors=tuple(errors.most_common(5)),
+        last_sent_at=last_sent_at,
+    )

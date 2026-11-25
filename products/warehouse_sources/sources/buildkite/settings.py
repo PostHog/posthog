@@ -32,8 +32,9 @@ class BuildkiteEndpointConfig:
 
 # Buildkite v2 REST API endpoints. Most resources are nested under an organization slug, and the
 # Test Engine resources live under the /v2/analytics prefix. Only the builds endpoint exposes a
-# server-side timestamp filter (created_from); jobs, artifacts and annotations inherit it through
-# their parent build fan-out, and the rest are full refresh.
+# server-side timestamp filter (created_from); the per-build children inherit it through their
+# parent build fan-out, organization usage windows on its from/to dates, and the rest are full
+# refresh.
 BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
     "organizations": BuildkiteEndpointConfig(
         name="organizations",
@@ -211,6 +212,47 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         incremental_fields=[],
         probe_path="/v2/organizations/{organization}/teams",
     ),
+    "team_suites": BuildkiteEndpointConfig(
+        name="team_suites",
+        path="/v2/organizations/{organization}/teams/{team_id}/suites",
+        # The rows are team-to-suite links with no id of their own, so the pair they join is the key.
+        primary_keys=["team_id", "suite_id"],
+        # `created_at` is when the suite was added to the team, which is set once.
+        partition_key="created_at",
+        incremental_fields=[],
+        probe_path="/v2/organizations/{organization}/teams",
+    ),
+    "audit_events": BuildkiteEndpointConfig(
+        name="audit_events",
+        path="/v2/organizations/{organization}/audit_events",
+        primary_keys=["uuid"],
+        partition_key="occurred_at",
+        # Newest-first on a cursor, with no time filter, so it is full refresh only.
+        sort_mode="desc",
+        incremental_fields=[],
+        should_sync_default=False,
+        description=(
+            "Needs the Enterprise plan, an organization administrator's token and the read_audit_events scope. "
+            "Disabled by default because other plans can't read it"
+        ),
+    ),
+    "organization_usage": BuildkiteEndpointConfig(
+        name="organization_usage",
+        path="/v2/organizations/{organization}/usage",
+        # One row per calendar month. The current month restates until it ends.
+        primary_keys=["reporting_period_from"],
+        # The `from` and `to` params window the summary server-side, so an incremental sync re-reads
+        # only the months from the watermark on.
+        incremental_fields=[
+            {
+                "label": "reporting_period_from",
+                "type": IncrementalFieldType.Date,
+                "field": "reporting_period_from",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+        merge_only=True,
+    ),
     "test_suites": BuildkiteEndpointConfig(
         name="test_suites",
         path="/v2/analytics/organizations/{organization}/suites",
@@ -233,6 +275,30 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         primary_keys=["suite_slug", "id"],
         incremental_fields=[],
         probe_path="/v2/analytics/organizations/{organization}/suites",
+    ),
+    "build_tests": BuildkiteEndpointConfig(
+        name="build_tests",
+        path="/v2/analytics/organizations/{organization}/builds/{build_id}/tests",
+        # A test's metrics are aggregated per build, so the same test repeats under every build.
+        primary_keys=["build_id", "id"],
+        partition_key="build_created_at",
+        incremental_fields=[
+            {
+                "label": "build_created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "build_created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        sort_mode="desc",
+        probe_path="/v2/analytics/organizations/{organization}/suites",
+        # The metrics restate until the build finishes.
+        merge_only=True,
+        should_sync_default=False,
+        description=(
+            "Fetches the Test Engine tests of every build, at least one request per build. "
+            "Disabled by default because of the API cost"
+        ),
     ),
 }
 

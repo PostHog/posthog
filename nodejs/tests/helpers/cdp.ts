@@ -10,7 +10,6 @@ import {
     CdpProducerName,
     MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
@@ -31,7 +30,6 @@ function buildTestCdpProducerRegistry(
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
-        [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: kafkaProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
         [MSK_CDP_INTAKE_PRODUCER]: kafkaProducer,
     })

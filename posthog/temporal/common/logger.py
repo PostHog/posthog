@@ -187,6 +187,7 @@ class LogMessagesRenderer:
                 # Event-level overrides let one workflow_type route to multiple schemas.
                 log_source = event_dict.pop("log_source", log_source)
                 log_source_id = event_dict.pop("log_source_id", log_source_id)
+                instance_id = event_dict.pop("instance_id", event_dict["workflow_run_id"])
 
                 # Append resource + batch_index so the Syncs UI distinguishes parallel batches
                 # of the same CDC sync. Scoped to `external_data_jobs` so we don't reshape
@@ -201,7 +202,7 @@ class LogMessagesRenderer:
                         message_text = f"{message_text} #{batch_index}"
 
                 message_dict = {
-                    "instance_id": event_dict["workflow_run_id"],
+                    "instance_id": instance_id,
                     "level": event_dict["level"],
                     "log_source": log_source,
                     "log_source_id": log_source_id,

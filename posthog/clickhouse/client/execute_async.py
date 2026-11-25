@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 import orjson as json
 import structlog
 import posthoganalytics
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
@@ -348,7 +349,7 @@ def execute_process_query(
         if user_id:
             query_status.cache_key = getattr(err, "cache_key", None)
             query_status.query_scan = _query_scan_from_error(err)
-        if is_user_safe_error or is_staff_user:
+        if is_user_safe_error or (is_staff_user and not isinstance(err, ClickHouseDriverError)):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
             if isinstance(err, APIException):
@@ -453,7 +454,9 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    query_tags = get_query_tags().model_dump()
+    # Only tags someone set: a worker on an older release rejects any key its QueryTags lacks.
+    # traceparent stays off the payload until every worker drops unknown keys (process_query_task).
+    query_tags = get_query_tags().model_dump(exclude_unset=True, exclude={"traceparent"})
     manager.store_query_status(query_status)
 
     if cache_key:

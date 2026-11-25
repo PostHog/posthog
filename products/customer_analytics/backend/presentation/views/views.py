@@ -1120,6 +1120,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         summary="Update account sidebar configuration",
         description=(
             "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "or follow a project or role default when followed_default is provided, "
             "and change the task digest email preferences when task_digest is provided. "
             "Anything omitted keeps its current value. "
             "At most 50 account custom properties, relationships, and account fields can be pinned."
@@ -1143,6 +1144,18 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
                     )
                 except api.InvalidPinnedAccountProperties as error:
                     raise ValidationError({"pinned_properties": error.errors})
+
+            if "followed_default" in request.validated_data:
+                followed_default = request.validated_data["followed_default"]
+                try:
+                    config = api.follow_user_default_pinned_properties(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        kind=followed_default["kind"],
+                        role_id=followed_default.get("role_id"),
+                    )
+                except api.InvalidPinnedAccountProperties as error:
+                    raise ValidationError({"followed_default": error.errors})
 
             if "task_digest" in request.validated_data:
                 task_digest = request.validated_data["task_digest"]
@@ -1666,6 +1679,7 @@ class CustomPropertySourceViewSet(
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
                 column_descriptions=data.column_descriptions,
+                missing_row_behavior=data.missing_row_behavior,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
@@ -1682,6 +1696,7 @@ class CustomPropertySourceViewSet(
             mapped_column_count=len(data.column_property_map or {}),
             reads_warehouse_table=data.external_data_schema is not None,
             is_enabled=data.is_enabled,
+            missing_row_behavior=data.missing_row_behavior,
         )
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
