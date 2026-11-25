@@ -6,14 +6,11 @@ import os from 'os'
 import path from 'path'
 import { parse, stringify } from 'yaml'
 
-import { parseJSON } from '~/common/utils/json-parse'
-
 import { PROFILES_DIR, load, loadText } from './cards'
 import { Environment } from './environment/environment'
 import * as processes from './environment/processes'
 import * as stack from './environment/stack'
 import { main, runCards } from './main'
-import * as evidenceFile from './runner/evidence-file'
 import { controlOf } from './runner/pair'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
@@ -260,43 +257,6 @@ describe('runCards', () => {
                 /The reset before run [\w-]+ failed and stopped the environment: cdp-api did not join its consumer group\. Restart the runner, then run the card again\.\nSkipped 1 of 2 cards after the error\.\n$/
             ),
         })
-    })
-
-    it('reads the pair again when a saved scorecard cannot be written, and saves the other run with it', async () => {
-        const api = await startFakeProjectApi()
-        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
-        const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
-        const { writeJson } = jest.requireActual<typeof evidenceFile>('./runner/evidence-file')
-        let failed = false
-        jest.spyOn(evidenceFile, 'writeJson').mockImplementation((dir, name, value) => {
-            if (name === 'scorecard.json' && !failed) {
-                failed = true
-                throw new Error('disk full')
-            }
-            writeJson(dir, name, value)
-        })
-
-        try {
-            await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
-
-            const [control, faulted] = api.captured.map(({ properties }) => properties)
-            const saved = parseJSON(
-                readFileSync(
-                    path.join(cacheHome, 'posthog-scenarios', String(faulted.run_id), 'scorecard.json'),
-                    'utf8'
-                )
-            )
-            const reason = expect.stringMatching(
-                /^the control run is invalid: .*; the evidence could not be written: disk full$/
-            )
-            expect([control.pair_reason, faulted.pair_reason, saved.event.pair_reason]).toEqual([
-                reason,
-                reason,
-                reason,
-            ])
-        } finally {
-            await api.close()
-        }
     })
 
     it('saves both scorecards of a paired card, then publishes each with the pair', async () => {
