@@ -104,7 +104,9 @@ export class IntegrationKeyLoader {
     /** As `load()`, from one snapshot of the directory. */
     loadFrom(files: Record<string, string>): void {
         const keys = parseIntegrationPublicKeys(files)
-        if (Object.keys(keys).length === 0) {
+        // A warm reload accepts an empty key set, because removing the last file revokes the last
+        // caller. Only boot refuses it, so that a pod never starts with no callers.
+        if (Object.keys(keys).length === 0 && !this.loaded) {
             throw new Error(`no ${PUBLIC_KEY_SUFFIX} files in ${this.dir}`)
         }
         this.keys = keys

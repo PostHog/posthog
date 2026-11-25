@@ -134,7 +134,10 @@ export class SigningKeyLoader {
     /** As `load()`, from one snapshot of the secret. */
     loadFrom(values: Record<string, string>): void {
         const keys = parseSigningKeys(values)
-        if (Object.keys(keys).length === 0) {
+        // A warm reload accepts an empty key set, because removing the last key revokes the last
+        // caller. Keeping the old keys would let that caller read the secrets applied from the
+        // same snapshot. A source that cannot be read gives null, which never gets here.
+        if (Object.keys(keys).length === 0 && !this.loaded) {
             throw new Error(`no ${CALLER_KEY_PREFIX}* entries in ${this.dir}`)
         }
         assertNoSharedKeys(keys)

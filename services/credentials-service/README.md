@@ -124,6 +124,7 @@ Each file holds one or more PEM `PUBLIC KEY` blocks (SPKI), newest first.
 To rotate, add the new block, move the caller to the new private key, then remove the old block.
 The load fails on a file with any other name, a private key, a key that is not Ed25519, or one key listed for two deployments.
 A failed reload keeps the previous keys (see the metrics).
+Removing the last `.pub` file is not a failure: a running pod then refuses every integration caller.
 
 ```bash
 openssl genpkey -algorithm ed25519 -out posthog-web-django.key   # stays with the caller
@@ -202,6 +203,8 @@ The service reads it from one of two sources, set by `CREDENTIALS_SERVICE_SECRET
 Each source yields the whole Secret at one version.
 The service applies that one snapshot to the signing keys first and then to the credentials.
 So a revocation and a rotation in one edit land together, and a revoked caller never reads the new values.
+That includes an edit that removes the last caller key: a running pod then refuses every caller.
+Only boot refuses a secret with no caller keys.
 
 The kubernetes source:
 

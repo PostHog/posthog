@@ -578,6 +578,19 @@ describe('integration public keys', () => {
             expect(keys.entries().map(([deployment]) => deployment)).toEqual([WEB])
         })
 
+        it('refuses every caller when a reload removes the last key file', async () => {
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), webPem)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await rm(join(dir, `${WEB}.pub`))
+            await keys.reload()
+
+            expect(await codeFor(verifier({ keys }).verify(await mint()))).toBe('bad_signature')
+        })
+
         it('keeps the previous keys when one file cannot be read', async () => {
             const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
             dirs.push(dir)

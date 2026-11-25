@@ -169,6 +169,14 @@ describe('credentials server end to end', () => {
             expect((await resolve(port, token)).status).toBe(401)
             expect((await resolve(port, await mint({ signingKey: OTHER_SIGNING_KEY }))).status).toBe(200)
 
+            // Revoking the last caller in the same edit as a rotation must refuse that caller,
+            // or its old key would read the new value.
+            const lastCaller = await mint({ signingKey: OTHER_SIGNING_KEY })
+            await unlink(join(dir, '__CALLER_KEY_OTHER_DEPLOYMENT'))
+            await writeFile(join(dir, KEY), 'rotated-value-2')
+            await server.reload()
+            expect((await resolve(port, lastCaller)).status).toBe(401)
+
             // The scrape lives on its own listener and never carries a secret value.
             const metricsPort = server.metricsPort()
             expect(metricsPort).toBeDefined()
