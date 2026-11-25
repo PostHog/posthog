@@ -62,9 +62,8 @@ export function hogFlowPersonLookup(hogFlow: HogFlow, state: HogFlowState): HogF
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
 // template never sees person properties, or the display name derived from them. The person stays attached
-// so the send is recorded against them. A transactional push reads the person's encrypted device tokens to know where
-// to send, and only that person's own devices get the push, so those properties stay. A push step someone adds to a
-// transactional email gets none, because an email key must not reach a device.
+// so the send is recorded against them. Only a transactional push keeps the device tokens it sends to,
+// because an email key must not reach a device.
 function personForFlow(
     hogFlow: HogFlow,
     person: CyclotronPerson | null,

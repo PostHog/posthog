@@ -1911,7 +1911,6 @@ export class CdpApi {
                 return reply('invalid_request', 400, { error: 'invalid_request' })
             }
             const unauthorized = { error: 'Unauthorized: Invalid transactional push token' }
-            // A token sends to the one person Django minted it for, once.
             if (!isTokenForPerson(claims, parsed.data.distinct_id) || typeof claims.jti !== 'string' || !claims.jti) {
                 return reply('unauthorized', 401, unauthorized)
             }
@@ -2007,7 +2006,6 @@ export class CdpApi {
                 : { kind: 'transactional-push', invocation }
 
             if (isAsync) {
-                // The intake consumer makes the claim, inserts the run and writes its rows.
                 switch (await intake.produce(run)) {
                     case 'accepted':
                         return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })

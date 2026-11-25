@@ -33,7 +33,6 @@ export const useTransactionalPushToken = async (redis: RedisV2, jti: string): Pr
 
 export const TransactionalPushRequestSchema = z.object({
     distinct_id: z.string().min(1).max(400),
-    // The caller's `message_data`, available to the template as `variables`.
     variables: z.record(z.string(), z.any()).default({}),
     idempotency_key: z.string().min(1).max(255).optional(),
 })
