@@ -4,6 +4,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightDataLogic, isInsightSceneInstance } from 'scenes/insights/insightDataLogic'
@@ -600,6 +602,41 @@ describe('insightSceneLogic', () => {
         )
     })
 
+    it('drops the dashboard overrides from the url when switching to edit mode in place', async () => {
+        const storedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, query: storedQuery, result: [] }],
+                },
+            },
+        })
+        const viewUrl = urls.insightView(Insight42, 6, undefined, {
+            breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        // The mode switch copies the browser's search params, which the test router does not write
+        window.history.replaceState({}, '', viewUrl)
+        try {
+            router.actions.push(viewUrl)
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setInsightMode(ItemMode.Edit, null)
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic.values.insightLogicRef!.logic).delay(150).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({ dashboard: 6 })
+            expect(logic.values.hasOverrides).toBe(false)
+            expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(storedQuery)
+        } finally {
+            window.history.replaceState({}, '', '/')
+        }
+    })
+
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
         [VARIABLE_ID]: {
             variableId: VARIABLE_ID,
@@ -638,6 +675,23 @@ describe('insightSceneLogic', () => {
             expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
         }
     )
+
+    it.each([
+        ['Product analytics without the flag', false, null, ['Product analytics', urls.savedInsights()]],
+        ['Dashboards without the flag', false, 6, ['Dashboards', urls.dashboards()]],
+        ['Analytics with the flag', true, null, ['Analytics', urls.analyticsList()]],
+        ['Analytics with the flag, opened from a dashboard', true, 6, ['Analytics', urls.analyticsList()]],
+    ])('hangs the insight under %s', async (_name, flagOn, dashboardId, [name, path]) => {
+        featureFlagLogic.mount()
+        const flags: Record<string, boolean> = flagOn ? { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true } : {}
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        router.actions.push(urls.insightView(Insight42, dashboardId ?? undefined))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.breadcrumbs[0]).toEqual(expect.objectContaining({ name, path }))
+    })
 
     it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
         useMocks({

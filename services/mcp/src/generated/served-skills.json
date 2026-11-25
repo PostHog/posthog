@@ -357,6 +357,9 @@
             "audience": "customer",
             "feature_flag": "aeo-citation-tracking"
         },
+        "setting-up-an-email-domain": {
+            "audience": "customer"
+        },
         "setting-up-data-catalog": {
             "audience": "customer"
         },

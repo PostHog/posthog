@@ -7,7 +7,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
-import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
@@ -25,7 +24,6 @@ import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
-import { draftableOpportunity } from './utils'
 
 const TabSection = ({
     title,
@@ -66,17 +64,10 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         searchesQuery,
         sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const {
-        closePromptDetail,
-        openPromptDetail,
-        setArchiveConfirming,
-        setPromptEditing,
-        setReportTab,
-        setVisibilityMetric,
-    } = useActions(contentAutopilotPromptDetailLogic)
-    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
+    const { openPromptDetail, setArchiveConfirming, setPromptEditing, setReportTab, setVisibilityMetric } = useActions(
+        contentAutopilotPromptDetailLogic
+    )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const draftOpportunity = prompt && draftingEnabled ? draftableOpportunity(opportunityByPromptId, prompt) : null
     const backToPrompts = (): void => setWorkspaceTab('prompts')
 
     if (!promptId) {
@@ -118,9 +109,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const actions =
         prompt && !prompt.archived_at ? (
             <>
-                {draftOpportunity ? (
-                    <ContentAutopilotDraftButton opportunity={draftOpportunity} onReview={closePromptDetail} />
-                ) : null}
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -209,15 +197,15 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 data-attr="content-autopilot-prompt-kpis"
                             >
                                 <ContentAutopilotKpiStat
-                                    label="Mentioned in answers"
-                                    description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
+                                    label="Visibility"
+                                    description="Share of answers that name your brand or link to your site."
                                     {...rateKpiCard(reportKpis.visibility)}
                                     onClick={() => showMetric('mentioned')}
                                     data-attr="content-autopilot-prompt-kpi-mentioned"
                                 />
                                 <ContentAutopilotKpiStat
                                     label="Cited as a source"
-                                    description="Share of answers that link to a page on your site as a source, so people can click through to it."
+                                    description="Share of answers that link to a page on your site."
                                     {...rateKpiCard(reportKpis.citation)}
                                     onClick={() => showMetric('cited')}
                                     data-attr="content-autopilot-prompt-kpi-cited"
@@ -320,10 +308,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                                         <ContentAutopilotPromptVersions promptId={prompt.id} />
                                                     </TabSection>
                                                 ) : null}
-                                                <TabSection
-                                                    title="All checks"
-                                                    description="Pick a check to read its answer."
-                                                >
+                                                <TabSection title="All checks">
                                                     <ContentAutopilotPromptChecks />
                                                 </TabSection>
                                             </div>

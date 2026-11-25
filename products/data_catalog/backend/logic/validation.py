@@ -36,6 +36,7 @@ _NODE_MODELS: dict[str, type[BaseModel]] = {
 }
 _INSIGHT_MODELS: dict[str, type[BaseModel]] = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
 _SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
+_INSIGHT_WRAPPER_KINDS = {"InsightVizNode", "DataVisualizationNode"}
 
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
@@ -125,10 +126,10 @@ def validate_metric_definition(definition: dict, team: Team, user: Optional[User
         # Agent-calculated definition: prose steps, not a query. Never upgrade()/schema-validate it.
         return _validate_markdown(definition)
 
-    if kind == "InsightVizNode":
+    if kind in _INSIGHT_WRAPPER_KINDS:
         source = definition.get("source")
         if not isinstance(source, dict):
-            _fail("InsightVizNode has no source query.", "Use the insight's inner query as the definition.")
+            _fail(f"{kind} has no source query.", "Use the insight's inner query as the definition.")
         return validate_metric_definition(source, team, user)
 
     # Reject unsupported kinds before upgrade() — upgrade runs kind-specific migrations that assume a

@@ -1,5 +1,6 @@
 ---
 name: signals-scout-data-pipelines
+disable-model-invocation: true
 scout-display-name: Data pipelines
 description: >
   Signals scout for PostHog data pipelines — CDP destinations and transformations, batch

@@ -9,7 +9,6 @@ import {
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import {
     DataNodeLogicProps,
@@ -61,7 +60,6 @@ const UNDO_TOAST_MS = 10000
 // Only the key, so connecting finds the node the section mounts with its query instead of replacing that query.
 const RECOMMENDATIONS_DATA_NODE = {
     key: RECOMMENDATIONS_QUERY_KEY,
-    dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
 } as DataNodeLogicProps
 
 function responseRecommendations(response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendation[] {
@@ -115,6 +113,7 @@ export interface recommendationsLogicActions
         Pick<
             marketingAnalyticsLogicActions,
             | 'loadSources'
+            | 'reloadAll'
             | 'reportRecommendationsShown'
             | 'reportRecommendationsOpened'
             | 'reportRecommendationsIntroDismissed'
@@ -186,6 +185,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             marketingAnalyticsLogic,
             [
                 'loadSources',
+                'reloadAll',
                 'reportRecommendationsShown',
                 'reportRecommendationsOpened',
                 'reportRecommendationsIntroDismissed',
@@ -486,6 +486,9 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 actions.resolutionRequestFailed(recommendation.key)
                 lemonToast.error(accessDeniedDetail(error) ?? "Couldn't restore the recommendation. Try again.")
             }
+        },
+        reloadAll: () => {
+            actions.loadData('force_async')
         },
         resolutionRemoved: () => {
             // With nothing resolved the toggle is hidden, so a later dismiss must hide its row again.

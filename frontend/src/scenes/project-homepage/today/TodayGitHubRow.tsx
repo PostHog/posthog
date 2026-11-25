@@ -6,7 +6,7 @@ import { Button } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { TodayPromptRow } from './TodayPromptRow'
+import { TodayPromptItem } from './TodayPromptItem'
 import { todayPromptsLogic } from './todayPromptsLogic'
 
 export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element | null {
@@ -17,7 +17,7 @@ export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element 
         return null
     }
     return (
-        <TodayPromptRow
+        <TodayPromptItem
             icon={{ glyph: <IconGithub /> }}
             title="Connect GitHub to get pull requests"
             meta={

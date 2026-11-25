@@ -61,6 +61,7 @@ def mark_cdc_broken(
     *,
     pause: bool = True,
     create_visibility_jobs: bool = True,
+    notify: bool = True,
     **extra: typing.Any,
 ) -> None:
     """Move a CDC source into the broken state.
@@ -70,7 +71,8 @@ def mark_cdc_broken(
     schedule is paused — left on for PostHog-managed breakage (the slot is gone, retrying is futile)
     and turned off for self-managed critical lag, whose customer-owned slot may still recover.
     ``create_visibility_jobs`` is turned off by callers inside a run (the extraction activity),
-    which already record their own FAILED job rows. ``extra`` keys (e.g. ``lag_mb``) are merged
+    which already record their own FAILED job rows. ``notify`` turned off sends no failure digest and
+    no in-app notification, for a team that is not meant to hear about it. ``extra`` keys (e.g. ``lag_mb``) are merged
     into the persisted ``cdc_broken`` marker.
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
@@ -117,12 +119,13 @@ def mark_cdc_broken(
     # Breakage often originates outside a run (the lag sweeper), so no FAILED job row exists.
     # The failure digest email needs one: its schema query requires a failed job newer than the
     # last notification, and the daily catch-up selects teams by recent failed jobs.
-    if newly_broken:
+    if newly_broken and notify:
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
 
-    _notify(source, message, log)
+    if notify:
+        _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
 
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)

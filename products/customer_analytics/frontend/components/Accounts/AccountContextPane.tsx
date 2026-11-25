@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -9,10 +8,8 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { AccountContextFacts } from './AccountContextFacts'
 import { accountContextLogic, type AccountContextLogicProps, type AccountContextResult } from './accountContextLogic'
 import { AccountContextSignals } from './AccountContextSignals'
-import { AccountContextSummaryStrip } from './AccountContextSummaryStrip'
 import { AccountContextThreads } from './AccountContextThreads'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
-import { CONTEXT_WRITE_DISABLED_REASON } from './constants'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
@@ -80,7 +77,7 @@ export function AccountContextPane({
 }: AccountContextPaneProps): JSX.Element {
     const logicProps: AccountContextLogicProps = { accountId, externalId, ...tileProps }
     const logic = accountContextLogic(logicProps)
-    const { contextResult, contextResultLoading, context, summary } = useValues(logic)
+    const { contextResult, contextResultLoading, context } = useValues(logic)
     const { loadContext } = useActions(logic)
 
     let content: JSX.Element
@@ -106,7 +103,7 @@ export function AccountContextPane({
         )
     } else if (contextResult.status !== 'loaded') {
         content = <ContextEmptyState {...UNAVAILABLE_STATES[contextResult.status]} />
-    } else if (!context || !summary || (!context.facts.length && !context.signals.length && !context.threads.length)) {
+    } else if (!context || (!context.facts.length && !context.signals.length && !context.threads.length)) {
         content = (
             <ContextEmptyState
                 title="No context captured yet"
@@ -122,7 +119,6 @@ export function AccountContextPane({
                         This account has more context than the tab can load. Some facts, topics and reasons are missing.
                     </LemonBanner>
                 ) : null}
-                <AccountContextSummaryStrip summary={summary} />
                 <AccountContextFacts logicProps={logicProps} embedded={embedded} />
                 <AccountContextSignals logicProps={logicProps} embedded={embedded} />
                 <AccountContextThreads logicProps={logicProps} embedded={embedded} />
@@ -132,17 +128,6 @@ export function AccountContextPane({
 
     return (
         <div className="ph-no-capture flex flex-col gap-4" data-attr="account-context-pane">
-            <div className="flex flex-wrap justify-end gap-2">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlus />}
-                    disabledReason={CONTEXT_WRITE_DISABLED_REASON}
-                    data-attr="account-context-add-fact"
-                >
-                    Add fact
-                </LemonButton>
-            </div>
             {content}
         </div>
     )

@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -119,6 +120,15 @@ class TransactionalEmailLogEventSerializer(serializers.Serializer):
     reason = serializers.CharField(allow_null=True, help_text="Why a send failed, or the bounce type. Null otherwise.")
 
 
+class TransactionalEmailTrackingSerializer(serializers.Serializer):
+    opens = serializers.BooleanField(
+        help_text="False when the email went out with open tracking off, so it can never record an open."
+    )
+    clicks = serializers.BooleanField(
+        help_text="False when the email went out with click tracking off, so it can never record a click."
+    )
+
+
 class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer):
     timeline = TransactionalEmailLogEventSerializer(many=True, help_text="Everything that happened, oldest first.")
     subject = serializers.CharField(help_text="The subject the email went out with. Empty when it was never sent.")
@@ -129,6 +139,10 @@ class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer
     )
     sensitive = serializers.BooleanField(
         help_text="True when the template is marked sensitive, so no rendered body or subject values are kept."
+    )
+    tracking = TransactionalEmailTrackingSerializer(
+        help_text="What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each "
+        "kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it."
     )
 
 
@@ -240,10 +254,14 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     delivered = serializers.IntegerField(help_text="Sends the recipient's mail server accepted.")
     opened = serializers.IntegerField(help_text="Sends opened at least once.")
     clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
-    not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked.")
+    not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked, of those that tracked clicks.")
     untracked = serializers.IntegerField(
         help_text="Sends that went out with open and click tracking off, counted by when they were queued like the "
         "other counts. They can't record an open or a click."
+    )
+    clicks_untracked = serializers.IntegerField(
+        help_text="Sends that went out with opens tracked and click tracking off, counted like `untracked`. They "
+        "can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends."
     )
     window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
     after_click = TransactionalEmailConversionsSerializer(
@@ -331,6 +349,7 @@ class _PageSchema(AutoSchema):
 
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 
@@ -416,6 +435,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "distinct_id": detail.distinct_id,
             "action_id": detail.action_id,
             "sensitive": detail.sensitive,
+            "tracking": {"opens": detail.tracking.opens, "clicks": detail.tracking.clicks},
         }
         return Response(TransactionalEmailLogDetailSerializer(data).data)
 

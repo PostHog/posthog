@@ -8,15 +8,12 @@ import type {
     AEOPromptCheckApi,
     AEOPromptCitationApi,
     AEOPromptSetCountsApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
-    ContentAutopilotOpportunityApi,
-    ContentAutopilotProposalApi,
-    ContentAutopilotProposalListApi,
-    ContentAutopilotRunApi,
     ContentAutopilotSiteProfileApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -39,214 +36,6 @@ export const EXAMPLE_SECOND_PROFILE: ContentAutopilotSiteProfileApi = {
     domain: 'https://blog.example.com',
     source_urls: ['https://blog.example.com/sitemap.xml'],
     content_boundaries: ['/blog'],
-}
-
-export const EXAMPLE_RUN: ContentAutopilotRunApi = {
-    id: '00000000-0000-4000-8000-000000000101',
-    profile_id: EXAMPLE_PROFILE.id,
-    run_status: 'completed',
-    input_snapshot: {
-        domain: EXAMPLE_PROFILE.domain,
-        confidence: 'standard',
-    },
-    errors: [],
-    created_at: '2026-08-26T12:00:00Z',
-    updated_at: '2026-08-26T12:08:00Z',
-    completed_at: '2026-08-26T12:08:00Z',
-}
-
-export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
-    id: '00000000-0000-4000-8000-000000000201',
-    run_id: EXAMPLE_RUN.id,
-    proposal_type: 'page_improvement',
-    lifecycle_status: 'ready_for_review',
-    title: 'Make the web analytics guide easier to discover',
-    target_query: 'web analytics guide',
-    target_url: 'https://docs.example.com/docs/web-analytics',
-    evidence: [
-        {
-            opportunity_kind: 'poor_ctr',
-            explanation:
-                'The page appears for this query, but its click-through rate trails other pages in this range.',
-            page_url: 'https://docs.example.com/docs/web-analytics',
-            query: 'web analytics guide',
-        },
-    ],
-    validation_report: {
-        passed: true,
-        checks: [
-            {
-                check_key: 'intent_match',
-                label: 'Intent match',
-                passed: true,
-                message: 'The proposed description matches the observed informational query.',
-                blocking: true,
-            },
-        ],
-    },
-    content_package: {
-        file_path: 'docs/web-analytics.md',
-        title: 'Web analytics',
-        description: 'Understand web traffic, behavior, and conversion with privacy-friendly analytics.',
-        slug: 'web-analytics',
-        frontmatter: [],
-        internal_links: [],
-        source_notes: [],
-    },
-    original_markdown: [
-        '# Web analytics',
-        '',
-        'Web analytics shows traffic.',
-        '',
-        '## Install the snippet',
-        '',
-        'Add the snippet to every page you want to track.',
-        '',
-        '## Read the dashboard',
-        '',
-        'The dashboard shows visitors, page views, and sessions.',
-    ].join('\n'),
-    proposed_markdown: [
-        '# Web analytics',
-        '',
-        'Web analytics shows traffic, sources, and conversions without cookies.',
-        '',
-        '## Install the snippet',
-        '',
-        'Add the snippet to every page you want to track.',
-        '',
-        '```js',
-        "posthog.init('phc_example', { api_host: 'https://us.i.posthog.com' })",
-        '```',
-        '',
-        '## Read the dashboard',
-        '',
-        'The dashboard shows visitors, page views, and sessions.',
-        '',
-        '## Frequently asked questions',
-    ].join('\n'),
-    brief: {
-        intent: 'Decide whether a privacy-friendly web analytics tool covers their needs.',
-        audience: 'Marketers and founders comparing analytics tools',
-        recommended_type: 'page_improvement',
-        working_title: 'Web analytics',
-        outline: ['What web analytics tracks', 'How it handles privacy', 'Frequently asked questions'],
-        questions_to_answer: ['Does it work without cookies?'],
-        competitor_coverage: ['Cookieless tracking setup'],
-        engine_answer_summary: 'Assistants recommend other tools and do not mention cookieless mode.',
-    },
-    source_ledger: [
-        {
-            claim: 'Web analytics works without cookies.',
-            source_url: 'https://docs.example.com/docs/web-analytics/cookieless',
-            quote: 'You can run web analytics without cookies.',
-        },
-    ],
-    created_at: '2026-08-26T12:08:00Z',
-    updated_at: '2026-08-26T12:08:00Z',
-}
-
-export const EXAMPLE_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
-    id: EXAMPLE_PROPOSAL.id,
-    run_id: EXAMPLE_PROPOSAL.run_id,
-    proposal_type: EXAMPLE_PROPOSAL.proposal_type,
-    lifecycle_status: EXAMPLE_PROPOSAL.lifecycle_status,
-    title: EXAMPLE_PROPOSAL.title,
-    target_query: EXAMPLE_PROPOSAL.target_query,
-    evidence: EXAMPLE_PROPOSAL.evidence,
-    validation_report: EXAMPLE_PROPOSAL.validation_report,
-    file_path: EXAMPLE_PROPOSAL.content_package.file_path,
-    target_url: EXAMPLE_PROPOSAL.target_url,
-    created_at: EXAMPLE_PROPOSAL.created_at,
-    updated_at: EXAMPLE_PROPOSAL.updated_at,
-}
-
-const EXAMPLE_GAP: ContentAutopilotOpportunityApi['gap'] = {
-    checks: 9,
-    cited_checks: 0,
-    mentioned_checks: 0,
-    citation_rate: 0,
-    engines: ['claude-web-search', 'openai-web-search', 'exa-answer'],
-    engines_not_citing: ['claude-web-search', 'openai-web-search', 'exa-answer'],
-    competitor_urls: ['https://rival.example.com/replay'],
-    competitor_domains: ['rival.example.com', 'reviews.example.org'],
-    engine_search_queries: ['open source session replay', 'session replay self hosted'],
-    our_cited_urls: [],
-    latest_answers: [],
-    last_checked_at: '2026-08-26T09:00:00Z',
-}
-
-export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
-    {
-        id: '00000000-0000-4000-8000-000000000301',
-        profile_id: EXAMPLE_PROFILE.id,
-        run_id: null,
-        proposal_id: null,
-        aeo_prompt_id: '00000000-0000-4000-8000-000000000302',
-        kind: 'ai_visibility_gap',
-        title: 'What is the best open source session replay tool?',
-        score: 1,
-        recommended_type: 'new_content',
-        target_url: '',
-        evidence: [],
-        gap: EXAMPLE_GAP,
-        status: 'new',
-        last_refreshed_at: '2026-08-26T12:00:00Z',
-        created_at: '2026-08-26T12:00:00Z',
-        updated_at: '2026-08-26T12:00:00Z',
-    },
-    {
-        id: '00000000-0000-4000-8000-000000000302',
-        profile_id: EXAMPLE_PROFILE.id,
-        run_id: EXAMPLE_RUN.id,
-        proposal_id: EXAMPLE_PROPOSAL.id,
-        aeo_prompt_id: null,
-        kind: 'ai_visibility_gap',
-        title: 'Does web analytics work without cookies?',
-        score: 0.64,
-        recommended_type: 'page_improvement',
-        target_url: 'https://docs.example.com/docs/web-analytics',
-        evidence: [],
-        gap: { ...EXAMPLE_GAP, cited_checks: 3, mentioned_checks: 6, engines_not_citing: ['exa-answer'] },
-        status: 'drafted',
-        last_refreshed_at: '2026-08-26T12:00:00Z',
-        created_at: '2026-08-26T12:00:00Z',
-        updated_at: '2026-08-26T12:00:00Z',
-    },
-]
-
-export const EXAMPLE_FAILED_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
-    ...EXAMPLE_PROPOSAL_LIST,
-    id: '00000000-0000-4000-8000-000000000213',
-    lifecycle_status: 'failed',
-    title: 'Track AI crawler traffic',
-    target_query: 'How do I track AI crawler traffic on my website?',
-    file_path: 'docs/web-analytics/ai-crawlers.md',
-    target_url: 'https://docs.example.com/docs/web-analytics/ai-crawlers',
-    validation_report: {
-        ...EXAMPLE_PROPOSAL.validation_report,
-        passed: false,
-        checks: [
-            ...EXAMPLE_PROPOSAL.validation_report.checks,
-            {
-                check_key: 'grounding',
-                label: 'Sourced facts',
-                passed: false,
-                message: 'These claims aren\'t backed by a source: "Crawler visits never count toward pageviews."',
-                blocking: true,
-            },
-        ],
-    },
-}
-
-export const EXAMPLE_FAILED_DRAFT_OPPORTUNITY: ContentAutopilotOpportunityApi = {
-    ...EXAMPLE_OPPORTUNITIES[0],
-    id: '00000000-0000-4000-8000-000000000303',
-    proposal_id: EXAMPLE_FAILED_PROPOSAL_LIST.id,
-    aeo_prompt_id: null,
-    run_id: EXAMPLE_RUN.id,
-    title: 'How do I track AI crawler traffic on my website?',
-    status: 'drafted',
 }
 
 const EXAMPLE_PROMPT: AEOPromptApi = {
@@ -682,6 +471,25 @@ const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ 
     })
 ).flat()
 
+// Answered checks per engine and topic. One engine has no answer about experiments, and no engine has one about
+// surveys, so the grid shows empty cells next to a rate of zero.
+const OVERVIEW_ENGINE_TOPICS: [engine: string, topic: string, answers: number, mentioned: number][] = [
+    ['claude-web-search', '', 20, 6],
+    ['claude-web-search', 'Experiments', 180, 104],
+    ['claude-web-search', 'Feature flags', 170, 140],
+    ['claude-web-search', 'Product analytics', 320, 283],
+    ['claude-web-search', 'Session replay', 200, 90],
+    ['exa-answer', '', 20, 0],
+    ['exa-answer', 'Feature flags', 130, 49],
+    ['exa-answer', 'Product analytics', 250, 151],
+    ['exa-answer', 'Session replay', 300, 80],
+    ['openai-web-search', '', 20, 6],
+    ['openai-web-search', 'Experiments', 170, 36],
+    ['openai-web-search', 'Feature flags', 170, 140],
+    ['openai-web-search', 'Product analytics', 310, 270],
+    ['openai-web-search', 'Session replay', 200, 121],
+]
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -743,6 +551,13 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
         },
     ],
+    engine_topics: OVERVIEW_ENGINE_TOPICS.map(([engine, topic, answers, mentioned]) => ({
+        engine,
+        topic,
+        answers,
+        mentioned,
+        mention_rate: mentioned / answers,
+    })),
     top_domains: [
         { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
         { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
@@ -893,6 +708,94 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
             is_target: false,
         },
         { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
+    ],
+}
+
+export const EXAMPLE_PROMPT_SET_MOVERS: AEOPromptSetMoversApi = {
+    days: 30,
+    window_from: RANKED_DAYS[0],
+    window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    branded: 'non_branded',
+    engine: null,
+    topic: null,
+    answers: 2468,
+    previous_answers: 2390,
+    min_answers: 3,
+    prompt_gainers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[0].id,
+            prompt: EXAMPLE_PROMPTS[0].prompt,
+            topic: EXAMPLE_PROMPTS[0].topic,
+            answers: 28,
+            mentioned: 21,
+            mention_rate: 0.75,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.45,
+        },
+        {
+            prompt_id: '00000000-0000-4000-8000-000000000311',
+            prompt: 'Which product analytics tools have a free plan?',
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 12,
+            mention_rate: 0.4,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.1,
+        },
+    ],
+    prompt_losers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[1].id,
+            prompt: EXAMPLE_PROMPTS[1].prompt,
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 6,
+            mention_rate: 0.2,
+            previous_answers: 29,
+            previous_mentioned: 16,
+            previous_mention_rate: 0.552,
+            change: -0.352,
+        },
+    ],
+    page_gainers: [
+        {
+            url: 'https://example.com/docs/session-replay/installation',
+            answers_citing: 74,
+            citation_rate: 0.03,
+            previous_answers_citing: 31,
+            previous_citation_rate: 0.013,
+            change: 0.017,
+        },
+        {
+            url: 'https://example.com/pricing',
+            answers_citing: 47,
+            citation_rate: 0.019,
+            previous_answers_citing: 45,
+            previous_citation_rate: 0.0188,
+            change: 0.0002,
+        },
+    ],
+    page_losers: [
+        {
+            url: 'https://example.com/blog/best-open-source-analytics-tools',
+            answers_citing: 0,
+            citation_rate: 0,
+            previous_answers_citing: 52,
+            previous_citation_rate: 0.022,
+            change: -0.022,
+        },
+        {
+            url: 'https://example.com/',
+            answers_citing: 106,
+            citation_rate: 0.043,
+            previous_answers_citing: 122,
+            previous_citation_rate: 0.051,
+            change: -0.008,
+        },
     ],
 }
 

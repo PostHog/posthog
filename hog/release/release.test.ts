@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { readdirSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import { readJson } from '../src/testing'
 import type { Artifact } from '../src/updates/manifest'
-import { archiveName, TARGETS } from '../src/updates/targets'
+import { NoticeSchema } from '../src/updates/notices'
+import { archiveName, rustTarget, shippedBinaries, TARGETS } from '../src/updates/targets'
 import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
+import noticesFile from './notices.generated.json' with { type: 'json' }
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
@@ -56,6 +58,20 @@ describe('npm launcher', () => {
     })
 })
 
+// A new target gets its triple checked here before release/build-worker.ts builds a worker for it.
+test('every target builds hog-worker for its own Rust triple', () => {
+    expect(Object.fromEntries(TARGETS.map((target) => [target.id, rustTarget(target)]))).toEqual({
+        'darwin-arm64': 'aarch64-apple-darwin',
+        'darwin-x64': 'x86_64-apple-darwin',
+        'linux-x64': 'x86_64-unknown-linux-gnu',
+        'linux-arm64': 'aarch64-unknown-linux-gnu',
+        'linux-x64-musl': 'x86_64-unknown-linux-musl',
+        'linux-arm64-musl': 'aarch64-unknown-linux-musl',
+        'windows-x64': 'x86_64-pc-windows-msvc',
+        'windows-arm64': 'aarch64-pc-windows-msvc',
+    })
+})
+
 const IS_LATEST = join(import.meta.dir, 'is-latest.ts')
 
 // The publishing job promotes only on "true", so anything it can't compare must fail instead of answering.
@@ -88,6 +104,9 @@ const hostHasMuslLoader = ['/lib', '/usr/lib'].some((folder) => {
 const here = launcher.targetId(process.platform, process.arch, process.platform === 'linux' && hostHasMuslLoader)
 const INSTALL_SH = join(import.meta.dir, 'install.sh')
 
+const MUSL_MISSING_LIBRARY = 'Error loading shared library libstdc++.so.6: No such file or directory (needed by hog)'
+const EXIT_LOADER_FAILED = 127
+
 interface FakeRelease {
     root: string
     bucket: string
@@ -104,7 +123,12 @@ async function sh(command: string[], cwd: string): Promise<void> {
 async function fakeRelease(
     version: string,
     where: 'bucket' | 'mirror',
-    options: { checksum?: string; target?: string; broken?: boolean } = {}
+    options: {
+        checksum?: string
+        target?: string
+        broken?: 'hog' | 'hog-worker' | 'hog without libstdc++'
+        worker?: boolean
+    } = {}
 ): Promise<FakeRelease> {
     const root = await mkdtemp(join(tmpdir(), 'hog-install-'))
     const release: FakeRelease = {
@@ -118,14 +142,26 @@ async function fakeRelease(
 
     const build = join(root, 'build')
     await mkdir(build, { recursive: true })
-    await writeFile(join(build, 'hog'), options.broken ? '#!/bin/sh\nexit 1\n' : `#!/bin/sh\necho ${version}\n`)
-    await chmod(join(build, 'hog'), 0o755)
+    const files = options.worker === false ? ['hog'] : ['hog', 'hog-worker']
+    for (const name of files) {
+        // Like hog, the stand-in starts the worker next to it when the installer asks for the check.
+        const check =
+            files.length > 1 ? '[ -z "$HOG_CHECK_INSTALL" ] || "$(dirname "$0")/hog-worker" >/dev/null || exit 1\n' : ''
+        let script = name === 'hog' ? `${check}echo ${version}` : `echo worker ${version}`
+        if (options.broken === name) {
+            script = 'exit 1'
+        } else if (name === 'hog' && options.broken === 'hog without libstdc++') {
+            script = `echo '${MUSL_MISSING_LIBRARY}' >&2\nexit ${EXIT_LOADER_FAILED}`
+        }
+        await writeFile(join(build, name), `#!/bin/sh\n${script}\n`)
+        await chmod(join(build, name), 0o755)
+    }
 
     const versionFolder =
         where === 'bucket' ? join(release.bucket, `v${version}`) : join(release.mirror, 'hog', `v${version}`)
     await mkdir(versionFolder, { recursive: true })
     const file = archiveName(target)
-    await sh(['tar', '-czf', join(versionFolder, file), '-C', build, 'hog'], root)
+    await sh(['tar', '-czf', join(versionFolder, file), '-C', build, ...files], root)
 
     const hasher = new Bun.CryptoHasher('sha256')
     hasher.update(await readFile(join(versionFolder, file)))
@@ -195,6 +231,8 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain(`Installed hog 0.1.0-alpha.3 to ${release.installDir}/hog.`)
         expect(result.stdout).toContain(`export PATH="${release.installDir}:$PATH"`)
+        expect(await readFile(join(release.installDir, 'hog-worker'), 'utf8')).toContain('echo worker 0.1.0-alpha.3')
+        expect((await stat(join(release.installDir, 'hog-worker'))).mode & 0o111).toBe(0o111)
         expect(await Bun.file(receiptPath(release)).json()).toEqual({
             method: 'script',
             install_dir: release.installDir,
@@ -222,16 +260,44 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
         expect(await Bun.file(join(release.installDir, 'hog')).exists()).toBe(false)
     })
 
-    test('keeps the installed hog when the new build does not run here', async () => {
-        const release = await fakeRelease('1.2.3', 'bucket', { broken: true })
+    test.each([
+        ['hog', "doesn't run on this machine"],
+        ['hog-worker', "doesn't run on this machine"],
+        ['hog without libstdc++', 'apk add libstdc++ libgcc'],
+    ] as const)('keeps the installed pair when the new %s does not run here, and says why', async (broken, reason) => {
+        const release = await fakeRelease('1.2.3', 'bucket', { broken })
         await mkdir(release.installDir, { recursive: true })
+        await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
+        await writeFile(join(release.installDir, 'hog-worker'), '#!/bin/sh\necho worker 1.0.0\n')
+
+        const result = await install(release, ['--version', '1.2.3'])
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain(reason)
+        expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(await readFile(join(release.installDir, 'hog-worker'), 'utf8')).toBe('#!/bin/sh\necho worker 1.0.0\n')
+        expect(readdirSync(release.installDir).sort()).toEqual(['hog', 'hog-worker'])
+    })
+
+    test('keeps the installed hog when a folder sits where the worker goes', async () => {
+        const release = await fakeRelease('1.2.3', 'bucket')
+        await mkdir(join(release.installDir, 'hog-worker'), { recursive: true })
         await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
 
         const result = await install(release, ['--version', '1.2.3'])
 
         expect(result.exitCode).toBe(1)
-        expect(result.stderr).toContain("doesn't run on this machine")
+        expect(result.stderr).toContain('hog-worker is a folder')
         expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(readdirSync(join(release.installDir, 'hog-worker'))).toEqual([])
+    })
+
+    test('installs a release from before hog-worker without one', async () => {
+        const release = await fakeRelease('0.1.0', 'bucket', { worker: false })
+
+        const result = await install(release, ['--version', '0.1.0'])
+
+        expect(result.exitCode).toBe(0)
         expect(readdirSync(release.installDir)).toEqual(['hog'])
     })
 
@@ -285,3 +351,111 @@ test.skipIf(!Bun.which('npm'))('the npm launcher package installs the hog comman
 })
 
 const PackOutput = z.array(z.object({ files: z.array(z.object({ path: z.string() })) }))
+
+async function listing(command: string[]): Promise<string[]> {
+    const child = Bun.spawn(command, { stdout: 'pipe', stderr: 'inherit' })
+    const [text, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited])
+    expect(exitCode).toBe(0)
+    return text.split('\n').filter(Boolean).sort()
+}
+
+// hog starts hog-worker only from its own folder, so a channel that ships one without the other ships a
+// hog whose error-tracking commands fail.
+test.skipIf(!Bun.which('zip') || !Bun.which('unzip'))(
+    'package.ts puts hog-worker next to hog in every archive, npm package and the formula',
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), 'hog-package-'))
+        for (const target of TARGETS) {
+            await mkdir(join(root, 'bin', target.id), { recursive: true })
+            for (const name of shippedBinaries(target)) {
+                await writeFile(join(root, 'bin', target.id, name), `${target.id} ${name}`)
+            }
+        }
+        const out = join(root, 'out')
+
+        await sh(
+            [
+                'bun',
+                join(import.meta.dir, 'package.ts'),
+                '--in',
+                root,
+                '--out',
+                out,
+                '--version',
+                '1.2.3',
+                '--build-date',
+                '2026-01-01T00:00:00Z',
+            ],
+            root
+        )
+
+        for (const target of TARGETS) {
+            const names = shippedBinaries(target).sort()
+            const archive = join(out, 'assets', archiveName(target))
+            expect(await listing(target.os === 'win32' ? ['unzip', '-Z1', archive] : ['tar', '-tzf', archive])).toEqual(
+                names
+            )
+            expect(readdirSync(join(out, 'npm', `hog-${target.id}`, 'bin')).sort()).toEqual(names)
+            const packageJson = readJson(
+                await readFile(join(out, 'npm', `hog-${target.id}`, 'package.json'), 'utf8'),
+                z.object({ files: z.array(z.string()) })
+            )
+            expect(packageJson.files.sort()).toEqual(names.map((name) => `bin/${name}`))
+        }
+        expect(await readFile(join(out, 'hog.rb'), 'utf8')).toContain('bin.install Dir["*"]')
+    }
+)
+
+describe('release notices', () => {
+    test('every notice CLI_NOTICES generates reaches hogs as written', () => {
+        expect(z.array(NoticeSchema).parse(noticesFile.notices)).toEqual(noticesFile.notices)
+    })
+})
+
+const HOG = resolve(import.meta.dir, '..')
+// Runtime imports only, because `import type` is erased. A `type` name inside braces still loads the module.
+const RUNTIME_IMPORT = /^\s*(?:import|export)\s+(?!type\b)(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm
+
+function runtimeImports(entry: string): { files: string[]; packages: string[] } {
+    const files = new Set<string>()
+    const packages = new Set<string>()
+    const visit = (file: string): void => {
+        if (files.has(file)) {
+            return
+        }
+        files.add(file)
+        if (!file.endsWith('.ts')) {
+            return
+        }
+        for (const [, specifier] of readFileSync(file, 'utf8').matchAll(RUNTIME_IMPORT)) {
+            if (specifier!.startsWith('node:')) {
+                continue
+            }
+            const base = specifier!.startsWith('@/')
+                ? join(HOG, 'src', specifier!.slice(2))
+                : specifier!.startsWith('.')
+                  ? resolve(dirname(file), specifier!)
+                  : undefined
+            if (base === undefined) {
+                packages.add(specifier!)
+                continue
+            }
+            const found = [base, `${base}.ts`, join(base, 'index.ts')].find(
+                (path) => existsSync(path) && statSync(path).isFile()
+            )
+            visit(found ?? base)
+        }
+    }
+    visit(entry)
+    return { files: [...files].map((file) => relative(HOG, file)).sort(), packages: [...packages].sort() }
+}
+
+describe('the publish job', () => {
+    // release-hog.yml's publish job checks out only these folders and installs no packages.
+    test('can load release/package.ts from what it checks out', () => {
+        const { files, packages } = runtimeImports(join(HOG, 'release/package.ts'))
+
+        expect(packages).toEqual([])
+        expect(files.filter((file) => !file.startsWith('release/') && !file.startsWith('src/updates/'))).toEqual([])
+    })
+})

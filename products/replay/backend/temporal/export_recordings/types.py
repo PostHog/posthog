@@ -28,7 +28,7 @@ class ExportTotals:
 
 @frozen
 class ExportDestination:
-    integration_id: int
+    role_arn: str
     bucket: str
     region: str
     prefix: str
@@ -66,6 +66,28 @@ class ExportShardInput:
     day: str
     shard: int
     session_ids_prefix: str
+
+
+@frozen
+class ExportPoolInput:
+    run_id: str
+    shards: int
+
+
+@frozen
+class DayViewportsInput:
+    team_id: int
+    run_id: str
+    day: str
+    shards_per_day: int
+    session_ids_prefix: str
+
+
+@frozen
+class CheckDestinationInput:
+    team_id: int
+    destination: ExportDestination
+    run_id: str
 
 
 @frozen
