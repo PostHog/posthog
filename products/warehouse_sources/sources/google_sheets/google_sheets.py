@@ -268,7 +268,6 @@ _DATE_CELLS_MAX_GRID_CELLS = 200_000
 _GMT_OFFSET_TIME_ZONE_RE = re.compile(r"GMT([+-])(\d{1,2}):(\d{2})")
 
 _GRID_READ_ATTEMPTS = 3
-_GRID_READ_RETRY_SECONDS = 5
 
 
 class GoogleSheetsRowsMovedError(Exception):
@@ -767,17 +766,16 @@ class _WorksheetCells:
 
 
 def _read_worksheet_cells(worksheet: gspread.Worksheet) -> _WorksheetCells:
-    attempt = 1
-    while True:
+    # No wait between attempts, because a worker shutdown cannot interrupt a raw sleep. When the
+    # last attempt still sees moved rows, the error fails the sync and Temporal retries it later.
+    for attempt in range(1, _GRID_READ_ATTEMPTS):
         grid = _read_grid(worksheet)
         try:
             return _WorksheetCells(grid=grid, date_cells=_date_cells(worksheet, grid))
         except GoogleSheetsRowsMovedError:
-            if attempt >= _GRID_READ_ATTEMPTS:
-                raise
             logger.info("google_sheets_rows_moved_during_read", worksheet_id=worksheet.id, attempt=attempt)
-            time.sleep(_GRID_READ_RETRY_SECONDS * attempt)
-            attempt += 1
+    grid = _read_grid(worksheet)
+    return _WorksheetCells(grid=grid, date_cells=_date_cells(worksheet, grid))
 
 
 def google_sheets_source(
