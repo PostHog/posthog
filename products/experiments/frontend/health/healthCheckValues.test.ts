@@ -129,6 +129,14 @@ describe('healthCheckValues', () => {
                 { label: 'Users so far', text: '9,602 of 14,800 planned' },
             ],
         },
+        {
+            name: 'the start of a significant run reads as a date after the sample',
+            values: { sample_count: 9602, significant_since_at: '2026-11-14T20:00:00+00:00' },
+            expected: [
+                { label: 'Users so far', text: '9,602' },
+                { label: 'Significant since', time: '2026-11-14T20:00:00+00:00', asDate: true },
+            ],
+        },
     ])('healthCheckReadings: $name', ({ values, expected }) => {
         expect(healthCheckReadings(values, 'users')).toEqual(expected)
     })

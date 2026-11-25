@@ -256,6 +256,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     FLAG_SHARED = "flag_shared"
     STALE_EXPERIMENT = "stale_experiment"
 
@@ -323,6 +324,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
@@ -456,6 +458,12 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "control",
     )
     SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    SIGNIFICANT_SINCE_AT = (
+        "significant_since_at",
+        "When the data ends of the earliest stored result of the primary metric from which every result shows the "
+        "variant as significant, up to the current one. The earliest of the variants that the current result shows as "
+        "significant",
+    )
     FORCED_CONDITION_COUNT = (
         "forced_condition_count",
         "Release conditions of the feature flag that serve a fixed variant through a variant override",

@@ -52,6 +52,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats
+from products.experiments.backend.metric_calculation.results import SignificanceHistory
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
@@ -316,10 +317,12 @@ class PrimaryMetric:
     # The target of the running time estimate, which the header of the experiment page shows.
     target: RunningTimeTarget
     # The current stored result, the one the results page shows after its last calculation. None when no completed
-    # result is stored under the metric's current calculation key. Only read for a funnel.
+    # result is stored under the metric's current calculation key.
     result: MetricResultStats | None
     # The persons or groups that the current stored result counts, across the variants. None without a stored result.
     exposures: int | None = None
+    # Since when the stored results show each variant that `result` shows as significant. None without a stored result.
+    significance: SignificanceHistory | None = None
 
 
 @frozen

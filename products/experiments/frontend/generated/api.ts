@@ -856,6 +856,15 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
  *
+ * A running experiment gets the info `result_ready` when its first primary metric has an
+ * answer, with `end_experiment`. Subcode `stayed_significant`: every stored result for 3 days
+ * or more shows a variant as significant, named in `evidence` with `significant_since` and
+ * `days_significant`. The results count from the earliest result in that unbroken run up to
+ * the current one, both daily points and recalculations, so an edit of the metric starts
+ * over. Subcode `target_reached_not_significant`: the current result counts at least the
+ * sample that the running time estimate plans for, and shows every variant as not
+ * significant. Neither fires while `early_significance` reports the experiment.
+ *
  * A running experiment with `only_count_matured_users` on gets the info
  * `metrics_not_matured` while it is younger than the conversion or retention window of
  * every primary metric, because no user can count for those metrics until a window passes.
