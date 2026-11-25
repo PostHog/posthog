@@ -62,6 +62,17 @@ describe('Analytics sidebar options', () => {
         expect(SidebarAgentListener).not.toHaveBeenCalled()
     })
 
+    test.each([
+        [{}, false],
+        [{ [FEATURE_FLAGS.STREAMLIT_APPS]: true }, true],
+    ])('with flags %o, shows the Apps row: %s', (flags, shown) => {
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        render(<TodayAnalyticsSidebar />)
+
+        expect(screen.queryByText('Insights')).not.toBeNull()
+        expect(screen.queryByText('Apps') !== null).toBe(shown)
+    })
+
     it('offers only personalization before a layout is saved, and opens PostHog AI in the side panel', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.UI_CUSTOMIZATION]: true,

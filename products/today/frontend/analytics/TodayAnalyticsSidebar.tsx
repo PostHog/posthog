@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
@@ -17,6 +18,7 @@ import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+import { todayProductsLogic } from '~/layout/today/todayProductsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
@@ -28,15 +30,16 @@ import { ANALYTICS_SIDEBAR_CONFIGURATION } from './analyticsSidebarConfiguration
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { TodayAnalyticsRecordPreview } from './TodayAnalyticsRecordPreview'
-import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
+import { isSidebarTargetShown, resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
 /**
  * The Analytics sub-nav, drawn from the person's layout: sections of links, buttons, metrics and the lists PostHog
  * fills. The default layout is one more layout, so it draws the same way.
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen, isSidebarTargetShown } =
-        useValues(todayAnalyticsLogic)
+    const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
+    const { products } = useValues(todayProductsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
@@ -183,7 +186,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
-                    return target && isSidebarTargetShown(target)
+                    return target && isSidebarTargetShown(target, products, featureFlags)
                         ? {
                               ...target,
                               active: isOpen(target.path),

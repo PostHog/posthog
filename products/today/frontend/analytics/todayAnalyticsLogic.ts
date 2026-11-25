@@ -18,12 +18,9 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { newestByName } from '~/layout/today/todayNewestByName'
-import { todayProductsLogic } from '~/layout/today/todayProductsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-
-import { ResolvedSidebarTarget, isSidebarTargetShown } from './todayAnalyticsSidebarTargets'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // pinned: persisted section ids and the `section` property of `analytics section toggled`. The ids come from
 // the layout, whose default keeps them stable.
@@ -38,13 +35,11 @@ export interface todayAnalyticsLogicValues {
     recentsHasLoaded: boolean // recentItemsModel
     pinnedShortcutIds: Map<string, string> // sidebarPinsLogic
     currentProjectId: number | string // teamLogic
-    products: FileSystemImport[] // todayProductsLogic
     collapsedSections: string[]
     creatingFolder: boolean
     freshRecentAnalytics: AnalyticsItem[]
     fromPostHog: FromPostHogItem[]
     isSectionOpen: (section: string) => boolean
-    isSidebarTargetShown: (target: ResolvedSidebarTarget) => boolean
     newFolderDialogOpen: boolean
     newFolderParent: string | null
     recentAnalytics: AnalyticsItem[]
@@ -89,10 +84,6 @@ export interface todayAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isSectionOpen: (collapsedSections: string[], searchQuery: string) => (section: string) => boolean
         fromPostHog: (featureFlags: FeatureFlagsSet) => FromPostHogItem[]
-        isSidebarTargetShown: (
-            products: FileSystemImport[],
-            featureFlags: FeatureFlagsSet
-        ) => (target: ResolvedSidebarTarget) => boolean
         freshRecentAnalytics: (recents: FileSystemEntry[], pinnedShortcutIds: Map<string, string>) => AnalyticsItem[]
         recentAnalytics: (
             recentsHasLoaded: boolean,
@@ -124,8 +115,6 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             ['pinnedShortcutIds'],
             teamLogic,
             ['currentProjectId'],
-            todayProductsLogic,
-            ['products'],
         ],
         actions: [projectTreeDataLogic, ['createSavedItem']],
     })),
@@ -184,12 +173,6 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         fromPostHog: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FromPostHogItem[] => fromPostHogItems(featureFlags),
-        ],
-        isSidebarTargetShown: [
-            (s) => [s.products, s.featureFlags],
-            (products: FileSystemImport[], featureFlags: FeatureFlagsSet) =>
-                (target: ResolvedSidebarTarget): boolean =>
-                    isSidebarTargetShown(target, products, featureFlags),
         ],
         // The app loads recently viewed items once and keeps them, so this section needs no request of its own.
         // Pinned items already show in the Pinned section, so Recents leaves them out before it applies the limit.
