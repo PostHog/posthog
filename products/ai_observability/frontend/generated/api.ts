@@ -22,6 +22,7 @@ import type {
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilitySessionsListParams,
     AiObservabilitySessionsRetrieveParams,
+    AiObservabilitySessionsTurnsRetrieveParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -179,6 +180,10 @@ import type {
     ScoreHistogramApi,
     SessionListApi,
     SessionListItemApi,
+    SessionPageRequestApi,
+    SessionPeopleListApi,
+    SessionPreviewListApi,
+    SessionTurnPageApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TestHogRequestApi,
@@ -984,6 +989,42 @@ export const aiObservabilitySessionsList = async (
     })
 }
 
+export const getAiObservabilitySessionsTurnsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/`
+}
+
+/**
+ * The session's traces a page at a time, one per turn, oldest first and in either direction. The session is
+ * read over the AI events retention, or with an older timestamp hint, from just before the hint.
+ */
+export const aiObservabilitySessionsTurnsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionTurnPageApi> => {
+    return apiMutator<SessionTurnPageApi>(getAiObservabilitySessionsTurnsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilitySessionsRetrieveUrl = (
     projectId: string,
     id: string,
@@ -1017,6 +1058,48 @@ export const aiObservabilitySessionsRetrieve = async (
     return apiMutator<SessionListItemApi>(getAiObservabilitySessionsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/people/`
+}
+
+/**
+ * The person each session on a page ran for, which is its first trace's person, labeled by the project's
+ * display name properties. A read, sent as a POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPeopleCreate = async (
+    projectId: string,
+    sessionPageRequestApi: SessionPageRequestApi,
+    options?: RequestInit
+): Promise<SessionPeopleListApi> => {
+    return apiMutator<SessionPeopleListApi>(getAiObservabilitySessionsPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionPageRequestApi),
+    })
+}
+
+export const getAiObservabilitySessionsPreviewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/previews/`
+}
+
+/**
+ * The titles of a page of sessions: the user's message each session's first trace answered. A read, sent as a
+ * POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPreviewsCreate = async (
+    projectId: string,
+    sessionPageRequestApi: SessionPageRequestApi,
+    options?: RequestInit
+): Promise<SessionPreviewListApi> => {
+    return apiMutator<SessionPreviewListApi>(getAiObservabilitySessionsPreviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionPageRequestApi),
     })
 }
 

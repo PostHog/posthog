@@ -639,6 +639,25 @@ class TraceTurn(TraceTurnSides):
     trace_id: str = Field(description="The trace the turn belongs to.")
 
 
+class SessionTurn(TraceListItem):
+    wait_slow: bool = Field(description="Whether the user waited 10 seconds or more for the turn's answer.")
+    silence_before_ms: int | None = Field(
+        description="Milliseconds from the previous turn's answer to this turn's start, when they are a minute or "
+        "more. Null for a shorter gap and for the session's first turn."
+    )
+
+
+class SessionTurnPage(Contract):
+    items: list[SessionTurn] = Field(
+        description="A page of the session's traces, one per turn, oldest first, each read as the traces list reads "
+        "it. A turn's input and output are read by trace id from the traces' turns."
+    )
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
+    next_cursor: str | None = Field(
+        description="The cursor of the next page, or null on the last one. A page read before a cursor always has one."
+    )
+
+
 class TraceTurnList(Contract):
     items: list[TraceTurn] = Field(
         description="One turn per requested trace that was found, in the order requested. A trace that is not found "
@@ -656,6 +675,41 @@ class TracePersonItem(Contract):
 
 class TracePeopleList(Contract):
     items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+class SessionPreview(Contract):
+    session_id: str = Field(description="The session the title belongs to.")
+    input: str | None = Field(
+        description="The session's title: the user's message its first trace answered, cut at 200 characters. The "
+        "first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing "
+        "to show, when the AI events retention no longer holds the session, or when the message could not be read and "
+        "`inputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+
+
+class SessionPreviewList(Contract):
+    items: list[SessionPreview] = Field(
+        description="One title per requested session, in the order requested. A session that is not found has a null "
+        "title."
+    )
+
+
+class SessionPersonItem(Contract):
+    session_id: str = Field(description="The session the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the session's first trace ran for, labeled by the project's display name properties or "
+        "else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace "
+        "carries no distinct id."
+    )
+
+
+class SessionPeopleList(Contract):
+    items: list[SessionPersonItem] = Field(description="One item per requested session, in the order requested.")
 
 
 TraceSentimentLabel = Literal["positive", "neutral", "negative"]

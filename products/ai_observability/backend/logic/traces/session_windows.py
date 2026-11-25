@@ -3,6 +3,7 @@ from typing import Final
 
 from .events_fallback import FALLBACK_AFTER_HINT, FALLBACK_BEFORE_HINT, FallbackWindow
 from .session_queries import SESSION_FACTS_MAX_TRACES
+from .trace_paging import SelectionPage
 from .trace_selection import ALL_TIME_LOOKBACK, TraceWindow, shift
 
 # The traces one read of sessions from the shared events table covers in all, so a page of old sessions stays bounded.
@@ -50,3 +51,8 @@ def shared_facts_traces_per_session(session_count: int) -> int:
     """How many of each session's most recent traces a read from the shared events table covers: an equal share of
     `SHARED_FACTS_MAX_TRACES`, at least one, and at most what a read from `posthog.ai_events` covers."""
     return max(1, min(SESSION_FACTS_MAX_TRACES, SHARED_FACTS_MAX_TRACES // max(session_count, 1)))
+
+
+def is_unknown_session(page: SelectionPage, *, read_from_start: bool) -> bool:
+    """A session whose turns read from its start find none holds no traces in the window."""
+    return read_from_start and not page.positions

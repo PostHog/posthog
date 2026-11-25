@@ -1721,6 +1721,92 @@ export interface TraceReviewStatusApi {
     queue: TraceReviewQueueAssignmentApi | null
 }
 
+export interface SessionTurnApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    /** Whether the token counts, error count and tools were computed from only some of the trace's events, because the trace has more events than were read or may have started before the time range read. */
+    totalsPartial: boolean
+    /** Whether the cost and latency were computed from only some of the trace's events, because the trace may have started before the time range read. Otherwise they cover the whole trace, even when the token counts are partial. */
+    costAndLatencyPartial: boolean
+    /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+    defaultNodeId: string | null
+    /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+    firstError: string | null
+    /** The tools the trace's steps called, each once, in the order first called. */
+    toolsCalled: string[]
+    /** Whether a support agent ran the trace while impersonating the user. */
+    isSupportTrace: boolean
+    /** The trace's review and review queue, or null when it has neither that the user may see. */
+    review: TraceReviewStatusApi | null
+    /** Whether the user waited 10 seconds or more for the turn's answer. */
+    waitSlow: boolean
+    /** Milliseconds from the previous turn's answer to this turn's start, when they are a minute or more. Null for a shorter gap and for the session's first turn. */
+    silenceBeforeMs: number | null
+}
+
+export interface SessionTurnPageApi {
+    /** A page of the session's traces, one per turn, oldest first, each read as the traces list reads it. A turn's input and output are read by trace id from the traces' turns. */
+    items: SessionTurnApi[]
+    /** The cursor of the page before this one, or null on the first. */
+    previousCursor: string | null
+    /** The cursor of the next page, or null on the last one. A page read before a cursor always has one. */
+    nextCursor: string | null
+}
+
+export interface SessionPageRequestApi {
+    /**
+     * The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 400
+     */
+    session_ids: string[]
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface SessionPersonItemApi {
+    /** The session the person belongs to. */
+    sessionId: string
+    /** The person the session's first trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace carries no distinct id. */
+    person: TracePersonApi | null
+}
+
+export interface SessionPeopleListApi {
+    /** One item per requested session, in the order requested. */
+    items: SessionPersonItemApi[]
+}
+
+export type TracePreviewMissingReasonApi =
+    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
+
+export const TracePreviewMissingReasonApi = {
+    TooLarge: 'too_large',
+    TimedOut: 'timed_out',
+} as const
+
+export interface SessionPreviewApi {
+    /** The session the title belongs to. */
+    sessionId: string
+    /** The session's title: the user's message its first trace answered, cut at 200 characters. The first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing to show, when the AI events retention no longer holds the session, or when the message could not be read and `inputMissingReason` says why. */
+    input: string | null
+    /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+    inputMissingReason: TracePreviewMissingReasonApi | null
+}
+
+export interface SessionPreviewListApi {
+    /** One title per requested session, in the order requested. A session that is not found has a null title. */
+    items: SessionPreviewApi[]
+}
+
 export interface TraceListItemApi {
     id: string
     name: string | null
@@ -1871,11 +1957,6 @@ export interface TraceExportApi {
     expiresAfter: string | null
     /** Why the export failed, null unless status is failed. */
     exception: string | null
-}
-
-export interface TracePersonApi {
-    distinctId: string
-    label: string
 }
 
 export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
@@ -2540,14 +2621,6 @@ export interface TracePageRequestApi {
      */
     trace_ids: string[]
 }
-
-export type TracePreviewMissingReasonApi =
-    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
-
-export const TracePreviewMissingReasonApi = {
-    TooLarge: 'too_large',
-    TimedOut: 'timed_out',
-} as const
 
 export interface TracePreviewApi {
     /** The trace the preview belongs to. */
@@ -7238,6 +7311,35 @@ export type AiObservabilitySessionsListParams = {
      * @maxLength 1000
      */
     search?: string
+}
+
+export type AiObservabilitySessionsTurnsRetrieveParams = {
+    /**
+     * A trace id, to read the page that holds that turn with the turns before it. A trace outside the session reads the first page. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    around?: string
+    /**
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    before_cursor?: string
+    /**
+     * The nextCursor of a page, to read the page after it. Leave out cursor, before_cursor and around for the session's first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * How many turns a page holds, from 1 to 20. Defaults to 20.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
 }
 
 export type AiObservabilitySessionsRetrieveParams = {

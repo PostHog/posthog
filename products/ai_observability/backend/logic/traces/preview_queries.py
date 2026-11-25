@@ -83,6 +83,9 @@ class SourceReads:
     tail_max_bytes: int | None = None
 
 
+PREVIEW_READS: Final = SourceReads(picks_name=PREVIEW_PICKS_QUERY_NAME, values_name=PREVIEWS_QUERY_NAME)
+
+
 def _field(name: str) -> ast.Field:
     return ast.Field(chain=[name])
 
@@ -376,16 +379,9 @@ def load_preview_values(
     return {row.uuid: row for row in rows}
 
 
-def load_preview_sources(team: Team, user: User | None, trace_ids: Sequence[str]) -> dict[str, TracePreviewSources]:
+def load_preview_sources(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, reads: SourceReads = PREVIEW_READS
+) -> dict[str, TracePreviewSources]:
     """The values each trace's preview is built from, keyed by trace id. A trace with no state event and no
     generation has no entry. Reads only `posthog.ai_events`, so a trace past its retention there has none either."""
-    requested = list(dict.fromkeys(trace_ids))
-    if not requested:
-        return {}
-    rows = load_preview_event_rows(team, user, requested)
-    picks = pick_preview_events(rows)
-    try:
-        values = load_preview_values(team, user, PreviewReads.of(picks))
-    except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong):
-        return timed_out_sources(picks, rows)
-    return preview_sources(picks, values)
+    return read_sources(team, user, list(dict.fromkeys(trace_ids)), reads)
