@@ -7,7 +7,6 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { getJSONOrNull } from 'lib/api'
 import { buildFakeBillingAlert } from 'lib/components/Superpowers/buildFakeBillingAlert'
 import { FakeBillingAlert, superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
@@ -40,6 +39,21 @@ import {
 } from '~/types'
 
 import {
+    billingOrganizationCreditsOverviewRetrieve,
+    billingOrganizationCreditsPurchaseCreate,
+    billingOrganizationDeactivateCreate,
+    billingOrganizationGetInvoicesRetrieve,
+    billingOrganizationLicensePartialUpdate,
+    billingOrganizationList,
+    billingOrganizationPartialUpdate,
+    billingOrganizationSubscriptionSwitchPlanCreate,
+} from 'products/billing/frontend/generated/api'
+import type {
+    BillingCreditsOverviewResponseApi,
+    BillingOverviewResponseApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
+import {
     canAccessBilling as canAccessBillingUtil,
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
@@ -56,6 +70,17 @@ import {
 } from './usageLimits'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
+
+const NO_CREDIT_OVERVIEW: BillingCreditsOverviewResponseApi = {
+    eligible: false,
+    estimated_monthly_credit_amount_usd: null,
+    status: 'none',
+    invoice_url: null,
+    collection_method: null,
+    cc_last_four: null,
+    email: null,
+    credit_brackets: [],
+}
 
 // in sync with GRANDFATHERED_EVENTS_RETENTION_PLAN in billing
 export const GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY = 'paid-20240404'
@@ -118,13 +143,25 @@ export interface OpenInvoices {
     link: string | null
 }
 
+/** The organization a billing write names in its path. Writes start from billing that already loaded for it. */
+export const billingOrganizationId = (organization: OrganizationType | null): string => {
+    if (!organization?.id) {
+        throw new Error('The organization has not loaded yet, so there is no billing to change.')
+    }
+    return organization.id
+}
+
 // Returns null on any failure, so a user who cannot read invoices just sees no invoice banner.
-const loadInvoiceSummary = async (status: 'open' | 'uncollectible'): Promise<OpenInvoices | null> => {
+const loadInvoiceSummary = async (
+    organizationId: string | undefined,
+    status: 'open' | 'uncollectible'
+): Promise<OpenInvoices | null> => {
+    if (!organizationId) {
+        return null
+    }
     try {
-        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-        const res = await api.getResponse(`api/billing/get_invoices?status=${status}`)
-        const jsonRes = await getJSONOrNull(res)
-        return { count: jsonRes['count'], link: jsonRes['link'] }
+        const { count, link } = await billingOrganizationGetInvoicesRetrieve(organizationId, { status })
+        return { count: count ?? 0, link: link ?? null }
     } catch (error: any) {
         console.error(error)
     }
@@ -160,10 +197,13 @@ export type SwitchPlanPayload = {
 export type YcCreditsState = 'renewing' | 'used_until_renewal' | 'ending' | 'ended'
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
-export const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
-    if (!data) {
+// The billing service owns the shape of the products and plans in the overview, and the backend passes them through
+// without a serializer of their own, so the generated type leaves them open and this parser asserts `BillingType`.
+export const parseBillingResponse = (response: BillingOverviewResponseApi | null): BillingType | null => {
+    if (!response) {
         return null
     }
+    const data = response as unknown as Partial<BillingType>
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -311,16 +351,7 @@ export interface billingLogicValues {
         },
         ValidationErrorType
     >
-    creditOverview: {
-        cc_last_four: null
-        collection_method: null
-        credit_brackets: never[]
-        eligible: false
-        email: null
-        estimated_monthly_credit_amount_usd: null
-        invoice_url: null
-        status: string
-    }
+    creditOverview: BillingCreditsOverviewResponseApi
     creditOverviewLoading: boolean
     currentEventsRetentionMonths: number | null
     currentPlatformAddon: BillingProductV2AddonType | null
@@ -353,8 +384,6 @@ export interface billingLogicValues {
     productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
     productAnalyticsPlans: BillingPlanType[]
     productSpecificAlert: BillingAlertConfig | null
-    products: BillingProductV2Type[]
-    productsLoading: boolean
     redirectPath: string
     registeredCustomLimitKeys: string[]
     scrollToProductKey: ProductKey | null
@@ -394,6 +423,13 @@ export interface billingLogicActions {
         value: true
     } // lemonBannerLogic
     loadCurrentOrganization: () => any // organizationLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
     sceneRendered: () => {
         value: true
     } // sceneRenderedLogic
@@ -445,28 +481,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadCreditOverviewSuccess: (
-        creditOverview: {
-            cc_last_four: null
-            collection_method: null
-            credit_brackets: never[]
-            eligible: false
-            email: null
-            estimated_monthly_credit_amount_usd: null
-            invoice_url: null
-            status: string
-        },
+        creditOverview: BillingCreditsOverviewResponseApi,
         payload?: any
     ) => {
-        creditOverview: {
-            cc_last_four: null
-            collection_method: null
-            credit_brackets: never[]
-            eligible: false
-            email: null
-            estimated_monthly_credit_amount_usd: null
-            invoice_url: null
-            status: string
-        }
+        creditOverview: BillingCreditsOverviewResponseApi
         payload?: any
     }
     loadInvoices: () => any
@@ -482,21 +500,6 @@ export interface billingLogicActions {
         payload?: any
     ) => {
         openInvoices: OpenInvoices | null
-        payload?: any
-    }
-    loadProducts: () => any
-    loadProductsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadProductsSuccess: (
-        products: BillingProductV2Type[],
-        payload?: any
-    ) => {
-        products: BillingProductV2Type[]
         payload?: any
     }
     loadUncollectibleInvoices: () => any
@@ -889,7 +892,7 @@ export const billingLogic = kea<billingLogicType>([
             userLogic,
             ['loadUser'],
             organizationLogic,
-            ['loadCurrentOrganization'],
+            ['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'],
             eventUsageLogic,
             ['reportProductUnsubscribed'],
             lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }),
@@ -1012,11 +1015,17 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    lazyLoaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values, cache }) => ({
         billing: [
             null as BillingType | null,
             {
                 loadBilling: async () => {
+                    const organizationId = values.currentOrganization?.id
+                    if (!organizationId) {
+                        // The loadCurrentOrganizationSuccess listener loads billing once the organization arrives.
+                        cache.billingAwaitsOrganization = true
+                        return values.billing
+                    }
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
@@ -1024,9 +1033,9 @@ export const billingLogic = kea<billingLogicType>([
                     // Many scenes read billing, so a failed read keeps the last known state quietly
                     // rather than toasting on every page or reaching error tracking.
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const response = await api.get(
-                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                        const response = await billingOrganizationList(
+                            organizationId,
+                            skipForecasting ? { include_forecasting: false } : undefined
                         )
                         return parseBillingResponse(response) ?? values.billing
                     } catch {
@@ -1036,8 +1045,10 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        const response = await api.update('api/billing', { custom_limits_usd: limits })
+                        const response = await billingOrganizationPartialUpdate(
+                            billingOrganizationId(values.currentOrganization),
+                            { custom_limits_usd: limits }
+                        )
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
                         return parseBillingResponse(response) ?? values.billing
@@ -1061,9 +1072,10 @@ export const billingLogic = kea<billingLogicType>([
 
                     actions.resetUnsubscribeError()
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingDeactivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        const response = await api.createResponse('api/billing/deactivate', { products: key })
-                        const jsonRes = await getJSONOrNull(response)
+                        const response = await billingOrganizationDeactivateCreate(
+                            billingOrganizationId(values.currentOrganization),
+                            { products: key }
+                        )
 
                         lemonToast.success(
                             "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favor."
@@ -1076,7 +1088,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadUser()
                         actions.loadCurrentOrganization()
 
-                        return parseBillingResponse(jsonRes) ?? values.billing
+                        return parseBillingResponse(response) ?? values.billing
                     } catch (error: any) {
                         if (error.code) {
                             if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
@@ -1125,8 +1137,10 @@ export const billingLogic = kea<billingLogicType>([
                 },
                 switchFlatrateSubscriptionPlan: async (data: SwitchPlanPayload, breakpoint) => {
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingSubscriptionSwitchPlanCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        await api.create('api/billing/subscription/switch-plan', data)
+                        await billingOrganizationSubscriptionSwitchPlanCreate(
+                            billingOrganizationId(values.currentOrganization),
+                            data
+                        )
 
                         const productDisplayName = capitalizeFirstLetter(data.to_product_key)
                         lemonToast.success(`You're now on ${productDisplayName}`)
@@ -1155,35 +1169,28 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('open'),
+                loadInvoices: (): Promise<OpenInvoices | null> =>
+                    loadInvoiceSummary(values.currentOrganization?.id, 'open'),
             },
         ],
         uncollectibleInvoices: [
             null as OpenInvoices | null,
             {
-                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('uncollectible'),
+                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> =>
+                    loadInvoiceSummary(values.currentOrganization?.id, 'uncollectible'),
             },
         ],
         creditOverview: [
+            NO_CREDIT_OVERVIEW,
             {
-                eligible: false,
-                estimated_monthly_credit_amount_usd: null,
-                status: 'none',
-                invoice_url: null,
-                collection_method: null,
-                cc_last_four: null,
-                email: null,
-                credit_brackets: [],
-            },
-            {
-                loadCreditOverview: async () => {
+                loadCreditOverview: async (): Promise<BillingCreditsOverviewResponseApi> => {
                     // Check if the user is subscribed
-                    if (values.billing?.has_active_subscription) {
+                    const organizationId = values.currentOrganization?.id
+                    if (values.billing?.has_active_subscription && organizationId) {
                         // A failed or empty read keeps the last overview rather than breaking the page.
                         let response
                         try {
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                            response = await api.get('api/billing/credits/overview')
+                            response = await billingOrganizationCreditsOverviewRetrieve(organizationId)
                         } catch {
                             return values.creditOverview
                         }
@@ -1196,7 +1203,7 @@ export const billingLogic = kea<billingLogicType>([
                                 response.estimated_monthly_credit_amount_usd ??
                                 DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
 
-                            actions.setCreditBrackets(response.credit_brackets)
+                            actions.setCreditBrackets(response.credit_brackets ?? [])
                             actions.setCreditFormValue('creditInput', Math.round(spend * 12))
                         }
 
@@ -1207,26 +1214,7 @@ export const billingLogic = kea<billingLogicType>([
                         return response
                     }
                     // Return default values if not subscribed
-                    return {
-                        eligible: false,
-                        estimated_monthly_credit_amount_usd: null,
-                        status: 'none',
-                        invoice_url: null,
-                        collection_method: null,
-                        cc_last_four: null,
-                        email: null,
-                        credit_brackets: [],
-                    }
-                },
-            },
-        ],
-        products: [
-            [] as BillingProductV2Type[],
-            {
-                loadProducts: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    const response = await api.get('api/billing/available_products')
-                    return response
+                    return NO_CREDIT_OVERVIEW
                 },
             },
         ],
@@ -1654,8 +1642,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingLicensePartialUpdate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    await api.update('api/billing/license', {
+                    await billingOrganizationLicensePartialUpdate(billingOrganizationId(values.currentOrganization), {
                         license,
                     })
 
@@ -1680,8 +1667,7 @@ export const billingLogic = kea<billingLogicType>([
                 collectionMethod: 'charge_automatically',
             },
             submit: async ({ creditInput, collectionMethod }) => {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsPurchaseCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                await api.create('api/billing/credits/purchase', {
+                await billingOrganizationCreditsPurchaseCreate(billingOrganizationId(values.currentOrganization), {
                     annual_credit_amount_usd: +creditInput,
                     collection_method: collectionMethod,
                 })
@@ -1753,6 +1739,12 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
+        loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
+            if (cache.billingAwaitsOrganization && currentOrganization?.id) {
+                cache.billingAwaitsOrganization = false
+                actions.loadBilling()
+            }
+        },
         reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -1800,8 +1792,7 @@ export const billingLogic = kea<billingLogicType>([
         loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
-            // Scoped payment refreshes update their organization's entitlements separately.
-            // The endpoints below read the server's selected organization.
+            // Scoped payment refreshes reload the organization and user themselves, so they skip the reads below.
             if (payload) {
                 return
             }

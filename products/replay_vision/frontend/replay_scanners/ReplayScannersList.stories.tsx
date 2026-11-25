@@ -335,7 +335,7 @@ export const StartupProgramCap: StoryObj = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
-                '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
+                '/api/billing/:organization_id/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
             },
         }),
     ],

@@ -103,7 +103,7 @@ const meta: Meta = {
                 '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
                 '/stats': {},
                 '/events': {},
-                '/api/billing/': { ...billingJson },
+                '/api/billing/:organization_id/': { ...billingJson },
             },
             patch: {
                 '/api/environments/:team_id/add_product_intent/': {},

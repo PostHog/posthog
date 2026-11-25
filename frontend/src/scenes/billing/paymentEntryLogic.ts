@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { billingLogic, parseBillingResponse } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,10 +17,10 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { BillingProductV2Type, BillingType, OrganizationType } from '~/types'
 
 import {
-    billingActivateAuthorizeCreate,
-    billingActivateAuthorizeStatusCreate,
-    billingActivateCreate,
-    getBillingListUrl,
+    billingOrganizationActivateAuthorizeCreate,
+    billingOrganizationActivateAuthorizeStatusCreate,
+    billingOrganizationActivateCreate,
+    billingOrganizationList,
 } from 'products/billing/frontend/generated/api'
 import type { BillingActivationRequestApi } from 'products/billing/frontend/generated/api.schemas'
 import { retrieve as retrieveOrganization } from 'products/platform_features/frontend/generated/api'
@@ -160,12 +159,9 @@ type CompletionParams = Record<string, string | boolean>
 
 const fetchBilling = async (organizationId: string): Promise<BillingType | null> => {
     const skipForecasting = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-    // nosemgrep: prefer-codegen-api -- The generated overview response still has generic product/period fields; retain the existing parser's BillingType contract while using the generated URL and query schema.
-    const response = await api.get<BillingType>(
-        getBillingListUrl({
-            organization_id: organizationId,
-            ...(skipForecasting ? { include_forecasting: false } : {}),
-        })
+    const response = await billingOrganizationList(
+        organizationId,
+        skipForecasting ? { include_forecasting: false } : undefined
     )
     return parseBillingResponse(response)
 }
@@ -333,7 +329,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             errorMessage: string
         ): Promise<void> => {
             await runPaymentStep(
-                () => billingActivateCreate({ organization_id: organizationId, ...body }),
+                () => billingOrganizationActivateCreate(organizationId, { organization_id: organizationId, ...body }),
                 async (response) => {
                     if (response.success) {
                         await asyncActions.completePaymentFlow(redirectPath, searchParams)
@@ -501,7 +497,10 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 actions.clearErrors()
                 try {
                     await runPaymentStep(
-                        () => billingActivateAuthorizeCreate({ organization_id: organizationId }),
+                        () =>
+                            billingOrganizationActivateAuthorizeCreate(organizationId, {
+                                organization_id: organizationId,
+                            }),
                         (response) => {
                             actions.setClientSecret(response.clientSecret || null)
                             actions.setLoading(false)
@@ -570,7 +569,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     cache.disposables.dispose('authorizationPoll')
                     await runPaymentStep(
                         () =>
-                            billingActivateAuthorizeStatusCreate({
+                            billingOrganizationActivateAuthorizeStatusCreate(organizationId, {
                                 organization_id: organizationId,
                                 payment_intent_id: intentId,
                             }),

@@ -23,7 +23,7 @@ describe('InboxUsageWidget', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/trial/': () => [503, { detail: 'Unavailable' }],
-                '/api/billing': {
+                '/api/billing/:organization_id/': {
                     products: [
                         { type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04', current_usage: 104 },
                     ],
@@ -58,7 +58,7 @@ describe('InboxUsageWidget', () => {
                         paid_continuation: continuation,
                         new_work_paused: continuation !== 'continue_paid',
                     },
-                    '/api/billing': {
+                    '/api/billing/:organization_id/': {
                         products: [
                             { type: 'inbox_usage', subscribed: true, current_amount_usd: '1.04', current_usage: 104 },
                         ],

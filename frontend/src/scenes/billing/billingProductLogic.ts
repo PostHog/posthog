@@ -6,14 +6,14 @@ import React from 'react'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingLogic, billingOrganizationId } from 'lib/logic/billing/billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from 'lib/logic/billing/billingLogic'
 import { billingProductRowDisplayName } from 'lib/logic/billing/billingProductDisplayName'
 import { getHeldCompanions } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import {
     BillingPlan,
@@ -24,8 +24,15 @@ import {
     SurveyEventName,
 } from '~/types'
 
+import {
+    billingOrganizationPartialUpdate,
+    billingOrganizationTrialsActivateCreate,
+    billingOrganizationTrialsCancelCreate,
+} from 'products/billing/frontend/generated/api'
+
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import { ProductKey } from '../../queries/schema/schema-general'
+import type { OrganizationType } from '../../types'
 import {
     calculateFreeTier,
     canHaveBillingLimit,
@@ -113,6 +120,7 @@ export interface billingProductLogicValues {
     unsubscribeError: UnsubscribeError | null // billingLogic
     unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentOrganization: OrganizationType | null // organizationLogic
     amountDueBeforeCredits: number
     amountDueToday: number
     appliedCreditBalance: number
@@ -616,6 +624,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             ],
             featureFlagLogic,
             ['featureFlags'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             paymentEntryLogic,
@@ -1435,8 +1445,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                await api.create(`api/billing/trials/activate`, {
+                await billingOrganizationTrialsActivateCreate(billingOrganizationId(values.currentOrganization), {
                     type: 'autosubscribe',
                     target: props.product.type,
                 })
@@ -1452,8 +1461,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsCancelCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                await api.create(`api/billing/trials/cancel`)
+                await billingOrganizationTrialsCancelCreate(billingOrganizationId(values.currentOrganization))
                 lemonToast.success('Your trial has been cancelled!')
                 if (values.surveyID) {
                     actions.reportSurveySent(values.surveyID, values.surveyResponse)
@@ -1475,8 +1483,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         removeBillingLimitNextPeriod: async ({ productType }) => {
             actions.setRemovingBillingLimitNextPeriod(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                await api.update('api/billing', { reset_limit_next_period: productType })
+                await billingOrganizationPartialUpdate(billingOrganizationId(values.currentOrganization), {
+                    reset_limit_next_period: productType,
+                })
                 lemonToast.success('Billing limit for next period has been removed.')
             } catch (error) {
                 console.error(error)

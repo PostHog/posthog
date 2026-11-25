@@ -264,12 +264,12 @@ describe('maxBillingContextLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/billing/': mockBilling,
+                '/api/billing/:organization_id/': mockBilling,
                 '/api/organizations/@current/billing/usage/timeseries/': mockBillingUsageResponse,
                 '/api/organizations/@current/billing/spend/timeseries/': mockBillingSpendResponse,
                 '/api/organizations/@current/billing/projects/': { count: 0, next: null, previous: null, results: [] },
-                '/api/billing/usage_limit_alerts/': [],
-                '/api/billing/compute_spend': {},
+                '/api/billing/:organization_id/usage_limit_alerts/': [],
+                '/api/billing/:organization_id/compute_spend': {},
                 '/api/organizations/@current/': {
                     id: '123',
                     name: 'Test Org',
@@ -285,8 +285,8 @@ describe('maxBillingContextLogic', () => {
                 '/api/environments/:team_id/batch_exports/': { results: [] },
             },
             post: {
-                '/api/billing/usage': mockBillingUsageResponse,
-                '/api/billing/spend': mockBillingSpendResponse,
+                '/api/billing/:organization_id/usage': mockBillingUsageResponse,
+                '/api/billing/:organization_id/spend': mockBillingSpendResponse,
             },
         })
         initKeaTests()

@@ -39,7 +39,7 @@ const meta: Meta<StoryProps> = {
                     cloud: true,
                     realm: 'cloud',
                 },
-                '/api/billing/': { products: [] },
+                '/api/billing/:organization_id/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/heatmap_screenshot/settings/': {
                     allowed_hostnames: [],
@@ -275,7 +275,7 @@ export const SettingsEnvironmentActivityLogs: Story = {
     args: { sectionId: 'environment-activity-logs' },
     // The mock organization holds no product features, so this section renders its pay gate.
     // Billing must list the audit logs feature, otherwise the gate falls through to the settings.
-    decorators: [mswDecorator({ get: { '/api/billing/': billingJson } })],
+    decorators: [mswDecorator({ get: { '/api/billing/:organization_id/': billingJson } })],
 }
 
 export const SettingsEnvironmentActivityLogsQuill: Story = withTodayRailNav(SettingsEnvironmentActivityLogs)

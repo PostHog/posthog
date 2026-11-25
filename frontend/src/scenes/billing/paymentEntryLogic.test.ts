@@ -22,7 +22,7 @@ import { AvailableFeature, BillingProvider, BillingType } from '~/types'
 const OTHER_ORGANIZATION_ID = '00000000-0000-4000-8000-000000000002'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
-    useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
+    useMocks({ get: { '/api/billing/:organization_id/': () => [200, billing ?? {}] } })
     billingLogic.mount()
     await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
 }
@@ -103,7 +103,7 @@ describe('paymentEntryLogic', () => {
         })
 
         const setupActivate = (activate: [number] | [number, unknown]): void => {
-            useMocks({ post: { '/api/billing/activate': () => activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': () => activate } })
             logic = paymentEntryLogic()
             logic.mount()
         }
@@ -122,7 +122,7 @@ describe('paymentEntryLogic', () => {
             let body: unknown
             useMocks({
                 post: {
-                    '/api/billing/activate': async ({ request }) => {
+                    '/api/billing/:organization_id/activate': async ({ request }) => {
                         body = await request.json()
                         return [200, { must_setup_payment: true }]
                     },
@@ -146,7 +146,7 @@ describe('paymentEntryLogic', () => {
 
         it('lets the next start activate again after an activation error', async () => {
             const activate = jest.fn(() => [200, { success: false, error: 'test failure' }])
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             logic = paymentEntryLogic()
             logic.mount()
 
@@ -204,7 +204,7 @@ describe('paymentEntryLogic', () => {
             const bodies: unknown[] = []
             useMocks({
                 post: {
-                    '/api/billing/activate/authorize': async ({ request }) => {
+                    '/api/billing/:organization_id/activate/authorize': async ({ request }) => {
                         bodies.push(await request.json().catch(() => null))
                         return [200, { clientSecret: 'secret_original' }]
                     },
@@ -225,7 +225,7 @@ describe('paymentEntryLogic', () => {
         it('opens the payment entry modal without calling activate', async () => {
             await seedBilling({ subscription_level: 'free' })
             const activate = jest.fn(() => [200, { success: true }] as [number, Record<string, unknown>])
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             logic = paymentEntryLogic()
             logic.mount()
 
@@ -256,7 +256,10 @@ describe('paymentEntryLogic', () => {
                 })
                 .mockImplementationOnce(() => oldResponse.promise)
             useMocks({
-                post: { '/api/billing/activate/authorize': async ({ request }) => authorize(await request.json()) },
+                post: {
+                    '/api/billing/:organization_id/activate/authorize': async ({ request }) =>
+                        authorize(await request.json()),
+                },
             })
             logic = paymentEntryLogic()
             logic.mount()
@@ -303,7 +306,7 @@ describe('paymentEntryLogic', () => {
             async (state) => {
                 const response = deferred<[number, unknown]>()
                 const authorize = jest.fn(() => response.promise)
-                useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+                useMocks({ post: { '/api/billing/:organization_id/activate/authorize': authorize } })
                 logic = paymentEntryLogic()
                 logic.mount()
                 logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
@@ -329,7 +332,7 @@ describe('paymentEntryLogic', () => {
             const authorize = jest
                 .fn((): [number, unknown] => [200, { clientSecret: 'secret_retry' }])
                 .mockImplementationOnce(() => [500, {}])
-            useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+            useMocks({ post: { '/api/billing/:organization_id/activate/authorize': authorize } })
             logic = paymentEntryLogic()
             logic.mount()
             logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
@@ -345,7 +348,7 @@ describe('paymentEntryLogic', () => {
 
         it('sends one authorize request when the modal asks twice before the first answer', async () => {
             const authorize = jest.fn(() => [200, { clientSecret: 'secret_test' }] as [number, Record<string, unknown>])
-            useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+            useMocks({ post: { '/api/billing/:organization_id/activate/authorize': authorize } })
             logic = paymentEntryLogic()
             logic.mount()
             logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
@@ -382,7 +385,7 @@ describe('paymentEntryLogic', () => {
         ])('neither activates nor opens the payment modal when $name', async ({ billing }) => {
             await seedBilling(billing)
             const activate = jest.fn(() => [200, { success: true }] as [number, Record<string, unknown>])
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             logic = paymentEntryLogic()
             logic.mount()
 
@@ -400,7 +403,7 @@ describe('paymentEntryLogic', () => {
             const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }
             const activation = deferred<[number, unknown]>()
             const activate = jest.fn(() => activation.promise)
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             logic = paymentEntryLogic()
             logic.mount()
             const push = jest.spyOn(router.actions, 'push')
@@ -458,7 +461,7 @@ describe('paymentEntryLogic', () => {
             )
             useMocks({
                 get: { [`/api/organizations/${original.id}`]: retrieveOriginal },
-                post: { '/api/billing/activate/authorize/status': () => [200, { status: 'success' }] },
+                post: { '/api/billing/:organization_id/activate/authorize/status': () => [200, { status: 'success' }] },
             })
             window.history.replaceState(
                 {},
@@ -518,7 +521,10 @@ describe('paymentEntryLogic', () => {
             let requested = false
             useMocks({
                 get: {
-                    '/api/billing': () => [200, { subscription_level: 'paid', customer_id: 'cus_paid' }],
+                    '/api/billing/:organization_id/': () => [
+                        200,
+                        { subscription_level: 'paid', customer_id: 'cus_paid' },
+                    ],
                     [`/api/organizations/${original.id}`]: () => {
                         requested = true
                         return organizationResponse.promise
@@ -549,7 +555,7 @@ describe('paymentEntryLogic', () => {
             let requested = false
             useMocks({
                 get: {
-                    '/api/billing': () => {
+                    '/api/billing/:organization_id/': () => {
                         requested = true
                         return billingResponse.promise
                     },
@@ -579,7 +585,7 @@ describe('paymentEntryLogic', () => {
             let organizationRequested = false
             useMocks({
                 get: {
-                    '/api/billing': () => {
+                    '/api/billing/:organization_id/': () => {
                         billingRequested = true
                         return billingResponse.promise
                     },
@@ -596,7 +602,7 @@ describe('paymentEntryLogic', () => {
                         ]
                     },
                 },
-                post: { '/api/billing/activate': () => [200, { success: true }] },
+                post: { '/api/billing/:organization_id/activate': () => [200, { success: true }] },
             })
             logic = paymentEntryLogic()
             logic.mount()
@@ -623,19 +629,19 @@ describe('paymentEntryLogic', () => {
             const ambientOrganization = jest.fn(() => [200, other])
             useMocks({
                 get: {
-                    '/api/billing': ({ request }) => {
-                        billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                    '/api/billing/:organization_id/': ({ params }) => {
+                        billingReads.push(String(params.organization_id))
                         return [
                             200,
                             { customer_id: 'cus_paid', subscription_level: 'paid', has_active_subscription: true },
                         ]
                     },
                     [`/api/organizations/${organization.id}`]: () => [200, organization],
-                    '/api/billing/credits/overview': ambientCredits,
+                    '/api/billing/:organization_id/credits/overview': ambientCredits,
                     '/api/users/@me': ambientUser,
                     '/api/organizations/@current': ambientOrganization,
                 },
-                post: { '/api/billing/activate': () => [200, { success: true }] },
+                post: { '/api/billing/:organization_id/activate': () => [200, { success: true }] },
             })
             router.actions.push(pathname, params)
             logic = paymentEntryLogic()
@@ -678,7 +684,7 @@ describe('paymentEntryLogic', () => {
             'rejects old or invalid callbacks %s without polling',
             async (query) => {
                 const statusRequest = jest.fn(() => [200, { status: 'success' }])
-                useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
+                useMocks({ post: { '/api/billing/:organization_id/activate/authorize/status': statusRequest } })
                 window.history.replaceState({}, '', `/${query}`)
                 logic = paymentEntryLogic()
                 logic.mount()
@@ -703,7 +709,7 @@ describe('paymentEntryLogic', () => {
             const bodies: unknown[] = []
             useMocks({
                 post: {
-                    '/api/billing/activate/authorize/status': async ({ request }) => {
+                    '/api/billing/:organization_id/activate/authorize/status': async ({ request }) => {
                         bodies.push(await request.json())
                         return [200, { status: bodies.length === 1 ? 'loading' : 'success' }]
                     },
@@ -736,8 +742,8 @@ describe('paymentEntryLogic', () => {
             billingReads = []
             useMocks({
                 get: {
-                    '/api/billing': ({ request }) => {
-                        billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                    '/api/billing/:organization_id/': ({ params }) => {
+                        billingReads.push(String(params.organization_id))
                         return [200, { subscription_level: 'paid', customer_id: 'cus_paid' }]
                     },
                     [`/api/organizations/${organization.id}`]: () => [
@@ -745,7 +751,7 @@ describe('paymentEntryLogic', () => {
                         { ...organization, available_product_features: features },
                     ],
                 },
-                post: { '/api/billing/activate/authorize/status': statusRequest },
+                post: { '/api/billing/:organization_id/activate/authorize/status': statusRequest },
             })
             return statusRequest
         }
@@ -880,7 +886,7 @@ describe('paymentEntryLogic', () => {
         it('lets an add-on purchase start after the payment completes', async () => {
             mockPaidOrganization(['success'])
             const activate = jest.fn(() => [200, { success: false, error: 'Stopped before charging' }])
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             submitCard()
             await expectLogic(logic).toFinishAllListeners()
             expectPaidOrganizationApplied()
@@ -905,7 +911,7 @@ describe('paymentEntryLogic', () => {
         it('refuses an add-on purchase while the status is loading and still completes the first payment', async () => {
             const statusRequest = mockPaidOrganization(['loading', 'success'])
             const activate = jest.fn(() => [200, { success: true }])
-            useMocks({ post: { '/api/billing/activate': activate } })
+            useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
             const retries = holdStatusRetries()
             submitCard()
             await expectLogic(logic).toFinishAllListeners()
@@ -929,7 +935,7 @@ describe('paymentEntryLogic', () => {
             useMocks({
                 get: { [`/api/organizations/${organization.id}`]: () => [200, organization] },
                 post: {
-                    '/api/billing/activate/authorize/status': () => {
+                    '/api/billing/:organization_id/activate/authorize/status': () => {
                         statusChecks++
                         return status.promise
                     },
@@ -954,7 +960,7 @@ describe('paymentEntryLogic', () => {
         ])('does not poll again when the tab becomes visible after a %s outcome', async (_, finalResponse) => {
             const responses: unknown[] = [[200, { status: 'loading' }], finalResponse]
             const statusRequest = jest.fn(() => responses.shift() ?? [200, { status: 'loading' }])
-            useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
+            useMocks({ post: { '/api/billing/:organization_id/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
             await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_submitted')).toFinishAllListeners()
             await retries.fire()
@@ -1003,7 +1009,7 @@ describe('paymentEntryLogic', () => {
         it('reports a failed authorization', async () => {
             useMocks({
                 post: {
-                    '/api/billing/activate/authorize/status': () => [
+                    '/api/billing/:organization_id/activate/authorize/status': () => [
                         200,
                         { status: 'failed', error: 'Your card was declined.' },
                     ],
@@ -1020,7 +1026,7 @@ describe('paymentEntryLogic', () => {
 
         it('reports a status check that times out', async () => {
             const statusRequest = jest.fn(() => [200, { status: 'loading' }])
-            useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
+            useMocks({ post: { '/api/billing/:organization_id/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
             await expectLogic(logic, () => submitCard()).toFinishAllListeners()
             while (statusRequest.mock.calls.length < 30) {
@@ -1037,7 +1043,11 @@ describe('paymentEntryLogic', () => {
         })
 
         it('reports a status check that errors', async () => {
-            useMocks({ post: { '/api/billing/activate/authorize/status': () => [500, { detail: 'Server error' }] } })
+            useMocks({
+                post: {
+                    '/api/billing/:organization_id/activate/authorize/status': () => [500, { detail: 'Server error' }],
+                },
+            })
             await expectLogic(logic, () => submitCard()).toFinishAllListeners()
             expect(logic.values.apiError).toBe('Failed to complete. Please refresh the page and try again.')
             expect(capturedError().message).toBe('payment entry api error')
@@ -1072,15 +1082,17 @@ describe('paymentEntryLogic', () => {
 
         const steps: Record<string, (organizationId: string) => PendingStep> = {
             'subscription activation': () => ({
-                ...pendingRequest('post', '/api/billing/activate', { success: true }),
+                ...pendingRequest('post', '/api/billing/:organization_id/activate', { success: true }),
                 start: () => logic.actions.startPaymentEntryFlow(),
             }),
             'add-on activation': () => ({
-                ...pendingRequest('post', '/api/billing/activate', { success: true }),
+                ...pendingRequest('post', '/api/billing/:organization_id/activate', { success: true }),
                 start: () => logic.actions.upgradeProducts('scale:scale', null),
             }),
             'card authorization': (organizationId) => ({
-                ...pendingRequest('post', '/api/billing/activate/authorize', { clientSecret: 'secret_stale' }),
+                ...pendingRequest('post', '/api/billing/:organization_id/activate/authorize', {
+                    clientSecret: 'secret_stale',
+                }),
                 start: () => {
                     logic.actions.beginPaymentFlow(organizationId)
                     logic.actions.initiateAuthorization()
@@ -1106,14 +1118,19 @@ describe('paymentEntryLogic', () => {
                 }
             },
             'status check': (organizationId) => ({
-                ...pendingRequest('post', '/api/billing/activate/authorize/status', { status: 'success' }),
+                ...pendingRequest('post', '/api/billing/:organization_id/activate/authorize/status', {
+                    status: 'success',
+                }),
                 start: () => {
                     logic.actions.beginPaymentFlow(organizationId)
                     logic.actions.pollAuthorizationStatus('pi_stale')
                 },
             }),
             'billing read': (organizationId) => ({
-                ...pendingRequest('get', '/api/billing', { subscription_level: 'paid', customer_id: 'cus_stale' }),
+                ...pendingRequest('get', '/api/billing/:organization_id/', {
+                    subscription_level: 'paid',
+                    customer_id: 'cus_stale',
+                }),
                 start: () => {
                     logic.actions.beginPaymentFlow(organizationId)
                     logic.actions.completePaymentFlow(null, { success: true })
@@ -1188,7 +1205,7 @@ describe('paymentEntryLogic', () => {
         it('status check retry that fires after a new flow starts changes nothing', async () => {
             const statuses = ['loading', 'success']
             const statusRequest = jest.fn(() => [200, { status: statuses.shift() }])
-            useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
+            useMocks({ post: { '/api/billing/:organization_id/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
             logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
             await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_stale')).toFinishAllListeners()

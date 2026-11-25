@@ -28,7 +28,7 @@ const meta: Meta<StoryArgs> = {
                     is_debug: cloud !== undefined ? cloud : true,
                     realm: Realm.Cloud,
                 },
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -157,7 +157,7 @@ export const PayGateMiniFree: Story = {
                     is_debug: cloud !== undefined ? cloud : true,
                     realm: Realm.Cloud,
                 },
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingUnsubscribedJson,
                 },
             },

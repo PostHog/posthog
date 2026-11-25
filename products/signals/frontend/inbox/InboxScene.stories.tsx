@@ -394,7 +394,7 @@ export const SettingsWithSpendBilling: Story = {
                     period_billable_credits: 0,
                     quota_limited: true,
                 },
-                '/api/billing': () => [
+                '/api/billing/:organization_id/': () => [
                     200,
                     {
                         ...billingJson,

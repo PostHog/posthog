@@ -57,7 +57,7 @@ describe('payGateMiniLogic', () => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': [200, { ...billingJson, ...billing }],
+                '/api/billing/:organization_id/': [200, { ...billingJson, ...billing }],
             },
         })
         initKeaTests()
@@ -74,7 +74,10 @@ describe('payGateMiniLogic', () => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': [200, { ...billingJson, customer_id: '', subscription_level: 'free' }],
+                '/api/billing/:organization_id/': [
+                    200,
+                    { ...billingJson, customer_id: '', subscription_level: 'free' },
+                ],
             },
         })
         initKeaTests()

@@ -2,6 +2,7 @@ import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -26,7 +27,7 @@ describe('billingReadsLogic', () => {
                     200,
                     { results: [{ id: 7, name: null, deleted: true }] },
                 ],
-                '/api/billing/usage/team_options/': () => [200, { team_id_options: [7, 8] }],
+                [`/api/billing/${MOCK_ORGANIZATION_ID}/usage/team_options/`]: () => [200, { team_id_options: [7, 8] }],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => [
                     200,
                     {
@@ -46,11 +47,11 @@ describe('billingReadsLogic', () => {
                         pricing_reset_dates: ['2026-08-19'],
                     },
                 ],
-                '/api/billing/usage/': ({ request }) => [
+                [`/api/billing/${MOCK_ORGANIZATION_ID}/usage/`]: ({ request }) => [
                     200,
                     { results: [point(`legacy usage ${new URL(request.url).searchParams.get('breakdowns')}`)] },
                 ],
-                '/api/billing/spend/': () => [
+                [`/api/billing/${MOCK_ORGANIZATION_ID}/spend/`]: () => [
                     200,
                     { results: [point('legacy spend')], pricing_reset_dates: ['2026-08-19'] },
                 ],
@@ -73,15 +74,15 @@ describe('billingReadsLogic', () => {
             flag: false,
             usageLabel: 'legacy usage ["type"]',
             spendLabel: 'legacy spend',
-            usageExport: '/api/billing/usage/export/',
-            spendExport: '/api/billing/spend/export/',
+            usageExport: `/api/billing/${MOCK_ORGANIZATION_ID}/usage/export/`,
+            spendExport: `/api/billing/${MOCK_ORGANIZATION_ID}/spend/export/`,
             projectIds: [7, 8],
         },
     ])('reads from the routes the flag selects (flag on: $flag)', async (expected) => {
         featureFlagLogic.actions.setFeatureFlags(expected.flag ? [FEATURE_FLAGS.ORGANIZATION_BILLING_API] : [], {
             [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: expected.flag,
         })
-        const reads = billingReadsLogic.values.billingReads
+        const reads = billingReadsLogic.values.billingReads!
 
         const usage = await reads.usageSeries(SERIES)
         expect(usage.results).toEqual([
@@ -100,5 +101,15 @@ describe('billingReadsLogic', () => {
         expect(reads.usageExportUrl(SERIES).split('?')[0]).toEqual(expected.usageExport)
         expect(reads.spendExportUrl(SERIES).split('?')[0]).toEqual(expected.spendExport)
         expect(await reads.reportedProjectIds()).toEqual(expected.projectIds)
+    })
+
+    it.each([true, false])('reads nothing before the organization loads (flag on: %s)', (flag) => {
+        featureFlagLogic.actions.setFeatureFlags(flag ? [FEATURE_FLAGS.ORGANIZATION_BILLING_API] : [], {
+            [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: flag,
+        })
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+
+        expect(billingReadsLogic.values.billingReads).toBeNull()
     })
 })

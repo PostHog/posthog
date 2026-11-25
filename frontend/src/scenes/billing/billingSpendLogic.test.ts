@@ -33,7 +33,7 @@ describe('billingSpendLogic chart type', () => {
     // hook-named call inside an ordinary helper.
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/billing/:organization_id/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
@@ -214,7 +214,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('asks once, with the project cap, when top_projects bounds the answer', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/billing/:organization_id/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -230,7 +230,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('asks for every project on every product in one request', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/billing/:organization_id/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
@@ -248,7 +248,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     it('sends one request without a project breakdown', async () => {
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/billing/:organization_id/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
@@ -310,7 +310,7 @@ describe('billing spend load triggers', () => {
         endDates = []
         useMocks({
             get: {
-                '/api/billing': () => [200, billingJson],
+                '/api/billing/:organization_id/': () => [200, billingJson],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     requests += 1
                     const params = new URL(request.url).searchParams
@@ -390,7 +390,7 @@ describe('billingSpendLogic export', () => {
     // useMocks has to be called from the test body: the hooks lint rule rejects it in a helper.
     const mocks = (periods: number): Parameters<typeof useMocks>[0] => ({
         get: {
-            '/api/billing': () => [200, billingJson],
+            '/api/billing/:organization_id/': () => [200, billingJson],
             [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [200, response(periods)],
         },
     })
@@ -403,7 +403,7 @@ describe('billingSpendLogic export', () => {
         await expectLogic(logic).toDispatchActions(['loadBillingSpendSuccess']).toFinishAllListeners()
     }
 
-    const params = (url: string): URLSearchParams => new URL(url, 'http://localhost').searchParams
+    const params = (url: string | null): URLSearchParams => new URL(String(url), 'http://localhost').searchParams
 
     beforeEach(() => {
         initKeaTests()

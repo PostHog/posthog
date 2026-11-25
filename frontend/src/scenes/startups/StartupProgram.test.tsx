@@ -46,7 +46,7 @@ describe('StartupProgram', () => {
         async ({ referrer, credits, renews, message }) => {
             useMocks({
                 get: {
-                    '/api/billing': [
+                    '/api/billing/:organization_id/': [
                         200,
                         {
                             ...billingJson,

@@ -100,7 +100,7 @@ const renderPostHogCodeUsageBillingProduct = ({
 
     useStorybookMocks({
         get: {
-            '/api/billing/': billing,
+            '/api/billing/:organization_id/': billing,
         },
     })
 
@@ -115,7 +115,7 @@ export const BillingProductWithoutAddons: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -131,7 +131,7 @@ export const BillingProductWithAddons: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -147,7 +147,7 @@ export const BillingProductWithStandalonePricingAddon: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -189,7 +189,7 @@ export const BillingProductTemporarilyFree: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -402,7 +402,7 @@ export const BillingProductInclusionOnlyWithAddon: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
             },
@@ -418,7 +418,7 @@ const renderPlatformAddonsStory = (scenario: Parameters<typeof makeBillingWithPl
     const billing = makeBillingWithPlatformAddons(billingJson, scenario)
     useStorybookMocks({
         get: {
-            '/api/billing/': billing,
+            '/api/billing/:organization_id/': billing,
         },
     })
     const product = billing.products.find((p) => p.type === 'platform_and_support')

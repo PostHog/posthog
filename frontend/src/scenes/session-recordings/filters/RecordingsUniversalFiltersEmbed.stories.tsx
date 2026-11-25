@@ -56,7 +56,7 @@ export const ProductAnalyticsOverLimit: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/billing/': () => [200, billingJsonWithProductAnalyticsOverLimit],
+                '/api/billing/:organization_id/': () => [200, billingJsonWithProductAnalyticsOverLimit],
             },
         }),
     ],
@@ -66,7 +66,7 @@ export const ProductAnalyticsUnderLimit: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/billing/': () => [200, billingJson],
+                '/api/billing/:organization_id/': () => [200, billingJson],
             },
         }),
     ],

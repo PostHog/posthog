@@ -3,11 +3,12 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import hesoyamSfx from 'public/hesoyam.mp3'
 
-import { billingCouponsClaimCreate } from 'products/billing/frontend/generated/api'
+import { billingOrganizationCouponsClaimCreate } from 'products/billing/frontend/generated/api'
 
 import { CheatCodeClaimOutcome, cheatCodeLogic } from './cheatCodeLogic'
 import { HesoyamClaimedToast } from './HesoyamClaimedToast'
@@ -50,14 +51,15 @@ export function cheatCodeTypedRecently(): boolean {
  * reveal the code; the cheat code page reads every outcome from cheatCodeLogic instead.
  */
 export async function claimCheatCode(campaignSlug: string): Promise<CheatCodeClaimOutcome | null> {
-    if (claimInFlight) {
+    const organizationId = organizationLogic.findMounted()?.values.currentOrganization?.id
+    if (claimInFlight || !organizationId) {
         return null
     }
     claimInFlight = true
     lastAttemptAt = Date.now()
     let outcome: CheatCodeClaimOutcome
     try {
-        await billingCouponsClaimCreate({ campaign_slug: campaignSlug })
+        await billingOrganizationCouponsClaimCreate(organizationId, { campaign_slug: campaignSlug })
         outcome = 'claimed'
         playRewardSound()
         lemonToast.success(<HesoyamClaimedToast />)

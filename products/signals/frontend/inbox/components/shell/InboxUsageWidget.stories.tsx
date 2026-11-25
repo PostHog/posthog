@@ -61,7 +61,7 @@ function StateMocks({
             '/api/projects/:team_id/signals/trial/': trialUnavailable
                 ? [503, { detail: 'Service unavailable' }]
                 : { enabled: false, grant_status: 'not_claimed' },
-            '/api/billing/': billingFor(state),
+            '/api/billing/:organization_id/': billingFor(state),
             '/api/projects/:team_id/signals/reports/refund-summary/': {
                 credited_refund_count: state.refundedPrs ?? 0,
                 credited_credits: state.refundedPrs ?? 0,

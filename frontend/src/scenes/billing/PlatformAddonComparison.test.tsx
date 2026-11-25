@@ -21,7 +21,11 @@ describe('PlatformAddonComparison', () => {
     beforeEach(async () => {
         Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
         scrollIntoView.mockClear()
-        useMocks({ get: { '/api/billing': () => [200, makeBillingWithPlatformAddons(billingJson, 'trial-used')] } })
+        useMocks({
+            get: {
+                '/api/billing/:organization_id/': () => [200, makeBillingWithPlatformAddons(billingJson, 'trial-used')],
+            },
+        })
         initKeaTests()
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()

@@ -51,7 +51,7 @@ const seedBilling = async (currentAddon: BillingProductV2AddonType): Promise<voi
     ]
     useMocks({
         get: {
-            '/api/billing': () => [
+            '/api/billing/:organization_id/': () => [
                 200,
                 {
                     ...billingJson,

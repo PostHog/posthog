@@ -34,7 +34,7 @@ const meta: Meta = {
                 },
                 '/stats': {},
                 '/events': {},
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingJson,
                 },
                 '/api/environments/:team_id/integrations/domain-connect/check': domainConnectJson,
@@ -316,7 +316,7 @@ export const BillingPlans: Story = {
 
         useStorybookMocks({
             get: {
-                '/api/billing/': {
+                '/api/billing/:organization_id/': {
                     ...billingUnsubscribedJson,
                 },
             },

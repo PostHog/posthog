@@ -6,14 +6,21 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { cheatCodeCampaignSlug } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
 import { cheatCodeTypedRecently } from 'lib/components/CheatCodes/claimCheatCode'
-import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingLogic, billingOrganizationId } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ClaimedCouponInfo, CouponsOverview } from '~/types'
+import {
+    billingOrganizationCouponsClaimCreate,
+    billingOrganizationCouponsOverviewRetrieve,
+} from 'products/billing/frontend/generated/api'
+import type {
+    BillingClaimedCouponApi,
+    BillingCouponClaimResponseApi,
+    BillingCouponsOverviewResponseApi,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingType, OrganizationType, UserType } from '../../types'
 
@@ -33,9 +40,9 @@ export interface couponLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
     user: UserType | null // userLogic
-    activeCoupons: ClaimedCouponInfo[]
+    activeCoupons: BillingClaimedCouponApi[]
     claimed: boolean
-    claimedDetails: any
+    claimedDetails: BillingCouponClaimResponseApi | null
     coupon: CouponFormValues
     couponAllErrors: Record<string, any>
     couponChanged: boolean
@@ -45,9 +52,9 @@ export interface couponLogicValues {
     couponTouched: boolean
     couponTouches: Record<string, boolean>
     couponValidationErrors: DeepPartialMap<CouponFormValues, ValidationErrorType>
-    couponsOverview: CouponsOverview | null
+    couponsOverview: BillingCouponsOverviewResponseApi | null
     couponsOverviewLoading: boolean
-    getClaimedCouponForCampaign: (campaignSlug: string) => ClaimedCouponInfo | null
+    getClaimedCouponForCampaign: (campaignSlug: string) => BillingClaimedCouponApi | null
     isCouponSubmitting: boolean
     isCouponValid: boolean
     showCouponErrors: boolean
@@ -78,10 +85,10 @@ export interface couponLogicActions {
         errorObject?: any
     }
     loadCouponsOverviewSuccess: (
-        couponsOverview: CouponsOverview | null,
+        couponsOverview: BillingCouponsOverviewResponseApi | null,
         payload?: any
     ) => {
-        couponsOverview: CouponsOverview | null
+        couponsOverview: BillingCouponsOverviewResponseApi | null
         payload?: any
     }
     resetCoupon: (values?: CouponFormValues) => {
@@ -90,8 +97,8 @@ export interface couponLogicActions {
     setClaimed: (claimed: boolean) => {
         claimed: boolean
     }
-    setClaimedDetails: (details: any) => {
-        details: any
+    setClaimedDetails: (details: BillingCouponClaimResponseApi) => {
+        details: BillingCouponClaimResponseApi
     }
     setCouponManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -131,9 +138,9 @@ export interface couponLogicActions {
 export interface couponLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         getClaimedCouponForCampaign: (
-            couponsOverview: CouponsOverview | null
-        ) => (campaignSlug: string) => ClaimedCouponInfo | null
-        activeCoupons: (couponsOverview: CouponsOverview | null) => ClaimedCouponInfo[]
+            couponsOverview: BillingCouponsOverviewResponseApi | null
+        ) => (campaignSlug: string) => BillingClaimedCouponApi | null
+        activeCoupons: (couponsOverview: BillingCouponsOverviewResponseApi | null) => BillingClaimedCouponApi[]
     }
 }
 
@@ -155,37 +162,41 @@ export const couponLogic = kea<couponLogicType>([
     })),
     actions({
         setClaimed: (claimed: boolean) => ({ claimed }),
-        setClaimedDetails: (details: any) => ({ details }),
+        setClaimedDetails: (details: BillingCouponClaimResponseApi) => ({ details }),
     }),
     loaders(({ values }) => ({
         couponsOverview: [
-            null as CouponsOverview | null,
+            null as BillingCouponsOverviewResponseApi | null,
             {
                 loadCouponsOverview: async () => {
-                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                    // The loadCurrentOrganizationSuccess listener loads the overview once the organization arrives.
+                    const organizationId = values.currentOrganization?.id
+                    if (!organizationId || values.isAdminOrOwner === false) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    return await api.get('api/billing/coupons/overview')
+                    return await billingOrganizationCouponsOverviewRetrieve(organizationId)
                 },
             },
         ],
     })),
     reducers({
         claimed: [false, { setClaimed: (_, { claimed }) => claimed }],
-        claimedDetails: [null as any, { setClaimedDetails: (_, { details }) => details }],
+        claimedDetails: [
+            null as BillingCouponClaimResponseApi | null,
+            { setClaimedDetails: (_, { details }) => details },
+        ],
     }),
     selectors({
         getClaimedCouponForCampaign: [
             (s) => [s.couponsOverview],
-            (couponsOverview: CouponsOverview | null) =>
-                (campaignSlug: string): ClaimedCouponInfo | null => {
+            (couponsOverview: BillingCouponsOverviewResponseApi | null) =>
+                (campaignSlug: string): BillingClaimedCouponApi | null => {
                     return couponsOverview?.claimed_coupons?.find((c) => c.campaign_slug === campaignSlug) || null
                 },
         ],
         activeCoupons: [
             (s) => [s.couponsOverview],
-            (couponsOverview: CouponsOverview | null): ClaimedCouponInfo[] => {
+            (couponsOverview: BillingCouponsOverviewResponseApi | null): BillingClaimedCouponApi[] => {
                 return couponsOverview?.claimed_coupons?.filter((c) => c.status === 'claimed') ?? []
             },
         ],
@@ -230,10 +241,10 @@ export const couponLogic = kea<couponLogicType>([
                     return
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsClaimCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    const res = await api.create('api/billing/coupons/claim', {
-                        code: formValues.code,
-                    })
+                    const res = await billingOrganizationCouponsClaimCreate(
+                        billingOrganizationId(values.currentOrganization),
+                        { code: formValues.code }
+                    )
                     actions.setClaimed(true)
                     actions.setClaimedDetails(res)
                     actions.loadCouponsOverview()

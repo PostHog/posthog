@@ -24,7 +24,7 @@ const blockedEvents = (): any[] =>
 const seedBilling = async (billing: Partial<BillingType> = {}): Promise<void> => {
     useMocks({
         get: {
-            '/api/billing': () => [
+            '/api/billing/:organization_id/': () => [
                 200,
                 {
                     ...billingJson,
@@ -262,7 +262,9 @@ describe('startupProgramLogic', () => {
 
         it('does not capture a blocked event when the billing service rejects a valid form', async () => {
             const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
-            useMocks({ post: { '/api/billing/startups/apply': () => [400, { detail: 'Not eligible' }] } })
+            useMocks({
+                post: { '/api/billing/:organization_id/startups/apply': () => [400, { detail: 'Not eligible' }] },
+            })
             logic.actions.setStartupProgramValues({
                 raised: '4999999',
                 incorporation_date: dayjs().subtract(1, 'year'),

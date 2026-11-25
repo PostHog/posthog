@@ -65,7 +65,7 @@ const retentionMocks = ({
             '/api/projects/:team_id/events_retention/': project,
             '/api/organizations/:organization_id/events_retention_setting/': organization,
             '/api/projects/:team_id/events_retention/deletion_count/': { retention_months: 3, events_deleted: 1234567 },
-            '/api/billing/': { ...billingJson, billing_plan: billingPlan },
+            '/api/billing/:organization_id/': { ...billingJson, billing_plan: billingPlan },
         },
     })
 }

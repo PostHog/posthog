@@ -24,7 +24,7 @@ const meta: Meta = {
                     cloud: true,
                     realm: 'cloud',
                 },
-                '/api/billing/': billingJson,
+                '/api/billing/:organization_id/': billingJson,
             },
             patch: {
                 '/api/environments/:team_id/add_product_intent/': {},
