@@ -1463,6 +1463,9 @@ describe('runner through seed, drive and judge', () => {
             m_counter_drift_email_sent_sink: sent.length,
             m_counter_drift_email_failed: 0,
         })
+        expect(evidenceOf(result, 'counters.json')).toEqual({
+            counted: { email_sent: 0, email_delivered: 0, email_bounced: 0, email_failed: 0 },
+        })
     }, 30_000)
     it.each([
         ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],

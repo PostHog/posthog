@@ -57,6 +57,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         counters?: CounterReading
         unread?: string
         horizonAt?: number
+        converged?: boolean
     }
 
 export type MeasurementDefinition = Definition & {

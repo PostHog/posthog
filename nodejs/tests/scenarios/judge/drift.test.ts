@@ -48,7 +48,7 @@ const counted = (partial: Partial<Counted> = {}): Counted => ({
     ...partial,
 })
 
-type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt'>
+type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt' | 'converged'>
 
 const evidence = (journal: JournalEntry[], truth: TruthRecord[], judged: Judged): MeasureEvidence => ({
     journal,
@@ -136,6 +136,11 @@ describe('counter drift', () => {
             { owed: 7, email_sent: null, email_sent_counted: 3, email_sent_sink: null },
         ],
         [
+            'leaves the drift unknown when the run did not converge',
+            { counters: { counted: counted({ email_sent: 4 }) }, converged: false },
+            { email_sent: null, email_sent_counted: 4, email_sent_sink: 3 },
+        ],
+        [
             'leaves owed unknown when the run reached no recovery horizon',
             { counters: { counted: counted() }, horizonAt: undefined },
             { owed: null, email_sent_sink: 3 },
@@ -156,6 +161,12 @@ describe('counter drift', () => {
             { counters: { unread: 'refused' } },
             'email_sent_counted',
             /^refused$/,
+        ],
+        [
+            'records why the drift is unknown when the run did not converge',
+            { counters: { counted: counted() }, converged: false },
+            'email_sent',
+            /did not converge/,
         ],
         [
             'records why the truth could not be read',
@@ -197,8 +208,8 @@ describe('reading the counters', () => {
         ],
         [
             'keeps reading until late increments stop arriving',
-            [counted({ email_sent: 2 }), counted({ email_sent: 2 }), counted({ email_sent: 3 })],
-            { counted: counted({ email_sent: 3 }) },
+            [2, 2, 3, 3, 4].map((sent) => counted({ email_sent: sent })),
+            { counted: counted({ email_sent: 4 }) },
         ],
         [
             'waits a full quiet window again after reads fail',

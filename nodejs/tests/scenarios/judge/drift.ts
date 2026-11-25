@@ -21,7 +21,7 @@ const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
     return truth.filter(({ unitId }) => unitId !== undefined && units.has(unitId))
 }
 
-export function sinkCountsOf(evidence: Evidence): Counted {
+function sinkCountsOf(evidence: Evidence): Counted {
     const ours = ofThisRun(evidence)
     const sends = ours.filter(({ kind }) => kind === 'ses.send')
     const keyOf = ({ unitId, actionId, flowId }: TruthRecord): string =>
@@ -95,7 +95,7 @@ export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
     params: z.object({}).strict(),
     unit: 'messages',
-    measure: ({ journal, truth, counters, unread, horizonAt }) => {
+    measure: ({ journal, truth, counters, unread, horizonAt, converged }) => {
         if (counters === undefined) {
             return []
         }
@@ -103,6 +103,7 @@ export const counterDrift: MeasurementDefinition = {
         const sink = unread === undefined ? sinkCountsOf({ journal, truth }) : undefined
         const noCount = unknown('unread' in counters ? counters.unread : '')
         const noSink = unknown(`the truth could not be read: ${unread}`)
+        const unsettled = unknown('the run did not converge, so sends could still land while the counters were read')
         const incomplete = read?.incomplete ? { incomplete: true as const } : {}
         return [
             {
@@ -118,7 +119,9 @@ export const counterDrift: MeasurementDefinition = {
                         ? noCount
                         : sink === undefined
                           ? noSink
-                          : { value: read.counted[counter] - sink[counter], ...incomplete }),
+                          : converged === false
+                            ? unsettled
+                            : { value: read.counted[counter] - sink[counter], ...incomplete }),
                 },
                 { key: `${counter}_counted`, ...(read ? { value: read.counted[counter], ...incomplete } : noCount) },
                 { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },

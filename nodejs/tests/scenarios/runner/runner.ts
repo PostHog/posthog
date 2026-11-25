@@ -688,6 +688,7 @@ export function createRunner(
                 const evidence = {
                     ...judge.evidence(),
                     counters,
+                    converged: converged.converged,
                     ...sampled,
                     ...probed,
                     sampledFrom: sampler.sampledFrom,
