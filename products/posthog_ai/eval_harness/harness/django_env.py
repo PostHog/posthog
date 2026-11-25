@@ -124,9 +124,13 @@ class EvalDatabase:
 
 def _default_test_database_exists() -> bool:
     from django.db import connections  # noqa: PLC0415 — must import only after django.setup()
+    from django.db.backends.base.creation import TEST_DATABASE_PREFIX  # noqa: PLC0415 — same reason
 
     connection = connections["default"]
+    test_database_name = connection.settings_dict["TEST"].get("NAME") or (
+        TEST_DATABASE_PREFIX + connection.settings_dict["NAME"]
+    )
     # The non-test database may not exist, so the check uses the maintenance connection.
     with connection._nodb_cursor() as cursor:
-        cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [connection.creation._get_test_db_name()])
+        cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [test_database_name])
         return cursor.fetchone() is not None
