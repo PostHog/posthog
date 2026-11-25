@@ -2004,7 +2004,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=alert.filters or {})
+            # The logs row of an alert the platform owns keeps its old filters.
+            (shown,) = _shown_from_copies([alert])
+            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
             configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
