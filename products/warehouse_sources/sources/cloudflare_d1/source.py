@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.cloudflare_d1.cloudflare_d1 import (
 )
 from products.warehouse_sources.sources.cloudflare_d1.settings import incremental_type_for_declared_type
 from products.warehouse_sources.sources.sdk import (
+    CLOUDFLARE_TRANSIENT_STATUSES,
     NOT_DETECTABLE,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -102,6 +103,13 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
             "no such table": "The table no longer exists in the D1 database. Remove it from the source or recreate it.",
             "no such column": "The incremental column no longer exists in the D1 table. Pick another column in the table's settings.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The tracked session's own urllib3 retries (`_session` in cloudflare_d1.py) cover 429 and
+        # transient 5xx responses on the query endpoint. Once that budget exhausts, `D1Client.query`
+        # raises `D1QueryError` with the status in its message, and Temporal retries the activity
+        # from there, so it's transient and self-recovering rather than a bug.
+        return {f"D1 query failed ({status})" for status in (429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES)}
 
     def validate_credentials(
         self,

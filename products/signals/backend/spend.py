@@ -347,7 +347,7 @@ def record_task_spend(
             if report:
                 apply_report_billing(spend, report)
         spend.spend = cost_to_spend(
-            run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+            run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
         )
         spend.accounting_failed = spend.accounting_failed or run.accounting_failed
         spend.accounting_pending = not run.complete
@@ -492,7 +492,7 @@ def complete_task_spend(
                     if report:
                         apply_report_billing(spend, report)
                 spend.spend = cost_to_spend(
-                    run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+                    run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
                 )
                 # The shared sweep settles late costs after this worker exhausts its retries.
                 spend.accounting_failed = run.accounting_failed
@@ -518,7 +518,7 @@ def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> st
             return None
         if spend.finalized_at is None:
             spend.spend = cost_to_spend(
-                run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+                run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
             )
             spend.accounting_failed = spend.accounting_failed or run.accounting_failed
             spend.accounting_pending = not run.complete

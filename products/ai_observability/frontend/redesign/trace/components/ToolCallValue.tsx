@@ -51,12 +51,16 @@ function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): J
             >
                 <IconChevronRight className="shrink-0 text-secondary transition-transform group-open:rotate-90 motion-reduce:transition-none" />
                 {isOpen ? null : (
-                    <span className="min-w-0 truncate font-mono text-xs">
+                    <span className="ph-no-capture min-w-0 truncate font-mono text-xs">
                         {typeof value === 'string' ? value : JSON.stringify(value)}
                     </span>
                 )}
             </summary>
-            {isOpen ? <ValueBody value={value} highlightQuery={highlightQuery} /> : null}
+            {isOpen ? (
+                <div className="ph-no-capture">
+                    <ValueBody value={value} highlightQuery={highlightQuery} />
+                </div>
+            ) : null}
         </details>
     )
 }
@@ -66,7 +70,7 @@ export function ToolCallValue({ value, highlightQuery = null }: ToolCallValuePro
         return <FoldedValue value={value} highlightQuery={highlightQuery} />
     }
     return (
-        <div className="min-w-0 px-2 py-1">
+        <div className="ph-no-capture min-w-0 px-2 py-1">
             <ValueBody value={value} highlightQuery={highlightQuery} />
         </div>
     )

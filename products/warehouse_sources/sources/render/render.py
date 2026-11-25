@@ -1,3 +1,4 @@
+import math
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -6,15 +7,18 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.render.settings import RENDER_ENDPOINTS, RenderEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
+    RetryableHTTPError,
     SourceResponse,
+    is_retryable_status,
     make_tracked_session,
-    retry_with_deadline,
+    max_retry_after_seconds,
+    parse_retry_after,
     source_helpers,
+    vendor_retry,
 )
 
 RENDER_BASE_URL = "https://api.render.com/v1"
@@ -24,8 +28,31 @@ REQUEST_TIMEOUT_SECONDS = 60
 REDACTED_VALUE = "__redacted__"
 
 
-class RenderRetryableError(Exception):
+class RenderRetryableError(RetryableHTTPError):
     pass
+
+
+_EPOCH_SECONDS_FLOOR = 1_000_000_000
+
+
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    """The wait until Render's rate-limit window resets, capped at the longest wait we honor.
+
+    Render documents `Ratelimit-Reset` as the UTC epoch second at which the window resets, but its own
+    example shows a delay in seconds ("45"). A value of `_EPOCH_SECONDS_FLOOR` or more can only be an epoch.
+    """
+    wait = parse_retry_after(response)
+    if wait is None:
+        try:
+            reset = float(response.headers.get("Ratelimit-Reset", ""))
+        except ValueError:
+            return None
+        if not math.isfinite(reset):
+            return None
+        wait = reset - datetime.now(UTC).timestamp() if reset >= _EPOCH_SECONDS_FLOOR else reset
+    if wait <= 0:
+        return None
+    return min(wait, max_retry_after_seconds())
 
 
 @dataclasses.dataclass(frozen=False)
@@ -101,19 +128,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     return False, PROBE_FAILED_MESSAGE
 
 
-@retry_with_deadline(
-    retry=retry_if_exception_type(
-        (
-            RenderRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
+@vendor_retry(attempts=5, backoff_max=60)
 def _fetch_page(
     session: requests.Session,
     url: str,
@@ -123,10 +138,12 @@ def _fetch_page(
 ) -> list[dict[str, Any]]:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    # Render rate-limits per user (400/min for most GETs) and returns 429 with
-    # Ratelimit-* headers; exponential backoff comfortably outlasts the window.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise RenderRetryableError(f"Render API error (retryable): status={response.status_code}, url={url}")
+    if is_retryable_status(response.status_code):
+        raise RenderRetryableError(
+            f"Render API error (retryable): status={response.status_code}, url={url}",
+            status=response.status_code,
+            retry_after=_retry_after_seconds(response),
+        )
 
     if not response.ok:
         # 404 (a service deleted mid-sync) and 400 (a service type that can't own the child

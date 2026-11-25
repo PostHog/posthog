@@ -194,7 +194,7 @@ services:
             retries: 10
 
     clickhouse:
-        image: ${CLICKHOUSE_SERVER_IMAGE:-ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-cf6928b17299}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -790,6 +790,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
+            - ingest.geoip.downloader.enabled=false
         image: elasticsearch:7.17.28
         healthcheck:
             test:
@@ -836,6 +837,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
+            - TEMPORAL_VERSION_CHECK_DISABLED=1
         depends_on:
             elasticsearch:
                 condition: service_healthy

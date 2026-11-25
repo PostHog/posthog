@@ -5,7 +5,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconRedo, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -84,6 +84,7 @@ export function EmailDocumentEditor(): JSX.Element {
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
     const [rootWidth, setRootWidth] = useState(1200)
     const rootRef = useRef<HTMLDivElement>(null)
+    const canvasScrollTop = useRef(0)
     const suggestionsOpenRef = useRef(false)
 
     const [linkEditorRequest, setLinkEditorRequest] = useState(0)
@@ -331,6 +332,13 @@ export function EmailDocumentEditor(): JSX.Element {
         return () => observer.disconnect()
     }, [])
 
+    // Preview unmounts the canvas.
+    useLayoutEffect(() => {
+        if (canvas) {
+            canvas.scrollTop = canvasScrollTop.current
+        }
+    }, [canvas])
+
     const narrow = rootWidth < NARROW_WIDTH
     useEffect(() => {
         setPanelOpen(!narrow)
@@ -464,6 +472,7 @@ export function EmailDocumentEditor(): JSX.Element {
                     <div className="flex flex-1 min-h-0 relative">
                         <div
                             ref={setCanvas}
+                            onScroll={(event) => (canvasScrollTop.current = event.currentTarget.scrollTop)}
                             className="EmailDocumentEditor__scroll relative flex-1 min-w-0 overflow-auto"
                             style={{
                                 backgroundColor: page.backgroundColor,

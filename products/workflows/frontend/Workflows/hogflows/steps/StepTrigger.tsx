@@ -69,6 +69,7 @@ import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienc
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleList } from './components/ScheduleList'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { SkippedTestAccountFiltersNotice } from './components/SkippedTestAccountFiltersNotice'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
 
@@ -796,6 +797,7 @@ function StepTriggerConfigurationBatch({
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                     />
                     <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+                    <SkippedTestAccountFiltersNotice blastRadius={blastRadius} />
                 </div>
             )}
 

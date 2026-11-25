@@ -185,6 +185,7 @@ class TaskRunSpend:
     run_id: UUID
     task_id: UUID
     cost_microusd: int | None
+    standard_cost_microusd: int | None
     complete: bool
     is_terminal: bool
     stage: str
@@ -552,6 +553,7 @@ class TaskCommentEntryDTO:
     id: UUID
     content: str
     content_truncated: bool
+    content_offset: int
     content_next_offset: int | None
     author: str | None
     created_at: datetime

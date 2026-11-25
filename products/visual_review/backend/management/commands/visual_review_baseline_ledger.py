@@ -162,8 +162,14 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--setup-check",
             default="",
-            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it. "
-            "Needs exactly one --run-type. --apply needs it.",
+            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it "
+            "and the --report-check job succeeded. Needs exactly one --run-type. --apply needs it.",
+        )
+        recheck.add_argument(
+            "--report-check",
+            default="",
+            help="Name of the CI job of this run type that reports a commit needs no run. A head without a run "
+            "passes only when it succeeded. Needs exactly one --run-type. --apply needs it.",
         )
         recheck.add_argument(
             "--pause",
@@ -495,7 +501,9 @@ class Command(BaseCommand):
             pull_requests_by_commit=pull_requests_by_commit,
         )
 
-    def _show_verdicts(self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str) -> None:
+    def _show_verdicts(
+        self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str, report_check: str
+    ) -> None:
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
         for head in heads.heads:
             stacked = head.commit_sha in heads.stacked_commits
@@ -506,6 +514,7 @@ class Command(BaseCommand):
                         head.commit_sha,
                         run_type,
                         setup_check,
+                        report_check,
                         stacked=stacked,
                         pr_numbers=heads.pull_requests_by_commit.get(head.commit_sha, ()),
                     )
@@ -539,6 +548,7 @@ class Command(BaseCommand):
         heads: _Heads,
         run_types: list[str],
         setup_check: str,
+        report_check: str,
         options: dict[str, Any],
     ) -> None:
         only_success = options["only_success"]
@@ -565,6 +575,7 @@ class Command(BaseCommand):
                 commit_sha,
                 run_type,
                 setup_check,
+                report_check,
                 current=current,
                 only_success=only_success,
                 wait=pacer.wait,
@@ -599,18 +610,25 @@ class Command(BaseCommand):
                 "Without --apply the command only shows the statuses, and --only-success posts only the greens."
             )
         setup_check = options["setup_check"]
+        report_check = options["report_check"]
         # Without it every head without a run would get a pending status.
         if apply and not setup_check:
             raise CommandError(
                 "--apply needs --setup-check, the CI job that creates the run, to tell a head that needs no run "
                 "from one whose run is gone. Nothing was posted."
             )
+        if apply and not report_check:
+            raise CommandError(
+                "--apply needs --report-check, the CI job that reports a commit needs no run. Nothing was posted."
+            )
         run_types = self._run_types(repo, options.get("run_types"))
         # Each run type has its own CI job that creates its run.
-        if setup_check and len(run_types) != 1:
-            raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")
+        if (setup_check or report_check) and len(run_types) != 1:
+            raise CommandError(
+                "--setup-check and --report-check name the jobs of one run type. Pass exactly one --run-type with them."
+            )
         heads = self._heads(repo, options["pushed_within_days"])
         if apply:
-            self._post_verdicts(repo, heads, run_types, setup_check, options)
+            self._post_verdicts(repo, heads, run_types, setup_check, report_check, options)
         else:
-            self._show_verdicts(repo, heads, run_types, setup_check)
+            self._show_verdicts(repo, heads, run_types, setup_check, report_check)

@@ -134,7 +134,10 @@ export class SigningKeyLoader {
     /** As `load()`, from one snapshot of the secret. */
     loadFrom(values: Record<string, string>): void {
         const keys = parseSigningKeys(values)
-        if (Object.keys(keys).length === 0) {
+        // A warm reload accepts an empty key set, because removing the last key revokes the last
+        // caller. Keeping the old keys would let that caller read the secrets applied from the
+        // same snapshot. A source that cannot be read gives null, which never gets here.
+        if (Object.keys(keys).length === 0 && !this.loaded) {
             throw new Error(`no ${CALLER_KEY_PREFIX}* entries in ${this.dir}`)
         }
         assertNoSharedKeys(keys)
@@ -158,18 +161,56 @@ export class SigningKeyLoader {
         this.reloadFrom(await readMount(this.dir))
     }
 
-    /** As `reload()`, from one snapshot of the secret. Null means the source could not be read. */
-    reloadFrom(values: Record<string, string> | null): void {
+    /**
+     * As `reload()`, from one snapshot of the secret. Null means the source could not be read.
+     * Returns false when the snapshot was refused, so the server also holds back its secrets.
+     */
+    reloadFrom(values: Record<string, string> | null): boolean {
         try {
             if (values === null) {
                 throw new Error(`could not read ${this.dir}`)
             }
             this.loadFrom(values)
+            return true
         } catch (err) {
             signingKeyReloadFailuresTotal.inc()
             logger.error('auth:signing_keys_reload_failed', {
                 error: err instanceof Error ? err.message : String(err),
             })
+            if (values !== null) {
+                this.dropKeysNotIn(values)
+            }
+            return false
+        }
+    }
+
+    /**
+     * Keep only the held keys that the snapshot still lists for the same deployment. An edit that
+     * revokes one key and breaks another entry then still revokes, and every key it adds waits
+     * for a valid edit.
+     */
+    private dropKeysNotIn(values: Record<string, string>): void {
+        const listed = new Map<string, Set<string>>()
+        for (const [entry, value] of Object.entries(values)) {
+            if (entry.startsWith(CALLER_KEY_PREFIX)) {
+                const deployment = deploymentFromEntry(entry, CALLER_KEY_PREFIX)
+                listed.set(deployment, new Set([...(listed.get(deployment) ?? []), ...commaList(value)]))
+            }
+        }
+        const kept: SigningKeys = {}
+        const dropped: string[] = []
+        for (const [deployment, held] of Object.entries(this.keys)) {
+            const still = held.filter((key) => listed.get(deployment)?.has(key))
+            if (still.length < held.length) {
+                dropped.push(deployment)
+            }
+            if (still.length > 0) {
+                kept[deployment] = still
+            }
+        }
+        if (dropped.length > 0) {
+            this.keys = kept
+            logger.warn('auth:signing_keys_dropped_from_refused_snapshot', { deployments: dropped.sort() })
         }
     }
 
