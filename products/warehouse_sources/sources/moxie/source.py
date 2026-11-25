@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.moxie.moxie import (
     moxie_source,
     validate_credentials as validate_moxie_credentials,
 )
-from products.warehouse_sources.sources.moxie.settings import ENDPOINTS
+from products.warehouse_sources.sources.moxie.settings import ENDPOINTS, MOXIE_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -79,6 +79,11 @@ class MoxieSource(ResumableSource[MoxieSourceConfig, MoxieResumeConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_moxie_credentials(config.base_url, config.api_key, team_id)
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # Only the fan-out tables save resume state. The others read again from the start.
+        config = MOXIE_ENDPOINTS.get(schema_name or "")
+        return config is not None and config.fanout is not None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MoxieResumeConfig]:
         return ResumableSourceManager[MoxieResumeConfig](inputs, MoxieResumeConfig)

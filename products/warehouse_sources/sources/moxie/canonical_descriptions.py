@@ -234,7 +234,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "opportunities": {
         "description": "A sales opportunity in the workspace pipeline, with its stage, value, and close dates.",
-        "docs_url": "https://developers.withmoxie.com/api/search-opportunities",
+        "docs_url": "https://api-docs.withmoxie.com/api/search-opportunities",
         "columns": {
             "id": "Unique identifier for the opportunity.",
             "clientId": "Identifier of the client the opportunity belongs to.",
@@ -259,7 +259,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "time_entries": {
         "description": "A completed time entry tracked by a workspace user against a client, project, task, or ticket.",
-        "docs_url": "https://developers.withmoxie.com/api/list-time-worked",
+        "docs_url": "https://api-docs.withmoxie.com/api/list-time-worked",
         "columns": {
             "id": "Unique identifier for the time entry.",
             "userId": "Identifier of the workspace user who tracked the time.",
@@ -287,7 +287,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "ticket_comments": {
         "description": "A public reply or private internal note on a support ticket.",
-        "docs_url": "https://developers.withmoxie.com/api/list-ticket-comments",
+        "docs_url": "https://api-docs.withmoxie.com/api/list-ticket-comments",
         "columns": {
             "id": "Unique identifier for the comment.",
             "ticketId": "Identifier of the ticket the comment belongs to (see tickets).",
@@ -306,7 +306,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_notes": {
         "description": "A private workspace note on a project.",
-        "docs_url": "https://developers.withmoxie.com/api/search-project-notes",
+        "docs_url": "https://api-docs.withmoxie.com/api/search-project-notes",
         "columns": {
             "id": "Unique identifier for the note.",
             "projectId": "Identifier of the project the note belongs to (see projects).",
