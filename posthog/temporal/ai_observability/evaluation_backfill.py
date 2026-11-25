@@ -41,8 +41,9 @@ from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFL
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
-from posthog.temporal.ai_observability.run_evaluation import WorkflowResult
+from posthog.temporal.ai_observability.run_evaluation import STOPPED_EVALUATION_ERROR_TYPES, WorkflowResult
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import unwrap_temporal_cause
 
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates, fetch_backfill_candidates
 from products.ai_observability.backend.facade.evaluation_runtime import settle_horizon
@@ -232,6 +233,11 @@ def _stop_reason(result: WorkflowResult) -> str | None:
     if reason == "evaluation_disabled" or (spec is not None and spec.disables_evaluation):
         return "evaluation_disabled"
     return None
+
+
+def _failed_run_stop_reason(error: BaseException) -> str | None:
+    cause = unwrap_temporal_cause(error)
+    return cause.type if cause is not None and cause.type in STOPPED_EVALUATION_ERROR_TYPES else None
 
 
 class _BackfillPacing:
@@ -828,6 +834,9 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             # A cancelled backfill raises here; a run cancelled on its own is only a failed run.
             if is_cancelled_exception(error) and not isinstance(error, ChildWorkflowError):
                 raise
+            stop_reason = _failed_run_stop_reason(error)
+            if temporalio.workflow.patched("evaluation-backfill-stopped-run-fails-2026-11") and stop_reason:
+                return BackfillChildOutcome(outcome=ChildOutcome.SKIPPED, stop_reason=stop_reason)
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
             )

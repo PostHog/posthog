@@ -22,6 +22,7 @@ from pydantic import ValidationError as PydanticValidationError
 from structlog.testing import capture_logs
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -2772,7 +2773,7 @@ class TestRunEvaluationWorkflow:
     @pytest.mark.parametrize(
         "change,skip_reason", [({"enabled": False}, "evaluation_disabled"), ({"deleted": True}, "evaluation_deleted")]
     )
-    async def test_backfill_run_skips_the_judge_for_a_disabled_evaluation(
+    async def test_backfill_run_fails_before_the_judge_for_a_disabled_evaluation(
         self, change: dict[str, bool], skip_reason: str
     ) -> None:
         @activity.defn(name="run_local_evaluation_activity")
@@ -2800,18 +2801,21 @@ class TestRunEvaluationWorkflow:
                 activities=[mock_run_local_evaluation, mock_judge],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                result: WorkflowResult = await env.client.execute_workflow(
-                    RunEvaluationWorkflow.run,
-                    RunEvaluationInputs(
-                        evaluation_id=str(uuid.uuid4()), event_data=create_mock_event_data(team_id=1), backfill_id="B"
-                    ),
-                    id=str(uuid.uuid4()),
-                    task_queue=task_queue,
-                    execution_timeout=timedelta(minutes=5),
-                )
+                with pytest.raises(WorkflowFailureError) as failure:
+                    await env.client.execute_workflow(
+                        RunEvaluationWorkflow.run,
+                        RunEvaluationInputs(
+                            evaluation_id=str(uuid.uuid4()),
+                            event_data=create_mock_event_data(team_id=1),
+                            backfill_id="B",
+                        ),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(minutes=5),
+                    )
 
-        assert result["skipped"] is True
-        assert result["skip_reason"] == skip_reason
+        assert isinstance(failure.value.cause, ApplicationError)
+        assert failure.value.cause.type == skip_reason
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("evaluation_type", ["hog", "llm_judge"])
