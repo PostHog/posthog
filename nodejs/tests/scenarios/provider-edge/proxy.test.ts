@@ -149,6 +149,39 @@ describe('provider edge proxy', () => {
         })
     })
 
+    it.each<[boolean, (number | string | undefined)[][]]>([
+        [
+            true,
+            [
+                ['run-1-1', 200, 'dest.ambiguous'],
+                ['run-1-2', 200, undefined],
+            ],
+        ],
+        [false, [['run-1-2', 200, undefined]]],
+    ])(
+        'drops the connection of the next webhook with dest.ambiguous accepted %s, recording only what the destination took',
+        async (accepted, calls) => {
+            const valves = await startValve({
+                valve: 'dest.ambiguous',
+                target: WEBHOOK_HOST,
+                dose: { accepted, count: 1 },
+                at: '0ms',
+                for: '1m',
+            })
+
+            const dropped = await callWebhook('run-1-1').catch((error: Error) => error.name)
+            const next = await callWebhook('run-1-2')
+            await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect({
+                outcomes: [dropped, next],
+                calls: (await truth()).map(({ unitId, status, fault }) => [unitId, status, fault]),
+                error: valves.timeline()[0].error,
+            }).toEqual({ outcomes: ['SocketError', 200], calls, error: undefined })
+        }
+    )
+
     it.each<[string, string, boolean]>([
         ['its hold ends', '100ms', true],
         ['the drive ends', '1m', false],
