@@ -141,7 +141,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                         <LemonField
                             name="new_column_policy"
                             label="New columns"
-                            help="Hold new columns back to review and mask them before they sync. Held-back columns show unselected in each table's column picker. Changing this later keeps each table's current column selection, and each table can override it."
+                            help="Hold new columns back to review and mask them before they sync. Held-back columns show unselected in each table's column picker. Changing this later keeps each table's current column selection, and each table can override it. With live queries on, holding columns back turns off raw SQL for this source."
                         >
                             {({ value, onChange }) => (
                                 <LemonSelect

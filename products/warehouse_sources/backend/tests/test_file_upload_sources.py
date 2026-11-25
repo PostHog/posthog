@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.facade.testing import (
     migrate_team_self_managed_tables,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -223,6 +226,10 @@ class TestFileUploadSources(APIBaseTest):
     def test_replacing_the_file_keeps_the_table_and_starts_a_billable_full_refresh(self) -> None:
         table, schema = self._table_with_source()
         self.get_columns.return_value = dict(REPLACEMENT_COLUMNS)
+        known_columns = [{"name": "id", "data_type": "int64", "is_nullable": True}]
+        update_sync_type_config_keys(
+            schema.id, self.team.pk, mutate=lambda config: config["schema_metadata"].update(columns=known_columns)
+        )
 
         response = self._replace(table)
 
@@ -234,6 +241,7 @@ class TestFileUploadSources(APIBaseTest):
         assert schema.source.job_inputs["filename"] == "orders_v2.csv"
         assert schema.schema_metadata is not None
         assert schema.schema_metadata["csv"]["column_types"] == {"id": "integer", "placed_at": "datetime"}
+        assert schema.schema_metadata["columns"] == known_columns
         [superseded] = (schema.source.connection_metadata or {})["file_upload"]["superseded"]
         assert (superseded["upload_id"], superseded["filename"]) == (UPLOAD_ID, "orders.csv")
         assert self.trigger_count == 2

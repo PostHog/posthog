@@ -186,6 +186,7 @@ def reconcile_source_schema_metadata(
         source_schema = schemas_by_name.get(row.name)
         if source_schema is None:
             continue
+        row.source = source
         new_metadata = sql_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,

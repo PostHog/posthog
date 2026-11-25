@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     StagedSchemeWithoutResetError,
+    columns_known_before_run,
     should_coalesce_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -536,6 +537,30 @@ class TestReplaceScopeHandOff:
 
         [result] = projected
         assert [name for name in result.column_names if name != "_ph_debug"] == expected_columns
+
+    @pytest.mark.parametrize(
+        "source_policy, table_policy, enabled_columns, expected",
+        [
+            ("include", None, ["id"], {"id", "name"}),
+            ("exclude", "include", ["id"], {"id", "name"}),
+            ("include", "exclude", ["id"], None),
+            ("include", None, None, None),
+            (None, None, ["id"], None),
+        ],
+        ids=["source_include", "table_overrides_to_include", "table_overrides_to_exclude", "no_selection", "unset"],
+    )
+    def test_columns_known_before_run_follows_the_effective_policy(
+        self, source_policy: str | None, table_policy: str | None, enabled_columns: list[str] | None, expected
+    ) -> None:
+        schema = SimpleNamespace(
+            new_column_policy=table_policy,
+            enabled_columns=enabled_columns,
+            schema_metadata={"columns": [{"name": "id"}, {"name": "name"}]},
+        )
+
+        known = columns_known_before_run(cast(Any, schema), cast(Any, SimpleNamespace(new_column_policy=source_policy)))
+
+        assert known == expected
 
 
 class TestPreWriteMaintenanceBeforeAnAppendRestore:

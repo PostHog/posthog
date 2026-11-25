@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from functools import partial
+from functools import cache, partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -2086,9 +2086,13 @@ def effective_new_column_policy(schema: "ExternalDataSchema", source: ExternalDa
         return schema.new_column_policy
     if source is not None:
         return source.new_column_policy
+    return _source_new_column_policy(schema)
+
+
+def _source_new_column_policy(schema: "ExternalDataSchema") -> str | None:
     if ExternalDataSchema.source.is_cached(schema):
         return schema.source.new_column_policy
-    # Discovery calls this for every table of a source, and loading the source row decrypts its inputs.
+    # Loading the whole source row would decrypt its inputs.
     return ExternalDataSource.objects.filter(id=schema.source_id).values_list("new_column_policy", flat=True).first()
 
 
@@ -2142,15 +2146,21 @@ def pin_columns_for_exclude_policy(
     ).exclude(deleted=True)
     if schema_ids is not None:
         candidates = candidates.filter(id__in=schema_ids)
-    for schema_id, table_policy in candidates.values_list("id", "new_column_policy"):
-        if (table_policy or source_policy) != NewColumnPolicy.EXCLUDE:
-            continue
-        with transaction.atomic():
-            locked = ExternalDataSchema.objects.select_for_update().get(id=schema_id, team_id=team_id)
-            names = schema_metadata_column_names(locked.schema_metadata)
-            if locked.enabled_columns is None and names:
-                locked.enabled_columns = names
-                locked.save(update_fields=["enabled_columns", "updated_at"])
+    if source_policy == NewColumnPolicy.EXCLUDE:
+        candidates = candidates.filter(
+            models.Q(new_column_policy__isnull=True) | models.Q(new_column_policy=NewColumnPolicy.EXCLUDE)
+        )
+    else:
+        candidates = candidates.filter(new_column_policy=NewColumnPolicy.EXCLUDE)
+    with transaction.atomic():
+        pinned = []
+        for schema in candidates.select_for_update().order_by("id").only("id", "enabled_columns", "sync_type_config"):
+            names = schema_metadata_column_names(schema.schema_metadata)
+            if names:
+                schema.enabled_columns = names
+                schema.updated_at = timezone.now()
+                pinned.append(schema)
+        ExternalDataSchema.objects.bulk_update(pinned, ["enabled_columns", "updated_at"], batch_size=500)
 
 
 def persist_observed_columns(schema_id: str | uuid.UUID, team_id: int, observed_columns: list[dict[str, Any]]) -> None:
@@ -2209,12 +2219,19 @@ def persist_schema_metadata(
 
     available_names = extract_available_column_names(schema_metadata)
 
+    current_names = schema_metadata_column_names(schema_metadata)
+    source_policy = cache(partial(_source_new_column_policy, schema))
+
     def _apply_policy(row: ExternalDataSchema, kept: list[str] | None) -> list[str] | None:
+        previous_names = schema_metadata_column_names(row.schema_metadata)
+        # No policy changes a selection when the table's columns did not change.
+        if kept is not None and previous_names == current_names:
+            return kept
         return apply_new_column_policy(
             kept,
-            effective_new_column_policy(row),
-            previous_names=schema_metadata_column_names(row.schema_metadata),
-            current_names=schema_metadata_column_names(schema_metadata),
+            row.new_column_policy or source_policy(),
+            previous_names=previous_names,
+            current_names=current_names,
         )
 
     def _prune(row: ExternalDataSchema) -> PrunedColumns:

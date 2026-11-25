@@ -172,6 +172,17 @@ class StagedSchemeWithoutResetError(Exception):
     """The attempt took the partition scheme of a new table, and then did not delete the old table."""
 
 
+def columns_known_before_run(schema: ExternalDataSchema, source: ExternalDataSource) -> set[str] | None:
+    """The columns an `include` table with a column selection knew before this run, or None.
+
+    A column outside the set is new, and syncs from the run that first sees it. Finalizing the run adds it to
+    the selection for later runs.
+    """
+    if schema.enabled_columns is None or effective_new_column_policy(schema, source) != NewColumnPolicy.INCLUDE:
+        return None
+    return set(schema_metadata_column_names(schema.schema_metadata)) or None
+
+
 class PipelineV3(Generic[ResumableData]):
     _resource: SourceResponse
     _resource_name: str
@@ -312,15 +323,9 @@ class PipelineV3(Generic[ResumableData]):
         # write-side drop plus observed-columns capture so the column picker has a catalog.
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
-        # Under the `include` policy a column new to the table syncs from the run that first sees it.
-        # Finalizing adds it to the selection for later runs.
-        self._columns_known_before_run: set[str] | None = None
-        if (
-            self._uses_delta_write_column_selection
-            and self._schema.enabled_columns is not None
-            and effective_new_column_policy(self._schema, self._source) == NewColumnPolicy.INCLUDE
-        ):
-            self._columns_known_before_run = set(schema_metadata_column_names(self._schema.schema_metadata)) or None
+        self._columns_known_before_run = (
+            columns_known_before_run(self._schema, self._source) if self._uses_delta_write_column_selection else None
+        )
 
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
