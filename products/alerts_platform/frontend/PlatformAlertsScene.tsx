@@ -26,7 +26,9 @@ import {
     describeSchedule,
     listRowMute,
 } from './platformAlertFormat'
+import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
+import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
@@ -140,6 +142,15 @@ function listColumns(
                     <Tooltip title={describeSchedule(row.configuration)}>
                         <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
+                ),
+        },
+        {
+            width: 0,
+            render: (_, row) =>
+                row.kind === 'group' ? (
+                    <PlatformAlertGroupRowMenu configuration={row.configuration} group={row.group} />
+                ) : (
+                    <PlatformAlertRowMenu configuration={row.configuration} />
                 ),
         },
     ]

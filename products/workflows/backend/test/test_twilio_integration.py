@@ -45,6 +45,7 @@ class TestTwilioIntegration:
             reporter = posthoganalytics.Client("phc_test", host=CAPTURE_HOST, sync_mode=True)
             with patch.multiple(posthoganalytics, default_client=reporter, disabled=False):
                 yield mock
+            reporter.shutdown()
 
     @pytest.mark.parametrize(
         "typed_sid,typed_token",

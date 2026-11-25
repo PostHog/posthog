@@ -340,7 +340,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("an_event_handler", '<a onclick="-x-">t</a>'),
             ("a_style_block", "<style>-x- <%body%></style>"),
             ("an_unclosed_title", "<title><%body%>"),
-            ("after_a_script", "<script>1</script><%body%>"),
+            ("after_a_comment_in_a_script", "<script><!--1</script><%body%>"),
             ("a_comment", "<!-- <%body%>"),
             ("an_attribute", '<a title="<%body%>">t</a>'),
             ("liquid", "<title>{{ person.properties.secret }}</title><!-- {% x %} -->"),

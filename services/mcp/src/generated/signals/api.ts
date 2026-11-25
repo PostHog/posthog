@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 95 enabled ops
+ * PostHog API - MCP 96 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -518,6 +518,38 @@ export const SignalsConfigCreateBody = () => zod.object({
         .optional()
         .describe(
             "Whether anomaly scoring runs while the Product analytics source (analytics \/ anomaly_investigation) is on. Scoring checks this project's active trends insights for anomalies and writes the results as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps alert signals; events written before stay. Turning the source off stops scoring whatever this value is, and turning the source on again keeps this value. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
+})
+
+/**
+ * @summary Monitor a pull request
+ */
+export const SignalsMonitorPrCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsMonitorPrCreateBodyPrUrlMax = 500
+
+export const signalsMonitorPrCreateBodyNoteDefault = ``
+export const signalsMonitorPrCreateBodyNoteMax = 4000
+
+export const SignalsMonitorPrCreateBody = () => zod.object({
+    pr_url: zod
+        .url()
+        .max(signalsMonitorPrCreateBodyPrUrlMax)
+        .describe(
+            "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported."
+        ),
+    note: zod
+        .string()
+        .max(signalsMonitorPrCreateBodyNoteMax)
+        .default(signalsMonitorPrCreateBodyNoteDefault)
+        .describe(
+            'Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.'
         ),
 })
 

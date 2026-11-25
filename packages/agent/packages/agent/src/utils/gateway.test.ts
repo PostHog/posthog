@@ -1,118 +1,94 @@
 import { describe, expect, it } from "vitest";
 import {
   type GatewayProduct,
-  getLlmGatewayUrl,
+  getAiGatewayUrl,
   resolveAiProduct,
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
 } from "./gateway";
 import routingCases from "./gateway-routing-cases.json";
 
+const PY = "http://llm-gateway.internal:8080";
+
 describe("resolveLlmGatewayUrl", () => {
   it("appends the product slug to an env-provided base URL", () => {
     expect(
-      resolveLlmGatewayUrl(
-        "https://gateway.dev.posthog.dev",
-        "https://app.dev.posthog.dev",
-        "slack_app",
-      ),
-    ).toBe("https://gateway.dev.posthog.dev/slack_app");
+      resolveLlmGatewayUrl(PY, "https://app.dev.posthog.dev", "slack_app"),
+    ).toBe(`${PY}/slack_app`);
   });
 
   it("appends the product slug after a trailing slash on the env URL", () => {
     expect(
       resolveLlmGatewayUrl(
-        "https://gateway.dev.posthog.dev/",
+        `${PY}/`,
         "https://app.dev.posthog.dev",
         "posthog_code",
       ),
-    ).toBe("https://gateway.dev.posthog.dev/posthog_code");
+    ).toBe(`${PY}/posthog_code`);
   });
 
-  it("falls back to the region-aware default when no env URL is provided", () => {
-    expect(
-      resolveLlmGatewayUrl(
-        undefined,
-        "https://us.posthog.com",
-        "background_agents",
-      ),
-    ).toBe("https://gateway.us.posthog.com/background_agents");
-  });
-
-  it("treats an empty string env URL as unset", () => {
-    expect(resolveLlmGatewayUrl("", "https://eu.posthog.com", "signals")).toBe(
-      "https://gateway.eu.posthog.com/signals",
-    );
-  });
+  it.each([undefined, ""])(
+    "refuses the Python gateway when the env URL is %j",
+    (envUrl) => {
+      expect(() =>
+        resolveLlmGatewayUrl(
+          envUrl,
+          "https://us.posthog.com",
+          "background_agents",
+        ),
+      ).toThrow("LLM_GATEWAY_URL is unset");
+    },
+  );
 });
 
-describe("getLlmGatewayUrl", () => {
+describe("getAiGatewayUrl", () => {
   it.each([
     {
       posthogHost: "https://us.posthog.com",
-      expected: "https://gateway.us.posthog.com/posthog_code",
+      expected: "https://ai-gateway.us.posthog.com",
     },
     {
       posthogHost: "https://eu.posthog.com",
-      expected: "https://gateway.eu.posthog.com/posthog_code",
+      expected: "https://ai-gateway.eu.posthog.com",
     },
     {
       posthogHost: "https://app.dev.posthog.dev",
-      expected: "https://gateway.dev.posthog.dev/posthog_code",
+      expected: "https://ai-gateway.dev.posthog.dev",
     },
     {
       posthogHost: "http://localhost:8000",
-      expected: "http://localhost:3308/posthog_code",
+      expected: "http://localhost:8080",
     },
   ] as const)("$posthogHost -> $expected", ({ posthogHost, expected }) => {
-    expect(getLlmGatewayUrl(posthogHost)).toBe(expected);
-  });
-
-  it("uses the PostHog AI product route when requested", () => {
-    expect(getLlmGatewayUrl("http://localhost:8000", "posthog_ai")).toBe(
-      "http://localhost:3308/posthog_ai",
-    );
-  });
-
-  it("maps review_hog to the background_agents legacy slug", () => {
-    expect(getLlmGatewayUrl("http://localhost:8000", "review_hog")).toBe(
-      "http://localhost:3308/background_agents",
-    );
+    expect(getAiGatewayUrl(posthogHost)).toBe(expected);
   });
 });
 
 describe("resolveLlmGatewayUrl (slugless)", () => {
+  const GO = "https://ai-gateway.us.posthog.com";
+
   it("does not append the product slug", () => {
     expect(
-      resolveLlmGatewayUrl(
-        "https://gateway.us.posthog.com",
-        "https://us.posthog.com",
-        "signals",
-        { slugless: true },
-      ),
-    ).toBe("https://gateway.us.posthog.com");
+      resolveLlmGatewayUrl(GO, "https://us.posthog.com", "signals", {
+        slugless: true,
+      }),
+    ).toBe(GO);
   });
 
   it("strips a trailing /v1 so callers can re-append their own path", () => {
     expect(
-      resolveLlmGatewayUrl(
-        "https://gateway.us.posthog.com/v1",
-        "https://us.posthog.com",
-        "signals",
-        { slugless: true },
-      ),
-    ).toBe("https://gateway.us.posthog.com");
+      resolveLlmGatewayUrl(`${GO}/v1`, "https://us.posthog.com", "signals", {
+        slugless: true,
+      }),
+    ).toBe(GO);
   });
 
   it("strips trailing slashes", () => {
     expect(
-      resolveLlmGatewayUrl(
-        "https://gateway.us.posthog.com/v1//",
-        "https://us.posthog.com",
-        "signals",
-        { slugless: true },
-      ),
-    ).toBe("https://gateway.us.posthog.com");
+      resolveLlmGatewayUrl(`${GO}/v1//`, "https://us.posthog.com", "signals", {
+        slugless: true,
+      }),
+    ).toBe(GO);
   });
 
   it("falls back to the region-aware host when no override is set", () => {
@@ -120,17 +96,7 @@ describe("resolveLlmGatewayUrl (slugless)", () => {
       resolveLlmGatewayUrl(undefined, "https://eu.posthog.com", "signals", {
         slugless: true,
       }),
-    ).toBe("https://gateway.eu.posthog.com");
-  });
-
-  it("keeps appending the slug when not slugless", () => {
-    expect(
-      resolveLlmGatewayUrl(
-        "https://gateway.us.posthog.com",
-        "https://us.posthog.com",
-        "signals",
-      ),
-    ).toBe("https://gateway.us.posthog.com/signals");
+    ).toBe("https://ai-gateway.eu.posthog.com");
   });
 });
 
@@ -138,6 +104,7 @@ describe("resolveGatewayTarget", () => {
   const GO = "https://ai-gateway.us.posthog.com";
   const PY_HOST = "https://us.posthog.com";
   const SIGNALS_ENV = {
+    LLM_GATEWAY_URL: PY,
     AI_GATEWAY_URL: GO,
     AI_GATEWAY_PRODUCTS: "signals_scout,signals_research",
   };
@@ -167,7 +134,7 @@ describe("resolveGatewayTarget", () => {
         env: SIGNALS_ENV,
       }),
     ).toEqual({
-      baseUrl: "https://gateway.us.posthog.com/signals",
+      baseUrl: `${PY}/signals`,
       isAiGateway: false,
       aiProduct: "signals_implementation",
       aiStage: "implementation",
@@ -183,7 +150,7 @@ describe("resolveGatewayTarget", () => {
         env: SIGNALS_ENV,
       });
       expect(target.isAiGateway).toBe(false);
-      expect(target.baseUrl).toBe(`https://gateway.us.posthog.com/${product}`);
+      expect(target.baseUrl).toBe(`${PY}/${product}`);
     },
   );
 
@@ -193,7 +160,7 @@ describe("resolveGatewayTarget", () => {
         product: "signals",
         aiStage: "scout",
         posthogHost: PY_HOST,
-        env: { AI_GATEWAY_PRODUCTS: "signals_scout" },
+        env: { LLM_GATEWAY_URL: PY, AI_GATEWAY_PRODUCTS: "signals_scout" },
       }).isAiGateway,
     ).toBe(false);
   });
@@ -204,7 +171,7 @@ describe("resolveGatewayTarget", () => {
         product: "signals",
         aiStage: "scout",
         posthogHost: PY_HOST,
-        env: { AI_GATEWAY_URL: GO },
+        env: { LLM_GATEWAY_URL: PY, AI_GATEWAY_URL: GO },
       }).isAiGateway,
     ).toBe(false);
   });
@@ -238,6 +205,7 @@ describe("resolveGatewayTarget", () => {
 
   it("routes only the listed skill via a skill-qualified entry", () => {
     const env = {
+      LLM_GATEWAY_URL: PY,
       AI_GATEWAY_URL: GO,
       AI_GATEWAY_PRODUCTS: "signals_scout:web-analytics",
     };
@@ -262,7 +230,7 @@ describe("resolveGatewayTarget", () => {
         env,
       }),
     ).toEqual({
-      baseUrl: "https://gateway.us.posthog.com/signals",
+      baseUrl: `${PY}/signals`,
       isAiGateway: false,
       aiProduct: "signals_scout",
       aiStage: "scout:logs",
@@ -276,6 +244,7 @@ describe("resolveGatewayTarget", () => {
         aiStage: "scout",
         posthogHost: PY_HOST,
         env: {
+          LLM_GATEWAY_URL: PY,
           AI_GATEWAY_URL: GO,
           AI_GATEWAY_PRODUCTS: "signals_scout:web-analytics",
         },
@@ -380,7 +349,7 @@ describe("resolveGatewayTarget", () => {
         env: { ...SIGNALS_ENV, AI_GATEWAY_PRODUCT: "signals_emission" },
       }),
     ).toEqual({
-      baseUrl: "https://gateway.us.posthog.com/signals",
+      baseUrl: `${PY}/signals`,
       isAiGateway: false,
       aiProduct: "signals_emission",
       aiStage: "summarization",
@@ -415,10 +384,10 @@ describe("resolveGatewayTarget", () => {
           product,
           aiStage: "validation-c1",
           posthogHost: PY_HOST,
-          env: {},
+          env: { LLM_GATEWAY_URL: PY },
         }),
       ).toEqual({
-        baseUrl: "https://gateway.us.posthog.com/background_agents",
+        baseUrl: `${PY}/background_agents`,
         isAiGateway: false,
         aiProduct: product,
         aiStage: "validation-c1",
@@ -433,9 +402,9 @@ describe("resolveGatewayTarget", () => {
         resolveGatewayTarget({
           product,
           posthogHost: PY_HOST,
-          env: { LLM_GATEWAY_URL: "https://gateway.dev.posthog.dev" },
+          env: { LLM_GATEWAY_URL: `${PY}/` },
         }).baseUrl,
-      ).toBe("https://gateway.dev.posthog.dev/background_agents");
+      ).toBe(`${PY}/background_agents`);
     },
   );
 
@@ -465,10 +434,10 @@ describe("resolveGatewayTarget", () => {
         posthogHost: PY_HOST,
         env: {
           ...SIGNALS_ENV,
-          LLM_GATEWAY_URL: "https://gateway.dev.posthog.dev",
+          LLM_GATEWAY_URL: `${PY}/`,
         },
       }).baseUrl,
-    ).toBe("https://gateway.dev.posthog.dev/posthog_code");
+    ).toBe(`${PY}/posthog_code`);
   });
 });
 
@@ -549,6 +518,7 @@ describe("shared routing contract", () => {
         aiStage: ai_stage,
         posthogHost: "https://us.posthog.com",
         env: {
+          LLM_GATEWAY_URL: PY,
           AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com",
           AI_GATEWAY_PRODUCTS: allowlist,
         },

@@ -1229,6 +1229,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'logs-agent-tools',
                 'release-objects',
                 'workflows-transactional-push-api',
+                'signals-monitor-pr',
             ])
         )
         expect(flags).toContain('ai-observability-composite-validation')

@@ -183,7 +183,6 @@ export const FEATURE_FLAGS = {
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
     EXPERIMENT_ACTIVATION_EVENT: 'experiment-activation-event', // owner: #team-experiments, offers an activation event on top of the default exposure instead of legacy custom exposure events
-    EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     FUNNEL_BAR_LIST: 'funnel-bar-list', // owner: @sampennington #team-dashboards-and-charts, top-to-bottom funnel as a bar list
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-analytics, used to reward beta users for web analytics
@@ -236,6 +235,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-analytics
     SIGNALS_ANALYTICS_ALL_ALERTS: 'signals-analytics-all-alerts', // owner: #team-self-driving, lets the product analytics source send every firing insight alert to the inbox (also checked server-side)
     SIGNALS_INBOX_VALUE_SUMMARY: 'signals-inbox-value-summary', // owner: #team-self-driving
+    SIGNALS_MONITOR_PR: 'signals-monitor-pr', // owner: #team-self-driving
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving

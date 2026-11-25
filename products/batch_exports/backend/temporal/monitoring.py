@@ -131,7 +131,7 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
             EVENTS_JSON_RECENT_TABLE,
             includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id),
         )
-        if batch_exports_read_new_events_table()
+        if batch_exports_read_new_events_table(inputs.team_id)
         else EVENT_COUNT_BY_INTERVAL
     )
 

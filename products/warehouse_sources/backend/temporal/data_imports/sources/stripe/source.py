@@ -1,3 +1,4 @@
+import re
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import close_old_connections, connection
@@ -105,8 +106,24 @@ PERMISSIONS = [
     "rak_transfer_read",
     "rak_connected_account_read",
     "rak_payment_method_read",
+    "rak_event_read",
+    "rak_payment_intent_read",
+    "rak_setup_intent_read",
+    "rak_checkout_session_read",
+    "rak_promotion_code_read",
+    "rak_tax_rate_read",
+    "rak_quote_read",
+    "rak_billing_meter_read",
+    "rak_entitlement_read",
+    "rak_payment_links_read",
+    "rak_top_up_read",
+    "rak_review_read",
+    "rak_shipping_rate_read",
     "rak_webhook_write",
 ]
+# Stripe's 403 text names the scope that would allow the request, e.g. "Having the 'rak_event_read' permission..."
+STRIPE_PERMISSION_NAME_PATTERN = re.compile(r"\brak_[a-z0-9_]+")
+
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
@@ -272,9 +289,10 @@ class StripeSource(
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
-            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
+            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Events**, **PaymentIntents**, **Payment methods**, **Payouts**, **Products**, and **SetupIntents**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
+            - Also select *read* for **Checkout Sessions**, **Coupons**, **Entitlements**, **Meters**, **Payment Links**, **Promotion codes**, **Quotes**, **Reviews**, **Shipping rates**, **Tax rates**, and **Top-ups**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
             """,
@@ -590,13 +608,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 "Stripe rejected the API key. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
-            # 403s are self-explanatory — the resource name tells the customer which Stripe scope
-            # to enable. Stripe's verbose error (request id, status, headers) bloats the toast
-            # without adding signal, so render a plain resource list.
-            return (
-                False,
-                f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
+            # Stripe's verbose error (request id, status, headers) bloats the toast, so keep only the
+            # resource names and the scope names Stripe says would allow the request.
+            message = f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}."
+            scopes = sorted(
+                {
+                    scope
+                    for stripe_message in e.missing_permissions.values()
+                    for scope in STRIPE_PERMISSION_NAME_PATTERN.findall(stripe_message)
+                }
             )
+            if scopes:
+                message += f" In Stripe, add these permissions to your restricted API key: {', '.join(scopes)}."
+            return False, message
         except StripeTransientError:
             # Stripe was unreachable or 5xx'd during the probe. The key may be fine, so don't echo
             # Stripe's internal text as a validation failure — point the user at a retry.

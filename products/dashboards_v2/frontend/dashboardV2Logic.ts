@@ -55,6 +55,12 @@ export interface dashboardV2LogicActions {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -62,15 +68,21 @@ export interface dashboardV2LogicActions {
                                     type: 'section'
                                 }
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -130,6 +142,12 @@ export interface dashboardV2LogicMeta {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -137,15 +155,21 @@ export interface dashboardV2LogicMeta {
                                     type: 'section'
                                 }
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -185,6 +209,12 @@ export interface dashboardV2LogicMeta {
                               }
                               widget:
                                   | {
+                                        appearance?:
+                                            | {
+                                                  background?: boolean | undefined
+                                                  border?: boolean | undefined
+                                              }
+                                            | undefined
                                         collapsed?: boolean | undefined
                                         minRows?: number | undefined
                                         tiles: any
@@ -192,15 +222,21 @@ export interface dashboardV2LogicMeta {
                                         type: 'section'
                                     }
                                   | {
+                                        appearance?:
+                                            | {
+                                                  background?: boolean | undefined
+                                                  border?: boolean | undefined
+                                              }
+                                            | undefined
                                         config: unknown
                                         description?: string | undefined
                                         parts?:
                                             | {
-                                                  description?: boolean | undefined
                                                   footer?: boolean | undefined
                                                   header?: boolean | undefined
                                               }
                                             | undefined
+                                        ref?: string | undefined
                                         refreshedAt?: string | undefined
                                         title?: string | undefined
                                         type: string

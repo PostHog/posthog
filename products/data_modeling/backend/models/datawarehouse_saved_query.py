@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
     from posthog.models.user import User
 
+    from products.data_modeling.backend.logic.describe_columns import ZeroRowJevPlan
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
@@ -512,6 +514,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         *,
         bypass_warehouse_access_control: bool = False,
         database: Database | None = None,
+        jev_plan: Optional["ZeroRowJevPlan"] = None,
     ) -> dict[str, dict[str, Any]]:
         from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             describe_query_columns,
@@ -529,6 +532,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     user=user,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
                     database=database,
+                    jev_plan=jev_plan,
                 )
 
         return {
