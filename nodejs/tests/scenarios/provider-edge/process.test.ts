@@ -1,8 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { execFile, spawn } from 'child_process'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import net from 'net'
-import { tmpdir } from 'os'
 import path from 'path'
 import { createInterface } from 'readline'
 import { pathToFileURL } from 'url'
@@ -18,16 +16,6 @@ const TSX = pathToFileURL(require.resolve('tsx')).href
 const NODEJS_DIR = path.join(__dirname, '../../..')
 const EDGE_PROCESS = JSON.stringify(require.resolve('./process'))
 const WITHOUT_LOG_THREAD = { ...process.env, NODE_ENV: 'production', DEBUG: '' }
-
-const outcomeOf = (runner: string, env: NodeJS.ProcessEnv = WITHOUT_LOG_THREAD): Promise<string> =>
-    new Promise((resolve) =>
-        execFile(
-            process.execPath,
-            ['--import', TSX, '-e', runner],
-            { cwd: NODEJS_DIR, env, timeout: 20_000 },
-            (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
-        )
-    )
 
 describe('provider edge process', () => {
     let edge: EdgeProcess
@@ -92,99 +80,6 @@ describe('provider edge process', () => {
 
         await expect(holding).rejects.toThrow('the provider edge process exited with SIGKILL')
     }, 10_000)
-
-    const resumeEdgeAndBlockRunner = (): void => {
-        process.kill(edge.pid!, 'SIGCONT')
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
-    }
-    it.each([
-        ['the code that made the call', (): void => resumeEdgeAndBlockRunner()],
-        ['a timer that runs before the deadline', (): void => void setTimeout(resumeEdgeAndBlockRunner, 0)],
-    ])(
-        'rejects a call the edge answered only after its deadline while %s blocks the runner',
-        async (_case, block) => {
-            await edge.close()
-            edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 200 })
-            process.kill(edge.pid!, 'SIGSTOP')
-            const holding = edge.hold(REJECT)
-            block()
-
-            await expect(holding).rejects.toThrow('the provider edge process did not answer add within 200 ms')
-            expect(() => process.kill(edge.pid!, 0)).toThrow('ESRCH')
-        },
-        10_000
-    )
-
-    it('rejects a start whose options it could not send, and stops the edge it forked', async () => {
-        const outcome = await outcomeOf(`require(${EDGE_PROCESS})
-            .startEdgeProcess(Object.assign({ port: 0 }, { unsendable: 1n }), { startsWithinMs: 300 })
-            .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
-            .then((outcome) => setTimeout(() => process.stdout.write(outcome), 1000))`)
-
-        expect(outcome).toBe('Do not know how to serialize a BigInt')
-    }, 30_000)
-
-    it('gives up on an edge process that stops answering, and rejects every later call', async () => {
-        await edge.close()
-        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
-        process.kill(edge.pid!, 'SIGSTOP')
-        const holding = edge.hold(REJECT)
-
-        await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
-        await expect(edge.clearFaults()).rejects.toThrow('the provider edge process did not answer add within 500 ms')
-        expect(() => process.kill(edge.pid!, 0)).toThrow('ESRCH')
-    }, 10_000)
-
-    it('keeps answering after a call it could not send', async () => {
-        const unsendable = Object.assign({}, REJECT, { unsendable: 1n })
-        jest.useFakeTimers({
-            doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'hrtime', 'performance', 'Date'],
-        })
-        try {
-            await expect(edge.hold(unsendable)).rejects.toThrow('BigInt')
-            jest.advanceTimersByTime(30_000)
-
-            await expect(edge.clearFaults()).resolves.toBeUndefined()
-        } finally {
-            jest.useRealTimers()
-        }
-    })
-
-    it('gives up on an edge process that does not start, and kills what it started', async () => {
-        const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
-        const pidFile = path.join(bin, 'openssl.pid')
-        writeFileSync(path.join(bin, 'openssl'), '#!/bin/sh\necho $$ > "$EDGE_OPENSSL_PID"\nexec sleep 600\n')
-        chmodSync(path.join(bin, 'openssl'), 0o755)
-        const runner = `require(${EDGE_PROCESS})
-            .startEdgeProcess({ port: 0, caDir: ${JSON.stringify(path.join(bin, 'ca'))} }, { startsWithinMs: 10_000 })
-            .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
-            .then((outcome) => process.stdout.write(outcome))`
-        const stillRuns = (pid: string): boolean => {
-            try {
-                return readFileSync(`/proc/${pid}/cmdline`, 'utf8') === 'sleep\x00600\x00'
-            } catch {
-                return false
-            }
-        }
-        try {
-            const outcome = await outcomeOf(runner, {
-                ...WITHOUT_LOG_THREAD,
-                PATH: `${bin}:${process.env.PATH}`,
-                EDGE_OPENSSL_PID: pidFile,
-            })
-
-            expect({ outcome, opensslRuns: stillRuns(readFileSync(pidFile, 'utf8').trim()) }).toEqual({
-                outcome: 'the provider edge process did not start within 10000 ms',
-                opensslRuns: false,
-            })
-        } finally {
-            const pid = existsSync(pidFile) ? readFileSync(pidFile, 'utf8').trim() : ''
-            if (pid && stillRuns(pid)) {
-                process.kill(Number(pid), 'SIGKILL')
-            }
-            rmSync(bin, { recursive: true, force: true })
-        }
-    }, 30_000)
 
     it('rejects startup on a port another listener holds', async () => {
         await expect(startEdgeProcess({ port: Number(new URL(edge.url).port) })).rejects.toThrow('EADDRINUSE')

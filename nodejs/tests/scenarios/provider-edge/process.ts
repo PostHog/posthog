@@ -31,8 +31,6 @@ type Message =
 type Pending = { resolve(value: unknown): void; reject(error: Error): void }
 
 const TSX = pathToFileURL(require.resolve('tsx')).href
-const EDGE_STARTS_WITHIN_MS = 60_000
-const EDGE_ANSWERS_WITHIN_MS = 30_000
 
 async function serveEdge(options: EdgeProcessOptions): Promise<void> {
     const edge = await startProviderEdge(options)
@@ -58,10 +56,7 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
     process.send!({ kind: 'started', url: edge.url, caCertPath: edge.caCertPath } satisfies Message)
 }
 
-export async function startEdgeProcess(
-    options: EdgeProcessOptions,
-    { startsWithinMs = EDGE_STARTS_WITHIN_MS, answersWithinMs = EDGE_ANSWERS_WITHIN_MS } = {}
-): Promise<EdgeProcess> {
+export async function startEdgeProcess(options: EdgeProcessOptions): Promise<EdgeProcess> {
     const child: ChildProcess = fork(__filename, [], {
         execArgv: ['--import', TSX],
         detached: true,
@@ -73,20 +68,10 @@ export async function startEdgeProcess(
     let next = 0
 
     const end = (error: Error): void => {
-        const reason = (ended ??= error)
-        starting?.reject(reason)
-        pending.forEach(({ reject }) => reject(reason))
+        ended ??= error
+        starting?.reject(error)
+        pending.forEach(({ reject }) => reject(error))
         pending.clear()
-    }
-    const kill = (): void => {
-        if (child.exitCode !== null || child.signalCode !== null) {
-            return
-        }
-        try {
-            process.kill(-child.pid!, 'SIGKILL')
-        } catch {
-            child.kill('SIGKILL')
-        }
     }
     const exited = new Promise<void>((resolve) => {
         child.once('exit', (code, signal) => {
@@ -101,30 +86,8 @@ export async function startEdgeProcess(
         })
     })
 
-    const bounded = (what: string, withinMs: number, settle: Pending): Pending => {
-        const expiresAt = Date.now() + withinMs
-        const giveUp = (): void => {
-            ended ??= new Error(`the provider edge process did not ${what} within ${withinMs} ms`)
-            kill()
-        }
-        const deadline = setTimeout(giveUp, withinMs)
-        return {
-            resolve: (value) => {
-                clearTimeout(deadline)
-                if (Date.now() < expiresAt) {
-                    settle.resolve(value)
-                } else {
-                    giveUp()
-                }
-            },
-            reject: (error) => {
-                clearTimeout(deadline)
-                settle.reject(error)
-            },
-        }
-    }
     const started = new Promise<Started>((resolve, reject) => {
-        starting = bounded('start', startsWithinMs, { resolve: (value) => resolve(value as Started), reject })
+        starting = { resolve: resolve as Pending['resolve'], reject }
     })
     child.on('message', (message: Message) => {
         if (message.kind === 'started') {
@@ -133,6 +96,7 @@ export async function startEdgeProcess(
             starting?.reject(new Error(message.reason))
         } else {
             const request = pending.get(message.id)
+            pending.delete(message.id)
             if (message.reason === undefined) {
                 request?.resolve(message.value)
             } else {
@@ -141,12 +105,7 @@ export async function startEdgeProcess(
         }
     })
     if (child.connected) {
-        try {
-            child.send({ options })
-        } catch (error) {
-            end(error as Error)
-            kill()
-        }
+        child.send({ options })
     }
 
     const call = <T>(request: Call): Promise<T> => {
@@ -155,29 +114,13 @@ export async function startEdgeProcess(
         }
         const id = next++
         return new Promise<T>((resolve, reject) => {
-            pending.set(
-                id,
-                bounded(`answer ${request.op}`, answersWithinMs, {
-                    resolve: (value) => {
-                        pending.delete(id)
-                        resolve(value as T)
-                    },
-                    reject: (error) => {
-                        pending.delete(id)
-                        reject(error)
-                    },
-                })
-            )
-            try {
-                child.send({ ...request, id } satisfies Request)
-            } catch (error) {
-                pending.get(id)?.reject(error as Error)
-            }
+            pending.set(id, { resolve: resolve as Pending['resolve'], reject })
+            child.send({ ...request, id } satisfies Request)
         })
     }
 
     const close = async (): Promise<void> => {
-        kill()
+        child.kill('SIGKILL')
         await exited
     }
 
