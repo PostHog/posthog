@@ -13,6 +13,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { ValveContext, createValves } from '../valves/valves'
+import { ruleOf } from './faults'
 
 describe('provider edge proxy', () => {
     let caDir: string
@@ -145,6 +146,24 @@ describe('provider edge proxy', () => {
         expect((await control('POST', '/_faults', fault)).status).toBe(201)
         return undefined
     }
+
+    it('picks a webhook that names no unit by its host and path alone, and lists no unit for it', async () => {
+        const hold = edge.hold({
+            ...ruleOf({ name: 'dest.status', params: { code: 503 }, dose: { share: 0.5 } }),
+            pick: '1:0',
+        })
+
+        const response = await request(`https://${WEBHOOK_HOST}/hook?sig=one`, {
+            method: 'POST',
+            dispatcher: client,
+            body: '{}',
+        })
+        await response.body.text()
+        const hits = hold.hits?.()
+        await hold.release()
+
+        expect({ status: response.statusCode, hits }).toEqual({ status: 503, hits: [] })
+    })
 
     it('answers webhooks with the status of a dest.status valve until the valve releases', async () => {
         const valves = await startValve()

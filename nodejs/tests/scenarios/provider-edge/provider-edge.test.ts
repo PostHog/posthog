@@ -249,25 +249,6 @@ describe('provider edge', () => {
         )
     })
 
-    it('picks the units a seeded share hits whatever a counted fault on the same sends takes first', async () => {
-        const ordinals = Array.from({ length: 10 }, (_, index) => index + 1)
-        const rejectedIn = async (arriving: number[]): Promise<number[]> => {
-            edge.clearFaults()
-            edge.addFault(ruleOf({ name: 'ses.ambiguous', params: { accepted: false }, dose: { count: 1 } }))
-            edge.addFault({
-                ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 0.5 } }),
-                pick: '1:1',
-            })
-            const outcomes = await sendEach(arriving.map((ordinal) => `run-1-${ordinal}@www.example.com`))
-            return arriving.filter((_, index) => outcomes[index] === 'MessageRejected').sort((a, b) => a - b)
-        }
-
-        const forward = await rejectedIn(ordinals)
-
-        expect(forward.length).toBeGreaterThan(0)
-        expect(await rejectedIn([...ordinals].reverse())).toEqual(forward)
-    })
-
     it('stops applying a fault once its time window passes', async () => {
         const start = Date.now()
         const clock = jest.spyOn(Date, 'now').mockReturnValue(start)

@@ -646,34 +646,29 @@ describe('scenario environment', () => {
         })
 
         it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const MACHINE = { PATH: '/usr/bin', HOME: '/home/a' }
             const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
                 configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
-            const here = hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR)
+            const withSetting = (settings: Record<string, string>): string => hashOf(MACHINE, STATE_DIR, settings)
+            const here = hashOf(MACHINE, STATE_DIR)
+            const database = withSetting({ DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog' })
 
             expect({
                 elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
-                settings: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
-                    CDP_WATCHER_HOG_COST_TIMING: '7',
-                }),
-                inherited: hashOf(
-                    { PATH: '/usr/bin', HOME: '/home/a', CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' },
-                    STATE_DIR
-                ),
-                processEnv: hashOf(
-                    { PATH: '/usr/bin', HOME: '/home/a', HOG_BYTECODE_CACHE_REWRITE: 'true' },
-                    STATE_DIR
-                ),
-                password: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
-                    DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog',
-                }),
+                settings: withSetting({ CDP_WATCHER_HOG_COST_TIMING: '7' }),
+                inherited: hashOf({ ...MACHINE, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' }, STATE_DIR),
+                processEnv: hashOf({ ...MACHINE, HOG_BYTECODE_CACHE_REWRITE: '1' }, STATE_DIR),
+                otherCluster: withSetting({ DATABASE_URL: 'postgres://posthog:two@cluster-b:5432/posthog' }),
+                otherUser: withSetting({ DATABASE_URL: 'postgres://reader:one@cluster-a:5432/posthog' }),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
             }).toEqual({
                 elsewhere: here,
-                processEnv: expect.not.stringMatching(here),
-                password: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
-                    DATABASE_URL: 'postgres://posthog:two@cluster-b:5432/posthog',
-                }),
                 settings: expect.not.stringMatching(here),
                 inherited: expect.not.stringMatching(here),
+                processEnv: expect.not.stringMatching(here),
+                otherCluster: database,
+                otherUser: expect.not.stringMatching(database),
+                certificate: here,
             })
             expect(here).toMatch(/^[0-9a-f]{64}$/)
         })

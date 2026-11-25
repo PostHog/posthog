@@ -64,11 +64,11 @@ export type RoleId = ReplicaOf<Role>
 
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
-const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN/
-const URL_AUTHORITY = /\/\/[^/?#\s]*/g
+const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN|CERT|SIGNING|_KEYS?$|_KEY_ID$/
+const URL_AUTHORITY = /\/\/(?:([^:/?#@\s]*)(?::[^/?#@\s]*)?@)?[^/?#\s]*/g
 
 // Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config,
-// and a run cluster's own host and generated password do not split runs on it.
+// and a run cluster's own host and generated password do not split runs on it, while its database user does.
 export function configHashOf(specs: RoleSpec[]): string {
     const read = [...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS]
     const settings = new Set(read.filter((key) => !SECRET_SETTING.test(key)))
@@ -77,7 +77,10 @@ export function configHashOf(specs: RoleSpec[]): string {
         replica,
         Object.entries(env)
             .filter(([key]) => settings.has(key))
-            .map(([key, value]) => [key, value?.replace(URL_AUTHORITY, '//')])
+            .map(([key, value]) => [
+                key,
+                value?.replace(URL_AUTHORITY, (_, user?: string) => (user ? `//${user}@` : '//')),
+            ])
             .sort(([a], [b]) => a!.localeCompare(b!)),
     ])
     return createHash('sha256').update(JSON.stringify(configs)).digest('hex')

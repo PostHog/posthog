@@ -679,9 +679,11 @@ describe('valves', () => {
             expect({
                 outcomes,
                 faults: truth.records.filter(({ kind }) => kind === 'ses.send').map(({ fault }) => fault),
+                dose: valves.fired()[0].dose,
             }).toEqual({
                 outcomes: [outcome, outcome],
                 faults: ['ses.reject', 'ses.reject'],
+                dose: { type, share: 1 },
             })
         })
 

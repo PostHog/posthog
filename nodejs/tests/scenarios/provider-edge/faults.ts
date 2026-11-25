@@ -91,8 +91,7 @@ export type FaultRule = {
 
 type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
 
-// A request that names no unit is picked by its addresses or host, and stays out of the recorded hits.
-export type Hit = { unitId?: string; key: string }
+export type Hit = { unitId?: string; pickKey: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 const THROTTLED: SesStatusAnswer = {
@@ -141,7 +140,7 @@ const SCORE_BYTES = 6
 
 // A unit id is `<run id>-<ordinal>`, so the ordinal names the same unit in every run of a card.
 export function hitOf(unitId: string | undefined, fallback: string): Hit {
-    return unitId === undefined ? { key: fallback } : { unitId, key: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
+    return unitId === undefined ? { pickKey: fallback } : { unitId, pickKey: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
 }
 
 function picked(pick: string, key: string, attempt: number, share: number): boolean {
@@ -162,7 +161,7 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     return !isWebhookAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
-function doseTakes(fault: ActiveFault, now: number, { key }: Hit): boolean {
+function doseTakes(fault: ActiveFault, now: number, { pickKey }: Hit): boolean {
     const {
         rule: { dose, pick },
         matched,
@@ -176,9 +175,9 @@ function doseTakes(fault: ActiveFault, now: number, { key }: Hit): boolean {
         return applied < dose.count
     }
     if (pick !== undefined) {
-        const attempt = fault.attempts.get(key) ?? 0
-        fault.attempts.set(key, attempt + 1)
-        return picked(pick, key, attempt, dose.share)
+        const attempt = fault.attempts.get(pickKey) ?? 0
+        fault.attempts.set(pickKey, attempt + 1)
+        return picked(pick, pickKey, attempt, dose.share)
     }
     const crossings = (sends: number): number => Math.floor(sends * dose.share + SHARE_TOLERANCE)
     return crossings(matched) > crossings(matched - 1)
@@ -239,10 +238,7 @@ export class FaultList {
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
         const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
-        // A seeded share answers before a counted fault, so what the count takes first cannot change its picks.
-        const seeded = matching.filter((fault) => fault.rule.pick !== undefined && 'share' in fault.rule.dose)
-        const rest = matching.filter((fault) => !throttles.includes(fault) && !seeded.includes(fault))
-        const answering = [...throttles, ...seeded, ...rest].find((fault) => {
+        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
             return doseTakes(fault, now, hit)
         })
