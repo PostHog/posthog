@@ -201,42 +201,6 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
             },
         ],
     }),
-    selectors({
-        selectedIntegrationId: [
-            (s) => [s.pickedIntegrationId, s.slackIntegrations],
-            (pickedIntegrationId: number | null, slackIntegrations: IntegrationType[] | undefined): number | null =>
-                pickedIntegrationId ?? slackIntegrations?.[0]?.id ?? null,
-        ],
-        // One change at a time, so two quick clicks can't save out of order.
-        personalSettingsDisabledReason: [
-            (s) => [s.settingsLoading],
-            (settingsLoading: boolean): string | undefined => (settingsLoading ? 'Saving your last change' : undefined),
-        ],
-        channelNames: [
-            (s) => [s.channelOptions],
-            (channelOptions: SlackAppChannelOptionApi[] | null): Record<string, string> =>
-                Object.fromEntries((channelOptions ?? []).map((option) => [option.id, option.name])),
-        ],
-        channelRows: [
-            (s) => [s.channels, s.draftChannelIds],
-            (
-                channels: SlackAppChannelSettingsApi[] | null,
-                draftChannelIds: string[]
-            ): SlackAppChannelSettingsApi[] => [
-                ...(channels ?? []),
-                ...draftChannelIds
-                    .filter((id) => !(channels ?? []).some((channel) => channel.slack_channel_id === id))
-                    .map((id) => ({
-                        slack_channel_id: id,
-                        default_integration_id: null,
-                        default_repository: null,
-                        untagged_question_mode: null,
-                        updated_by_name: null,
-                        updated_at: null,
-                    })),
-            ],
-        ],
-    }),
     loaders(({ values }) => ({
         settings: [
             null as SlackAppSettingsApi | null,
@@ -338,6 +302,42 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
             },
         ],
     })),
+    selectors({
+        selectedIntegrationId: [
+            (s) => [s.pickedIntegrationId, s.slackIntegrations],
+            (pickedIntegrationId: number | null, slackIntegrations: IntegrationType[] | undefined): number | null =>
+                pickedIntegrationId ?? slackIntegrations?.[0]?.id ?? null,
+        ],
+        // One change at a time, so two quick clicks can't save out of order.
+        personalSettingsDisabledReason: [
+            (s) => [s.settingsLoading],
+            (settingsLoading: boolean): string | undefined => (settingsLoading ? 'Saving your last change' : undefined),
+        ],
+        channelNames: [
+            (s) => [s.channelOptions],
+            (channelOptions: SlackAppChannelOptionApi[] | null): Record<string, string> =>
+                Object.fromEntries((channelOptions ?? []).map((option) => [option.id, option.name])),
+        ],
+        channelRows: [
+            (s) => [s.channels, s.draftChannelIds],
+            (
+                channels: SlackAppChannelSettingsApi[] | null,
+                draftChannelIds: string[]
+            ): SlackAppChannelSettingsApi[] => [
+                ...(channels ?? []),
+                ...draftChannelIds
+                    .filter((id) => !(channels ?? []).some((channel) => channel.slack_channel_id === id))
+                    .map((id) => ({
+                        slack_channel_id: id,
+                        default_integration_id: null,
+                        default_repository: null,
+                        untagged_question_mode: null,
+                        updated_by_name: null,
+                        updated_at: null,
+                    })),
+            ],
+        ],
+    }),
     listeners(({ actions }) => ({
         selectIntegration: () => actions.loadAll(),
         loadIntegrationsSuccess: () => actions.loadAll(),
