@@ -193,7 +193,13 @@ interface ReleaseLogicActions {
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions, { id?: string }>
 
 export interface ReleaseUsageEvent {
-    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
+    event:
+        | 'release item linked'
+        | 'release item unlinked'
+        | 'release broadcasts auto linked'
+        | 'release owner changed'
+        | 'release metric added'
+        | 'release metric goal set'
     properties: Record<string, string | number>
 }
 

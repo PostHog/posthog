@@ -47,7 +47,10 @@ export function ReleaseMetricTile({
     const status = goalStatus(ready?.value ?? null, goal)
     const setGoal = (next: MetricGoalApi | null): void => {
         const others = row.metricGoals.filter((item) => item.insight_id !== insightId)
-        updateRelease(row.id, { metric_goals: next ? [...others, next] : others })
+        updateRelease(row.id, { metric_goals: next ? [...others, next] : others }, undefined, {
+            event: 'release metric goal set',
+            properties: { release_id: row.id, change: next ? 'set' : 'cleared' },
+        })
         setEditingGoal(false)
     }
 

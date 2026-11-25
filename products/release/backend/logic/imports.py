@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from django.db import connection, transaction
 
+from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
@@ -132,5 +133,12 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
     flags = list_release_import_flags(
         team_id=team_id, project_id=team.project_id, access_control=None, flag_ids=[flag_id]
     )
-    if flags:
-        create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])])
+    if not flags:
+        return
+    for release in create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])]):
+        report_user_or_team_action(
+            "release created",
+            {"release_id": str(release.id), "source": "new_flag", "feature_flag_count": 1},
+            user=creator,
+            team=team,
+        )
