@@ -50,6 +50,7 @@ class MigrationRisk:
     operations: list[OperationRisk]
     combination_risks: list[str] = field(default_factory=list)
     policy_violations: list[str] = field(default_factory=list)  # PostHog-specific coding policies
+    review_notes: list[str] = field(default_factory=list)  # Allowed by a policy, still needs a person
     info_messages: list[str] = field(default_factory=list)  # Informational messages (not warnings)
     # Repo-relative path of the migration file. Set by the command layer when
     # a Django Migration object is loaded from disk; downstream consumers
@@ -63,6 +64,8 @@ class MigrationRisk:
         base_score = max((op.score for op in self.operations), default=0)
         if self.combination_risks or self.policy_violations:
             return max(base_score, 4)
+        if self.review_notes:
+            return max(base_score, 2)
         return base_score
 
     @property

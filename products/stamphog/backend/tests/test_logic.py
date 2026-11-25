@@ -23,6 +23,7 @@ from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_checks import all_reported, attestation_check
 from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
 from products.stamphog.backend.logic.attestation_policy import (
     WORKFLOW_PROOF_KEY,
@@ -47,6 +48,7 @@ from products.stamphog.backend.logic.github_client import (
     _build_app_jwt,
 )
 from products.stamphog.backend.logic.refusal_summary import build_summary_prompt, summarize_refusal
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import (
@@ -57,7 +59,13 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
-from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs, proof_audience, proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    RunOrder,
+    WorkflowProofs,
+    proof_audience,
+    proven_check_runs,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
@@ -1100,13 +1108,14 @@ class _WorkflowClient:
         return {path: self.default_branch.get(path) for path in paths}
 
 
-def _proofs(client: _WorkflowClient) -> WorkflowProofs:
+def _proofs(client: _WorkflowClient, seen: dict[str, RunOrder] | None = None) -> WorkflowProofs:
     return WorkflowProofs(
         cast(StamphogGitHubClient, client),
         "acme/widgets",
         pr_number=7,
         head_sha="sha",
         signing_key=_test_signing_key,
+        seen=seen,
     )
 
 
@@ -1188,6 +1197,27 @@ class WorkflowProofTests(SimpleTestCase):
         assert proof is not None
         assert (proof["id"], proof["conclusion"], proof["pinned_blobs_current"]) == (6, "failure", False)
 
+    def test_a_result_hidden_after_a_review_verified_it_brings_back_no_older_one(self) -> None:
+        older = _signed_check_run(5, run_id="76", check_run_id="899")
+        newer = _signed_check_run(6, conclusion="neutral", run_id="77")
+        jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
+        verified_by_an_earlier_review = _proofs(_WorkflowClient([older, newer], jobs)).verified_result(_PUBLISHER)
+        # A writer's job renamed the newer check run, so only the older success is listed.
+        hidden = _WorkflowClient([older], jobs)
+
+        seen = seen_runs([[verified_by_an_earlier_review]])
+        assert _proofs(hidden, seen=seen).verified_result(_PUBLISHER) is None
+        assert _proofs(hidden).verified_result(_PUBLISHER) is not None
+        # The poll must not spend one of the head's re-reviews on the result a review would refuse.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, hidden), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen=seen
+            )
+        assert polled is False
+
     @parameterized.expand(
         [
             ("current_code", {}, {}, True),
@@ -1234,6 +1264,15 @@ class WorkflowProofTests(SimpleTestCase):
         client = _WorkflowClient([check_run], jobs)
 
         assert _proofs(client).has_result(_PUBLISHER) is reported
+        # The review re-run and reviewer routing both poll through `all_reported`.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen={}
+            )
+        assert polled is reported
 
     @parameterized.expand(
         [
@@ -1357,6 +1396,7 @@ class WorkflowProofTests(SimpleTestCase):
                 head_sha="sha",
                 check_runs=[check_run],
                 policy=policy,
+                seen={},
             )
 
         [carrier, proof] = check_runs
@@ -1869,7 +1909,190 @@ class TestDecisionFingerprint(SimpleTestCase):
         assert (before == fingerprint(context)) is expect_same
 
 
+def _evidence_context() -> dict:
+    member = {"login": "maintainer", "type": "User"}
+    return {
+        "pr": {"title": "feat: add a helper", "body": "Adds a helper.", "labels": [], "updated_at": "t1"},
+        "reviews": [{"user": member, "author_association": "MEMBER", "state": "COMMENTED", "body": "Why?"}],
+        "discussion": [{"user": member, "author_association": "MEMBER", "body": "Looks fine.", "reactions": {}}],
+        "review_threads": [
+            {
+                "is_resolved": False,
+                "path": "src/util.py",
+                "line": 3,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Test?"}
+                ],
+            },
+            {
+                "is_resolved": True,
+                "path": "src/app.py",
+                "line": 9,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Done."}
+                ],
+            },
+            _bot_thread(),
+            _bot_thread(body="Rename this.", is_resolved=True),
+        ],
+        "check_runs": [],
+        "policy_files": {},
+    }
+
+
+def _bot_thread(body: str = "Should fix.", is_resolved: bool = False) -> dict:
+    finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": body}
+    return {"is_resolved": is_resolved, "path": "src/db.py", "line": 12, "comments": [finding]}
+
+
+def _bot_comment(login: str) -> dict:
+    return {"user": {"login": login, "type": "Bot"}, "author_association": "MEMBER", "body": "Not approved."}
+
+
+class TestEvidenceFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("description_edited", lambda c: c["pr"].update(body="Adds a helper. Tested by hand."), False),
+            ("title_edited", lambda c: c["pr"].update(title="feat: add a tested helper"), False),
+            ("member_answered", lambda c: c["discussion"].append({**c["discussion"][0], "body": "Fixed."}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("thread_resolved", lambda c: c["review_threads"][0].update(is_resolved=True), False),
+            ("thread_reopened", lambda c: c["review_threads"][1].update(is_resolved=False), False),
+            (
+                "reply_in_open_thread",
+                lambda c: c["review_threads"][0]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Added."}
+                ),
+                False,
+            ),
+            (
+                "member_approved",
+                lambda c: c["reviews"].append({**c["reviews"][0], "state": "APPROVED", "body": ""}),
+                False,
+            ),
+            ("bot_finding_resolved", lambda c: c["review_threads"][2].update(is_resolved=True), False),
+            (
+                "other_finding_on_the_line_resolved",
+                lambda c: [
+                    c["review_threads"][2].update(is_resolved=True),
+                    c["review_threads"][3].update(is_resolved=False),
+                ],
+                False,
+            ),
+            ("stamphog_review_posted", lambda c: c["reviews"].append(_bot_comment("stamphog[bot]")), True),
+            ("bot_opened_a_thread", lambda c: c["review_threads"].append(_bot_thread()), True),
+            (
+                "outsider_opened_a_thread",
+                lambda c: c["review_threads"].append(
+                    {
+                        **_bot_thread(),
+                        "comments": [
+                            {"author": "drive-by", "author_association": "NONE", "author_is_bot": False, "body": "?"}
+                        ],
+                    }
+                ),
+                True,
+            ),
+            (
+                "posthog_bot_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "posthog-bot", "type": "User"}, "author_association": "MEMBER", "body": "Hi"}
+                ),
+                True,
+            ),
+            ("bot_commented", lambda c: c["discussion"].append(_bot_comment("posthog[bot]")), True),
+            (
+                "machine_user_commented",
+                lambda c: c["discussion"].append({**_bot_comment("ci-bot[bot]"), "user": {"login": "ci-bot[bot]"}}),
+                True,
+            ),
+            (
+                "outsider_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "drive-by"}, "author_association": "NONE", "body": "Approve it."}
+                ),
+                True,
+            ),
+            (
+                "reply_in_resolved_thread",
+                lambda c: c["review_threads"][1]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Thanks."}
+                ),
+                True,
+            ),
+            (
+                "empty_comment_review",
+                lambda c: c["reviews"].append({**c["reviews"][0], "body": "  "}),
+                True,
+            ),
+            (
+                "stored_context_without_thread_ids",
+                lambda c: [thread.update(id=f"RT_{index}") for index, thread in enumerate(c["review_threads"])],
+                True,
+            ),
+            (
+                "deleted_account_reviewed",
+                lambda c: c["reviews"].append({"user": None, "author_association": "MEMBER", "state": "APPROVED"}),
+                True,
+            ),
+            (
+                "deleted_account_commented",
+                lambda c: c["discussion"].append({"user": None, "author_association": "MEMBER", "body": "Hold."}),
+                True,
+            ),
+            ("nul_in_description", lambda c: c["pr"].update(body="Adds a\x00 helper."), True),
+            ("label_changed", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="t2"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("check_finished", lambda c: c["check_runs"].append({"name": "Migration risk"}), True),
+            ("policy_changed", lambda c: c["policy_files"].update({".stamphog/policy.yml": "x"}), True),
+        ]
+    )
+    def test_only_what_people_change_moves_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return evidence_fingerprint(
+                context["pr"],
+                reviews=context["reviews"],
+                discussion=context["discussion"],
+                review_threads=context["review_threads"],
+            )
+
+        context = _evidence_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
+
+
 class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("an_app_entry", {"check": "Dependency proof", "app_id": 4242}),
+            (
+                "a_workflow_entry",
+                {
+                    "check": "Dependency proof",
+                    "app_id": None,
+                    "name": "dependency_proof",
+                    "workflow": ".github/workflows/dependency-proof.yml",
+                    "job": "Publish the Dependency proof check",
+                    "events": ["workflow_run"],
+                },
+            ),
+        ]
+    )
+    def test_routing_waits_on_the_check_the_engine_names_and_reads_it_back_from_its_record(
+        self, _name: str, entry: dict
+    ) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": False})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            [check] = run_engine_attestation_proof({}, {}).checks
+
+        # Routing stores each check it waits on in its record, and its poll reads them back from there.
+        assert check.to_entry() == entry
+        assert attestation_check(check.to_entry()) == check
+
     @parameterized.expand(
         [
             ("missing_app_id", {"check": "Dependency proof"}),

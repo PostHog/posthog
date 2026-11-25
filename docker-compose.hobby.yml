@@ -287,7 +287,9 @@ services:
             file: docker-compose.base.yml
             service: plugins
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        # CI publishes the Node image to GHCR. An install that mirrors images sets
+        # NODE_IMAGES_REGISTRY_URL in .env to the mirror's repository for it.
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -314,24 +316,58 @@ services:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            # The CDP workers keep their jobs in this database and refuse to start without it.
+            # cyclotron-node-migrate creates it.
+            CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron_node'
+            # CDP reads persons through PersonHog and refuses to start without it.
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
+            # Each Kafka consumer's fetch holds a libuv thread, and this process runs every CDP
+            # consumer. With the default 4 threads, DNS lookups for new Redis connections queue
+            # behind them, connects time out, and the Redis client stops the process.
+            UV_THREADPOOL_SIZE: '128'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
         volumes:
             - ./share:/share
         depends_on:
-            - db
-            - redis7
-            - valkey
-            - clickhouse
-            - kafka
-            - objectstorage
-            - seaweedfs
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            valkey:
+                condition: service_started
+            clickhouse:
+                condition: service_started
+            kafka:
+                condition: service_started
+            objectstorage:
+                condition: service_started
+            seaweedfs:
+                condition: service_started
+            personhog-router:
+                condition: service_started
+            cyclotron-node-migrate:
+                condition: service_completed_successfully
+
+    # Creates the database that the CDP workers in plugins keep their jobs in, and applies its
+    # migrations. The image carries the migrations, so each upgrade applies the new ones.
+    cyclotron-node-migrate:
+        image: ghcr.io/posthog/posthog/sqlx-migrate:master
+        restart: 'no'
+        logging: *default-logging
+        command: cyclotron-node
+        environment:
+            CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron_node'
+        depends_on:
+            db:
+                condition: service_healthy
 
     ingestion-general:
         extends:
             file: docker-compose.base.yml
             service: ingestion-general
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -345,20 +381,30 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
         depends_on:
-            - db
-            - redis7
-            - clickhouse
-            - kafka
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            clickhouse:
+                condition: service_started
+            kafka:
+                condition: service_started
             # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
-            - objectstorage
-            - personhog-router
+            objectstorage:
+                condition: service_started
+            personhog-router:
+                condition: service_started
+            # This service reads Django's tables at startup and exits when one is missing. The gate
+            # only waits for tables a fresh install lacks; on an upgrade it passes at once.
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     ingestion-sessionreplay:
         extends:
             file: docker-compose.base.yml
             service: ingestion-sessionreplay
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -378,7 +424,7 @@ services:
             file: docker-compose.base.yml
             service: recording-api
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -407,23 +453,35 @@ services:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
+            # Exception ingestion reads persons through PersonHog and refuses to start without it.
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
-            - db
-            - redis7
-            - kafka
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            kafka:
+                condition: service_started
+            personhog-router:
+                condition: service_started
+            # This service reads Django's tables at startup and exits when one is missing. The gate
+            # only waits for tables a fresh install lacks; on an upgrade it passes at once.
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     ingestion-logs:
         extends:
             file: docker-compose.base.yml
             service: ingestion-logs
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -438,7 +496,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-traces
         restart: unless-stopped
-        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -929,6 +987,8 @@ services:
     # Waits until web's persons migrations create the tables that personhog-leader and
     # personhog-identity read at boot. Both exit when the tables are missing, and web runs
     # migrations in its own entrypoint, so they cannot depend on a migration step directly.
+    # The persons migrations run after Django's, so the Node ingestion services that read
+    # Django's tables at startup wait on this too.
     personhog-tables-ready:
         image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
         restart: 'no'

@@ -44,7 +44,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind, ToolPreset
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_VALUES, ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
     DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalReport,
@@ -3455,6 +3455,19 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
         ),
     )
 
+    source_product = serializers.CharField(
+        required=False,
+        help_text=(
+            "Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for "
+            "Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet."
+        ),
+    )
+
+    def validate_source_product(self, value: str) -> str:
+        if value not in SIGNAL_SOURCE_PRODUCT_VALUES:
+            raise serializers.ValidationError(f"`{value}` is not a source product.")
+        return value
+
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
         if not tags:
@@ -4031,7 +4044,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     precheck_query_source = serializers.SerializerMethodField(
         help_text=(
             "Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), "
-            "`skill_default` (the default its skill ships), or `off` (no pre-check runs)."
+            "`skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` "
+            "with a null `effective_precheck_query` means the scout runs a built-in check in code."
         ),
     )
     last_run_at = serializers.DateTimeField(

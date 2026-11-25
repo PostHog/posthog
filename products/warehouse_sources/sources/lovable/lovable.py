@@ -1,11 +1,12 @@
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
 
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.lovable.settings import (
     ANALYTICS_MAX_RANGE_DAYS,
+    BREAKDOWN_BACKFILL_DAYS,
     LOVABLE_API_BASE_URL,
     LOVABLE_URL_VERSION_SEGMENT,
     LovableEndpointConfig,
@@ -31,6 +32,8 @@ VERSION_HEADER = "Lovable-Version"
 # hold an import worker indefinitely.
 REQUEST_TIMEOUT_SECONDS = 30.0
 
+BREAKDOWN_DIMENSIONS = ("pages", "sources", "devices", "countries")
+
 
 @frozen
 class LovableResumeConfig:
@@ -38,7 +41,8 @@ class LovableResumeConfig:
 
     `workspace_id`/`project_id`/`scan_id` name the parent the checkpoint belongs to (all null for
     the account-scoped endpoint). A set `cursor` means "continue that parent's pages here"; a null one
-    means the parent finished, so the walk restarts at the parent after it.
+    means the parent finished, so the walk restarts at the parent after it. For breakdowns the
+    cursor is the ISO date of the next day to read.
     """
 
     workspace_id: Optional[str] = None
@@ -96,7 +100,9 @@ def _path(config: LovableEndpointConfig, parent: _ParentRef) -> str:
 
 
 def _params(config: LovableEndpointConfig, parent: _ParentRef) -> dict[str, Any]:
-    params: dict[str, Any] = dict(config.params) if config.time_series else {"limit": config.page_size, **config.params}
+    params: dict[str, Any] = (
+        dict(config.params) if config.takes_date_range else {"limit": config.page_size, **config.params}
+    )
     if config.parent_id_param and parent.workspace_id:
         params[config.parent_id_param] = parent.workspace_id
     return params
@@ -106,18 +112,46 @@ def _rfc3339(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _window_start(should_use_incremental_field: bool, last_value: Any, now: datetime, max_days: int) -> datetime:
+    earliest = datetime.combine(now.date() - timedelta(days=max_days - 1), time.min, tzinfo=UTC)
+    last = parse_datetime_value(last_value) if should_use_incremental_field else None
+    if last is None:
+        return earliest
+    return max(earliest, datetime.combine(last.date(), time.min, tzinfo=UTC))
+
+
 def analytics_window(should_use_incremental_field: bool, last_value: Any, now: datetime) -> dict[str, str]:
     """`starts_at`/`ends_at` for an analytics request.
 
     A full refresh reads the longest range the API allows. An incremental run starts at the UTC day
     of the watermark, because the newest daily bucket is still filling up when it is first read.
     """
-    earliest = datetime.combine(now.date() - timedelta(days=ANALYTICS_MAX_RANGE_DAYS - 1), time.min, tzinfo=UTC)
-    starts_at = earliest
-    last = parse_datetime_value(last_value) if should_use_incremental_field else None
-    if last is not None:
-        starts_at = max(earliest, datetime.combine(last.date(), time.min, tzinfo=UTC))
+    starts_at = _window_start(should_use_incremental_field, last_value, now, ANALYTICS_MAX_RANGE_DAYS)
     return {"starts_at": _rfc3339(starts_at), "ends_at": _rfc3339(now)}
+
+
+def breakdown_days(should_use_incremental_field: bool, last_value: Any, now: datetime) -> list[date]:
+    """UTC days a breakdowns run reads, oldest first.
+
+    Today is left out because its lists are still filling up. An incremental run reads the watermark
+    day again for late data, and the rank key lets that read overwrite the day's lists.
+    """
+    first = _window_start(should_use_incremental_field, last_value, now, BREAKDOWN_BACKFILL_DAYS).date()
+    last = now.date() - timedelta(days=1)
+    return [first + timedelta(days=offset) for offset in range((last - first).days + 1)]
+
+
+def _breakdown_rows(body: Any, day: date) -> list[dict[str, Any]]:
+    """Flatten `{pages: [{label, visitors}], ...}` into one row per label, ranked within its list."""
+    if not isinstance(body, dict):
+        return []
+    timestamp = _rfc3339(datetime.combine(day, time.min, tzinfo=UTC))
+    return [
+        {"timestamp": timestamp, "breakdown": dimension, "rank": rank, **item}
+        for dimension in BREAKDOWN_DIMENSIONS
+        for rank, item in enumerate(body.get(dimension) or [], start=1)
+        if isinstance(item, dict) and item.get("label") is not None
+    ]
 
 
 def _time_series_rows(time_series: dict[str, Any]) -> list[dict[str, Any]]:
@@ -209,12 +243,53 @@ def _with_parent_ids(row: dict[str, Any], parent: _ParentRef) -> dict[str, Any]:
     return row
 
 
+def _iter_breakdown_days(
+    client: RESTClient,
+    config: LovableEndpointConfig,
+    parent: _ParentRef,
+    days: list[date],
+    cursor: Optional[str],
+    resumable_source_manager: ResumableSourceManager[LovableResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    try:
+        resume_day = date.fromisoformat(cursor) if cursor else None
+    except ValueError:
+        resume_day = None
+    for index, day in enumerate(days):
+        if resume_day is not None and day < resume_day:
+            continue
+        day_start = datetime.combine(day, time.min, tzinfo=UTC)
+        # The API counts whole UTC dates from the date of `starts_at` through the date of `ends_at`.
+        params = {"starts_at": _rfc3339(day_start), "ends_at": _rfc3339(day_start + timedelta(days=1, seconds=-1))}
+        rows = [
+            row
+            for page in client.paginate(
+                path=_path(config, parent), params=params, paginator=SinglePagePaginator(), data_selector=None
+            )
+            for body in page
+            for row in _breakdown_rows(body, day)
+        ]
+        next_day = days[index + 1].isoformat() if index + 1 < len(days) else None
+        resumable_source_manager.save_state(
+            LovableResumeConfig(
+                workspace_id=parent.workspace_id,
+                project_id=parent.project_id,
+                scan_id=parent.scan_id,
+                cursor=next_day,
+            )
+        )
+        if rows:
+            yield [_with_parent_ids(row, parent) for row in rows]
+        resumable_source_manager.safe_point()
+
+
 def _iter_endpoint(
     client: RESTClient,
     api_version: str,
     config: LovableEndpointConfig,
     resumable_source_manager: ResumableSourceManager[LovableResumeConfig],
     extra_params: dict[str, Any],
+    days: list[date],
 ) -> Iterator[list[dict[str, Any]]]:
     # Listing parents hands on no rows, so the staged cursor still covers every row handed on.
     parents = list(_iter_parents(client, api_version, config, resumable_source_manager.safe_point))
@@ -223,6 +298,13 @@ def _iter_endpoint(
 
     for index in range(start_index, len(parents)):
         parent = parents[index]
+
+        if config.breakdowns:
+            yield from _iter_breakdown_days(
+                client, config, parent, days, cursor if index == start_index else None, resumable_source_manager
+            )
+            cursor = None
+            continue
 
         def save_checkpoint(state: Optional[dict[str, Any]], parent: _ParentRef = parent) -> None:
             next_cursor = state.get("cursor") if state else None
@@ -267,15 +349,19 @@ def lovable_source(
 ) -> SourceResponse:
     config = version_config(api_version).endpoints[endpoint]
     client = _client(api_key, api_version)
+    now = datetime.now(UTC)
     extra_params = (
-        analytics_window(should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC))
+        analytics_window(should_use_incremental_field, db_incremental_field_last_value, now)
         if config.time_series
         else {}
+    )
+    days = (
+        breakdown_days(should_use_incremental_field, db_incremental_field_last_value, now) if config.breakdowns else []
     )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: _iter_endpoint(client, api_version, config, resumable_source_manager, extra_params),
+        items=lambda: _iter_endpoint(client, api_version, config, resumable_source_manager, extra_params, days),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -370,7 +456,7 @@ def check_endpoint_permissions(api_key: str, api_version: str, endpoints: list[s
 
         probe_params = (
             {"starts_at": _rfc3339(now - timedelta(days=1)), "ends_at": _rfc3339(now)}
-            if config.time_series
+            if config.takes_date_range
             else {"limit": 1}
         )
         status = _probe_status(

@@ -584,7 +584,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         }
         config = {"limit": 10, "dateRange": {"date_from": "-1h"}}
         with (
-            patch("products.dashboards.backend.feature_flags.posthog_feature_flag_enabled", return_value=flag_on),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=flag_on),
             patch.object(
                 LogsQueryRunner, "_calculate", return_value=LogsQueryResponse(results=[log_row], hasMore=False)
             ) as compute,

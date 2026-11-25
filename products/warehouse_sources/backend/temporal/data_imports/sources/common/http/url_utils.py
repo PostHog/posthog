@@ -153,8 +153,15 @@ def _template_segment(segment: str) -> str:
 
 
 def host_of(url: str) -> str:
+    """Host and port only, because `netloc` keeps any `user:pass@` userinfo and this value is a metric label."""
     try:
-        return urlsplit(url).netloc or "unknown"
+        parts = urlsplit(url)
+        host = parts.hostname
+        if not host:
+            return "unknown"
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{host}:{parts.port}" if parts.port else host
     except Exception:
         return "unknown"
 

@@ -26,7 +26,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
+from posthog.models.activity_logging.activity_log import ActivityLog, changes_between
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
@@ -39,6 +39,7 @@ from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend import quota
+from products.replay_vision.backend.activity_log_config import replay_scanner_machine_fields
 from products.replay_vision.backend.api.scanners import (
     HighlightFeedQuerySerializer,
     ReplayScannerSerializer,

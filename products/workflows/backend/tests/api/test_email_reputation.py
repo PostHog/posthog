@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
@@ -22,6 +22,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import IspSendingMetrics
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.tests.fakes.ses_endpoint import METRICS_BATCH_PATH, FakeSesEndpoint
 
 
@@ -32,6 +33,10 @@ def _locally_evaluated_flag(released: bool):
         return released
 
     return feature_enabled
+
+
+CHANGED_AT = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+DAILY_METRICS_FETCH = "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team"
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -191,6 +196,169 @@ class TestEmailReputationAPI(APIBaseTest):
         allowance = self._get_reputation({})["sending_allowance"]
         assert allowance["max_batch_audience"] == 3000
         assert allowance["rate_limited_max_batch_audience"] == 62 * 24 * 7
+
+    @parameterized.expand(
+        [
+            # The anchor day mixes sends from before the change, and a day under the target is not a qualifying day.
+            (
+                "counts_only_full_days_after_the_change",
+                1,
+                False,
+                CHANGED_AT,
+                {"2026-09-01": 900, "2026-09-02": 499, "2026-09-03": 500},
+                1,
+            ),
+            (
+                "caps_progress_at_the_days_required",
+                1,
+                False,
+                CHANGED_AT,
+                {"2026-09-02": 600, "2026-09-03": 700, "2026-09-04": 800},
+                2,
+            ),
+            # Like the daily check, a project that never changed tier is anchored on its creation.
+            (
+                "never_changed_tier_counts_from_project_creation",
+                1,
+                False,
+                None,
+                {"2026-09-01": 900, "2026-09-02": 600},
+                1,
+            ),
+            ("top_tier_has_no_next_step", 2, False, CHANGED_AT, {}, None),
+            ("pinned_tier_has_no_next_step", 1, True, CHANGED_AT, {}, None),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER=[3, 5, 7],
+        WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS=2,
+        WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO=0.5,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_next_tier_step(
+        self,
+        _name: str,
+        tier: int,
+        pinned: bool,
+        changed_at: datetime | None,
+        daily_sends: dict[str, int],
+        expected_days: int | None,
+    ):
+        Team.objects.filter(id=self.team.id).update(created_at=CHANGED_AT)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": tier,
+                "email_sending_tier_pinned": pinned,
+                "email_sending_tier_updated_at": changed_at,
+            },
+        )
+        daily = {self.team.id: {day: {"email_sent": sent} for day, sent in daily_sends.items()}}
+        with (
+            time_machine.travel(datetime(2026, 9, 5, 12, 0, tzinfo=UTC), tick=False),
+            patch(DAILY_METRICS_FETCH, return_value=daily),
+        ):
+            allowance = self._get_reputation({})["sending_allowance"]
+        next_tier = allowance["next_tier"]
+        if expected_days is None:
+            assert next_tier is None
+            if pinned:
+                assert allowance["recent_rates"] is None
+            return
+        assert next_tier == {
+            "emails_per_day": 3000,
+            "daily_target": 500,
+            "days_required": 2,
+            "days_reached": expected_days,
+            "not_before": "2026-09-06T10:00:00Z",
+        }
+
+    @parameterized.expand(
+        [
+            ("clean", 1000, 5, 0, True, True),
+            ("bounces_over_the_limit", 1000, 30, 0, False, True),
+            # One complaint in 500 is over the rate, but under both the minimum sends and the complaint backstop.
+            ("only_bounces_are_judged", 500, 15, 1, False, True),
+            ("late_complaints_with_no_sends", 0, 0, 3, True, False),
+            # Over the rate, but under the minimum sends the daily check needs to judge bounces.
+            ("too_few_sends_to_judge", 100, 10, 0, True, True),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS=7,
+        WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE=0.02,
+        WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS=200,
+        WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE=0.001,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS=1000,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP=3,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_rates_the_daily_check_demotes_on(
+        self,
+        _name: str,
+        sent: int,
+        bounced: int,
+        complained: int,
+        bounces_within_limits: bool,
+        complaints_within_limits: bool,
+    ):
+        daily = {
+            self.team.id: {
+                # The check counts whole days from the window start, so the first day is in and the day before is out.
+                "2026-08-31": {"email_sent": 1000, "email_bounced_hard": 1000},
+                "2026-09-01": {"email_sent": sent, "email_bounced_hard": bounced, "email_blocked": complained},
+            }
+        }
+        with (
+            time_machine.travel(datetime(2026, 9, 8, 12, 0, tzinfo=UTC), tick=False),
+            patch(DAILY_METRICS_FETCH, return_value=daily),
+        ):
+            recent = self._get_reputation({})["sending_allowance"]["recent_rates"]
+        assert recent["window_days"] == 7
+        assert recent["emails_sent"] == sent
+        assert recent["bounce_rate"] == (bounced / sent if sent else 0)
+        assert recent["complaints"] == complained
+        assert recent["bounces_within_limits"] is bounces_within_limits
+        assert recent["complaints_within_limits"] is complaints_within_limits
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000, 10000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000, 10000],
+    )
+    def test_reputation_endpoint_lists_recent_allowance_changes_newest_first(self):
+        with time_machine.travel(datetime(2026, 9, 1, 7, 15, tzinfo=UTC), tick=False):
+            log_email_sending_tier_change(
+                self.team, previous_tier=0, new_tier=3, reason="trusted_account", pin_change=(False, False)
+            )
+        with time_machine.travel(datetime(2026, 9, 3, 7, 15, tzinfo=UTC), tick=False):
+            log_email_sending_tier_change(
+                self.team, previous_tier=3, new_tier=2, reason="rates_above_threshold", pin_change=(False, False)
+            )
+        with time_machine.travel(datetime(2026, 9, 4, 9, 0, tzinfo=UTC), tick=False):
+            # A pin-only change moves no allowance, so it is not listed.
+            log_email_sending_tier_change(
+                self.team, previous_tier=2, new_tier=2, reason="staff_set", pin_change=(False, True)
+            )
+        with time_machine.travel(datetime(2026, 9, 5, 12, 0, tzinfo=UTC), tick=False):
+            changes = self._get_reputation({})["sending_allowance"]["recent_changes"]
+        assert changes == [
+            {
+                "changed_at": "2026-09-03T07:15:00Z",
+                "previous_emails_per_day": 10000,
+                "emails_per_day": 3000,
+                "reason": "rates_above_threshold",
+            },
+            {
+                "changed_at": "2026-09-01T07:15:00Z",
+                "previous_emails_per_day": 100,
+                "emails_per_day": 10000,
+                "reason": "trusted_account",
+            },
+        ]
 
     @parameterized.expand(
         [

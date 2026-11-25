@@ -57,11 +57,6 @@ def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
     publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
 
 
-def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
-    logger.info(f"Reloading taggers {tagger_ids} on workers")
-    publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
-
-
 def reload_provider_keys_on_workers(team_id: int, provider_key_ids: list[str]):
     logger.info(f"Reloading provider keys {provider_key_ids} on workers")
     publish_message("reload-provider-keys", {"teamId": team_id, "providerKeyIds": provider_key_ids})

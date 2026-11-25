@@ -9,6 +9,7 @@ import { Params } from 'scenes/sceneTypes'
 import {
     ErrorTrackingIssue,
     ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagsFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
 } from '~/queries/schema/schema-general'
@@ -26,6 +27,8 @@ export type ErrorTrackingQueryOrderDirection = ErrorTrackingQuery['orderDirectio
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
 export type ErrorTrackingQuerySeverity = ErrorTrackingQueryIssueSeverity | null
+export type IssueTagsFilter = Required<ErrorTrackingIssueTagsFilter>
+export type IssueTagState = keyof IssueTagsFilter
 
 export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     last_seen: 'Last seen',
@@ -48,7 +51,7 @@ const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 const DEFAULT_SEVERITY = null
-const DEFAULT_ISSUE_TAG = null
+const DEFAULT_ISSUE_TAGS = null
 
 // Like isValidOrderBy, but the assignee is an object, so it can be malformed in more ways: a bare
 // string, a missing or null id, a type outside user/role, or a resolved {id, type, user} object.
@@ -99,27 +102,66 @@ export function isValidSeverity(severity: unknown): severity is ErrorTrackingQue
     return typeof severity === 'string' && Object.hasOwn(VALID_SEVERITIES, severity)
 }
 
-// Like sanitizeAssignee: the query schema forbids unknown keys, so keep only the two fields it accepts.
-export function sanitizeIssueTag(issueTag: unknown): ErrorTrackingIssueTagFilter | null {
-    if (!issueTag || typeof issueTag !== 'object') {
-        return DEFAULT_ISSUE_TAG
+function issueTagsOrDefault(issueTags: IssueTagsFilter): IssueTagsFilter | null {
+    return issueTags.has.length || issueTags.hasNot.length ? issueTags : DEFAULT_ISSUE_TAGS
+}
+
+function tagKeys(keys: unknown): string[] {
+    if (!Array.isArray(keys)) {
+        return []
     }
-    const { key, applied } = issueTag as Partial<ErrorTrackingIssueTagFilter>
-    if (typeof key === 'string' && key && typeof applied === 'boolean') {
-        return { key, applied }
+    return [...new Set(keys.filter((key): key is string => typeof key === 'string' && key !== ''))]
+}
+
+// Like sanitizeAssignee: the query schema forbids unknown keys, so keep only the fields it accepts.
+export function sanitizeIssueTags(issueTags: unknown): IssueTagsFilter | null {
+    if (!issueTags || typeof issueTags !== 'object') {
+        return DEFAULT_ISSUE_TAGS
     }
-    return DEFAULT_ISSUE_TAG
+    const { has, hasNot } = issueTags as Partial<ErrorTrackingIssueTagsFilter>
+    const hasNotKeys = tagKeys(hasNot)
+    return issueTagsOrDefault({ has: tagKeys(has).filter((key) => !hasNotKeys.includes(key)), hasNot: hasNotKeys })
+}
+
+export function issueTagStateOf(issueTags: IssueTagsFilter | null, key: string): IssueTagState | null {
+    if (issueTags?.has.includes(key)) {
+        return 'has'
+    }
+    return issueTags?.hasNot.includes(key) ? 'hasNot' : null
+}
+
+// The query ignores a tag that is not enabled, so a filter on one would claim to narrow a list it does not.
+function withoutUnknownTags(
+    issueTags: IssueTagsFilter | null,
+    definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key'>[]
+): IssueTagsFilter | null {
+    if (!issueTags) {
+        return issueTags
+    }
+    const isKnown = (key: string): boolean => definitions.some((definition) => definition.key === key)
+    return issueTagsOrDefault({ has: issueTags.has.filter(isKnown), hasNot: issueTags.hasNot.filter(isKnown) })
 }
 
 // Definitions that loaded before a link opened never reach the load listener, so the link checks them itself.
 // findMounted keeps the definitions request off while the filter is hidden.
-function issueTagFromUrl(raw: unknown): ErrorTrackingIssueTagFilter | null {
-    const issueTag = sanitizeIssueTag(raw)
+function issueTagsFromUrl(raw: unknown): IssueTagsFilter | null {
+    const issueTags = sanitizeIssueTags(raw)
     const definitions = issueTagDefinitionsLogic.findMounted()?.values.issueTagDefinitions
-    if (issueTag && definitions && !definitions.some((definition) => definition.key === issueTag.key)) {
-        return DEFAULT_ISSUE_TAG
+    return definitions ? withoutUnknownTags(issueTags, definitions) : issueTags
+}
+
+// pinned: search param of links saved before the filter took several tags, which the URL now holds in `issueTags`
+const LEGACY_ISSUE_TAG_PARAM = 'issueTag'
+
+function legacyIssueTags(issueTag: unknown): ErrorTrackingIssueTagsFilter | null {
+    if (!issueTag || typeof issueTag !== 'object') {
+        return null
     }
-    return issueTag
+    const { key, applied } = issueTag as Partial<ErrorTrackingIssueTagFilter>
+    if (typeof key !== 'string' || !key || typeof applied !== 'boolean') {
+        return null
+    }
+    return applied ? { has: [key] } : { hasNot: [key] }
 }
 
 export interface IssueQueryOptionsLogicProps {
@@ -129,7 +171,7 @@ export interface IssueQueryOptionsLogicProps {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface issueQueryOptionsLogicValues {
     assignee: ErrorTrackingQueryAssignee | null
-    issueTag: ErrorTrackingIssueTagFilter | null
+    issueTags: IssueTagsFilter | null
     orderBy: ErrorTrackingQueryOrderBy
     orderDirection: ErrorTrackingQueryOrderDirection
     severity: ErrorTrackingQuerySeverity
@@ -141,8 +183,15 @@ export interface issueQueryOptionsLogicActions {
     setAssignee: (assignee: ErrorTrackingIssue['assignee']) => {
         assignee: ErrorTrackingIssueAssignee | null
     }
-    setIssueTag: (issueTag: ErrorTrackingIssueTagFilter | null) => {
-        issueTag: ErrorTrackingIssueTagFilter | null
+    setIssueTagState: (
+        key: string,
+        state: IssueTagState | null
+    ) => {
+        key: string
+        state: keyof ErrorTrackingIssueTagsFilter | null
+    }
+    setIssueTags: (issueTags: IssueTagsFilter | null) => {
+        issueTags: Required<ErrorTrackingIssueTagsFilter> | null
     }
     setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => {
         orderBy: ErrorTrackingOrderBy
@@ -181,7 +230,8 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setSeverity: (severity: ErrorTrackingQuerySeverity) => ({ severity }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
-        setIssueTag: (issueTag: ErrorTrackingIssueTagFilter | null) => ({ issueTag }),
+        setIssueTags: (issueTags: IssueTagsFilter | null) => ({ issueTags }),
+        setIssueTagState: (key: string, state: IssueTagState | null) => ({ key, state }),
     }),
 
     reducers({
@@ -220,24 +270,31 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setSeverity: (_, { severity }) => (isValidSeverity(severity) ? severity : DEFAULT_SEVERITY),
             },
         ],
-        issueTag: [
-            DEFAULT_ISSUE_TAG as ErrorTrackingIssueTagFilter | null,
+        issueTags: [
+            DEFAULT_ISSUE_TAGS as IssueTagsFilter | null,
             {
-                setIssueTag: (_, { issueTag }) => sanitizeIssueTag(issueTag),
+                setIssueTags: (_, { issueTags }) => sanitizeIssueTags(issueTags),
+                setIssueTagState: (issueTags, { key, state }) => {
+                    const has = (issueTags?.has ?? []).filter((tagKey) => tagKey !== key)
+                    const hasNot = (issueTags?.hasNot ?? []).filter((tagKey) => tagKey !== key)
+                    return issueTagsOrDefault({
+                        has: state === 'has' ? [...has, key] : has,
+                        hasNot: state === 'hasNot' ? [...hasNot, key] : hasNot,
+                    })
+                },
             },
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        // The query ignores a tag that is not enabled, so a filter on one would claim to narrow a list it does not.
         [issueTagDefinitionsLogic.actionTypes.loadIssueTagDefinitionsSuccess]: ({
             issueTagDefinitions,
         }: {
             issueTagDefinitions: ErrorTrackingIssueTagDefinitionApi[]
         }) => {
-            const issueTagKey = values.issueTag?.key
-            if (issueTagKey && !issueTagDefinitions.some((definition) => definition.key === issueTagKey)) {
-                actions.setIssueTag(DEFAULT_ISSUE_TAG)
+            const issueTags = withoutUnknownTags(values.issueTags, issueTagDefinitions)
+            if (!equal(issueTags, values.issueTags)) {
+                actions.setIssueTags(issueTags)
             }
         },
         setOrderBy: ({ orderBy }) => {
@@ -267,7 +324,8 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 updateSearchParams(params, 'assignee', values.assignee, DEFAULT_ASSIGNEE)
                 updateSearchParams(params, 'status', values.status, DEFAULT_STATUS)
                 updateSearchParams(params, 'severity', values.severity, DEFAULT_SEVERITY)
-                updateSearchParams(params, 'issueTag', values.issueTag, DEFAULT_ISSUE_TAG)
+                updateSearchParams(params, 'issueTags', values.issueTags, DEFAULT_ISSUE_TAGS)
+                delete params[LEGACY_ISSUE_TAG_PARAM]
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 updateSearchParams(params, 'orderDirection', values.orderDirection, DEFAULT_ORDER_DIRECTION)
                 return params
@@ -278,7 +336,8 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             setOrderBy: () => buildURL(),
             setStatus: () => buildURL(),
             setSeverity: () => buildURL(),
-            setIssueTag: () => buildURL(),
+            setIssueTags: () => buildURL(),
+            setIssueTagState: () => buildURL(),
             setAssignee: () => buildURL(),
             setOrderDirection: () => buildURL(),
         }
@@ -306,9 +365,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             if (!equal(severity, values.severity)) {
                 actions.setSeverity(severity)
             }
-            const issueTag = issueTagFromUrl(params.issueTag)
-            if (!equal(issueTag, values.issueTag)) {
-                actions.setIssueTag(issueTag)
+            const issueTags = issueTagsFromUrl(params.issueTags ?? legacyIssueTags(params[LEGACY_ISSUE_TAG_PARAM]))
+            if (!equal(issueTags, values.issueTags)) {
+                actions.setIssueTags(issueTags)
             }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)

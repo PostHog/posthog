@@ -105,6 +105,45 @@ class TestGetRows:
         assert any(key in error_message for key in GorgiasSource().get_non_retryable_errors())
 
 
+class TestTopLevelRows:
+    @parameterized.expand(
+        [
+            (
+                "integration_credentials_dropped",
+                "integrations",
+                {
+                    "data": [
+                        {
+                            "id": 1,
+                            "type": "http",
+                            "http": {
+                                "url": "https://example.com/hook",
+                                "headers": {"Authorization": "Bearer fake-token"},
+                                "oauth2": {"client_secret": "fake-secret"},
+                            },
+                        },
+                        {"id": 2, "type": "email", "http": None},
+                    ],
+                    "meta": {"next_cursor": None},
+                },
+                [
+                    {"id": 1, "type": "http", "http": {"url": "https://example.com/hook"}},
+                    {"id": 2, "type": "email", "http": None},
+                ],
+            ),
+            ("rules_bare_array", "rules", [{"id": 5, "name": "auto-close"}], [{"id": 5, "name": "auto-close"}]),
+            ("widgets_bare_array", "widgets", [{"id": 7, "order": 1}], [{"id": 7, "order": 1}]),
+        ]
+    )
+    def test_rows(self, _name: str, endpoint: str, body: object, expected: list[dict]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == [f"/api/{endpoint}"]
+        assert result.params("order_by") == ["created_datetime:asc"]
+        assert result.rows == expected
+
+
 class TestParamVariants:
     @parameterized.expand(
         [
@@ -398,9 +437,13 @@ DOCUMENTED_ORDER_BY_DATETIME_FIELDS: dict[str, set[str]] = {
     "voice_call_recordings": set(),  # accepts no order_by
     "customer_field_values": {"created_datetime", "updated_datetime"},
     "view_items": {"created_datetime"},  # sorts the parent view list
+    "integrations": {"created_datetime"},
+    "rules": {"created_datetime"},
+    "widgets": {"created_datetime"},
 }
 DOCUMENTED_NON_DATETIME_ORDER_BY: dict[str, set[str]] = {
     "custom_fields": {"priority:asc", "priority:desc"},
+    "widgets": {"order:asc", "order:desc"},
 }
 
 

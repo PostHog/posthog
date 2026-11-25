@@ -37,6 +37,9 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
     first_pageview_aware_properties_to_expr,
 )
 
+# A series query holds one 64-bit hash per shared breakdown value as a constant. The limit bounds that query text.
+MAX_SHARED_BREAKDOWN_VALUES = 10_000
+
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
@@ -46,6 +49,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    shared_breakdown_value_hashes: list[int] | None
 
     def __init__(
         self,
@@ -56,6 +60,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
+        shared_breakdown_value_hashes: list[int] | None = None,
     ):
         self.query = trends_query
         self.team = team
@@ -64,6 +69,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
+        self.shared_breakdown_value_hashes = shared_breakdown_value_hashes
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         events_query = self._base_events_query()
@@ -137,6 +143,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_other_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
 
             breakdown_limit_expr = ast.Constant(value=self._get_breakdown_limit())
+            is_other_breakdown_expr = self._is_other_breakdown_expr(
+                is_other_by_rank=parse_expr(
+                    "breakdown_rank > {breakdown_limit}", placeholders={"breakdown_limit": breakdown_limit_expr}
+                ),
+                # Qualified, because the "Other" select aliases its label as `breakdown_value`
+                breakdown_value=ast.Field(chain=["ranked_breakdown_values", "breakdown_value"]),
+            )
+            is_top_breakdown_expr = (
+                parse_expr(
+                    "breakdown_rank <= {breakdown_limit}", placeholders={"breakdown_limit": breakdown_limit_expr}
+                )
+                if self.shared_breakdown_value_hashes is None
+                else ast.Not(expr=is_other_breakdown_expr)
+            )
             is_cumulative = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
 
             return parse_select(
@@ -182,7 +202,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         count AS value,
                         breakdown_value
                     FROM ranked_breakdown_values
-                    WHERE breakdown_rank <= {{breakdown_limit}}
+                    WHERE {{is_top_breakdown}}
                 ),
                 other_breakdown_values AS (
                     -- "Other" breakdown value
@@ -191,7 +211,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         {{outer_agg}} as value,
                         {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
-                    WHERE breakdown_rank > {{breakdown_limit}}
+                    WHERE {{is_other_breakdown}}
                     GROUP BY day_start
                 ),
                 top_n_and_other_breakdown_values AS (
@@ -229,7 +249,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 {
                     "inner_query": inner_query,
                     "breakdown_other": breakdown_other_expr,
-                    "breakdown_limit": breakdown_limit_expr,
+                    "is_top_breakdown": is_top_breakdown_expr,
+                    "is_other_breakdown": is_other_breakdown_expr,
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     "all_dates": self._get_date_subqueries(),
                     "outer_agg": self._aggregation_operation.get_outer_aggregation(
@@ -370,7 +391,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    def _inner_select_query(
+        self, inner_query: ast.SelectQuery | ast.SelectSetQuery, wrap_display: bool = True
+    ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -399,8 +422,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self.breakdown.enabled:
             query = self._inner_breakdown_subquery(query, self.breakdown)
 
-        if self._trends_display.should_wrap_inner_query() and (
-            not self._team_flag_fewer_array_ops() or not self.breakdown.enabled
+        if (
+            wrap_display
+            and self._trends_display.should_wrap_inner_query()
+            and (not self._team_flag_fewer_array_ops() or not self.breakdown.enabled)
         ):
             query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
             if self.breakdown.enabled:
@@ -976,7 +1001,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return TrendsDisplay(display)
 
     def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
-        breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
+        is_other_breakdown_expr = self._is_other_breakdown_expr(
+            is_other_by_rank=parse_expr(
+                "ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0)",
+                placeholders={"breakdown_limit": ast.Constant(value=breakdown_limit or self._get_breakdown_limit())},
+            ),
+            breakdown_value=ast.Field(chain=["breakdown_value"]),
+        )
         # We always add the "other" aggregation to tell if we truncated the results
         # It is then removed later
         other_label_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
@@ -984,22 +1015,96 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if breakdown.is_multiple_breakdown:
             return parse_expr(
                 """
-                arrayMap(i -> if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, i), breakdown_value) AS breakdown_value
+                arrayMap(i -> if({is_other_breakdown}, {other_label}, i), breakdown_value) AS breakdown_value
                 """,
                 placeholders={
-                    "breakdown_limit": breakdown_limit_expr,
+                    "is_other_breakdown": is_other_breakdown_expr,
                     "other_label": other_label_expr,
                 },
             )
 
         return parse_expr(
             """
-            if(ifNull(greaterOrEquals(row_number, {breakdown_limit}), 0), {other_label}, breakdown_value) AS breakdown_value
+            if({is_other_breakdown}, {other_label}, breakdown_value) AS breakdown_value
             """,
             placeholders={
-                "breakdown_limit": breakdown_limit_expr,
+                "is_other_breakdown": is_other_breakdown_expr,
                 "other_label": other_label_expr,
             },
+        )
+
+    def _is_other_breakdown_expr(self, is_other_by_rank: ast.Expr, breakdown_value: ast.Expr) -> ast.Expr:
+        if self.shared_breakdown_value_hashes is None:
+            return is_other_by_rank
+
+        # A hash has a fixed size, so the query text does not grow with the length of the values. Both queries hash
+        # with `_breakdown_value_hash_expr`, and a collision of 64-bit hashes only shows one more row.
+        return parse_expr(
+            "{breakdown_value_hash} NOT IN {shared_breakdown_value_hashes}",
+            placeholders={
+                "breakdown_value_hash": self._breakdown_value_hash_expr(breakdown_value),
+                "shared_breakdown_value_hashes": ast.Array(
+                    exprs=[ast.Constant(value=value_hash) for value_hash in self.shared_breakdown_value_hashes]
+                ),
+            },
+        )
+
+    @staticmethod
+    def _breakdown_value_hash_expr(breakdown_value: ast.Expr) -> ast.Expr:
+        return ast.Call(name="cityHash64", args=[breakdown_value])
+
+    @property
+    def can_share_breakdown_values(self) -> bool:
+        # Cohorts are a fixed set that the limit never cuts. Histogram bins come from the value range of
+        # each series, so two series do not share bins.
+        return (
+            self.breakdown.enabled
+            and not self.breakdown.is_cohort_breakdown
+            and not self.breakdown.is_histogram_breakdown
+            and self._get_breakdown_limit() <= MAX_SHARED_BREAKDOWN_VALUES
+        )
+
+    def breakdown_value_totals_query(self) -> ast.SelectQuery:
+        inner_query = self._inner_select_query(self._base_events_query(), wrap_display=False)
+        inner_query.order_by = None
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                "SELECT breakdown_value, sum(count) AS total FROM {inner_query} GROUP BY breakdown_value",
+                placeholders={"inner_query": inner_query},
+            ),
+        )
+
+    def top_breakdown_values_query(self, totals_queries: list[ast.SelectQuery]) -> ast.SelectQuery:
+        # The order and the filter match those of the series queries. The values that a series query would cut are
+        # therefore the values that this query leaves out.
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    breakdown_value,
+                    total,
+                    count() OVER () AS values_count,
+                    sum(total) OVER () AS all_values_total,
+                    {breakdown_value_hash} AS breakdown_value_hash
+                FROM (
+                    SELECT breakdown_value, sum(total) AS total
+                    FROM {totals}
+                    WHERE {breakdown_filter}
+                    GROUP BY breakdown_value
+                )
+                ORDER BY {breakdown_order} ASC, total DESC, breakdown_value ASC
+                LIMIT {breakdown_limit}
+                """,
+                placeholders={
+                    "totals": ast.SelectSetQuery.create_from_queries(totals_queries, "UNION ALL"),
+                    "breakdown_value_hash": self._breakdown_value_hash_expr(ast.Field(chain=["breakdown_value"])),
+                    "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                    "breakdown_order": self._breakdown_query_order_by(self.breakdown),
+                    "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
+                },
+            ),
         )
 
     def _breakdown_query_order_by(self, breakdown: Breakdown):
