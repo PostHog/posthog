@@ -20,6 +20,7 @@ import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -89,43 +90,6 @@ function precheckFallback(email: string): PrecheckResponseType {
 // Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
 export const CODE_RESEND_COOLDOWN_MS = 60_000
 
-// The longest a login waits for the Radar token, chunk download included, before it goes without one
-const RADAR_SIGNALS_WAIT_MS = 3000
-
-// Loaded only when precheck asks for it, so the login page downloads nothing extra while Radar is off
-function startRadarSignalsFor(precheckResponse: PrecheckResponseType): void {
-    const clientId = precheckResponse.radar_client_id
-    if (!clientId) {
-        return
-    }
-    void import('scenes/authentication/shared/radarSignals')
-        .then(({ startRadarSignals }) => startRadarSignals(clientId))
-        .catch(() => undefined)
-}
-
-async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promise<string> {
-    if (!precheckResponse.radar_client_id) {
-        return ''
-    }
-    const radarSignals = import('scenes/authentication/shared/radarSignals')
-    const lookup = radarSignals.then(({ getRadarSignalsId }) => getRadarSignalsId()).catch(() => '')
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const deadline = new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve(''), RADAR_SIGNALS_WAIT_MS)
-    })
-    try {
-        const radarSignalsId = await Promise.race([lookup, deadline])
-        if (radarSignalsId) {
-            // Marked only when the token goes out, so a token that arrives after the deadline is still sent with the next attempt
-            const { markRadarSignalsIdSent } = await radarSignals
-            markRadarSignalsIdSent(radarSignalsId)
-        }
-        return radarSignalsId
-    } finally {
-        clearTimeout(timer)
-    }
-}
-
 interface LoginChallenge {
     nonce: string
     siteKey: string
@@ -141,10 +105,9 @@ async function loginRequestBody(
     precheckResponse: PrecheckResponseType,
     solvedChallenge: SolvedLoginChallenge | null
 ): Promise<Record<string, string>> {
-    const radarSignalsId = await radarSignalsIdFor(precheckResponse)
     return {
         ...login,
-        ...(radarSignalsId ? { radar_signals_id: radarSignalsId } : {}),
+        ...(await radarSignalsFields(precheckResponse.radar_client_id)),
         ...(solvedChallenge ? { turnstile_token: solvedChallenge.token, challenge_nonce: solvedChallenge.nonce } : {}),
     }
 }
@@ -907,7 +870,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
-            startRadarSignalsFor(precheckResponse)
+            startRadarSignalsFor(precheckResponse.radar_client_id)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (

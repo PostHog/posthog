@@ -423,8 +423,14 @@ def require_verified_email_for_login(user: User) -> None:
     raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
-class _BrowserTokenField(serializers.Field):
-    """A token the login page may send. A value that is not a string reads as empty, so it never fails a login."""
+class BrowserTokenField(serializers.Field):
+    """A token a login or signup page may send. A value that is not a string reads as empty, so it never fails the request."""
+
+    def validate_empty_values(self, data: Any) -> tuple[bool, Any]:
+        # DRF refuses a null before to_internal_value runs, so a null reads as empty here
+        if data is None:
+            return (True, "")
+        return super().validate_empty_values(data)
 
     def to_internal_value(self, data: Any) -> str:
         return data if isinstance(data, str) else ""
@@ -436,17 +442,17 @@ class _BrowserTokenField(serializers.Field):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
-    radar_signals_id = _BrowserTokenField(
+    radar_signals_id = BrowserTokenField(
         required=False,
         default="",
         help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this login.",
     )
-    turnstile_token = _BrowserTokenField(
+    turnstile_token = BrowserTokenField(
         required=False,
         default="",
         help_text="Cloudflare Turnstile token. Send it with challenge_nonce after a login attempt answers challenge_required.",
     )
-    challenge_nonce = _BrowserTokenField(
+    challenge_nonce = BrowserTokenField(
         required=False,
         default="",
         help_text="Nonce from the challenge_required error. It ties the Turnstile token to the attempt that got the challenge.",
