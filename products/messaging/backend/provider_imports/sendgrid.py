@@ -170,7 +170,7 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
     # Reads every suppression and unsubscribe again, once the exports are in.
-    "contacts": (("marketing.read",), ("suppression.read",), ("asm.groups.read",)),
+    "contacts": (("marketing.read",), ("suppression.read",), ("asm.groups.read",), ("user.username.read",)),
     "domains": (("whitelabel.read",),),
 }
 # SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
@@ -334,10 +334,10 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their contact fields where PostHog "
                 "has none. Fills a cohort with all your contacts and one with each list's contacts, without those who "
-                "unsubscribed from everything. SendGrid prepares an export of each list, which can take a while. Select "
-                "all three steps for suppressions and unsubscribes too, so no one who left in SendGrid gets marketing "
-                "email. If you import several subusers, the cohort with all your contacts holds the last one's. Needs "
-                "marketing.read, suppression.read and asm.groups.read."
+                "unsubscribed from everything. Each subuser gets its own cohort of all contacts. SendGrid prepares an "
+                "export of each list, which can take a while. Select all three steps for suppressions and unsubscribes "
+                "too, so no one who left in SendGrid gets marketing email. Needs marketing.read, suppression.read, "
+                "asm.groups.read and user.username.read."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=OPT_OUT_STEPS,
@@ -1122,6 +1122,7 @@ def _fetch_contacts(
     """Reads an export of every contact and one of each list, then saves them together, so a list that can't be read
     leaves every cohort as it was. The checkpoint holds the exports SendGrid already started, so a retry downloads
     those again rather than waiting for new ones."""
+    account = _read_account(client)
     count = client.get("/v3/marketing/contacts/count")
     lists = {
         str(row["id"]): row
@@ -1217,8 +1218,8 @@ def _fetch_contacts(
             _save_contacts,
             context,
             ContactList(
-                cohort_name="SendGrid contacts",
-                cohort_description="Imported from SendGrid contacts.",
+                cohort_name=f"SendGrid contacts ({account.username[:MAX_SOURCE_NAME_LENGTH]})",
+                cohort_description=f"Imported from SendGrid contacts of account {account.user_id}.",
                 source="your SendGrid contacts",
                 rows=contacts.everyone,
                 non_members=non_members,
@@ -1255,6 +1256,22 @@ def _save_contacts(
 ) -> SavedPage:
     saved = save_contact_lists(context, everyone, lists, other_spellings, unsubscribed)
     return replace(saved, warnings=(*saved.warnings, *warnings))
+
+
+@frozen
+class _Account:
+    user_id: int
+    username: str
+
+
+def _read_account(client: SendGridClient) -> _Account:
+    """Which account or subuser the key belongs to. Each one's contacts go into a cohort of their own, so importing one
+    doesn't remove another's people."""
+    body = client.get("/v3/user/username")
+    user_id = body.get("user_id") if isinstance(body, dict) else None
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise SendGridAPIError("SendGrid sent an unexpected response for /v3/user/username.")
+    return _Account(user_id=user_id, username=str(body.get("username") or user_id))
 
 
 def _save_without_counts(save: Callable[[], SavedPage]) -> SavedPage:
