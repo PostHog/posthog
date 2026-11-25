@@ -2092,6 +2092,10 @@ def effective_new_column_policy(schema: "ExternalDataSchema", source: ExternalDa
 def _source_new_column_policy(schema: "ExternalDataSchema") -> str | None:
     if ExternalDataSchema.source.is_cached(schema):
         return schema.source.new_column_policy
+    return _fresh_source_new_column_policy(schema)
+
+
+def _fresh_source_new_column_policy(schema: "ExternalDataSchema") -> str | None:
     # Loading the whole source row would decrypt its inputs.
     return ExternalDataSource.objects.filter(id=schema.source_id).values_list("new_column_policy", flat=True).first()
 
@@ -2220,37 +2224,35 @@ def persist_schema_metadata(
     available_names = extract_available_column_names(schema_metadata)
 
     current_names = schema_metadata_column_names(schema_metadata)
-    source_policy = cache(partial(_source_new_column_policy, schema))
+    cached_source_policy = cache(partial(_source_new_column_policy, schema))
 
-    def _apply_policy(row: ExternalDataSchema, kept: list[str] | None) -> list[str] | None:
-        previous_names = schema_metadata_column_names(row.schema_metadata)
-        # No policy changes a selection when the table's columns did not change.
-        if kept is not None and previous_names == current_names:
-            return kept
-        return apply_new_column_policy(
-            kept,
-            row.new_column_policy or source_policy(),
-            previous_names=previous_names,
-            current_names=current_names,
-        )
-
-    def _prune(row: ExternalDataSchema) -> PrunedColumns:
+    def _next_selection(row: ExternalDataSchema, source_policy: Callable[[], str | None]) -> PrunedColumns:
+        """The row's selection after pruning the columns the source lost and applying the new-column policy."""
         pruned = prune_enabled_columns(row.enabled_columns, available_names)
+        previous_names = schema_metadata_column_names(row.schema_metadata)
+        kept = pruned.kept
+        # No policy changes a selection when the table's columns did not change.
+        if kept is None or previous_names != current_names:
+            kept = apply_new_column_policy(
+                kept,
+                row.new_column_policy or source_policy(),
+                previous_names=previous_names,
+                current_names=current_names,
+            )
         # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
         # read always projects the incremental field it is given, but not a stored primary key: some sources
         # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
         # stale selection so the next read fails on the dropped column.
         incremental_field = row.incremental_field if row.should_use_incremental_field else None
-        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
+        if pruned.removed and compute_projected_columns(kept, None, incremental_field) is None:
             return PrunedColumns(kept=row.enabled_columns, removed=[])
-        return pruned
+        return PrunedColumns(kept=kept, removed=pruned.removed)
 
     stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
     if (
         stored.get("schema_metadata") == schema_metadata
         and (not detected_primary_keys or stored.get("primary_key_columns"))
-        and not _prune(schema).removed
-        and _apply_policy(schema, schema.enabled_columns) == schema.enabled_columns
+        and _next_selection(schema, cached_source_policy).kept == schema.enabled_columns
     ):
         return []
 
@@ -2262,10 +2264,10 @@ def persist_schema_metadata(
 
     with transaction.atomic():
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        pruned = _prune(locked)
-        enabled_columns = _apply_policy(locked, pruned.kept)
-        if enabled_columns != locked.enabled_columns:
-            locked.enabled_columns = enabled_columns
+        # Read under the lock, so a source policy saved during a long discovery pass applies here.
+        pruned = _next_selection(locked, partial(_fresh_source_new_column_policy, locked))
+        if pruned.kept != locked.enabled_columns:
+            locked.enabled_columns = pruned.kept
             locked.save(update_fields=["enabled_columns", "updated_at"])
         schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)
     schema.enabled_columns = locked.enabled_columns

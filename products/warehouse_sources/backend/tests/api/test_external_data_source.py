@@ -4295,7 +4295,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(source.auto_sync_new_schemas)
         self.assertEqual(source.auto_sync_schema_patterns, ["raw_*", "billing_?"])
 
-    def test_exclude_policy_pins_the_tables_without_a_column_selection(self):
+    @parameterized.expand([("policy_changed", None), ("retried_after_a_partial_pin", "exclude")])
+    def test_exclude_policy_pins_the_tables_without_a_column_selection(self, _name: str, stored_policy: str | None):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4305,6 +4306,7 @@ class TestExternalDataSource(APIBaseTest):
             created_by=self.user,
             prefix="pg",
             job_inputs={"host": "172.16.0.0", "port": "123", "database": "db", "user": "u", "password": "p"},
+            new_column_policy=stored_policy,
         )
         metadata = {"schema_metadata": {"columns": [{"name": "id"}, {"name": "email"}]}}
         unselected, selected, overridden = (
@@ -4328,6 +4330,51 @@ class TestExternalDataSource(APIBaseTest):
         for schema, expected in ((unselected, ["id", "email"]), (selected, ["id"]), (overridden, None)):
             schema.refresh_from_db()
             self.assertEqual(schema.enabled_columns, expected, schema.name)
+
+    def test_new_column_policy_needs_editor_access_to_the_tables_that_follow_it(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="pg",
+            job_inputs={"host": "172.16.0.0", "port": "123", "database": "db", "user": "u", "password": "p"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="pg_customers", team=self.team, format="Parquet", url_pattern="s3://bucket/customers"
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="customers",
+            table=table,
+            sync_type_config={"schema_metadata": {"columns": [{"name": "id"}]}},
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "table-viewer@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"new_column_policy": "exclude"},
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        source.refresh_from_db()
+        schema.refresh_from_db()
+        self.assertIsNone(source.new_column_policy)
+        self.assertIsNone(schema.enabled_columns)
 
     def test_update_source_rejects_a_new_column_policy_for_a_fixed_schema_source(self):
         source = self._create_external_data_source()

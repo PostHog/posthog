@@ -995,6 +995,7 @@ function ColumnsAndRowFiltersSection({
             void externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
                 enabled_columns: draftColumns,
                 row_filters: draftRowFilters,
+                new_column_policy: draftNewColumnPolicy,
                 // Unchanged masks stay out, so a column that left the source can't block the save.
                 ...(masksChanged ? { masked_columns: draftMasked } : {}),
                 ...(masksDeleteHistory ? { drop_history_table: true } : {}),

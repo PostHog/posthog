@@ -489,13 +489,21 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
 
     @parameterized.expand(
         [
-            ("one_selected_column_dropped", {}, ["id", "total"], ["id"]),
-            ("last_selected_column_dropped", {}, ["total"], ["total"]),
+            ("one_selected_column_dropped", {}, ["id", "total"], [], ["id"]),
+            ("last_selected_column_dropped", {}, ["total"], [], ["total"]),
             (
                 "last_selected_column_dropped_incremental_field_survives",
                 {"sync_type": ExternalDataSchema.SyncType.INCREMENTAL},
                 ["total"],
                 [],
+                [],
+            ),
+            (
+                "last_selected_column_replaced_under_include",
+                {"new_column_policy": "include"},
+                ["total"],
+                [("note", "text", True)],
+                ["note"],
             ),
         ]
     )
@@ -504,6 +512,7 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
         _name: str,
         schema_fields: dict,
         enabled_columns: list[str],
+        added_columns: list[tuple[str, str, bool]],
         expected_enabled_columns: list[str],
     ) -> None:
         source = self._make_source()
@@ -511,7 +520,7 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
         ExternalDataSchema.objects.filter(id=schema_id).update(enabled_columns=enabled_columns, **schema_fields)
         update_sync_type_config_keys(schema_id, self.team.pk, updates={"incremental_field": "id"})
 
-        schema = self._discover(source, [("id", "integer", False)])
+        schema = self._discover(source, [("id", "integer", False), *added_columns])
 
         assert schema.enabled_columns == expected_enabled_columns
 

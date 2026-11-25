@@ -701,9 +701,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     "new_column_policy": "This source's tables have a fixed set of columns, so it has no new-column policy."
                 }
             )
-        new_column_policy_changed = (
-            "new_column_policy" in validated_data and validated_data["new_column_policy"] != instance.new_column_policy
-        )
 
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
@@ -1050,7 +1047,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     )
         cast(Any, updated_source)._connection_warning = connection_warning
 
-        if new_column_policy_changed:
+        # Also when the value is unchanged, so retrying a save that failed before every table was pinned finishes it.
+        if "new_column_policy" in validated_data:
             pin_columns_for_exclude_policy(instance.team_id, updated_source.id)
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -1550,6 +1548,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Runs for both PUT and PATCH.
+        instance = cast(ExternalDataSource, self.get_object())
+        if "new_column_policy" in request.data and request.data["new_column_policy"] != instance.new_column_policy:
+            # The policy rewrites the column selection of every table that follows the source.
+            self._assert_can_write_schemas(
+                ExternalDataSchema.objects.filter(
+                    team_id=self.team_id, source_id=instance.id, new_column_policy__isnull=True
+                )
+                .exclude(deleted=True)
+                .select_related("table", "source")
+            )
         try:
             return super().update(request, *args, **kwargs)
         except SharedCredentialsError as error:
