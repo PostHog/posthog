@@ -71,8 +71,9 @@ def _extract_access_token(integration: OrganizationIntegration) -> str:
 def proxy_endpoint_label(path: str) -> str:
     if path in ALLOWED_VERCEL_PATHS:
         return f"/v1/installations/{{id}}{path}"
-    # Anything else matched an allowlisted prefix, and the billing service chooses the rest of the path.
-    return "/v1/installations/{id}/billing/invoices/{id}/*"
+    # The billing service chooses the path after an allowlisted prefix, so only the prefix goes into the label.
+    prefix = next((prefix for prefix in ALLOWED_VERCEL_PATH_PREFIXES if path.startswith(prefix)), "/")
+    return f"/v1/installations/{{id}}{prefix}{{id}}/*"
 
 
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
