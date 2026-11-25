@@ -157,6 +157,9 @@ def stalled_schema_queryset(
         )
         .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .exclude(status__in=SELF_REPORTING_STATUSES)
+        # The lock activity stands these runs down before a job exists, so no stamp moves. Only an
+        # explicit False counts, as in `acquire_v3_pipeline_lock_activity`; Django keeps NULL rows here.
+        .exclude(team__organization__is_active=False)
         # cdc_halted is excluded in `find_stalled_schemas` in Python, not
         # here: a JSON key lookup against a schema whose `sync_type_config` does not have that
         # key evaluates to SQL NULL, and `.exclude()` compiles to `NOT (...)` — NOT NULL is NULL,
