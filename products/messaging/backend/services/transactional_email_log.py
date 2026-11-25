@@ -101,8 +101,6 @@ _TRACKING_REASONS = {
     "untracked_reason": EMAIL_UNTRACKED_REASON,
     "clicks_untracked_reason": EMAIL_CLICKS_UNTRACKED_REASON,
 }
-# The worker marks the sent row of an email that went out with tracking off. A send with clicks off can never record a
-# click, so the Impact tab leaves it out of the sends nobody clicked.
 _OPENS_OFF = "status = 'sent' AND reason = %(untracked_reason)s"
 _CLICKS_OFF = "status = 'sent' AND reason IN (%(untracked_reason)s, %(clicks_untracked_reason)s)"
 

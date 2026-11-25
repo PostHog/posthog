@@ -37,7 +37,6 @@ EMAIL_ENGAGEMENT_STATUSES = ("opened", "clicked")
 # The email worker marks a `sent` row with this reason when the email went out with open and click tracking off,
 # so it can never record an open or a click.
 EMAIL_UNTRACKED_REASON = "untracked"
-# The marker for an email that went out with opens tracked and click tracking off, so it can never record a click.
 EMAIL_CLICKS_UNTRACKED_REASON = "clicks_untracked"
 # The reason a reader shows for a status row. The tracking markers are no failure, so the email log and the status API
 # hide them, and they still show any other reason a `sent` row carries.

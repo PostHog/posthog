@@ -80,7 +80,7 @@ describe('buildDeliverySteps', () => {
         ],
         [
             'click tracking off, so it can never record a click',
-            email('delivered', ['queued', 'sent', 'delivered', 'opened'], true, { opens: true, clicks: false }),
+            email('delivered', ['queued', 'sent', 'delivered', 'opened'], false, { opens: true, clicks: false }),
             ['sent:done', 'delivered:done', 'opened:done', 'clicked:untracked'],
         ],
         [

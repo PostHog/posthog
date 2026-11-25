@@ -97,25 +97,7 @@ describe('ImpactFunnelCard', () => {
     })
 
     it.each([
-        [
-            'every click went untracked',
-            { opened: 0, clicked: 0, untracked: 10 },
-            'No clicks were recorded, because every send in this period went out with tracking off.',
-            '',
-        ],
         ['no tracked send was clicked', { clicked: 0 }, 'No clicks were recorded in this period.', ''],
-        [
-            'every send went untracked but an open was recorded',
-            { opened: 1, clicked: 0, untracked: 10 },
-            'No clicks were recorded, because every send in this period went out with click tracking off.',
-            '',
-        ],
-        [
-            'every send went out with click tracking off',
-            { clicked: 0, clicks_untracked: 10 },
-            'No clicks were recorded, because every send in this period went out with click tracking off.',
-            '',
-        ],
         [
             'no clicked send could be followed',
             { clicked: 2 },
@@ -144,6 +126,40 @@ describe('ImpactFunnelCard', () => {
             )
         }
     )
+
+    it.each([
+        [
+            'every send went untracked',
+            { opened: 0, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with tracking off.',
+        ],
+        [
+            'every send went untracked but an open was recorded',
+            { opened: 1, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+        [
+            'every send went out with click tracking off',
+            { clicks_untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+    ])('says why no send is compared when %s', async (_, counts, reason) => {
+        answer = [
+            200,
+            {
+                ...IMPACT,
+                clicked: 0,
+                not_clicked: 0,
+                ...counts,
+                after_click: { sends: 0, converted: 0 },
+                without_click: { sends: 0, converted: 0 },
+            },
+        ]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        expect((await screen.findByText(reason)).closest('p')).toHaveTextContent(new RegExp(`^${reason}$`))
+    })
 
     it('says why no conversion is counted when no send in either group could be followed', async () => {
         answer = [

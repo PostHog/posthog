@@ -430,8 +430,6 @@ class TransactionalEmailLogEvent:
     reason: str | None
 
 
-# What a sent email went out with. Both read true until its sent status arrives, and for an email sent before PostHog
-# recorded them.
 @frozen
 class TransactionalEmailTracking:
     opens: bool

@@ -85,8 +85,14 @@ describe('emailImpactLogic', () => {
 
         expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
         expect(capture.mock.calls.filter(([name]) => name === 'transactional email impact loaded')).toEqual([
-            ['transactional email impact loaded', { has_event: false, days: 30, has_untracked_sends: false }],
-            ['transactional email impact loaded', { has_event: true, days: 30, has_untracked_sends: false }],
+            [
+                'transactional email impact loaded',
+                { has_event: false, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: false },
+            ],
+            [
+                'transactional email impact loaded',
+                { has_event: true, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: false },
+            ],
         ])
     })
 

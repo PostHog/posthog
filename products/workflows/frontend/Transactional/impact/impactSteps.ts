@@ -46,7 +46,7 @@ function sendsNote(count: number, off: string, uncounted: string): string | null
 export function untrackedSendsNote(impact: TransactionalEmailImpactApi): string | null {
     const notes = [
         sendsNote(impact.untracked, 'tracking', 'opens and clicks'),
-        sendsNote(impact.clicks_untracked, 'click tracking', 'clicks'),
+        sendsNote(clicksUntracked(impact), 'click tracking', 'clicks'),
     ].filter((note): note is string => note !== null)
     return notes.length > 0 ? notes.join(' ') : null
 }
@@ -104,8 +104,12 @@ function everySendUntracked(impact: TransactionalEmailImpactApi): boolean {
     return nothingRecorded && impact.untracked > 0 && impact.untracked >= impact.sent
 }
 
-function everySendClicksOff(impact: TransactionalEmailImpactApi): boolean {
-    const clicksOff = impact.untracked + impact.clicks_untracked
+function clicksUntracked(impact: TransactionalEmailImpactApi): number {
+    return impact.clicks_untracked ?? 0
+}
+
+export function everySendClicksOff(impact: TransactionalEmailImpactApi): boolean {
+    const clicksOff = impact.untracked + clicksUntracked(impact)
     return impact.clicked === 0 && clicksOff > 0 && clicksOff >= impact.sent
 }
 
