@@ -43,6 +43,7 @@ export function QuillTimeSensitiveAuthenticationModal({
         passkey2FALoading,
         passkeysAvailable,
         totpAvailable,
+        reauthenticationPrompt,
     } = useValues(timeSensitiveAuthenticationLogic)
     const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
         useActions(timeSensitiveAuthenticationLogic)
@@ -61,13 +62,17 @@ export function QuillTimeSensitiveAuthenticationModal({
             {/* Matches the Lemon re-auth modal's layer, so the prompt opens above any modal that triggered it. */}
             <DialogContent className="[--quill-z-modal:1169]" overlayClassName="[--quill-z-overlay:1169]">
                 <DialogHeader>
-                    <DialogTitle>Re-authenticate for security</DialogTitle>
+                    <DialogTitle>{reauthenticationPrompt?.title ?? 'Re-authenticate for security'}</DialogTitle>
                 </DialogHeader>
                 <DialogBody>
                     <div className="flex flex-col gap-4">
                         <Text size="xs" render={<p className="m-0" />}>
-                            Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just
-                            to ensure you are you!
+                            {reauthenticationPrompt?.description ?? (
+                                <>
+                                    Before accessing and changing sensitive settings, we ask you
+                                    to&nbsp;re-authenticate. Just to ensure you are you!
+                                </>
+                            )}
                         </Text>
 
                         {precheckResponseLoading ? (

@@ -1,9 +1,15 @@
+import { execFile } from 'child_process'
+import { readFileSync } from 'fs'
 import http from 'http'
 import net, { AddressInfo } from 'net'
+import path from 'path'
+import { pathToFileURL } from 'url'
+import { promisify } from 'util'
 
 import { defaultConfig } from '~/common/config/config'
 
-import { PROBE_TIMEOUT_MS, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
+import { startProbeProcess } from '../environment/probe-process'
+import { PROBE_TIMEOUT_MS, ProbeFailure, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
@@ -11,6 +17,8 @@ const POSTGRES = defaultConfig.DATABASE_URL!
 const UNREACHABLE_POSTGRES = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
 const VALKEY = { host: '127.0.0.1', port: 6379 }
 const RUNNER_BLOCKS_MS = 2100
+const HELD_SOCKETS = 200
+const TSX = pathToFileURL(require.resolve('tsx')).href
 
 const busyFor = (ms: number): void => {
     const until = performance.now() + ms
@@ -54,15 +62,15 @@ describe('dependency watch', () => {
         return { 'provider-edge': providerEdge, postgres }
     }
 
-    const watched = async (
-        probes: Probes,
+    const watching = async (
+        failing: () => Promise<ProbeFailure[]>,
         runnerBlocksMs = 0
     ): Promise<{ losses: DependencyLoss[]; reason?: string }> => {
         const startedAt = Date.now()
         const saturating = runnerBlocksMs > 0 ? setInterval(() => busyFor(runnerBlocksMs), 5) : undefined
         try {
-            const check = (): ReturnType<typeof failedProbes> => {
-                const checking = failedProbes(probes)
+            const check = (): Promise<ProbeFailure[]> => {
+                const checking = failing()
                 busyFor(runnerBlocksMs)
                 return checking
             }
@@ -74,21 +82,243 @@ describe('dependency watch', () => {
         }
     }
 
-    it('names a harness limit at the step when the runner is too busy to hear healthy dependencies', async () => {
-        const { reason } = await watched(edgeAndPostgres(POSTGRES), RUNNER_BLOCKS_MS)
+    const watched = (probes: Probes, runnerBlocksMs = 0): ReturnType<typeof watching> =>
+        watching(() => failedProbes(probes), runnerBlocksMs)
+
+    const watchedFromProcess = async (
+        edgeUrl: string,
+        postgresUrl: string,
+        runnerBlocksMs = 0
+    ): ReturnType<typeof watching> => {
+        const probes = startProbeProcess({
+            edgeUrl,
+            postgresUrl,
+            sesValkey: VALKEY,
+            only: ['provider-edge', 'postgres'],
+        })
+        try {
+            return await watching(() => probes.check(), runnerBlocksMs)
+        } finally {
+            probes.close()
+        }
+    }
+
+    it('hears Postgres from its own process, and the edge the busy runner hosts as unheard, not gone', async () => {
+        const { losses } = await watchedFromProcess(edge.url, POSTGRES, RUNNER_BLOCKS_MS)
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['provider-edge unheard'])
+    }, 30_000)
+
+    it('names dependencies that went away from its own process, with their step and error', async () => {
+        const { reason } = await watchedFromProcess(unavailableUrl, UNREACHABLE_POSTGRES)
 
         expect(reason).toMatch(
-            /^the runner's event loop was too busy to check provider-edge in the 320x step, postgres in the 320x step \(busy \d+% of the check\), a harness limit: the run cannot tell whether they stayed up$/
+            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\), provider-edge in the 320x step \(http:\/\/127\.0\.0\.1:\d+\/_health answered 503\)$/
         )
     }, 30_000)
 
-    it('names a dependency that went away while the runner was idle, with its step and error', async () => {
-        const { reason } = await watched(edgeAndPostgres(UNREACHABLE_POSTGRES))
+    it('checks the provider edge over one kept-alive connection', async () => {
+        let connections = 0
+        const healthy = http.createServer((_request, response) => response.writeHead(200).end())
+        healthy.on('connection', () => connections++)
+        const probes = startProbeProcess({
+            edgeUrl: `http://127.0.0.1:${await listening(healthy)}`,
+            postgresUrl: POSTGRES,
+            sesValkey: VALKEY,
+            only: ['provider-edge'],
+        })
+        try {
+            const failures = [await probes.check(), await probes.check()]
 
-        expect(reason).toMatch(
-            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\)$/
+            expect({ failures, connections }).toEqual({ failures: [[], []], connections: 1 })
+        } finally {
+            probes.close()
+            healthy.close()
+        }
+    }, 30_000)
+
+    it('keeps the dependency credentials off the command line of its probe process', async () => {
+        const postgresUrl = 'postgres://posthog:scenario-probe-secret@127.0.0.1:1/posthog'
+        const probes = startProbeProcess({ edgeUrl: undefined, postgresUrl, sesValkey: VALKEY, only: [] })
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+
+            expect(readFileSync(`/proc/${probes.pid}/cmdline`, 'utf8')).not.toContain('scenario-probe-secret')
+        } finally {
+            probes.close()
+        }
+    }, 30_000)
+
+    it('names a harness limit when the run host has no file descriptor left to start the probe process', async () => {
+        const watch = `
+            const { openSync } = require('fs')
+            const { startProbeProcess } = require(${JSON.stringify(require.resolve('../environment/probe-process'))})
+            const { watchDependencies, dependencyReasonOf } = require(${JSON.stringify(require.resolve('./dependency-watch'))})
+            const probes = startProbeProcess({ edgeUrl: undefined, postgresUrl: '', sesValkey: { host: '', port: 0 } })
+            try {
+                for (;;) openSync('/dev/null', 'r')
+            } catch {}
+            watchDependencies(() => probes.check(), 60_000)
+                .stop()
+                .then((losses) => process.stdout.write(dependencyReasonOf(losses, []) ?? 'no loss', () => process.exit(0)))
+        `
+        const { stdout } = await promisify(execFile)(
+            'bash',
+            ['-c', 'ulimit -n 256 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, watch],
+            { cwd: path.join(__dirname, '../../..') }
         )
+
+        expect(stdout).toMatch(
+            /^the run host ran out of file descriptors to check health check at \S+ \(the probe process failed: spawn \S+ EMFILE\), a harness limit/
+        )
+    }, 30_000)
+
+    it('names a harness limit when the run host has no local port left to check a dependency', async () => {
+        const noPort = Object.assign(new Error('connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)'), {
+            code: 'EADDRNOTAVAIL',
+        })
+
+        const held = await Promise.all(
+            Array.from({ length: HELD_SOCKETS }, async () => {
+                const socket = net.connect(silentPort, '127.0.0.1')
+                await new Promise((resolve) => socket.once('connect', resolve))
+                return socket
+            })
+        )
+        try {
+            const { losses, reason } = await watched({ 'provider-edge': () => Promise.reject(noPort) })
+
+            expect({ reason, held: losses[0].sockets?.[`ESTAB 127.0.0.1:${silentPort}`] }).toEqual({
+                reason: 'the run host ran out of local ports to check provider-edge in the 320x step (connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)), a harness limit: the run cannot tell whether it stayed up',
+                held: HELD_SOCKETS,
+            })
+        } finally {
+            held.forEach((socket) => socket.destroy())
+        }
     })
+
+    const NO_PORT = 'connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)'
+    const REFUSED = 'connect ECONNREFUSED 127.0.0.1:4566'
+
+    const HELD = { 'ESTAB 127.0.0.1:9': 3 }
+    const noPort = (sockets?: Record<string, number>): ProbeFailure => ({
+        name: 'provider-edge',
+        reason: NO_PORT,
+        unanswered: false,
+        hostLimit: 'local ports',
+        ...(sockets ? { sockets } : {}),
+    })
+    const refused: ProbeFailure = { name: 'provider-edge', reason: REFUSED, unanswered: false }
+    const timedOut: ProbeFailure = {
+        name: 'provider-edge',
+        reason: 'connect to 127.0.0.1:4566 timed out',
+        unanswered: true,
+    }
+    const exited = new Error('the probe process exited with SIGKILL')
+    const hostLimitReason = `the run host ran out of local ports to check provider-edge in the 320x step (${NO_PORT}), a harness limit: the run cannot tell whether it stayed up`
+
+    it.each([
+        {
+            title: 'the host limit, not the timeout of its busy confirming check',
+            attempts: [[noPort(HELD)], [timedOut]],
+            expected: { reason: hostLimitReason, sockets: HELD },
+        },
+        {
+            title: 'the refusal of a dependency that went away, not the host limit of its confirming check',
+            attempts: [[refused], [noPort()]],
+            expected: {
+                reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+                sockets: undefined,
+            },
+        },
+        {
+            title: 'the sockets of the first check when the confirming check hit the limit without them',
+            attempts: [[noPort(HELD)], [noPort()]],
+            expected: { reason: hostLimitReason, sockets: HELD },
+        },
+        {
+            title: 'the refusal, never a recovery, when the probe process failed on the confirming check',
+            attempts: [[refused], exited, []],
+            expected: {
+                reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+                sockets: undefined,
+            },
+        },
+        {
+            title: 'the busy timeout, never a loss, when the probe process failed on a quiet confirming check',
+            attempts: [[timedOut], exited, []],
+            expected: {
+                reason: expect.stringMatching(
+                    /^the runner's event loop was too busy to check provider-edge in the 320x step \(busy \d+% of the check\)/
+                ),
+                sockets: undefined,
+            },
+        },
+    ])('quotes $title', async ({ attempts, expected }) => {
+        const scripted: (ProbeFailure[] | Error)[] = [...attempts]
+        // A probe check keeps the runner busy, and a failed probe process leaves it idle until the failure arrives.
+        const next = async (): Promise<ProbeFailure[]> => {
+            const attempt = scripted.shift() ?? []
+            if (attempt instanceof Error) {
+                await new Promise((resolve) => setTimeout(resolve, 50))
+                throw attempt
+            }
+            busyFor(200)
+            return attempt
+        }
+
+        const { losses, reason } = await watching(next)
+
+        expect({ reason, sockets: losses.find(({ name }) => name === 'provider-edge')?.sockets }).toEqual(expected)
+    })
+
+    it('keeps a probe process whose answer waited while the runner was blocked past the deadline', async () => {
+        const probes = startProbeProcess(
+            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['postgres'] },
+            5_000
+        )
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+            const answering = probes.pid
+
+            const checking = probes.check()
+            busyFor(6_000)
+
+            await expect(checking).resolves.toEqual([])
+            expect(probes.pid).toEqual(answering)
+        } finally {
+            probes.close()
+        }
+    }, 30_000)
+
+    it.each([
+        ['stopped answering', false, 'the probe process did not answer within 8000 ms'],
+        ['exited during a check', true, 'the probe process exited with SIGKILL'],
+    ])(
+        'answers from a fresh probe process after the last one %s',
+        async (_how, exits, failure) => {
+            const probes = startProbeProcess(
+                { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+                8_000
+            )
+            try {
+                await expect(probes.check()).resolves.toEqual([])
+                const stuck = probes.pid!
+                process.kill(stuck, 'SIGSTOP')
+                const checking = probes.check()
+                if (exits) {
+                    process.kill(stuck, 'SIGKILL')
+                }
+
+                await expect(checking).rejects.toThrow(failure)
+                await expect(probes.check()).resolves.toEqual([])
+                expect(probes.pid).not.toEqual(stuck)
+            } finally {
+                probes.close()
+            }
+        },
+        40_000
+    )
 
     it('names a harness limit when a busy Redis check runs out its budget without an answer', async () => {
         const silentValkey = dependencyProbes(edge.url, POSTGRES, { host: '127.0.0.1', port: silentPort })[

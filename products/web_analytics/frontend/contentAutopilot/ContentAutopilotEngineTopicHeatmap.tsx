@@ -9,6 +9,7 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { EngineTopicCell, EngineTopicGrid, EngineTopicRow } from './promptsOverview'
+import { sameTopic } from './utils'
 
 // One fill per heat step, lowest rate first. Each is mixed from one token over the card, so the text on it keeps
 // the theme's text color in light and dark mode. The classes are spelled out because Tailwind only emits the
@@ -96,7 +97,7 @@ export const ContentAutopilotEngineTopicHeatmap = ({
                     dataSource={grid.rows}
                     rowKey="topic"
                     columns={columns}
-                    rowStatus={(row) => (row.topic === selectedTopic ? 'highlighted' : null)}
+                    rowStatus={(row) => (sameTopic(row.topic, selectedTopic) ? 'highlighted' : null)}
                     rowClassName="cursor-pointer"
                     onRow={(row) => ({ onClick: () => onSelectTopic(row.topic) })}
                     emptyState="No topics yet"

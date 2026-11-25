@@ -2109,6 +2109,46 @@ def scout_enable_refusal_for_product(
     return None
 
 
+@frozen
+class ScoutSchedule:
+    """Roughly when a product's scout last looked at its surface and when it looks next."""
+
+    # The last dispatch or pre-check. A dispatch can still end without a run, for example over quota.
+    last_checked_at: datetime | None
+    # None before the first run, while the scout is paused, and when a cron schedule or a backoff decides it.
+    next_check_at: datetime | None
+
+
+def scout_schedule_for_product(*, team_id: int, skill_name: str) -> ScoutSchedule | None:
+    """The scout's last check and estimated next one, or None when the project has no config for it.
+
+    A pre-check that skips the run still counts as a check, because the scout looked and found nothing new.
+    """
+    config = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .only(
+            "enabled",
+            "last_run_at",
+            "last_precheck_at",
+            "run_interval_minutes",
+            "run_cron_schedule",
+            "background_backoff_level",
+        )
+        .first()
+    )
+    if config is None:
+        return None
+    checks = [moment for moment in (config.last_run_at, config.last_precheck_at) if moment is not None]
+    on_plain_interval = config.enabled and not config.run_cron_schedule and not config.background_backoff_level
+    next_check_at = (
+        config.last_run_at + timedelta(minutes=config.run_interval_minutes)
+        if on_plain_interval and config.last_run_at is not None
+        else None
+    )
+    return ScoutSchedule(last_checked_at=max(checks) if checks else None, next_check_at=next_check_at)
+
+
 def scout_status_for_product(*, team_id: int, skill_name: str) -> str | None:
     """The scout config's status for the skill, or None when the project has no config for it."""
     return (

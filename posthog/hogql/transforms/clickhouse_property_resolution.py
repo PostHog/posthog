@@ -57,8 +57,10 @@ from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
     is_grouped,
+    needs_stored_json,
     visit_after_grouping,
 )
+from posthog.hogql.transforms.property_types import key_json_document_read
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -1345,21 +1347,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     def _native_property_document(self, document: ast.Expr) -> _OptimizableProperty | None:
         """The native property that `document` serializes, or None.
 
-        The property pass writes `ifNull(toJSONString(<property>), '')` as the document of a JSON function whose
-        first key is constant.
+        The property pass writes a `key_json_document` as the document of a JSON function whose first key is constant.
         """
-        if not (
-            isinstance(document, ast.Call)
-            and document.name == "ifNull"
-            and len(document.args) == 2
-            and isinstance(document.args[1], ast.Constant)
-            and document.args[1].value == ""
-            and isinstance(document.args[0], ast.Call)
-            and document.args[0].name == "toJSONString"
-            and len(document.args[0].args) == 1
-        ):
-            return None
-        return self._native_property(document.args[0].args[0])
+        key_read = key_json_document_read(document)
+        return None if key_read is None else self._native_property(key_read)
 
     def _native_property(self, operand: ast.Expr) -> _OptimizableProperty | None:
         """The property of a native JSON column that `operand` reads by one key, or None.
@@ -1509,6 +1500,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 return self.visit(exported_json_text)
 
         if self._in_grouped_clause:
+            if needs_stored_json(node):
+                with self._grouped_clause(False):
+                    return self.visit_call(node)
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
             comparison = _call_form_comparison(node)
