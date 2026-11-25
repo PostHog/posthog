@@ -191,6 +191,7 @@ class TestOIDCAuthentication(APILicensedTest):
         email_verified: bool | None = True,
         reauth: bool = False,
         invite_id: str | None = None,
+        code: str | None = None,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -256,7 +257,7 @@ class TestOIDCAuthentication(APILicensedTest):
                     "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
                 }
             )
-            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": code or uuid.uuid4().hex})
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
     def test_oidc_login_completes_without_storing_tokens(self, _name: str, email_verified: bool | None) -> None:
@@ -272,6 +273,24 @@ class TestOIDCAuthentication(APILicensedTest):
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
+
+    @parameterized.expand([("identical", ""), ("trailing_space", " ")])
+    def test_a_replayed_authorization_code_is_rejected(self, _name: str, padding: str) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        code = uuid.uuid4().hex
+        first = self._complete_oidc_login("member@example.com", code=code)
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+        replayed = self._complete_oidc_login("member@example.com", code=f"{code}{padding}")
+        self.assertEqual(replayed.status_code, 302)
+        query = parse_qs(urlparse(replayed["Location"]).query)
+        self.assertEqual(query["error_code"], ["social_login_failure"])
+        self.assertIn("already been used", query["error_detail"][0])
+        self.assertNotIn("_auth_user_id", self.client.session)
 
     @parameterized.expand([("first_callback", False), ("restart", True)])
     @pytest.mark.disable_mock_code_based_verifier
