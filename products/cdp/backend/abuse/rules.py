@@ -219,12 +219,18 @@ def internal_hosts(content: HogFunctionContent) -> frozenset[str]:
     return frozenset(canonicalize_host(host) for host in _hosts_in(_texts(content)) if _is_internal(host))
 
 
-def fetches_internal_host(content: HogFunctionContent) -> bool:
-    """Whether a literal `fetch` URL in the code names an internal host anywhere in it. An input value with a local URL
-    can be message text or a body field, but a literal `fetch` URL is code that sends a request. A URL in its query
-    counts, because a redirect through a public host can carry the request to an internal one. The search reads the
-    raw source, so a `fetch` in a comment also counts, which errs toward alerting."""
-    return any(_is_internal(host) for host in _hosts_in(_fetch_literals(content.hog)))
+def code_may_request_internal_host(content: HogFunctionContent) -> bool:
+    """Whether the code names an internal host and can send a request there. Only code whose every request is a
+    literal `fetch` to a URL that names no internal host is known not to: a variable, an alias, a helper or a comment
+    between `fetch` and its URL can carry a host from anywhere in the code to a request. A URL in a literal's query
+    counts, because a redirect through a public host can carry the request to an internal one. Code that does not
+    parse can send anywhere."""
+    if not any(_is_internal(host) for host in _hosts_in([content.hog])):
+        return False
+    requests = _requests_of(content)
+    if requests is None:
+        return True
+    return not requests.only_literal_fetches or any(_is_internal(host) for host in _hosts_in(requests.literal_urls))
 
 
 def has_outbound_call(content: HogFunctionContent) -> bool:
@@ -1104,11 +1110,7 @@ def _request_targets(content: HogFunctionContent, url_inputs: frozenset[str] | N
     if content.type != "destination":
         return
     yield from _strings(list(_all_inputs(content, url_inputs)))
-    yield from _fetch_literals(content.hog)
-
-
-def _fetch_literals(hog: str) -> Iterator[str]:
-    return (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(hog))
+    yield from (literal.group(1) or literal.group(2) or "" for literal in _FETCH_LITERAL.finditer(content.hog))
 
 
 def _texts(content: HogFunctionContent, input_keys: frozenset[str] | None = None) -> Iterator[str]:

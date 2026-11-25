@@ -70,7 +70,7 @@ class RuleSetAsideReason(StrEnum):
     """Why a rule hit neither alerts nor blocks. The hit is still reported."""
 
     # An input or the code names a local URL that may never be requested, such as a link in a chat message or a page
-    # URL sent as a body field. Without a literal `fetch` to an internal host, only an SSRF score from the alert
+    # URL sent as a body field. Unless the code can request a host it names, only an SSRF score from the alert
     # threshold up shows that a request goes there. New accounts are left out, because they are where abuse starts.
     LOW_SSRF_SCORE = "low_ssrf_score"
 
@@ -436,14 +436,14 @@ def _score(
         set_aside=set_aside,
         secret_internal_host=secret_internal_host,
         set_aside_rules=_set_aside_rules(
-            rule_hits, rules.fetches_internal_host(content), secret_internal_host, verdict, scoring
+            rule_hits, rules.code_may_request_internal_host(content), secret_internal_host, verdict, scoring
         ),
     )
 
 
 def _set_aside_rules(
     rule_hits: tuple[rules.Rule, ...],
-    fetches_internal_host: bool,
+    code_requests_internal_host: bool,
     secret_internal_host: bool,
     verdict: AbuseVerdict | None,
     scoring: _Scoring,
@@ -453,7 +453,7 @@ def _set_aside_rules(
     reaches it."""
     if (
         scoring.account_tier is AccountTier.NEW
-        or fetches_internal_host
+        or code_requests_internal_host
         or secret_internal_host
         or verdict is None
         or verdict.state_truncated
@@ -500,8 +500,8 @@ def _cache_entry(
     scores set aside and whether a secret input names an internal host. Keeping all of them means a secret change that
     matches a rule, adds a call or hides an internal host from the model scores the function again, while the cache
     holds nothing more about a secret value than the event does. The account tier changes whether a moderate score or
-    an internal host rule alerts, so an account that changes tier scores again on its next save. Whether the code
-    fetches an internal host literally follows from the content hash. Enabling a function that was scored while
+    an internal host rule alerts, so an account that changes tier scores again on its next save. Whether the code can
+    request an internal host follows from the content hash. Enabling a function that was scored while
     disabled reports it again, so a probe that starts running alerts as enabled."""
     reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
     entry = (
