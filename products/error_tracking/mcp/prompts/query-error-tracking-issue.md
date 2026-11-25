@@ -30,3 +30,5 @@ Use `query-error-tracking-issue-events` with the same `issueId` only when the us
 When the user asks to track the issue in an external tool, use `error-tracking-external-references-link` to link an issue or GitHub pull request that already exists, or `error-tracking-external-references-create` to create a new issue.
 
 When `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.
+
+Self-driving may already hold an investigation report on this issue. When investigating, call `self-driving-status-get` once. When Self-driving is active, search `inbox-reports-list` for a report on it. When it is not active, tell the user and give them the activation link from that result.

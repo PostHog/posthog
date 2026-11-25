@@ -31,3 +31,4 @@ Use `dateRange` for occurrence times and `firstSeenAfter` for when an issue firs
 - Use `query-error-tracking-issue` with `issueId` to inspect one issue.
 - Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.
 - If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.
+- Self-driving may already hold an investigation report on these issues. When triaging, call `self-driving-status-get` once. When Self-driving is active, search `inbox-reports-list` for reports on the issues. When it is not active, tell the user and give them the activation link from that result.
