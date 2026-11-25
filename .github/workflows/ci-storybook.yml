@@ -198,7 +198,9 @@ jobs:
 
             - name: Detect Visual Review baseline-only push
               id: baseline_push
-              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              # With the commit status as the gate, Visual Review commits no baseline, and a
+              # bot push of the file alone must not turn a head with pending changes green.
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && vars.VISUAL_REVIEW_REPORT_NO_RUN != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
