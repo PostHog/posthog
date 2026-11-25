@@ -196,6 +196,8 @@ tools:
             investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams. Use
             the returned pricing_reset_dates to locate pricing resets; these organization-wide usage dates can differ
             from the subscription renewal date.
+        exclude_params:
+            - organization_id
         param_overrides:
             team_ids:
                 input_schema: BillingTeamIdsSchema
@@ -334,6 +336,8 @@ tools:
             admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific
             projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing
             access; for cost (spend) breakdowns call billing-spend-get.
+        exclude_params:
+            - organization_id
         param_overrides:
             team_ids:
                 input_schema: BillingTeamIdsSchema

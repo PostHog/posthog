@@ -1325,7 +1325,28 @@ export type BillingListParams = {
      */
     include_forecasting?: boolean | null
     /**
-     * Explicit organization to refresh after payment.
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
+}
+
+export type BillingCouponsOverviewRetrieveParams = {
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
+}
+
+export type BillingCreditsOverviewRetrieveParams = {
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
+}
+
+export type BillingGetInvoicesRetrieveParams = {
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
      */
     organization_id?: string
 }
@@ -1351,6 +1372,10 @@ export type BillingSpendRetrieveParams = {
      * @nullable
      */
     interval?: string | null
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
     /**
      * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
      * @minimum 1
@@ -1404,6 +1429,10 @@ export type BillingSpendExportRetrieveParams = {
      */
     interval?: string | null
     /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
+    /**
      * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
      * @minimum 1
      * @maximum 1000
@@ -1455,6 +1484,10 @@ export type BillingUsageRetrieveParams = {
      * @nullable
      */
     interval?: string | null
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
     /**
      * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
      * @minimum 1
@@ -1508,6 +1541,10 @@ export type BillingUsageExportRetrieveParams = {
      */
     interval?: string | null
     /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
+    /**
      * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
      * @minimum 1
      * @maximum 1000
@@ -1536,6 +1573,13 @@ export type BillingUsageExportRetrieveParams = {
      * @nullable
      */
     usage_types?: string | null
+}
+
+export type BillingUsageTeamOptionsRetrieveParams = {
+    /**
+     * Organization to read. Defaults to the organization of the user's current project.
+     */
+    organization_id?: string
 }
 
 export type BillingAlertsListParams = {
