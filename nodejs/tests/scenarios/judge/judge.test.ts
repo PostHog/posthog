@@ -507,7 +507,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
                 missing: [],
                 extra: [UNIT],
             },
@@ -553,7 +553,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 2,
-                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
                 missing: [UNIT],
                 extra: [UNIT],
             },
@@ -682,34 +682,24 @@ describe('judge', () => {
             }
         }
 
-    it.each<[string, JournalEntry, () => Promise<unknown>, Partial<RunEvidence>, string]>([
+    it.each<[string, JournalEntry, () => Promise<unknown>, string]>([
         [
-            'by one job in a run whose janitor reset a job',
+            'by one job',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a']),
-            { janitorResets: 1 },
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset 1 job in the run: a lease reclaim or a retry inside the job)`,
-        ],
-        [
-            'by one job in a run that missed a scrape of the janitor',
-            offered(),
-            sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a']),
-            { janitorUnsampled: true },
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and a scrape of the janitor failed: a lease reclaim or a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
         ],
         [
             'by two jobs',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
-            {},
             `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
         ],
         [
             'by two jobs, one of them twice',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
-            {},
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 jobs sent it, one of them more than once: a replay before the queue, and the janitor reset no job: a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 jobs sent it, one of them more than once: a replay before the queue, and a lease reclaim or a retry inside the job)`,
         ],
         [
             'by two jobs, both twice',
@@ -720,8 +710,7 @@ describe('judge', () => {
                 ['flow-1', 'invocation-b'],
                 ['flow-1', 'invocation-b']
             ),
-            {},
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 4 times, expected 1 (2 jobs sent it, 2 of them more than once: a replay before the queue, and the janitor reset no job: a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 4 times, expected 1 (2 jobs sent it, 2 of them more than once: a replay before the queue, and a lease reclaim or a retry inside the job)`,
         ],
         [
             'from the flow that resent, not the flow whose one request copies the recipient',
@@ -730,29 +719,26 @@ describe('judge', () => {
                 await deliver(UNIT, 'email', 'flow-1', [ADDRESS], 'invocation-a')
                 await sendsFrom(['flow-2', 'invocation-b'], ['flow-2', 'invocation-c'])()
             },
-            {},
             `${UNIT} email to ${ADDRESS} from flow-2: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
         ],
         [
             'never, when one request copies the recipient',
             offered(),
             () => deliver(UNIT, 'email', 'flow-1', [ADDRESS]),
-            { janitorResets: 1 },
             `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
         ],
         [
             'never, when two flows send once each',
             offered({ accepted: false, transportError: 'socket hang up' }),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-2', 'invocation-b']),
-            {},
             `${UNIT} email to ${ADDRESS}: accepted 2 times, expected 1`,
         ],
-    ])('no_loss names the path that resent a unit %s', async (_story, entry, act, resets, violation) => {
+    ])('no_loss names the path that resent a unit %s', async (_story, entry, act, violation) => {
         judge.record(entry)
         await act()
         await judge.converge(20, NEVER_ABORTED)
 
-        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, { ...NO_RESETS, ...resets })
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
         expect(result.violation).toBe(violation)
     })
@@ -809,7 +795,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
                 missing: [],
                 extra: [UNIT],
             },

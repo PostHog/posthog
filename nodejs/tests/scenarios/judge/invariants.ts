@@ -15,7 +15,6 @@ export type JudgeEvidence = {
     fetchRetries: number
     resident?: ResidentBacklog
     janitorResets: number
-    janitorUnsampled?: boolean
     boundary: RunBoundary
 }
 
@@ -382,18 +381,9 @@ const effectsOf = (request: DeliveryRecord): Effect[] =>
           ])
     ).map((recipient) => ({ recipient, flowId: request.flowId, request }))
 
-type Resets = Pick<JudgeEvidence, 'janitorResets' | 'janitorUnsampled'>
+const REPEAT = 'a lease reclaim or a retry inside the job'
 
-function repeatOf({ janitorResets, janitorUnsampled }: Resets): string {
-    if (janitorResets > 0) {
-        return `the janitor reset ${plural(janitorResets, 'job')} in the run: a lease reclaim or a retry inside the job`
-    }
-    return janitorUnsampled
-        ? 'a scrape of the janitor failed: a lease reclaim or a retry inside the job'
-        : 'the janitor reset no job: a retry inside the job'
-}
-
-function resentPathOf(sends: readonly Effect[], resets: Resets): string | undefined {
+function resentPathOf(sends: readonly Effect[]): string | undefined {
     const requests = [...new Set(sends.map(({ request }) => request))]
     const byJob = Map.groupBy(requests, ({ invocationId }) => invocationId)
     if (requests.length < 2 || byJob.has(undefined)) {
@@ -404,10 +394,10 @@ function resentPathOf(sends: readonly Effect[], resets: Resets): string | undefi
         return `${byJob.size} jobs sent it: a replay before the queue`
     }
     if (byJob.size === 1) {
-        return `one job sent it each time, and ${repeatOf(resets)}`
+        return `one job sent it each time: ${REPEAT}`
     }
     const repeaters = repeated === 1 ? 'one of them' : `${repeated} of them`
-    return `${byJob.size} jobs sent it, ${repeaters} more than once: a replay before the queue, and ${repeatOf(resets)}`
+    return `${byJob.size} jobs sent it, ${repeaters} more than once: a replay before the queue, and ${REPEAT}`
 }
 
 const requestsOf = (sends: readonly Effect[]): number => new Set(sends.map(({ request }) => request)).size
@@ -485,7 +475,7 @@ export const noLoss: InvariantDefinition = {
                             actionId,
                             recipient,
                             excess,
-                            path: resent && resentPathOf(resent[1], evidence),
+                            path: resent && resentPathOf(resent[1]),
                             ...(resent
                                 ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
                                 : { accepted: sends.length, expected: max }),

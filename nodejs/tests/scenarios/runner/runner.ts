@@ -44,7 +44,6 @@ import {
     Sampler,
     baselineOf,
     janitorResetsOf,
-    janitorUnsampledOf,
     measure,
     startSampler,
 } from '../judge/measurements'
@@ -683,11 +682,7 @@ export function createRunner(
                 const checked = await judge.check(
                     card.invariants,
                     card.gates,
-                    {
-                        janitorResets,
-                        janitorUnsampled: janitorUnsampledOf(sampled),
-                        unobserved: unobservedValvesOf(valves.timeline(), driveWindow),
-                    },
+                    { janitorResets, unobserved: unobservedValvesOf(valves.timeline(), driveWindow) },
                     signal
                 )
                 const { unread } = judge.evidence()

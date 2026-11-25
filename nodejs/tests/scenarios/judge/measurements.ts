@@ -94,9 +94,6 @@ const increaseAcrossReplicas = (replicas: readonly MetricSample[][], read: Count
 
 const JANITOR: z.infer<typeof CdpRole> = 'cdp-cyclotron-v2-janitor'
 
-export const janitorUnsampledOf = ({ missed }: Pick<Sampled, 'missed'>): boolean =>
-    missed.some(({ role }) => role === JANITOR)
-
 export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
     const replicas = replicasOf(byRole(samples).get(JANITOR) ?? [])
     return increaseAcrossReplicas(replicas, ({ janitorStalled }) => janitorStalled, sampledFrom)

@@ -15,7 +15,6 @@ import {
     QueueSample,
     baselineOf,
     janitorResetsOf,
-    janitorUnsampledOf,
     measure,
     phasesOf,
     sampleOf,
@@ -632,13 +631,6 @@ describe('measurements', () => {
         ['counts none without a janitor sample', [sample(0, -60, 1), sample(5, -60, 1)], 0],
     ])('%s', (_story, samples, resets) => {
         expect(janitorResetsOf({ samples, sampledFrom: FROM })).toBe(resets)
-    })
-
-    it.each<[string, string, boolean]>([
-        ['marks the reset count unsampled when a janitor scrape failed', 'cdp-cyclotron-v2-janitor', true],
-        ['ignores a failed scrape of another role', 'cdp-api', false],
-    ])('%s', (_story, role, unsampled) => {
-        expect(janitorUnsampledOf({ missed: [{ role, replica: 0, at: 1000 }] })).toBe(unsampled)
     })
 
     it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([

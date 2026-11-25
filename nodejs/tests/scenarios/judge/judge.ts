@@ -50,7 +50,7 @@ export type InvariantResult = {
     extra?: string[]
 }
 
-export type RunEvidence = Pick<JudgeEvidence, 'janitorResets' | 'janitorUnsampled'> & Pick<RunBoundary, 'unobserved'>
+export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'> & Pick<RunBoundary, 'unobserved'>
 
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
@@ -275,15 +275,7 @@ export function createJudge({
                 ...(unread !== undefined && { unread }),
                 ...(unsettled !== undefined && { unsettled }),
             }
-            const evidence = {
-                journal,
-                truth,
-                fetchRetries,
-                resident,
-                janitorResets: run.janitorResets,
-                janitorUnsampled: run.janitorUnsampled,
-                boundary,
-            }
+            const evidence = { journal, truth, fetchRetries, resident, janitorResets: run.janitorResets, boundary }
             return invariants.map(({ name, params }) => {
                 const definition = INVARIANTS.find((invariant) => invariant.name === name)
                 if (!definition) {
