@@ -19,7 +19,7 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 const WORKFLOW_ID = 'wf-transactional-category'
 const EMAIL_NODE_ID = 'transactional_email'
 
-const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow => ({
+const transactionalEmailWorkflow = (messageCategoryId: string | null, sensitive?: boolean): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Usage spike detected',
     actions: [
@@ -43,6 +43,7 @@ const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow =
                 template_id: 'template-email',
                 message_category_id: messageCategoryId,
                 message_category_type: 'transactional',
+                ...(sensitive ? { sensitive } : {}),
                 inputs: {
                     email: {
                         templating: 'liquid',
@@ -85,9 +86,9 @@ const categories = [
     { id: 'cat-billing', key: 'billing', name: 'Billing', category_type: 'transactional' },
 ]
 
-const emailStepMocks = (messageCategoryId: string | null): Parameters<typeof useMocks>[0] => ({
+const emailStepMocks = (messageCategoryId: string | null, sensitive?: boolean): Parameters<typeof useMocks>[0] => ({
     get: {
-        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId),
+        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, sensitive),
         '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
         '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
     },
@@ -144,12 +145,18 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         expect(emailStep?.config).toMatchObject({ run_link_tag_enabled: false })
     })
 
-    it('hides the connect clicks to sessions switch while tracking is off', async () => {
-        useMocks(emailStepMocks('cat-billing'))
+    it.each([
+        ['while tracking is off', false, true],
+        ['on a step saved as sensitive', true, false],
+    ])('hides the connect clicks to sessions switch %s', async (_, sensitive, turnTrackingOff) => {
+        useMocks(emailStepMocks('cat-billing', sensitive))
         const { container } = await renderEmailStep()
 
-        fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
+        if (turnTrackingOff) {
+            fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
+        }
 
+        expect(container.querySelector('[data-attr="workflow-email-tracking-toggle"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]')).not.toBeInTheDocument()
     })
 })

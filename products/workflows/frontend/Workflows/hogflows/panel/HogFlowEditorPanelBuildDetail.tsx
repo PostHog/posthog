@@ -182,7 +182,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     data-attr="workflow-email-tracking-toggle"
                                 />
                             </div>
-                            {action.config.tracking_enabled !== false && (
+                            {action.config.tracking_enabled !== false && action.config.sensitive !== true && (
                                 <>
                                     <div className="flex gap-2 justify-between items-center px-2 py-1">
                                         <LemonLabel info={RUN_LINK_TAG_INFO}>Connect clicks to sessions</LemonLabel>
