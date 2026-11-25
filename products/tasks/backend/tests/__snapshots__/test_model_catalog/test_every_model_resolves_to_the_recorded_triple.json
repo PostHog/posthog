@@ -212,7 +212,7 @@
           "supports_fast_mode": false
         },
         "claude-haiku-5-5": {
-          "cost_multiplier": "0.05×",
+          "cost_multiplier": "0.25×",
           "offered": true,
           "reasoning_efforts": [
             "low",

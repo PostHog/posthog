@@ -88,7 +88,7 @@ describe("RunBudgetGuard", () => {
     ["deepseek-ai/deepseek-v4-flash-0731", 0.418],
     ["deepseek-ai/deepseek-v4.1-flash-1017", 1.507],
     ["deepseek-ai/deepseek-v4.1-flash-1017-fast", 3.014],
-    ["claude-haiku-5-5", 0.61],
+    ["claude-haiku-5-5", 3.05],
   ])(
     "prices %s below opus, the way the gateway bills it",
     (model, perMillionEach) => {

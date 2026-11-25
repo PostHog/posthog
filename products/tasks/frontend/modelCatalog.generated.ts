@@ -400,11 +400,11 @@ export const MODELS: readonly CatalogModel[] = [
         reasoningEfforts: ['low', 'medium', 'high'],
         label: 'Claude Haiku 5.5',
         cost: {
-            inputPerMtok: 0.1,
-            outputPerMtok: 0.5,
+            inputPerMtok: 0.5,
+            outputPerMtok: 2.5,
         },
-        costMultiplier: '0.05×',
-        costSummary: 'Input $0.10 · Output $0.50 per 1M tokens',
+        costMultiplier: '0.25×',
+        costSummary: 'Input $0.50 · Output $2.50 per 1M tokens',
     },
     {
         id: 'claude-sonnet-4-6',

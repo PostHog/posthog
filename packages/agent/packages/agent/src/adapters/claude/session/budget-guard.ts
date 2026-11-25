@@ -96,8 +96,9 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   },
   {
+    // The over-100k-prompt rates. Most agent calls pass 100k, so the guard never estimates low.
     match: /haiku-5-5/i,
-    price: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    price: { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 },
   },
   {
     match: /haiku/i,
