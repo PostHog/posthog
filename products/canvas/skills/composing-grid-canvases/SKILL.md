@@ -1,5 +1,8 @@
 ---
 name: composing-grid-canvases
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Compose PostHog grid canvases — widget grids (including the user's home canvas) built from
   reusable component canvases. Use when a task asks to add, fill, move, resize, or remove a widget

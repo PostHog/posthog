@@ -11,6 +11,7 @@ description: >
   "tell me if Y spikes", "score X on a schedule", "measure quality of Y",
   "what do I do with this scout report", "calibrate/review my scout fleet".
 metadata:
+  audience: customer
   owner_team: signals
 ---
 

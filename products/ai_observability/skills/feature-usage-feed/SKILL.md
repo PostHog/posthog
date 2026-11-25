@@ -1,5 +1,7 @@
 ---
 name: feature-usage-feed
+metadata:
+  audience: internal
 description: >
   Set up an LLM-judge evaluation that extracts canonical use cases for a
   PostHog feature at scale and streams the results to a Slack channel as a

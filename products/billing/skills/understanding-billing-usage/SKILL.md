@@ -1,5 +1,7 @@
 ---
 name: understanding-billing-usage
+metadata:
+  audience: customer
 description: >
   Explains PostHog billing usage and spend from the customer's visible Billing
   MCP tools. Use when the user asks why usage or spend is high, which product or

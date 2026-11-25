@@ -1,5 +1,7 @@
 ---
 name: linking-errors-to-traces
+metadata:
+  audience: customer
 description: >
   Links a PostHog error occurrence or session's errors to OpenTelemetry traces, logs with the
   same trace ID, and Session Replay. Use when the user asks for trace or span IDs on an error,

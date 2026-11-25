@@ -4,6 +4,7 @@ description: >
   Keeps findings that affect correctness, security, data, API compatibility, or performance.
   Drops speculative issues and style suggestions before publishing.
 metadata:
+  audience: internal
   owner_team: review_hog
   skill_type: validation_criteria
 ---

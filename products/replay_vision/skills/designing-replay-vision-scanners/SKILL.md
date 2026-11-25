@@ -1,5 +1,7 @@
 ---
 name: designing-replay-vision-scanners
+metadata:
+  audience: customer
 description: "Designs a Replay Vision scanner that produces trustworthy observations: one visible question per scanner, a type chosen from the answer shape, a query that selects only sessions able to answer it, a prompt that demands on-screen proof and allows no or inconclusive, a model picked by the cost of a wrong answer, and a first-batch test pass. Sizing and the create call stay in creating-replay-vision-scanners.\nTRIGGER when: user wants to design, draft, or improve a Replay Vision scanner or its prompt, asks what to scan for, asks why a scanner returns vague observations, or asks an agent to propose scanners for a product.\nDO NOT TRIGGER when: the question and prompt are settled and the job is to size and create (use creating-replay-vision-scanners), the scanner targets one experiment (use scanning-experiments-with-replay-vision), or the job is to read existing observations (use exploring-replay-vision-observations)."
 ---
 

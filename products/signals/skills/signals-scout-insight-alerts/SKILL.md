@@ -12,6 +12,7 @@ allowed_tools:
   - emit_report
   - edit_report
 metadata:
+  audience: scout
   owner_team: signals
   scope: insight_alerts
 ---

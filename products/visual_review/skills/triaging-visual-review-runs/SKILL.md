@@ -1,5 +1,8 @@
 ---
 name: triaging-visual-review-runs
+metadata:
+  audience: customer
+  feature_flag: visual-review
 description: >
   Inspects PostHog Visual Review (VR) runs that gate PR merges with screenshot regression checks.
   Use when the user mentions "visual review", "VR", "snapshot diff", "screenshot test", "storybook regression",

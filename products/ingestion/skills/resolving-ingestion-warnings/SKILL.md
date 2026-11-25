@@ -1,5 +1,7 @@
 ---
 name: resolving-ingestion-warnings
+metadata:
+  audience: customer
 description: >
   Diagnoses and resolves PostHog ingestion warnings — problems recorded while ingesting events (dropped events, rejected person merges, oversized payloads, invalid data).
   Use when a user asks why events are missing, dropped, or undercounted, why identify/alias calls don't work or accounts stay duplicated, why person or group properties aren't updating or profiles look inflated, why recordings have gaps, heatmaps are empty, LLM token counts are missing, why cookieless events vanish, or whenever the `ingestion_warning` health check fires.

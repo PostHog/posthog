@@ -1,5 +1,8 @@
 ---
 name: building-react-quill-canvases
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Author the React + Quill implementation of a PostHog canvas: the single-component contract, the
   allowed imports, Quill (PostHog's design system) component and composition rules, theme-aware

@@ -1,0 +1,13 @@
+{
+    "instrument-error-tracking": {},
+    "instrument-feature-flags": {},
+    "instrument-integration": {},
+    "instrument-llm-analytics": {},
+    "instrument-logs": {},
+    "instrument-metrics": {
+        "feature_flag": "metrics"
+    },
+    "instrument-product-analytics": {},
+    "instrument-reverse-proxy": {},
+    "instrument-tracing": {}
+}

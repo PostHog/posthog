@@ -16,6 +16,7 @@ compatibility: >
   against references/structured-output.schema.json.
 scout-structured-output-schema: references/structured-output.schema.json
 metadata:
+  audience: scout
   owner_team: signals
   scope: scout_memory
 ---

@@ -1,5 +1,7 @@
 ---
 name: building-a-dashboard
+metadata:
+  audience: customer
 description: >
   Build a new dashboard, or update an existing one, from a set of insights — the same job the in-app
   assistant does with its upsert-dashboard tool, but over MCP. Use when a user asks to create a dashboard,

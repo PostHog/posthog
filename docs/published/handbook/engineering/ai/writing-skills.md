@@ -47,12 +47,28 @@ Choose the location by the work the skill requires:
 - `.agents/skills/` contains skills that require a checkout of the PostHog repository to develop, test, or debug PostHog itself. These skills stay in the repository.
 
 Staff-only access does not determine placement.
-For example, `checking-deploy-timing` works through MCP without a checkout, so it stays in the published catalog.
+For example, only PostHog staff can use `checking-deploy-timing`, but it works through MCP without a checkout. So it lives under `products/` and is marked `audience: internal`.
 A skill that changes a customer's application also stays published; it does not require PostHog source code.
 
 If a skill mixes customer diagnosis with PostHog development, keep the diagnosis published and move the development guidance into an existing internal skill or reference.
 For example, `debugging-surveys` covers configuration and responses, while the internal `survey-sdk-audit` skill covers changes across the backend and SDKs.
 Published skills must not require internal skill files to complete their main workflow.
+
+### Who the skill is for
+
+Every product skill is published, but the MCP server's `learn` command does not serve every one.
+Each product skill states its audience under `metadata` in its frontmatter, and `hogli lint:skills` fails without one:
+
+- `audience: customer`, for a skill a customer's agent can follow with only what a customer has.
+- `audience: scout`, for the instructions that a scheduled scout run follows.
+- `audience: internal`, for any other PostHog job or for staff.
+
+`learn` serves `customer` and `scout` skills.
+Add `feature_flag: <flag>` under `metadata` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill.
+
+The MCP server reads the served skills from `services/mcp/src/generated/served-skills.json`.
+When a header changes who gets a skill, run `hogli lint:skills -- --fix` and commit that file.
+CODEOWNERS requires a review from `team-context-and-mcp` for it.
 
 `hogli init:skill` scaffolds published product skills.
 For internal guidance, extend an existing `.agents/skills/` entry where possible.
@@ -419,7 +435,7 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 
 Distribution is automatic – once a skill lands on `master`,
 `ci-agent-skills.yml` builds `dist/skills.zip` and publishes it as the `agent-skills-latest` GitHub release.
-The MCP server's `learn` catalog serves skills from that release, so agents connected to the MCP server get the "how" and the "what" together.
+The MCP server's `learn` catalog serves the [listed skills](#who-the-skill-is-for) from that release, so agents connected to the MCP server get the "how" and the "what" together.
 
 One downstream repository pulls that release, together with context-mill's, in a daily sync at 12:00 UTC:
 
@@ -431,6 +447,7 @@ One downstream repository pulls that release, together with context-mill's, in a
 PostHog Desktop and the Tasks sandbox pull `agent-skills-latest` themselves (see the table below).
 You don't need to handle distribution yourself:
 a merged skill reaches the MCP server and the mirror without any further step.
+The list is part of the MCP server, so a new entry takes effect when the server deploys.
 
 ### Context-mill skills override this repo's
 

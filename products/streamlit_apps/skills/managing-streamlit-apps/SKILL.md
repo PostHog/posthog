@@ -1,5 +1,8 @@
 ---
 name: managing-streamlit-apps
+metadata:
+  audience: customer
+  feature_flag: streamlit-apps
 description: Create, deploy, and operate Streamlit apps in PostHog via the streamlit-apps MCP tools — create an app, set its source, read and patch its code, start and stop its sandbox, poll status, list versions, delete, and share the app with humans via its PostHog URL. Use when asked to "create a streamlit app", "deploy a data app", "ship a dashboard app", "restart/stop my app", "why is my app not running", or "give me a link to the app".
 ---
 

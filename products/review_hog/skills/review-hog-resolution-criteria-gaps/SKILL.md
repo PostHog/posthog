@@ -4,6 +4,7 @@ description: >
   Fixes should-fix and must-fix bugs and missing functionality. Leaves wording, documentation,
   and style suggestions to the author.
 metadata:
+  audience: internal
   owner_team: review_hog
   skill_type: resolution_criteria
 ---

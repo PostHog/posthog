@@ -1,5 +1,8 @@
 ---
 name: setting-up-warehouse-properties
+metadata:
+  audience: customer
+  feature_flag: customer-analytics-csp
 description: >
   Populate person or group properties from a data warehouse table or materialized view, so warehouse columns
   become properties usable in feature flags, cohorts, and insights. Use when the user wants to "sync my Postgres

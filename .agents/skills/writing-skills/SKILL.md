@@ -11,11 +11,31 @@ Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md
 
 - Use `products/<product>/skills/` for work through PostHog tools, APIs, or customer code. These skills are published.
 - Use `.agents/skills/` for work that requires a checkout of the PostHog repository. These skills stay in the repository.
-- Staff-only access is not a reason to move a skill. An MCP workflow without a checkout stays published.
+- A skill that only PostHog staff can use still goes in `products/<product>/skills/` when it needs no checkout. Mark it `audience: internal`, as the next section describes.
 - For mixed skills, keep customer diagnosis published and move PostHog development steps into an existing internal skill or reference.
 - Published workflows must not depend on internal skill files.
 
 `hogli lint:skills` checks both locations. The scaffold, build, and sync commands below apply to published product skills.
+
+## Say who the skill is for
+
+Every skill under `products/*/skills/` states its audience in its frontmatter. `hogli lint:skills` fails without one.
+
+```yaml
+metadata:
+  audience: customer
+```
+
+- `customer`: a customer's agent can follow the skill with only what a customer has: no staff access, no PostHog checkout, and no tool or product that customers cannot use.
+- `scout`: the instructions that a scheduled scout run follows.
+- `internal`: any other PostHog job, or staff.
+
+The MCP `learn` command serves `customer` and `scout` skills. Two optional fields under `metadata` limit who gets a served skill:
+
+- `feature_flag: <flag>`: only callers with that flag. Set it when the product's MCP tools need the flag.
+- `consumers: slack`: only the PostHog-run agents you name (`slack`, `posthog_ai`), separated by commas.
+
+When a header changes who gets a skill, run `hogli lint:skills -- --fix` and commit [`services/mcp/src/generated/served-skills.json`](../../../services/mcp/src/generated/served-skills.json). CODEOWNERS requires a review from `team-context-and-mcp` for that file.
 
 ## Quick workflow
 

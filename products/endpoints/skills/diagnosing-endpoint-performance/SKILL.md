@@ -1,5 +1,7 @@
 ---
 name: diagnosing-endpoint-performance
+metadata:
+  audience: customer
 description: >
   Diagnose why a PostHog endpoint is slow or expensive and propose a concrete fix — bump the cache
   TTL, enable materialisation, restructure variables, or rewrite the query. Use when the user says

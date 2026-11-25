@@ -1,5 +1,7 @@
 ---
 name: managing-path-cleaning-rules
+metadata:
+  audience: customer
 description: 'Inspects URL paths and proposes, tests, orders, and applies project-level path cleaning rules so dynamic segments (numeric IDs, UUIDs, slugs, dates) collapse into readable aliases. Use when the user says "clean the paths", "normalize URLs", "group similar pages", "too many distinct paths", "/users/123 and /users/456 are the same page", "set up path cleaning", or asks why a Web analytics or Paths breakdown is fragmented across thousands of nearly-identical URLs. Covers regex syntax (re2), alias placeholder convention, rule ordering, the test workflow, and applying rules via the path-cleaning-rules-update MCP tool.'
 ---
 
