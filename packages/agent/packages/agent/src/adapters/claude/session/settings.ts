@@ -98,6 +98,13 @@ function matchesGlob(pattern: string, filePath: string, cwd: string): boolean {
   });
 }
 
+/** `exec` keeps the bare sub-tool, so an approval stored before the split
+ *  still applies to `exec` and to nothing else. */
+function postHogExecApprovalKey(toolName: string, subTool: string): string {
+  const dispatcher = toolName.slice(toolName.lastIndexOf("__") + 2);
+  return dispatcher === "exec" ? subTool : `${dispatcher}:${subTool}`;
+}
+
 function matchesRule(
   rule: ParsedRule,
   toolName: string,
@@ -473,29 +480,35 @@ export class SettingsManager {
     }
   }
 
-  hasPostHogExecApproval(subTool: string): boolean {
+  hasPostHogExecApproval(toolName: string, subTool: string): boolean {
     return (
-      this.mergedSettings.posthogApprovedExecTools?.includes(subTool) ?? false
+      this.mergedSettings.posthogApprovedExecTools?.includes(
+        postHogExecApprovalKey(toolName, subTool),
+      ) ?? false
     );
   }
 
   /**
-   * Persists an approved PostHog MCP `exec` sub-tool (e.g. `experiment-update`)
+   * Persists an approved PostHog MCP sub-tool (e.g. `experiment-update`)
    * to the local settings file so future calls skip the prompt. Mirrors
    * `addAllowRules` — serialised via `writeMutex`, atomic temp-file + rename.
    */
-  async addPostHogExecApproval(subTool: string): Promise<void> {
+  async addPostHogExecApproval(
+    toolName: string,
+    subTool: string,
+  ): Promise<void> {
     if (!subTool) return;
+    const key = postHogExecApprovalKey(toolName, subTool);
     if (!this.initialized) await this.initialize();
     await this.writeMutex.acquire();
     try {
       const filePath = this.getLocalSettingsPath();
       const existing = await readSettingsFileForUpdate(filePath);
       const current = new Set(existing.posthogApprovedExecTools ?? []);
-      if (current.has(subTool)) {
+      if (current.has(key)) {
         return;
       }
-      current.add(subTool);
+      current.add(key);
       const next: ClaudeCodeSettings = {
         ...existing,
         posthogApprovedExecTools: Array.from(current),

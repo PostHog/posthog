@@ -425,18 +425,27 @@ describe("createPreToolUseHook", () => {
   const posthogExecPermissionRegex =
     /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i;
 
-  test.each([
-    "mcp__posthog__exec",
-    "mcp__posthog__exec-read",
-    "mcp__posthog__exec-write",
-  ])(
-    "defers destructive %s sub-tool to canUseTool via ask",
-    async (toolName) => {
-      const settingsManager = buildSettingsManagerStub({
-        decision: "allow",
-        rule: toolName,
-        source: "allow",
-      });
+  test.each(
+    [
+      "mcp__posthog__exec",
+      "mcp__posthog__exec-read",
+      "mcp__posthog__exec-write",
+    ].flatMap((toolName) => [
+      [
+        toolName,
+        "an allow rule",
+        {
+          decision: "allow" as const,
+          rule: toolName,
+          source: "allow" as const,
+        },
+      ],
+      [toolName, "no rule", { decision: "ask" as const }],
+    ]) as [string, string, PermissionCheckResult][],
+  )(
+    "defers destructive %s sub-tool to canUseTool via ask with %s",
+    async (toolName, _rule, permissionCheck) => {
+      const settingsManager = buildSettingsManagerStub(permissionCheck);
       const hook = createPreToolUseHook(
         settingsManager,
         logger,

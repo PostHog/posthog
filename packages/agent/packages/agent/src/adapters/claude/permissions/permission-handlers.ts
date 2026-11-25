@@ -693,7 +693,7 @@ async function handlePostHogExecApprovalFlow(
   ) {
     if (response.outcome.optionId === "allow_always") {
       try {
-        await session.settingsManager.addPostHogExecApproval(subTool);
+        await session.settingsManager.addPostHogExecApproval(toolName, subTool);
       } catch (error) {
         context.logger.warn(
           "[canUseTool] Failed to persist PostHog exec approval",
@@ -859,7 +859,7 @@ export async function canUseTool(
           session.posthogExecPermissionRegex,
         )
       ) {
-        if (session.settingsManager.hasPostHogExecApproval(subTool)) {
+        if (session.settingsManager.hasPostHogExecApproval(toolName, subTool)) {
           return {
             behavior: "allow",
             updatedInput: toolInput as Record<string, unknown>,

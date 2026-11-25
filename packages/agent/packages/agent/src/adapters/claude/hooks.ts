@@ -397,14 +397,12 @@ export const createPreToolUseHook =
       );
     }
 
-    // Defer destructive PostHog exec sub-tools to canUseTool so the
-    // sub-tool gate can re-prompt. Returning `{ continue: true }` is
-    // not enough — the SDK then falls back to its default permission
-    // flow which re-checks the same allow rule. We must force "ask"
-    // so the SDK invokes canUseTool.
+    // Force "ask" so the SDK hands gated PostHog exec sub-tools to canUseTool:
+    // returning `{ continue: true }` lets an allow rule pass them, and in
+    // bypassPermissions the SDK skips canUseTool when no rule matches at all.
     if (
       posthogExecPermissionRegex &&
-      permissionCheck.decision === "allow" &&
+      permissionCheck.decision !== "deny" &&
       isPostHogExecTool(toolName)
     ) {
       const subTool = extractPostHogSubTool(toolInput);
