@@ -27,6 +27,7 @@ import {
     listRowMute,
 } from './platformAlertFormat'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
+import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
@@ -141,6 +142,11 @@ function listColumns(
                         <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
                 ),
+        },
+        {
+            width: 0,
+            render: (_, row) =>
+                row.kind === 'group' ? null : <PlatformAlertRowMenu configuration={row.configuration} />,
         },
     ]
 }
