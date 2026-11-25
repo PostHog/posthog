@@ -36,7 +36,7 @@ export function SourceFilterPreviewRecordRow({ record, noun }: SourceFilterPrevi
             </span>
             {record.malformed && (
                 <Tooltip
-                    title={`This ${noun} holds a value the filter can't read, so the filter excludes it.`}
+                    title="This item is excluded because it contains values that can't be parsed by the filter."
                     openOnClick
                 >
                     <button
