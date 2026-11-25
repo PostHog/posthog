@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, ParsingError
+from posthog.hogql.errors import ExposedHogQLError, ParsingError, TransientQueryError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -77,7 +77,7 @@ from products.data_modeling.backend.facade.api import (
     set_incremental_state,
     wrap_with_incremental_guard,
 )
-from products.data_modeling.backend.facade.modeling import ResolutionTimeoutError, bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.temporal.activities.incremental_write import (
@@ -304,7 +304,7 @@ class HogQLModelQueryError(NonReportableError):
 def _hogql_errors_as_customer_errors() -> Iterator[None]:
     try:
         yield
-    except ResolutionTimeoutError:
+    except TransientQueryError:
         raise
     except ExposedHogQLError as error:
         raise HogQLModelQueryError(str(error)) from error
