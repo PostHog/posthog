@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -59,6 +60,14 @@ class TestTraceTurnsViewSet(ClickhouseTestMixin, APIBaseTest):
         response = post_turns(self, [f"trace-{n}" for n in range(TRACE_TURNS_MAX_IDS + 1)])
 
         assert response.status_code == 400
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.ai_observability.backend.presentation.views.trace_page.ConversationReadBurstThrottle.rate",
+        new="1/minute",
+    )
+    def test_throttles_a_browser_session_past_its_budget(self, _rate_limit: MagicMock) -> None:
+        assert [post_turns(self, ["trace-1"]).status_code for _ in range(2)] == [200, 429]
 
 
 @pytest.mark.parametrize(
