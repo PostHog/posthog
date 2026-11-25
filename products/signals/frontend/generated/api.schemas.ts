@@ -13323,12 +13323,12 @@ export interface SourceFilterCatalogListApi {
 
 export interface SourceFilterPreviewRequestApi {
     /**
-     * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
      * @maxLength 100
      */
     source_product: string
     /**
-     * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
      * @maxLength 100
      */
     source_type: string
@@ -13449,6 +13449,58 @@ export interface SourceFilterPreviewResponseApi {
     passing: SourceFilterPreviewRecordApi[]
     /** The newest records that the filter excludes, at most 10. */
     excluded: SourceFilterPreviewRecordApi[]
+}
+
+export interface SourceFilterExpressionRequestApi {
+    /**
+     * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_product: string
+    /**
+     * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_type: string
+    /**
+     * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+     * @maxLength 16384
+     */
+    expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
+}
+
+export interface SourceFilterValidateResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
+    /** True when the expression can be saved as the source's filter. */
+    valid: boolean
+    /** Catalog version the expression was checked against. */
+    catalog_version: number
+    /**
+     * Why the expression is invalid, as a message for people. Null when it is valid.
+     * @nullable
+     */
+    error: string | null
 }
 
 export interface SourceSpendApi {
