@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
@@ -12,6 +13,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pyarrow as pa
 import pytest_asyncio
 import temporalio.testing
 
@@ -246,3 +248,86 @@ async def test_each_failed_materialize_attempt_is_written_to_the_run_log(
     assert failed_attempts[0]["level"] == "error"
     assert "Memory limit exceeded" in failed_attempts[0]["message"]
     assert "svc.cluster.local" not in failed_attempts[0]["message"]
+
+
+MATERIALIZE_VIEW = "products.data_modeling.backend.temporal.activities.materialize_view"
+
+
+def _stream_of_one_batch(*, then_cancel: bool):
+    def stream(*args, **kwargs):
+        async def generator():
+            yield pa.record_batch({"id": [1, 2, 3]}), [("id", "Int64")]
+            if then_cancel:
+                raise asyncio.CancelledError()
+
+        return generator()
+
+    return stream
+
+
+def _cancelled() -> unittest.mock.AsyncMock:
+    return unittest.mock.AsyncMock(side_effect=asyncio.CancelledError())
+
+
+# A StartToClose timeout reaches the activity as a cancellation inside whatever it was awaiting.
+@pytest.mark.parametrize(
+    "patches,expected",
+    [
+        pytest.param(
+            lambda: {"hogql_table": _stream_of_one_batch(then_cancel=True)},
+            ["while reading from ClickHouse", "after 1 batch and 3 rows"],
+            id="mid-stream",
+        ),
+        pytest.param(
+            lambda: {"_describe_columns": _cancelled()},
+            ["while describing the query", "after 0 batches and 0 rows", "query_id={job_id}-a1-1"],
+            id="during-describe",
+        ),
+        pytest.param(
+            lambda: {
+                "hogql_table": _stream_of_one_batch(then_cancel=False),
+                "_account_property_sync_enabled": _cancelled(),
+            },
+            ["while checking account-property sync", "after 1 batch and 3 rows"],
+            id="after-vacuum",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("minio_client")
+async def test_a_cancelled_attempt_says_where_it_stopped_in_the_run_log(
+    v2_activity_environment, queue, ateam, adag, anode, asaved_query, ajob, bucket_name, patches, expected
+):
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            )
+        )
+        stack.enter_context(unittest.mock.patch(f"{MATERIALIZE_VIEW}.LOGGER", get_logger(MATERIALIZE_VIEW)))
+        for name, replacement in patches().items():
+            stack.enter_context(unittest.mock.patch(f"{MATERIALIZE_VIEW}.{name}", replacement))
+        with pytest.raises(asyncio.CancelledError):
+            await v2_activity_environment.run(
+                materialize_view_activity,
+                MaterializeViewInputs(
+                    team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                ),
+            )
+
+    def run_log(message: dict) -> bool:
+        return message.get("log_source") == "data_modeling_run"
+
+    def is_stopped_attempt(message: dict) -> bool:
+        return run_log(message) and "Attempt 1 stopped" in message["message"]
+
+    await _wait_for_queue_entries(queue, matches=is_stopped_attempt)
+
+    messages = [m for m in (json.loads(entry.decode("utf-8")) for entry in queue.entries) if run_log(m)]
+    [stopped] = [m for m in messages if is_stopped_attempt(m)]
+    for fragment in expected:
+        assert fragment.format(job_id=ajob.id) in stopped["message"]
+    if "after 1 batch and 3 rows" in expected:
+        assert any(m["message"].startswith("Wrote batch 1: 3 rows") for m in messages)
