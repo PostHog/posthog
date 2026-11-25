@@ -389,19 +389,27 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
 
         const readSidesOf = async (rows: SessionTurnApi[], refresh: boolean): Promise<void> => {
             const projectId = String(ApiConfig.getCurrentProjectId())
-            await Promise.all(
-                turnSidesBatches(rowsToRead(rows, values.sides, refresh)).map((batch) =>
-                    readSides(
-                        'sides',
-                        batch,
-                        async (batchRows) => {
-                            const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows))
-                            return { items: turnSidesOfRows(batchRows, items) }
-                        },
-                        actions.sidesLoaded
-                    )
+            const toRead = rowsToRead(rows, values.sides, refresh)
+            if (toRead.length === 0) {
+                return
+            }
+            // Marked before the first batch goes out, so a second retry asks for no batch that still waits its turn.
+            actions.sidesRequested(toRead.map((row) => row.id))
+            // One batch at a time: a retry of every failed turn would otherwise run past the query concurrency limit.
+            for (const batch of turnSidesBatches(toRead)) {
+                await readSides(
+                    'sides',
+                    batch,
+                    async (batchRows) => {
+                        const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows))
+                        return { items: turnSidesOfRows(batchRows, items) }
+                    },
+                    actions.sidesLoaded
                 )
-            )
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+            }
         }
 
         return {
