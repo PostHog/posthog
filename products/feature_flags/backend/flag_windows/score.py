@@ -29,7 +29,12 @@ from products.experiments.backend.facade.contracts import Proportion, Proportion
 from products.experiments.backend.facade.stats import sequential_proportion_test
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, ErrorsByLastValue
-from products.feature_flags.backend.flag_windows.exposure import ConditionExposure, ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.exposure import (
+    ConditionExposure,
+    ExposureBucket,
+    ExposureCounts,
+    exposure_share,
+)
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
 
 
@@ -147,7 +152,7 @@ def score_window(
             raise ValueError(f"The score needs one-hour buckets that start on the hour, got one at {start}")
 
     exposure_since_edit = exposure[-1].since_edit if exposure else None
-    shares = {bucket.start: _share(bucket.in_bucket) for bucket in exposure}
+    shares = {bucket.start: exposure_share(bucket.in_bucket) for bucket in exposure}
     excess = _excess_by_hour(edit, hours, baseline, parameters.min_active)
 
     level_1: ProportionTestResult | None = None
@@ -254,10 +259,6 @@ def _proximity(hour: datetime, exposure_steps: Sequence[datetime], parameters: S
     if latest_step is None:
         return 0.0
     return math.exp(-(hour - latest_step) / parameters.decay)
-
-
-def _share(counts: ExposureCounts) -> float:
-    return counts.exposed / counts.with_flag if counts.with_flag else 0.0
 
 
 def _split_people(

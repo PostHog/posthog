@@ -37,7 +37,10 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonitorPRRequestApi,
+    MonitorPRResponseApi,
     MonthlyUsageApi,
+    PRBrowserPageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -202,6 +205,9 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SlackChannelScoutCreateApi,
+    SlackChannelScoutCreateResponseApi,
+    SlackScoutChannelSourcesApi,
     SourceFilterCatalogListApi,
     SourceFilterPreviewRequestApi,
     SourceFilterPreviewResponseApi,
@@ -462,6 +468,26 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     })
 }
 
+export const getSignalsMonitorPrCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/monitor_pr/`
+}
+
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreate = async (
+    projectId: string,
+    monitorPRRequestApi: MonitorPRRequestApi,
+    options?: RequestInit
+): Promise<MonitorPRResponseApi> => {
+    return apiMutator<MonitorPRResponseApi>(getSignalsMonitorPrCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(monitorPRRequestApi),
+    })
+}
+
 export const getSignalsOnboardingListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/onboarding/`
 }
@@ -591,6 +617,20 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsPullRequestsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/pull_requests/`
+}
+
+/**
+ * @summary List recent authored pull requests
+ */
+export const signalsPullRequestsList = async (projectId: string, options?: RequestInit): Promise<PRBrowserPageApi> => {
+    return apiMutator<PRBrowserPageApi>(getSignalsPullRequestsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2193,7 +2233,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string, params?: Signals
 }
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, and `search` to narrow it to the scouts matching a substring of either name.
+ * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, `search` to narrow it to the scouts matching a substring of either name, and `source_product` to narrow it to the scouts another product stood up, such as Slack channel scouts.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -3588,6 +3628,45 @@ export const signalsScoutSuggestionsRefresh = async (
     })
 }
 
+export const getSignalsSlackChannelScoutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/slack_channel_scouts/`
+}
+
+/**
+ * Create a scout that reads the messages of the given Slack channels from the data warehouse and files inbox reports about the problems and requests people raise there. A scheduled run is skipped when none of the channels has a new message.
+ * @summary Create a Slack channel scout
+ */
+export const signalsSlackChannelScoutsCreate = async (
+    projectId: string,
+    slackChannelScoutCreateApi: SlackChannelScoutCreateApi,
+    options?: RequestInit
+): Promise<SlackChannelScoutCreateResponseApi> => {
+    return apiMutator<SlackChannelScoutCreateResponseApi>(getSignalsSlackChannelScoutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(slackChannelScoutCreateApi),
+    })
+}
+
+export const getSignalsSlackChannelScoutsChannelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/slack_channel_scouts/channels/`
+}
+
+/**
+ * The Slack data warehouse sources of this project and the channels each one syncs.
+ * @summary List Slack channels for scouts
+ */
+export const signalsSlackChannelScoutsChannelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SlackScoutChannelSourcesApi> => {
+    return apiMutator<SlackScoutChannelSourcesApi>(getSignalsSlackChannelScoutsChannelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsSourceConfigsListUrl = (projectId: string, params?: SignalsSourceConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -3742,7 +3821,7 @@ export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string)
 }
 
 /**
- * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
  * @summary Preview a source filter
  */
 export const signalsSourceConfigsFilterPreviewCreate = async (

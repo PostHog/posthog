@@ -31,6 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -6026,21 +6027,32 @@ class TestValidateCredentialsErrorMapping:
         # The raw libpq wording is debugging detail, not something the wizard should show.
         assert "server does not support SSL" not in error
 
-    def test_ssh_gateway_session_error_maps_to_actionable_message(self, source, config):
-        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
-        # it must be replaced with concrete guidance rather than surfaced verbatim.
-        err = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+    @pytest.mark.parametrize(
+        ("err", "expected_fragments"),
+        [
+            # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+            # it must be replaced with concrete guidance rather than surfaced verbatim.
+            (BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"), ("SSH gateway", "firewall")),
+            # A server that closed before its banner is a customer-side condition, not a bug to report.
+            (SSHGatewayClosedBeforeBannerError(), ("IP addresses", "MaxStartups")),
+        ],
+    )
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, source, config, err, expected_fragments):
         with (
             mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
             mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
             mock.patch.object(source, "get_schemas", side_effect=err),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as capture,
         ):
             valid, error = source.validate_credentials(config, team_id=1)
 
         assert valid is False
         assert error is not None
         assert "Could not establish session to SSH gateway" not in error
-        assert "SSH gateway" in error and "firewall" in error
+        assert all(fragment in error for fragment in expected_fragments)
+        capture.assert_not_called()
 
     def test_ssh_forward_failure_maps_to_actionable_message(self, source, config):
         err = BaseSSHTunnelForwarderError("An error occurred while opening tunnels.")

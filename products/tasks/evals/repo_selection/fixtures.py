@@ -19,7 +19,7 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-FIXTURE_VERSION = "2026-11-18.1"
+FIXTURE_VERSION = "2026-11-24.1"
 
 ORG = "fernhill"
 BOT_MENTION = "@PostHog"
@@ -803,6 +803,42 @@ SELECTOR_CASES: tuple[SelectorCase, ...] = (
         ),
         expected=SelectorExpectation(abstain=True),
         category="no_match",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "named_repository_not_a_candidate",
+            "Names a repository outside the catalog; the storefront only shares a generic signup form path.",
+            _ask(
+                f"@PostHog the signup form in {ORG}/loyalty-app rejects email addresses with a plus sign, "
+                "can you fix it"
+            ),
+        ),
+        expected=SelectorExpectation(abstain=True),
+        category="named_non_candidate",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "named_issue_url_not_a_candidate",
+            "Links an issue in a repository outside the catalog; the storefront only shares a checkout pay button.",
+            _ask(
+                f"@PostHog can you fix https://github.com/{ORG}/rewards-kiosk/issues/42? The kiosk charges "
+                "twice when someone taps pay twice"
+            ),
+        ),
+        expected=SelectorExpectation(abstain=True),
+        category="named_non_candidate",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "named_issue_url_with_candidate_code",
+            "Links an issue in a repository outside the catalog, but names a file only the API holds.",
+            _ask(
+                f"@PostHog https://github.com/{ORG}/ops-tracker/issues/17 says billing/stripe_webhooks.py "
+                "drops refund events, can you fix it"
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CORE_API,)),
+        category="named_non_candidate",
     ),
     SelectorCase(
         scenario=_scenario(

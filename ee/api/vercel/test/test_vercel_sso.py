@@ -442,27 +442,31 @@ class TestSSOUserMapping:
 
 
 class TestSSOOrganizationHandling:
-    def test_sso_redirect_adds_new_user_to_organization(self, sso_setup):
-        """
-        When a new user authenticates via SSO, the system should:
-        1. Create a new PostHog user account
-        2. Add them as a member of the installation's organization
-        3. Create the user mapping
-        4. Successfully authenticate the user
-        """
+    @pytest.mark.parametrize("email_verified", [True, False])
+    def test_sso_redirect_adds_new_user_to_organization(self, sso_setup, email_verified: bool) -> None:
         new_user_email = "newuser@example.com"
+        claims = create_user_claims(sso_setup["installation_id"], "brand_new_user", new_user_email)
+        claims.user_email_verified = email_verified
 
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
-            mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "brand_new_user", new_user_email)),
+            mock_jwt_validation(claims),
+            patch("posthog.api.email_verification.send_email_verification_code") as mock_send_email,
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        new_user = User.objects.get(email=new_user_email)
+        assert OrganizationMembership.objects.filter(user=new_user, organization=sso_setup["organization"]).exists()
+        SSOTestHelper.assert_user_mapping_created(sso_setup["installation"], "brand_new_user", new_user.pk)
+        if email_verified:
             SSOTestHelper.assert_successful_redirect(response)
-
-            new_user = User.objects.get(email=new_user_email)
-            assert OrganizationMembership.objects.filter(user=new_user, organization=sso_setup["organization"]).exists()
-
-            SSOTestHelper.assert_user_mapping_created(sso_setup["installation"], "brand_new_user", new_user.pk)
+            assert sso_setup["client"].session[SESSION_KEY] == str(new_user.pk)
+        else:
+            SSOTestHelper.assert_successful_redirect(
+                response, f"/verify_email/{new_user.uuid}?reason=vercel_sso&next=%2F"
+            )
+            assert SESSION_KEY not in sso_setup["client"].session
+            assert mock_send_email.call_args.args[0] == new_user.pk
 
     def test_sso_redirect_handles_user_with_multiple_organizations(self, sso_setup):
         """

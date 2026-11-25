@@ -138,14 +138,15 @@ def _streak(runs: int, failed_ago: timedelta) -> dict:
 @pytest.mark.django_db
 class TestAcquireV3PipelineLockActivityDeferral:
     @pytest.mark.parametrize(
-        "_name,config_extra,runs,failed_ago,expect_deferred",
+        "_name,config_extra,streak_extra,runs,failed_ago,expect_deferred",
         [
-            ("streak_at_threshold_inside_gap", {}, 5, timedelta(minutes=2), True),
-            ("long_streak_inside_capped_gap", {}, 30, timedelta(minutes=40), True),
-            ("streak_at_threshold_past_gap", {}, 5, timedelta(minutes=11), False),
-            ("long_streak_past_capped_gap", {}, 30, timedelta(minutes=61), False),
-            ("streak_below_threshold", {}, 4, timedelta(seconds=1), False),
-            ("reset_pipeline_runs_anyway", {"reset_pipeline": True}, 8, timedelta(minutes=1), False),
+            ("streak_at_threshold_inside_gap", {}, {}, 5, timedelta(minutes=2), True),
+            ("long_streak_inside_capped_gap", {}, {}, 30, timedelta(minutes=40), True),
+            ("streak_at_threshold_past_gap", {}, {}, 5, timedelta(minutes=11), False),
+            ("long_streak_past_capped_gap", {}, {}, 30, timedelta(minutes=61), False),
+            ("streak_below_threshold", {}, {}, 4, timedelta(seconds=1), False),
+            ("reset_pipeline_runs_anyway", {"reset_pipeline": True}, {}, 8, timedelta(minutes=1), False),
+            ("manual_sync_runs_anyway", {}, {"manual_run_requested": True}, 8, timedelta(minutes=1), False),
         ],
     )
     @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
@@ -160,13 +161,14 @@ class TestAcquireV3PipelineLockActivityDeferral:
         _mock_write_meta: MagicMock,
         _name: str,
         config_extra: dict,
+        streak_extra: dict,
         runs: int,
         failed_ago: timedelta,
         expect_deferred: bool,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
         mock_activity.info.return_value.workflow_id = "wf-abc-123"
-        schema = _schema_with_config({**config_extra, "failure_streak": _streak(runs, failed_ago)})
+        schema = _schema_with_config({**config_extra, "failure_streak": {**_streak(runs, failed_ago), **streak_extra}})
 
         result = acquire_v3_pipeline_lock_activity(
             AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)

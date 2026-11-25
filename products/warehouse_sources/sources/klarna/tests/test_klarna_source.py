@@ -63,7 +63,11 @@ def test_probe_rejects_non_200_success_responses(status: int) -> None:
 
 @pytest.mark.parametrize(
     ("endpoint", "incremental_field", "error_type"),
-    [("orders", None, UnknownResourceError), ("payouts", "payout_date", ValueError)],
+    [
+        ("orders", None, UnknownResourceError),
+        ("payouts", "payout_date", ValueError),
+        ("disputes", "closed_at", ValueError),
+    ],
 )
 def test_unsupported_tables_and_sync_modes_fail_before_http(
     endpoint: str, incremental_field: str | None, error_type: type[Exception]

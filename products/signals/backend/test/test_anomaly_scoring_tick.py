@@ -46,6 +46,7 @@ from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
 from products.signals.backend.anomaly_scores.config import (
+    AI_JUDGE_PROFILE,
     DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     DISABLED,
@@ -54,8 +55,11 @@ from products.signals.backend.anomaly_scores.config import (
     AnomalyScoringConfig,
     ScoringRun,
     covers_team,
+    in_rollout,
+    judges_team,
     parse_config,
     read_payload,
+    resolve_profile,
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
@@ -96,6 +100,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     StateIdentity,
     TrainedState,
     UnsupportedInsightError,
+    detector_version,
     interval_scoring,
     state_identity,
     trends_query_for,
@@ -214,6 +219,8 @@ class TestTickConfig(SimpleTestCase):
                 "first_train_insights_per_project": 0,
                 "ai_judge": {
                     "team_ids": [2, "3", True],
+                    "organization_percentage": 101,
+                    "skip_team_ids": [3, "4"],
                     "max_checks_per_insight_per_run": 100,
                     "max_checks_per_project_per_day": 0,
                 },
@@ -237,8 +244,67 @@ class TestTickConfig(SimpleTestCase):
         assert config.active_window_days == 90
         assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
         assert config.ai_judge == AIJudgeConfig(
-            team_ids=(2,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=50
+            team_ids=(2,),
+            organization_percentage=0.0,
+            skip_team_ids=(3,),
+            max_checks_per_insight_per_run=10,
+            max_checks_per_project_per_day=50,
         )
+
+    @parameterized.expand(
+        [
+            # name, listed, percentage, skipped, judged
+            ("not_listed", False, 0.0, False, False),
+            ("listed", True, 0.0, False, True),
+            ("every_organization", False, 100.0, False, True),
+            ("skip_list_wins_over_the_list", True, 0.0, True, False),
+            ("skip_list_wins_over_the_percentage", False, 100.0, True, False),
+        ]
+    )
+    def test_the_judge_profile_by_list_percentage_and_skip_list(
+        self, _name: str, listed: bool, percentage: float, skipped: bool, judged: bool
+    ) -> None:
+        team = Team(id=2, organization_id=uuid.UUID(ORGANIZATION_ID))
+        ai_judge = AIJudgeConfig(
+            team_ids=(2,) if listed else (),
+            organization_percentage=percentage,
+            skip_team_ids=(2,) if skipped else (),
+        )
+
+        assert resolve_profile(team, Insight(), ai_judge) == (AI_JUDGE_PROFILE if judged else DEFAULT_PROFILE)
+
+    @parameterized.expand([("ten_percent", 10.0), ("half", 50.0)])
+    def test_the_judge_percentage_uses_the_organization_buckets_of_scoring(self, _name: str, percentage: float) -> None:
+        organizations = [uuid.UUID(int=index) for index in range(200)]
+
+        scored = {
+            organization
+            for organization in organizations
+            if in_rollout(AnomalyScoringConfig(self_driving_organization_percentage=percentage), organization)
+        }
+        judged = {
+            organization
+            for organization in organizations
+            if judges_team(AIJudgeConfig(organization_percentage=percentage), Team(id=1, organization_id=organization))
+        }
+
+        assert judged == scored
+        assert 0 < len(judged) < len(organizations)
+
+    def test_a_deployment_override_replaces_the_whole_ai_judge_object(self) -> None:
+        payload = {
+            "enabled": True,
+            "ai_judge": {"team_ids": [2], "organization_percentage": 5},
+            "deployments": {"US": {"ai_judge": {"organization_percentage": 25}}},
+        }
+
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
+        ):
+            config = parse_config(read_payload())
+
+        assert config.ai_judge == AIJudgeConfig(organization_percentage=25.0)
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
     def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
@@ -1155,6 +1221,44 @@ class TestTrainScoreSplit(BaseTest):
         plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
         assert plan.run == ScoringRun.TRAIN
 
+    @parameterized.expand([("onto_the_judge", False, True), ("off_the_judge", True, False)])
+    def test_a_model_trained_under_one_profile_scores_under_the_other(
+        self, _name: str, judged_before: bool, judged_after: bool
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        judge = {True: AIJudgeConfig(team_ids=(self.team.id,)), False: NO_AI_JUDGE}
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at, judge[judged_before])
+        scored_at = trained_at + timedelta(days=2)
+        config = dataclasses.replace(parse_config(_SPLIT_PAYLOAD), ai_judge=judge[judged_after])
+
+        plan = plan_run(insight, self.team, load_state(self.team, insight, config.ai_judge), config, scored_at)
+        _result, scored = self._run(
+            insight, self._score_pick(insight, trained), scored_at, self.values[-6:], config.ai_judge
+        )
+
+        profile = AI_JUDGE_PROFILE if judged_after else DEFAULT_PROFILE
+        assert plan.run == ScoringRun.SCORE
+        assert {
+            (
+                event["properties"]["$anomaly_run"],
+                event["properties"]["$anomaly_profile"],
+                event["properties"]["$anomaly_detector_version"],
+                event["properties"]["$anomaly_model_id"],
+            )
+            for event in scored
+        } == {
+            (
+                "score",
+                profile.name,
+                detector_version(interval_scoring(profile, IntervalType.DAY), artifacts=True),
+                trained[-1]["properties"]["$anomaly_model_id"],
+            )
+        }
+        assert AnomalyScoringState.objects.for_team(self.team.id).filter(insight_id=insight.id).count() == 1
+
 
 _SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train_score_split": True}
 
@@ -1420,6 +1524,22 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         assert [(pick.insight_id, pick.scored_through) for pick in selection.picks] == [(due.id, watermarks)]
         assert (selection.active, selection.due_insights, selection.oldest_due_seconds) == (2, 1, 3600)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_the_selection_counts_the_enrolled_teams_that_score_with_the_judge(self) -> None:
+        judged = Team.objects.create(organization=self.organization, name="judged")
+        skipped = Team.objects.create(organization=self.organization, name="skipped")
+        for team in (judged, skipped):
+            _enable_analytics_source(team)
+        config = dataclasses.replace(
+            self._config(self.team.id, judged.id, skipped.id),
+            ai_judge=AIJudgeConfig(team_ids=(judged.id, skipped.id), skip_team_ids=(skipped.id,)),
+        )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        assert (selection.enrolled_teams, selection.ai_judge_teams) == (3, 1)
 
     @time_machine.travel(NOW, tick=False)
     def test_a_train_backlog_larger_than_the_read_leaves_room_for_scored_rows(self) -> None:
@@ -2235,6 +2355,8 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         max_concurrency=2,
         skipped_for_budget=3,
         self_driving_organization_percentage=5.0,
+        ai_judge_teams=2,
+        ai_judge=AIJudgeConfig(organization_percentage=1.0),
     )
 
     result, ran = await _run_tick(plan, statuses)
@@ -2246,7 +2368,9 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         result.skipped_for_budget,
         result.stopped_at_capacity,
         result.self_driving_organization_percentage,
-    ) == (len(started), queries, 3, stopped, 5.0)
+        result.ai_judge_teams,
+        result.ai_judge_organization_percentage,
+    ) == (len(started), queries, 3, stopped, 5.0, 2, 1.0)
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,14 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getBackgroundStepBlockReason, getPageStepBlockReason, heatmapCreationLogic } from './heatmapCreationLogic'
 
@@ -71,6 +75,24 @@ describe('heatmapCreationLogic', () => {
             ).toBe(expected)
         }
     )
+
+    // Without access control the backend requires a project admin for `app_urls`, even when the app context grants web analytics editor.
+    it.each([
+        [
+            OrganizationMembershipLevel.Member,
+            'Only project admins can change authorized URLs. Ask a project admin to do it.',
+        ],
+        [OrganizationMembershipLevel.Admin, null],
+    ])('gates authorizing the display URL at membership level %s without access control', (level, expected) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: { [AccessControlResourceType.WebAnalytics]: AccessControlLevel.Editor },
+        } as any
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, effective_membership_level: level })
+        heatmapCreationLogic.mount()
+
+        expect(heatmapCreationLogic.values.authorizationDisabledReason).toBe(expected)
+    })
 
     it('allows creation when the readiness check returns zero matching interactions', async () => {
         const logic = heatmapCreationLogic

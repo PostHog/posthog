@@ -34,7 +34,7 @@ relevant team rather than diagnosing here.
 | `view-run-history`                           | Run history for a specific materialized view                         |
 | `warehouse-suggestions-list`                 | PostHog's open deprecate / materialize / certify suggestions, if any |
 
-Filter the `data-health-issues` results to the `materialized_view` type for this audit. Use `view-list` when you need
+Filter the `data-warehouse-data-health-issues-retrieve` results to the `materialized_view` type for this audit. Use `view-list` when you need
 more than the active-failure summary (non-failing views, materialization flags, last-queried info) and
 `view-run-history` to see the run trail for a specific view.
 
@@ -58,6 +58,10 @@ Note the data-health endpoint only reports _active failures_. For views it doesn
 
 - Non-materialized views with errors (only materialized views are reported)
 - Materialized views that are healthy but unused (costing compute every run) — see Step 4
+
+`data-warehouse-data-health-issues-retrieve` needs read access to sources, views, batch exports and transformations.
+If the token lacks one of those, use `health-issues-list` (needs `health_issue:read`) with `status=active` and `kind=materialized_view_failure`
+instead. That check runs once a day, so a view that failed in the last hours may be missing.
 
 ## Workflow
 

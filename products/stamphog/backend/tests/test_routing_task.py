@@ -11,11 +11,14 @@ from django.test import override_settings
 
 from celery.exceptions import Retry
 
+from posthog.models.instance_setting import override_instance_config
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.tasks import queue_routing_after_external_review, route_pull_request_reviewers
+from products.stamphog.backend.logic.posthog_app_client import PostHogAppNotInstalled
 from products.stamphog.backend.logic.routing.claims import CLAIM_STALE_AFTER
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
@@ -31,7 +34,7 @@ from products.stamphog.backend.tasks.tasks import (
     route_reviewers_after_verdict,
     route_reviewers_safety_net,
 )
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, ROUTING_APP_SLUG, RoutingChain
+from products.stamphog.backend.tests.conftest import POSTHOG_APP_SLUG, PRODUCT_DATABASES, ROUTING_APP_SLUG, RoutingChain
 from products.stamphog.backend.tests.test_tasks import (
     _pr_payload as _review_pr_payload,
     _run_task as _run_review_task,
@@ -39,6 +42,9 @@ from products.stamphog.backend.tests.test_tasks import (
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "2002"
+# The fake mints stamphog's installation token from its installation id.
+STAMPHOG_TOKEN = f"ghs_fake_{INSTALLATION_ID}"
+POSTHOG_APP_TOKEN = "ghs_posthog_app"
 PR_NUMBER = 7
 HEAD_SHA = "head-sha-1"
 
@@ -85,8 +91,17 @@ def _setup(
     author_type: str = "User",
     with_addition: bool = True,
     changed_files: int | None = None,
+    posthog_app: bool = True,
 ) -> StamphogRepoConfig:
     chain.recorder.policy_files.update(_OWNERS_FILES)
+    if posthog_app:
+        Integration.objects.create(
+            team_id=team.id,
+            kind="github",
+            integration_id="3003",
+            config={"account": {"name": "Acme"}},
+            sensitive_config={"access_token": POSTHOG_APP_TOKEN},
+        )
     chain.recorder.register_pr(
         REPO,
         PR_NUMBER,
@@ -174,12 +189,14 @@ def _run_log_sources(team_id: int) -> dict[str, dict[str, str | None]]:
         return {row.owner: {file["path"]: file["owners_source"] for file in row.files} for row in rows}
 
 
-def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) -> None:
+def _seed_routing_comment(
+    chain: RoutingChain, repo_config: StamphogRepoConfig, app_slug: str = ROUTING_APP_SLUG
+) -> None:
     chain.recorder.issue_comments[(REPO, PR_NUMBER)] = [
         {
             "id": 555,
             "body": f"{ROUTING_COMMENT_MARKER}\nan earlier routing",
-            "user": {"login": f"{ROUTING_APP_SLUG}[bot]", "type": "Bot"},
+            "user": {"login": f"{app_slug}[bot]", "type": "Bot"},
         }
     ]
     # The earlier routing that posted the comment recorded it, which is what makes a later one delete it.
@@ -263,16 +280,84 @@ def test_routing_skips_quietly(
         assert not PullRequest.objects.for_team(team.id).filter(routing__isnull=False).exists()
 
 
+# An App can edit or delete only its own comments, so stamphog deletes a routing comment it posted
+# and the PostHog App posts the new one.
+_REPLACES_STAMPHOG_COMMENT = [("delete_comment", STAMPHOG_TOKEN), ("issue_comment", POSTHOG_APP_TOKEN)]
+_DELETES_STAMPHOG_COMMENT = [("delete_comment", STAMPHOG_TOKEN)]
+
+
 @pytest.mark.parametrize(
-    "name,answer,error,gateway,expected_users,expected_teams,expected_cut",
+    "name,answer,error,gateway,comment_app,expected_users,expected_teams,expected_cut,expected_comment_writes",
     [
         # The model cuts one owner: the other two are requested and the comment names the cut one.
-        ("one_cut", _CUT_BETA, None, True, {"carol"}, {"team-alpha"}, ["team-beta"]),
+        (
+            "one_cut",
+            _CUT_BETA,
+            None,
+            True,
+            ROUTING_APP_SLUG,
+            {"carol"},
+            {"team-alpha"},
+            ["team-beta"],
+            _REPLACES_STAMPHOG_COMMENT,
+        ),
+        (
+            "one_cut_over_a_posthog_app_comment",
+            _CUT_BETA,
+            None,
+            True,
+            POSTHOG_APP_SLUG,
+            {"carol"},
+            {"team-alpha"},
+            ["team-beta"],
+            [("issue_comment_edit", POSTHOG_APP_TOKEN)],
+        ),
         # Any model failure cuts nobody, and an earlier routing comment no longer holds.
-        ("model_error", _CUT_BETA, RuntimeError("gateway down"), True, {"carol"}, {"team-alpha", "team-beta"}, []),
-        ("unparseable_answer", "not json", None, True, {"carol"}, {"team-alpha", "team-beta"}, []),
+        (
+            "model_error",
+            _CUT_BETA,
+            RuntimeError("gateway down"),
+            True,
+            ROUTING_APP_SLUG,
+            {"carol"},
+            {"team-alpha", "team-beta"},
+            [],
+            _DELETES_STAMPHOG_COMMENT,
+        ),
+        (
+            "model_error_over_a_posthog_app_comment",
+            _CUT_BETA,
+            RuntimeError("gateway down"),
+            True,
+            POSTHOG_APP_SLUG,
+            {"carol"},
+            {"team-alpha", "team-beta"},
+            [],
+            [("delete_comment", POSTHOG_APP_TOKEN)],
+        ),
+        (
+            "unparseable_answer",
+            "not json",
+            None,
+            True,
+            ROUTING_APP_SLUG,
+            {"carol"},
+            {"team-alpha", "team-beta"},
+            [],
+            _DELETES_STAMPHOG_COMMENT,
+        ),
         # No gateway means no call, so the record names no model.
-        ("no_gateway", _CUT_BETA, None, False, {"carol"}, {"team-alpha", "team-beta"}, []),
+        (
+            "no_gateway",
+            _CUT_BETA,
+            None,
+            False,
+            ROUTING_APP_SLUG,
+            {"carol"},
+            {"team-alpha", "team-beta"},
+            [],
+            _DELETES_STAMPHOG_COMMENT,
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -281,15 +366,17 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     answer: Any,
     error: Exception | None,
     gateway: bool,
+    comment_app: str,
     expected_users: set[str],
     expected_teams: set[str],
     expected_cut: list[str],
+    expected_comment_writes: list[tuple[str, str]],
     team,
     user,
     routing_chain,
 ) -> None:
     repo_config = _setup(routing_chain, team, user)
-    _seed_routing_comment(routing_chain, repo_config)
+    _seed_routing_comment(routing_chain, repo_config, app_slug=comment_app)
     routing_chain.cut_model.answer = answer
     routing_chain.cut_model.error = error
 
@@ -322,14 +409,21 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert record["owners_sha"]
     with team_scope(team.id):
         assert RoutingRun.objects.for_team(team.id).get().owners_sha == record["owners_sha"]
-    edits = _writes(routing_chain, "issue_comment_edit")
-    deletes = _writes(routing_chain, "delete_comment")
+    assert {write["token"] for write in _writes(routing_chain, "request_reviewers")} == {POSTHOG_APP_TOKEN}
+    comment_writes = [
+        write
+        for write in routing_chain.recorder.github_writes
+        if write["kind"] in ("issue_comment", "issue_comment_edit", "delete_comment")
+    ]
+    assert [(write["kind"], write["token"]) for write in comment_writes] == expected_comment_writes
+    assert [write["id"] for write in comment_writes if write["kind"] == "delete_comment"] in ([], [555])
+    posted = [write["body"]["body"] for write in comment_writes if write["kind"] != "delete_comment"]
     if expected_cut:
-        assert len(edits) == 1 and deletes == []
-        assert edits[0]["body"]["body"].startswith(ROUTING_COMMENT_MARKER)
-        assert "team-beta" in edits[0]["body"]["body"]
+        assert len(posted) == 1
+        assert posted[0].startswith(ROUTING_COMMENT_MARKER)
+        assert "team-beta" in posted[0]
     else:
-        assert edits == [] and [delete["id"] for delete in deletes] == [555]
+        assert posted == []
     event = routing_chain.captured.call_args.kwargs
     assert event["properties"]["stamphog_routing_cut"] == len(expected_cut)
     # ALWAYS routes when the pull request opens, so the head never waited.
@@ -360,8 +454,8 @@ def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
     assert routing_chain.cut_model.calls == []
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert _requested(routing_chain) == ({"carol"}, {"team-beta"})
-    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == (
-        [] if labels_refused else [{"labels": ["area: alpha"]}]
+    assert [(write["body"], write["token"]) for write in _writes(routing_chain, "add_labels")] == (
+        [] if labels_refused else [({"labels": ["area: alpha"]}, POSTHOG_APP_TOKEN)]
     )
     assert _stored(team.id)["llm_skipped"] == "fork"
     assert _run_log(team.id)["team-alpha"][0] == alpha_outcome
@@ -564,15 +658,15 @@ def test_fallback_approval_requests_only_pinned_owners(
     assert (record["trigger"], record["status"]) == ("verdict:approved", "done")
     assert record["llm_skipped"] == ("no_answer" if model_error else None)
     assert _run_log(team.id) == expected_log
-    edits = _writes(routing_chain, "issue_comment_edit")
-    deletes = _writes(routing_chain, "delete_comment")
+    posts = _writes(routing_chain, "issue_comment")
+    assert [delete["id"] for delete in _writes(routing_chain, "delete_comment")] == [555]
     if expect_comment:
-        assert len(edits) == 1 and deletes == []
-        body = edits[0]["body"]["body"]
+        assert len(posts) == 1
+        body = posts[0]["body"]["body"]
         assert "Stamphog approved this pull request" in body
         assert "team-beta" not in body
     else:
-        assert edits == [] and [delete["id"] for delete in deletes] == [555]
+        assert posts == []
 
     # The safety net finds the approved head handled and the same verdict again requests nobody twice.
     _fire_safety_net(safety_net)
@@ -1800,6 +1894,24 @@ def test_an_abandoned_claim_does_not_block_the_pull_request(team, user, routing_
     assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
     record = _stored(team.id)
     assert (record["trigger"], record["status"]) == ("safety_net", "done")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("missing", ["installation", "app_slug"])
+def test_routing_without_a_posthog_app_installation_fails_before_any_write(
+    team, user, routing_chain, missing: str
+) -> None:
+    _setup(routing_chain, team, user, posthog_app=missing != "installation")
+    routing_chain.cut_model.answer = _CUT_BETA
+
+    with override_instance_config("GITHUB_APP_SLUG", "" if missing == "app_slug" else POSTHOG_APP_SLUG):
+        with pytest.raises(Retry) as retry:
+            _run_event_task(MagicMock())
+
+    assert isinstance(retry.value.exc, PostHogAppNotInstalled)
+    assert routing_chain.recorder.github_writes == []
+    record = _stored(team.id)
+    assert record["status"] == "routing" and record["planned_at"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

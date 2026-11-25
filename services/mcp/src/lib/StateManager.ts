@@ -45,6 +45,7 @@ export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 // An empty answer is re-read sooner so that newly added data shows up within a minute.
 const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+const METRIC_CATALOG_CACHE_TTL_MS = 60 * 60 * 1000 // 60 minutes
 // The integration list only adds a line to the environment prompt, so a slow response must not
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
@@ -799,6 +800,7 @@ export class StateManager {
                 })
                 return { hasMetrics: availability.has_metrics }
             },
+            ttlMs: METRIC_CATALOG_CACHE_TTL_MS,
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,

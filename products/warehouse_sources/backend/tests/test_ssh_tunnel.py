@@ -1,4 +1,7 @@
 import base64
+import socket
+import struct
+import threading
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -350,6 +353,68 @@ def test_gateway_connect_that_hangs_raises_the_gateway_error():
             forwarder.start()
 
     dial.assert_called_once_with(("93.184.216.34", 5432), timeout=ssh_tunnel_module.SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+
+
+@pytest.mark.parametrize(
+    ("server_behavior", "closed_before_banner"),
+    [
+        # OpenSSH over its MaxStartups limit closes the connection without a banner. The client sees a
+        # reset when its own banner is still unread, and an end of stream when the close comes first.
+        # The schema must stay enabled, so the error must not carry the gateway prefix.
+        ("reset_after_client_banner", True),
+        ("close_after_client_banner", True),
+        ("close_without_reading", True),
+        # A server that never answers is not one that refused a connection under load, so it keeps
+        # the gateway error that turns the schema off.
+        ("silent", False),
+    ],
+)
+def test_gateway_that_sends_no_banner(server_behavior: str, closed_before_banner: bool):
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(10)
+    listen_port = listener.getsockname()[1]
+    create_connection = socket.create_connection
+    client_failed = threading.Event()
+
+    def run_server() -> None:
+        conn, _ = listener.accept()
+        with conn:
+            if server_behavior == "close_without_reading":
+                return
+            received = b"-"
+            while received and not received.endswith(b"\n"):
+                received = conn.recv(256)
+            if server_behavior == "reset_after_client_banner":
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            elif server_behavior == "silent":
+                client_failed.wait(10)
+
+    server = threading.Thread(target=run_server)
+    server.start()
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    def dial_local(_address: tuple[str, int], timeout: float) -> socket.socket:
+        return create_connection(("127.0.0.1", listen_port), timeout=timeout)
+
+    try:
+        with (
+            patch.object(ssh_tunnel_module.socket, "create_connection", side_effect=dial_local),
+            patch.object(ssh_tunnel_module, "SSH_TUNNEL_BANNER_TIMEOUT_SECONDS", 0.5),
+        ):
+            with pytest.raises(BaseSSHTunnelForwarderError) as exc_info:
+                forwarder.start()
+    finally:
+        client_failed.set()
+        server.join()
+        listener.close()
+
+    expected_error = (
+        ssh_tunnel_module.SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR
+        if closed_before_banner
+        else "Could not establish session to SSH gateway"
+    )
+    assert str(exc_info.value).startswith(expected_error)
+    assert isinstance(exc_info.value, ssh_tunnel_module.SSHGatewayClosedBeforeBannerError) is closed_before_banner
 
 
 def test_gateway_transport_limits_every_step_of_the_handshake():

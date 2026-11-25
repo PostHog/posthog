@@ -7119,7 +7119,12 @@
                     "products.*.addons.*.tiered",
                     "products.*.addons.*.trial",
                     "products.*.addons.*.inclusion_only",
-                    "products.*.addons.*.legacy_product"
+                    "products.*.addons.*.legacy_product",
+                    "products.*.description",
+                    "products.*.addons.*.description",
+                    "available_product_features.*.description",
+                    "available_product_features.*.note",
+                    "available_product_features.*.is_plan_default"
                 ],
                 "expandable": []
             },
@@ -13329,6 +13334,10 @@
                     "key": "column_descriptions"
                 },
                 {
+                    "param": "missing_row_behavior",
+                    "key": "missing_row_behavior"
+                },
+                {
                     "param": "key_column",
                     "key": "key_column"
                 },
@@ -13462,6 +13471,10 @@
                 {
                     "param": "column_descriptions",
                     "key": "column_descriptions"
+                },
+                {
+                    "param": "missing_row_behavior",
+                    "key": "missing_row_behavior"
                 },
                 {
                     "param": "is_enabled",
@@ -14700,71 +14713,34 @@
         "response": {
             "list": false,
             "filter": {
-                "kind": "omit",
+                "kind": "pick",
                 "fields": [
-                    "user_access_level",
-                    "creation_mode",
-                    "deleted",
-                    "breakdown_colors",
-                    "data_color_theme_id",
-                    "quick_filter_ids",
-                    "tiles.*.color",
-                    "tiles.*.transparent_background",
-                    "tiles.*.show_description",
-                    "tiles.*.button_tile",
-                    "tiles.*.insight.result",
-                    "tiles.*.insight.hasMore",
-                    "tiles.*.insight.columns",
-                    "tiles.*.insight.hogql",
-                    "tiles.*.insight.types",
-                    "tiles.*.insight.query_status",
-                    "tiles.*.insight.cache_target_age",
-                    "tiles.*.insight.next_allowed_client_refresh",
-                    "tiles.*.insight.filters_hash",
-                    "tiles.*.insight.dashboards",
-                    "tiles.*.insight.dashboard_tiles",
-                    "tiles.*.insight.user_access_level",
-                    "tiles.*.insight.filters",
-                    "tiles.*.insight.is_sample",
-                    "tiles.*.insight.order",
-                    "tiles.*.insight.deleted",
-                    "tiles.*.insight.alerts",
-                    "tiles.*.insight.timezone",
-                    "tiles.*.insight.resolved_date_range",
-                    "tiles.*.insight.resolved_compare_date_range",
-                    "tiles.*.insight.filter_override_context",
-                    "created_by.uuid",
-                    "created_by.distinct_id",
-                    "created_by.is_email_verified",
-                    "created_by.hedgehog_config",
-                    "tiles.*.insight.created_by.uuid",
-                    "tiles.*.insight.created_by.distinct_id",
-                    "tiles.*.insight.created_by.is_email_verified",
-                    "tiles.*.insight.created_by.hedgehog_config",
-                    "tiles.*.insight.last_modified_by.uuid",
-                    "tiles.*.insight.last_modified_by.distinct_id",
-                    "tiles.*.insight.last_modified_by.is_email_verified",
-                    "tiles.*.insight.last_modified_by.hedgehog_config",
-                    "tiles.*.text.dashboard_tiles",
-                    "tiles.*.text.created_by.uuid",
-                    "tiles.*.text.created_by.distinct_id",
-                    "tiles.*.text.created_by.is_email_verified",
-                    "tiles.*.text.created_by.hedgehog_config",
-                    "tiles.*.text.last_modified_by.uuid",
-                    "tiles.*.text.last_modified_by.distinct_id",
-                    "tiles.*.text.last_modified_by.is_email_verified",
-                    "tiles.*.text.last_modified_by.hedgehog_config",
-                    "tiles.*.widget.dashboard_tiles",
-                    "tiles.*.widget.created_by.uuid",
-                    "tiles.*.widget.created_by.distinct_id",
-                    "tiles.*.widget.created_by.is_email_verified",
-                    "tiles.*.widget.created_by.hedgehog_config",
-                    "tiles.*.widget.last_modified_by.uuid",
-                    "tiles.*.widget.last_modified_by.distinct_id",
-                    "tiles.*.widget.last_modified_by.is_email_verified",
-                    "tiles.*.widget.last_modified_by.hedgehog_config"
+                    "id",
+                    "name",
+                    "description",
+                    "pinned",
+                    "tags",
+                    "filters",
+                    "variables",
+                    "grid_spacing",
+                    "layout_compaction",
+                    "group_display",
+                    "groups",
+                    "tiles.*.id",
+                    "tiles.*.layouts",
+                    "tiles.*.group_key",
+                    "tiles.*.badge",
+                    "tiles.*.filters_overrides",
+                    "tiles.*.insight.id",
+                    "tiles.*.insight.short_id",
+                    "tiles.*.insight.name",
+                    "tiles.*.insight.derived_name",
+                    "tiles.*.text.id",
+                    "tiles.*.widget.id",
+                    "tiles.*.widget.widget_type",
+                    "tiles.*.widget.name"
                 ],
-                "expandable": []
+                "selectable": false
             },
             "stripNulls": true,
             "enrich": {
@@ -15955,6 +15931,38 @@
                     "csv": false
                 }
             ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "data-warehouse-data-health-issues-retrieve": {
+        "name": "data-warehouse-data-health-issues-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/data_warehouse/data_health_issues/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
             "body": null,
             "injectBody": {},
             "softDelete": null,
@@ -20446,8 +20454,8 @@
     "experiment-launch": {
         "name": "experiment-launch",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:experiments/launchExperimentHooks"],
+        "hooks": "experiments/launchExperimentHooks",
         "uiApp": "experiment",
         "request": {
             "method": "POST",
@@ -21115,6 +21123,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "created_by_id",
+                    "key": "created_by_id",
+                    "csv": false
+                },
+                {
                     "param": "event",
                     "key": "event",
                     "csv": false
@@ -21125,6 +21138,11 @@
                     "csv": false
                 },
                 {
+                    "param": "metric_type",
+                    "key": "metric_type",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false
@@ -21132,6 +21150,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 }
             ],
@@ -26154,6 +26177,287 @@
             "validators": []
         }
     },
+    "groups-create": {
+        "name": "groups-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index"
+                },
+                {
+                    "param": "group_key",
+                    "key": "group_key"
+                },
+                {
+                    "param": "group_properties",
+                    "key": "group_properties"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-delete-property": {
+        "name": "groups-delete-property",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/delete_property/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                }
+            ],
+            "body": [
+                {
+                    "param": "property_name",
+                    "key": "$unset"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-find": {
+        "name": "groups-find",
+        "kind": "http",
+        "requires": ["hook:groups/findGroupHooks"],
+        "hooks": "groups/findGroupHooks",
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups/find/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                },
+                {
+                    "param": "skip_create_notebook",
+                    "key": "skip_create_notebook",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-list": {
+        "name": "groups-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "cursor",
+                    "key": "cursor",
+                    "csv": false
+                },
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-types-list": {
+        "name": "groups-types-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups_types/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/groups"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-update-property": {
+        "name": "groups-update-property",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/update_property/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                }
+            ],
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                },
+                {
+                    "param": "value",
+                    "key": "value"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "health-issues-get": {
         "name": "health-issues-get",
         "kind": "http",
@@ -26830,6 +27134,47 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "inbox-monitor-pr": {
+        "name": "inbox-monitor-pr",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/monitor_pr/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "pr_url",
+                    "key": "pr_url"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -28199,7 +28544,7 @@
                 "fields": [
                     "id",
                     "title",
-                    "summary",
+                    "summary_lead",
                     "metrics",
                     "tags",
                     "status",
@@ -29192,6 +29537,10 @@
                 {
                     "param": "expression",
                     "key": "expression"
+                },
+                {
+                    "param": "scope_ids",
+                    "key": "scope_ids"
                 }
             ],
             "injectBody": {},
@@ -29669,11 +30018,20 @@
                     "favorited",
                     "dashboards",
                     "created_at",
-                    "created_by",
+                    "created_by.id",
+                    "created_by.first_name",
+                    "created_by.last_name",
+                    "created_by.email",
                     "last_modified_at",
-                    "last_modified_by",
+                    "last_modified_by.id",
+                    "last_modified_by.first_name",
+                    "last_modified_by.last_name",
+                    "last_modified_by.email",
                     "last_viewed_at",
-                    "alerts"
+                    "alerts.*.id",
+                    "alerts.*.name",
+                    "alerts.*.state",
+                    "alerts.*.enabled"
                 ],
                 "selectable": false
             },
@@ -29905,27 +30263,31 @@
             "validators": []
         }
     },
-    "integrations-email-create": {
-        "name": "integrations-email-create",
+    "integrations-domain-connect-check-retrieve": {
+        "name": "integrations-domain-connect-check-retrieve",
         "kind": "http",
         "requires": [],
         "hooks": null,
         "uiApp": null,
         "request": {
-            "method": "POST",
-            "path": "/api/projects/{project_id}/integrations/",
+            "method": "GET",
+            "path": "/api/projects/{project_id}/integrations/domain-connect/check/",
             "pathParams": [],
             "fallbacks": [],
-            "query": null,
-            "body": [
+            "query": [
                 {
-                    "param": "config",
-                    "key": "config"
+                    "param": "domain",
+                    "key": "domain",
+                    "csv": false
+                },
+                {
+                    "param": "include_email_setup",
+                    "key": "include_email_setup",
+                    "csv": false
                 }
             ],
-            "injectBody": {
-                "kind": "email"
-            },
+            "body": null,
+            "injectBody": {},
             "softDelete": null,
             "transformBody": false
         },
@@ -40180,10 +40542,19 @@
             "list": false,
             "filter": {
                 "kind": "omit",
-                "fields": ["live_events_token", "heatmaps_screenshot_secret", "default_modifiers"],
+                "fields": [
+                    "live_events_token",
+                    "heatmaps_screenshot_secret",
+                    "default_modifiers",
+                    "available_setup_task_ids",
+                    "onboarding_tasks",
+                    "live_events_columns",
+                    "product_intents.*.created_at",
+                    "product_intents.*.updated_at"
+                ],
                 "expandable": []
             },
-            "stripNulls": false,
+            "stripNulls": true,
             "enrich": null,
             "agentNote": null,
             "informational": null,
@@ -41274,8 +41645,8 @@
     "query-logs": {
         "name": "query-logs",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:logs/queryLogsHooks"],
+        "hooks": "logs/queryLogsHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -41297,7 +41668,7 @@
             "list": false,
             "filter": {
                 "kind": "pick",
-                "fields": ["results", "columns"],
+                "fields": ["results", "columns", "hasMore", "nextCursor", "next"],
                 "selectable": false
             },
             "stripNulls": false,
@@ -42808,6 +43179,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "source_product",
+                    "key": "source_product",
                     "csv": false
                 },
                 {
@@ -45660,6 +46036,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "source_product",
+                    "key": "source_product",
                     "csv": false
                 },
                 {
@@ -57397,7 +57778,19 @@
         },
         "response": {
             "list": false,
-            "filter": null,
+            "filter": {
+                "kind": "omit",
+                "fields": [
+                    "actions.*.config.inputs.*.bytecode",
+                    "actions.*.config.inputs.*.transpiled",
+                    "draft.actions.*.config.inputs.*.bytecode",
+                    "draft.actions.*.config.inputs.*.transpiled"
+                ],
+                "expandable": [
+                    "actions.*.config.inputs.email.value.design",
+                    "draft.actions.*.config.inputs.email.value.design"
+                ]
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "item",
@@ -58263,7 +58656,8 @@
                     "isp_withheld_domains",
                     "email_sending_suspended",
                     "email_sending_suspended_at",
-                    "email_sending_suspension_reason"
+                    "email_sending_suspension_reason",
+                    "infrastructure"
                 ],
                 "selectable": true
             },

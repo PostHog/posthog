@@ -116,6 +116,10 @@ export function isDeprecatePayload(
     return 'refresh_seconds_per_month' in payload && !isUnmaterializePayload(payload)
 }
 
+export function refreshesTheView(payload: WarehouseSuggestionDeprecatePayloadApi): boolean {
+    return payload.materialized !== false
+}
+
 export function materializeSaving(payload: WarehouseSuggestionMaterializePayloadApi): MonthlySaving {
     return { seconds: payload.saves_seconds_per_month, bytes: payload.saves_bytes_per_month }
 }

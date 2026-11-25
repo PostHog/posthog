@@ -118,7 +118,12 @@ The server selects the first valid hostname from:
 
 `website_domain` is a typed account property. `AccountProperties` normalizes it on write, and the account editor saves it through the existing account PATCH endpoint. `parse_company_domain` accepts URLs and bare hostnames while rejecting UUIDs, free text, and mailbox providers.
 
-`AccountsTableRow.logoDomain` carries the resolved hostname. The browser loads image bytes from `GET /api/projects/@current/accounts/icon/?domain=…&theme=…`. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours. Keep logo.dev behind this proxy so the browser does not send customer domains to a third party or require another CSP origin.
+`AccountsTableRow.logoDomain` carries the resolved hostname. `AccountLogo` tries each source in turn and falls back to the `Lettermark` after the last one fails:
+
+1. `${window.JS_URL}/favicons/<domain>`, the static CDN copy shared with web analytics. The hourly `cache_account_domain_favicons` Dagster job (`products/customer_analytics/dags/cache_account_favicons.py`) stores it for the domains that `list_logo_domains_across_teams` in `backend/logic/account_logo.py` returns. It reuses the web analytics favicon download and upload code.
+2. `GET /api/projects/<id>/accounts/icon/?domain=…&theme=…`, for a domain that the job has not cached yet. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours.
+
+Both sources are first-party, so the browser does not send customer domains to a third party or need another CSP origin. Keep logo.dev behind the proxy.
 
 The `tag_names` cell is editable in place: `TagsCell` and the account detail sidebar render the editable `ObjectTags` variant, which suggests project tags a page at a time from the server. The All tags filter is a `TagSelect`. Tag edits save through the account PATCH via `accountsLogic.updateAccountTags` — optimistic per-account override (`tagOverrides`, masking the stale fetched cell like `relationshipOverrides`), debounced full-list PATCH (`TAGS_SAVE_DEBOUNCE_MS`, since `ObjectTags` fires per added/removed tag), `savingTags` guard, revert + toast + captured exception on failure. Clicking a tag in the cell adds it to the tags filter, compounding with tags already filtered (`addTagToFilter` — dedupes, and reports through `reportFilterChange('tag')` like the filter control).
 
@@ -277,6 +282,9 @@ The page bootstrap carries flag values but no payloads, so the logic loads again
 The logic runs that endpoint through the generated `endpointsRunCreate` client with the account's external ID.
 `CONTEXT_COLUMNS` in `accountContextData.ts` lists every column the parser reads. A response without one of them shows an unreadable state and reports the missing names, so an endpoint change fails loudly instead of rendering blank cells.
 `accountContextData.ts` turns the returned rows into facts, signals, and internal Slack threads with plain-language labels.
+A signal shows its reason from an `explains` link and its notes from `acts_on` links. Renewal and credit runway signals are scheduled, so their empty state asks only for a note.
+Both signal views show the start date. The closed view also shows the close date and the number of days the signal stayed open.
+`topicColor` hashes a topic name to one of the 15 data color tokens, so one topic keeps one color on every fact and account. The tag stays neutral, and the color shows only in its glyph, so a topic never reads as a status.
 An account without an external ID, a viewer without access (403 or 404), an unreadable response, and a failed request each show their own state. Only a failed request offers a retry, and a 403 or 404 is not reported as an exception.
 The pane stores nothing in Customer analytics, so no account read, MCP tool, or agent context returns its rows. Its root carries `ph-no-capture`.
 The confirmed and inferred split, the filters, and pagination run client-side over one response. The tables set `useUrl: false`, and a filter change returns a table to its first page. Write actions render disabled until write-back exists.

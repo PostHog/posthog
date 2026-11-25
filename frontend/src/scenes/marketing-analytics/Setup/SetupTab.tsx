@@ -108,7 +108,7 @@ export function SetupTab(): JSX.Element {
     }, [active.key])
 
     return (
-        <div className="flex flex-col @min-[48rem]/main-content:flex-row gap-6 mt-4">
+        <div className="flex flex-col @min-[48rem]/main-content:flex-row gap-6 mt-4 mb-8">
             <div className="@min-[48rem]/main-content:hidden">
                 <LemonSelect
                     fullWidth

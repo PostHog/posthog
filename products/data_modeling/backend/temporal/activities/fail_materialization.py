@@ -34,6 +34,8 @@ from .utils import (
 
 LOGGER = get_logger(__name__)
 
+FAIL_MATERIALIZATION_MAX_ATTEMPTS = 3
+
 
 @dataclasses.dataclass
 class FailMaterializationInputs:
@@ -112,6 +114,25 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
 
     Returns the job's run mode, or None when the run failed before choosing one.
     """
+    try:
+        return await _fail_materialization(inputs)
+    except Exception as e:
+        # Earlier attempts retry. After the last attempt the job stays Running and nothing else
+        # finalizes it, so only that attempt reports.
+        if activity.info().attempt >= FAIL_MATERIALIZATION_MAX_ATTEMPTS:
+            capture_exception(
+                e,
+                {
+                    "team_id": inputs.team_id,
+                    "job_id": inputs.job_id,
+                    "node_id": inputs.node_id,
+                    "dag_id": inputs.dag_id,
+                },
+            )
+        raise
+
+
+async def _fail_materialization(inputs: FailMaterializationInputs) -> str | None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     _, job = await _fail_node_and_data_modeling_job(inputs)

@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { ScoutChatType } from '../../../inboxAnalytics'
+import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
@@ -24,8 +25,19 @@ export function ScoutsRosterActions(): JSX.Element {
     // Every trial endpoint requires skill editor access, so the page is empty without it.
     const trialsDisabledReason = useScoutCreateDisabledReason()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { scoutsInAutomate } = useValues(inboxSceneLogic)
     return (
         <>
+            {scoutsInAutomate && (
+                <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<LinkPrimitive to={urls.inbox('reports')} />}
+                    data-attr="scouts-see-inbox-reports"
+                >
+                    See all reports in Inbox
+                </Button>
+            )}
             {currentTeamId === 2 && user?.is_staff && todayRailNav ? (
                 <Button
                     variant="outline"
