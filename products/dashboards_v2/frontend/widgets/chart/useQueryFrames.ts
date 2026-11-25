@@ -29,23 +29,43 @@ export function afterRequestChange(previous: QueryFrames, cached: QueryFrames): 
     return unchanged(previous, cached) ? previous : cached
 }
 
-/** Runs a chart's query through the host's runner, and again whenever the query or its time range changes. */
-export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): QueryFrames {
-    // An edit rebuilds the request object, so the query runs again only when its content changes.
-    const queryKey = JSON.stringify(request)
-    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey))
+/** Runs a chart's queries through the host's runner, and again whenever a query or its time range changes. */
+export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): QueryFrames[] {
+    // An edit rebuilds the request objects, so the queries run again only when their content changes.
+    const queryKeys = requests.map((request) => JSON.stringify(request))
+    const keysKey = JSON.stringify(queryKeys)
+    const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key)))
     useEffect(() => {
         let cancelled = false
-        const show = (next: QueryFrames): void => setResult((previous) => (unchanged(previous, next) ? previous : next))
-        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey)))
-        runCachedQuery(runQuery, queryKey).then(
-            (result) => !cancelled && show({ status: 'ready', refreshing: false, ...result }),
-            (error: unknown) =>
-                !cancelled && show({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+        const keys = JSON.parse(keysKey) as string[]
+        const show = (index: number, next: QueryFrames): void =>
+            setResults((previous) => {
+                if (previous[index] && unchanged(previous[index], next)) {
+                    return previous
+                }
+                const updated = [...previous]
+                updated[index] = next
+                return updated
+            })
+        setResults((previous) => {
+            const next = keys.map((key, index) =>
+                previous[index] ? afterRequestChange(previous[index], initial(runQuery, key)) : initial(runQuery, key)
+            )
+            return next.length === previous.length && next.every((one, index) => one === previous[index])
+                ? previous
+                : next
+        })
+        keys.forEach((key, index) =>
+            runCachedQuery(runQuery, key).then(
+                (result) => !cancelled && show(index, { status: 'ready', refreshing: false, ...result }),
+                (error: unknown) =>
+                    !cancelled &&
+                    show(index, { status: 'error', message: error instanceof Error ? error.message : String(error) })
+            )
         )
         return () => {
             cancelled = true
         }
-    }, [queryKey, runQuery])
-    return result
+    }, [keysKey, runQuery])
+    return results
 }

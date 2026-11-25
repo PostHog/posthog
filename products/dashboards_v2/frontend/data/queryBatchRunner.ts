@@ -18,12 +18,14 @@ interface Pending {
 }
 
 function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi['queries'][number] {
-    const { query, time } = request
+    const { query, time, legend } = request
+    const refId = String(index)
+    const target: QueryBatchRequestApi['queries'][number]['target'] =
+        query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'
+            ? { refId, language: query.language, query: query.query }
+            : { refId, language: 'query', query: JSON.stringify(query.query) }
     return {
-        target:
-            query.language === 'hogql'
-                ? { refId: String(index), language: 'hogql', query: query.query }
-                : { refId: String(index), language: 'query', query: JSON.stringify(query.query) },
+        target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },
     }
 }
@@ -47,6 +49,7 @@ export function toDataFrame(frame: Frame): DataFrame {
                 field.type === 'time'
                     ? field.values.map((value) => timeLabel(value, field.unit === 'date'))
                     : field.values,
+            ...(field.type !== 'time' && field.unit ? { unit: field.unit } : {}),
         })),
     }
 }
