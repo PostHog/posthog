@@ -4060,18 +4060,19 @@ export interface PatchedEvaluationApi {
 }
 
 /**
- * Null when the evaluation has no passing rule, or the run was not graded by it.
+ * not_applicable when the evaluator found the run does not apply. Null when the evaluation has no passing rule, or the run was not graded by it.
  */
 export type EvaluationRunApiOutcome = (typeof EvaluationRunApiOutcome)[keyof typeof EvaluationRunApiOutcome] | null
 
 export const EvaluationRunApiOutcome = {
     Passed: 'passed',
     Failed: 'failed',
+    NotApplicable: 'not_applicable',
 } as const
 
 export interface EvaluationRunApi {
     timestamp: string
-    /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+    /** not_applicable when the evaluator found the run does not apply. Null when the evaluation has no passing rule, or the run was not graded by it. */
     outcome: EvaluationRunApiOutcome
     /** The evaluator's reasoning, cut to about 1,000 characters. */
     reasoning: string | null
@@ -7569,10 +7570,11 @@ export type EvaluationsRunsRetrieveParams = {
      */
     limit?: number
     /**
-     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     * Only runs with this outcome. passed and failed follow the evaluation's passing rule, and an evaluation without one rejects them with a 400. not_applicable is the runs the evaluator found do not apply, for any evaluation. Without it, every graded run, including scored, categorized and sentiment runs, and no not applicable runs.
      *
      * * `passed` - Passed
      * * `failed` - Failed
+     * * `not_applicable` - Not applicable
      * @minLength 1
      */
     outcome?: EvaluationsRunsRetrieveOutcome
@@ -7588,6 +7590,7 @@ export type EvaluationsRunsRetrieveOutcome =
 export const EvaluationsRunsRetrieveOutcome = {
     Passed: 'passed',
     Failed: 'failed',
+    NotApplicable: 'not_applicable',
 } as const
 
 export type EvaluationsScoreDistributionRetrieveParams = {

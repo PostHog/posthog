@@ -1,5 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 
+import { initKeaTests } from '~/test/init'
+
 import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportStoredMetrics } from '../types'
 import { EvaluationReportViewer } from './EvaluationReportViewer'
 
@@ -42,6 +44,7 @@ function buildReportRun(
 }
 
 describe('EvaluationReportViewer', () => {
+    beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
     it('shows boolean pass rate once and keeps outcome percentages hidden', () => {
@@ -56,17 +59,17 @@ describe('EvaluationReportViewer', () => {
         render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
         expect(screen.getByText('88.9%')).toBeTruthy()
-        expect(screen.getByText('pass rate')).toBeTruthy()
+        expect(screen.getByText('Pass rate')).toBeTruthy()
         expect(screen.getByText('Pass').nextElementSibling?.textContent).toBe('8')
-        expect(screen.getByText(/8.9pp vs previous report/).classList.contains('text-success')).toBe(true)
-        expect(screen.queryByText('(80.0%)')).toBeNull()
+        expect(screen.getByText(/8.9pp vs previous/).classList.contains('text-success')).toBe(true)
+        expect(screen.queryByText(/80\.0%/)).toBeNull()
     })
 
     it('renders a metrics-unavailable notice instead of a zero-run table', () => {
         render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(null, 'metrics_unavailable')} />)
 
         expect(screen.getByText(/could not be calculated/)).toBeTruthy()
-        expect(screen.queryByText('pass rate')).toBeNull()
+        expect(screen.queryByText('Pass rate')).toBeNull()
     })
 
     it('shows sentiment outcome distribution without boolean pass-rate framing', () => {
@@ -78,10 +81,10 @@ describe('EvaluationReportViewer', () => {
 
         render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
-        expect(screen.queryByText('pass rate')).toBeNull()
-        expect(screen.getByText('Positive')).toBeTruthy()
-        expect(screen.getByText('(40.0%)')).toBeTruthy()
-        expect(screen.getAllByText('(30.0%)')).toHaveLength(2)
+        expect(screen.queryByText('Pass rate')).toBeNull()
+        expect(screen.getByText('Negative share')).toBeTruthy()
+        expect(screen.getByText('Positive').nextElementSibling?.textContent).toBe('4')
+        expect(screen.getByText('40.0% of results')).toBeTruthy()
     })
 
     it('preserves a leading heading when a legacy section has no title', () => {

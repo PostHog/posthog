@@ -1,9 +1,10 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportSection } from '../types'
+import { EvaluationDrawerSection } from './EvaluationDrawerSection'
 import { EvaluationReportCitations } from './EvaluationReportCitations'
 import { EvaluationReportMetrics } from './EvaluationReportMetrics'
 import { linkifyCitations } from './reportCitationLinks'
@@ -94,7 +95,7 @@ export function EvaluationReportViewer({
     const deliveryFailed = reportRun.delivery_status === 'failed' || reportRun.delivery_status === 'partial_failure'
 
     return (
-        <article className="flex flex-col gap-4">
+        <article className="@container flex flex-col gap-4">
             <header className="flex flex-col gap-1">
                 <h2 className="mb-0 text-lg font-semibold">{content.title || 'Evaluation report'}</h2>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
@@ -127,14 +128,20 @@ export function EvaluationReportViewer({
                 metrics && <EvaluationReportMetrics metrics={metrics} headline={reportHeadline(reportRun)} />
             )}
 
+            {sections.length > 0 && <LemonDivider className="my-0" />}
             {sections.map((section, index) => (
-                <section key={index} className="flex flex-col gap-1">
-                    <h3 className="mb-0 text-sm font-semibold">{section.title?.trim() || 'Section'}</h3>
+                <EvaluationDrawerSection key={index} title={section.title?.trim() || 'Section'}>
                     <ReportSectionContent section={section} citations={citations} />
-                </section>
+                </EvaluationDrawerSection>
             ))}
 
-            <EvaluationReportCitations citations={citations} onOpenTrace={onOpenTrace} />
+            <EvaluationReportCitations
+                runId={reportRun.id}
+                periodStart={reportRun.period_start}
+                periodEnd={reportRun.period_end}
+                citations={citations}
+                onOpenTrace={onOpenTrace}
+            />
 
             <div>
                 <LemonButton

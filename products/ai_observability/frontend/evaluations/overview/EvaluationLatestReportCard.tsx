@@ -3,22 +3,16 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LatestReportPreview } from '../components/LatestReportPreview'
-import { REPORT_RUN_PARAM } from '../evaluationReportDrawerLogic'
-import { markNextDrawerSource } from '../evaluationReportTracking'
+import { evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { evaluationLatestReportRunLogic } from './evaluationLatestReportRunLogic'
 
-/** The evaluation's newest report in the overview drawer, linking to the report on the evaluation page. */
-export function EvaluationLatestReportCard({
-    evaluationId,
-    reportUrl,
-}: {
-    evaluationId: string
-    reportUrl: (params: Record<string, string>) => string
-}): JSX.Element | null {
+/** The evaluation's newest report in the overview drawer. The button opens it in the report drawer on top. */
+export function EvaluationLatestReportCard({ evaluationId }: { evaluationId: string }): JSX.Element | null {
     const { latestRun, latestRunLoadFailed, latestRunLoading } = useValues(
         evaluationLatestReportRunLogic({ evaluationId })
     )
     const { loadLatestRun } = useActions(evaluationLatestReportRunLogic({ evaluationId }))
+    const { openRun } = useActions(evaluationReportDrawerLogic({ evaluationId }))
     if (latestRunLoadFailed) {
         return (
             <section className="flex items-center gap-2 rounded border bg-surface-primary p-3 text-sm">
@@ -42,8 +36,7 @@ export function EvaluationLatestReportCard({
                 <LemonButton
                     type="secondary"
                     size="small"
-                    to={reportUrl({ [REPORT_RUN_PARAM]: latestRun.id })}
-                    onClick={() => markNextDrawerSource('overview_card')}
+                    onClick={() => openRun(latestRun.id, 'overview_card')}
                     data-attr="llma-evaluation-overview-latest-report"
                 >
                     Read the report

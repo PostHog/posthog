@@ -328,6 +328,24 @@ function failingRuns(id: string): EvaluationRunsApi {
     }
 }
 
+/** The runs an example read gets: the evaluation's failures, or a passing and an N/A run for those filters. */
+function exampleRuns(id: string, outcome: string | null): EvaluationRunsApi {
+    if (outcome !== 'passed' && outcome !== 'not_applicable') {
+        return failingRuns(id)
+    }
+    return {
+        results: [
+            {
+                timestamp: outcome === 'passed' ? '2026-10-19T10:40:00Z' : '2026-10-19T08:05:00Z',
+                outcome,
+                reasoning: outcome === 'passed' ? 'Matches the help center article.' : 'Small talk, nothing to check.',
+                targetEventId: `0b1ee000-0000-4000-8000-0000000000${outcome === 'passed' ? '10' : '20'}`,
+                traceId: `trace-example-${outcome}`,
+            },
+        ],
+    }
+}
+
 const SCORE_HISTOGRAM: ScoreHistogramApi = {
     scale: { min: 1, max: 5 },
     buckets: [
@@ -350,7 +368,10 @@ function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): Retur
                 const ids = new URL(request.url).searchParams.get('evaluation_ids')?.split(',')
                 return [200, overview(ids ? rows.filter((row) => ids.includes(row.id)) : rows)]
             },
-            '/api/projects/:team_id/evaluations/:id/runs/': ({ params }) => [200, failingRuns(String(params.id))],
+            '/api/projects/:team_id/evaluations/:id/runs/': ({ params, request }) => [
+                200,
+                exampleRuns(String(params.id), new URL(request.url).searchParams.get('outcome')),
+            ],
             '/api/projects/:team_id/evaluations/:id/score_distribution/': SCORE_HISTOGRAM,
             // No evaluation here has a report, so the drawer shows no latest-report card.
             '/api/projects/:team_id/llm_analytics/evaluation_reports/': toPaginatedResponse([]),
@@ -364,6 +385,27 @@ function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): Retur
         post: {
             '/api/environments/:team_id/query/': { results: [] },
             '/api/projects/:team_id/query/': { results: [] },
+            '/api/projects/:team_id/ai_observability/traces/previews/': async ({ request }) => [
+                200,
+                {
+                    items: ((await request.json()) as { trace_ids: string[] }).trace_ids.map((traceId) => ({
+                        traceId,
+                        input: 'Where do I find my API key?',
+                        output: 'Personal API keys are under Account settings, in the API keys section.',
+                        inputMissingReason: null,
+                        outputMissingReason: null,
+                    })),
+                },
+            ],
+            '/api/projects/:team_id/ai_observability/traces/people/': async ({ request }) => [
+                200,
+                {
+                    items: ((await request.json()) as { trace_ids: string[] }).trace_ids.map((traceId, index) => ({
+                        traceId,
+                        person: { distinctId: `person-${index}`, label: ['Dana', 'Lee', 'Sam'][index % 3] },
+                    })),
+                },
+            ],
         },
     })
 }

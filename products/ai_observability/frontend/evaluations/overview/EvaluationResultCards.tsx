@@ -2,7 +2,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { EvaluationCategoryShares } from './EvaluationCategoryShares'
-import { EvaluationFailingExamples } from './EvaluationFailingExamples'
 import type { BucketInterval } from './evaluationOverviewDisplay'
 import { EvaluationResultDetails } from './EvaluationResultDetails'
 import type { DetailsLoad } from './evaluationResultDrawerLogic'
@@ -43,7 +42,8 @@ export function EvaluationResultCards({
     chartFooter,
     chartAction,
     breakdown,
-    showFailingExamples = true,
+    showOutcomes = true,
+    examples,
 }: {
     row: EvaluationResultApi
     buckets: string[]
@@ -55,13 +55,15 @@ export function EvaluationResultCards({
     chartFooter?: React.ReactNode
     chartAction?: React.ReactNode
     breakdown?: TrendBreakdownSeries[] | null
-    /** The evaluation page lists every run below the cards, failing ones a filter away, so it leaves them out. */
-    showFailingExamples?: boolean
+    /** The overview drawer leaves the outcome split out, because its chart shows the same split over time. */
+    showOutcomes?: boolean
+    /** Example runs, in a card across the full width. The evaluation page lists every run below the cards instead. */
+    examples?: React.ReactNode
 }): JSX.Element {
     const { summary } = row
     const hasScore = summary.kind === 'score' || (summary.kind === 'pass_rate' && row.outputType === 'numeric')
     // Outcomes alone on its row takes the full width rather than leaving half of it empty.
-    const outcomesAlone = !hasScore && !showFailingExamples
+    const outcomesAlone = !hasScore
 
     return (
         <div className="@container">
@@ -77,7 +79,7 @@ export function EvaluationResultCards({
                         breakdown={breakdown}
                     />
                 </Card>
-                {summary.kind === 'pass_rate' && (
+                {summary.kind === 'pass_rate' && showOutcomes && (
                     <Card title="Outcomes" className={outcomesAlone ? '@2xl:col-span-2' : undefined}>
                         <EvaluationResultOutcomes row={row} summary={summary} />
                     </Card>
@@ -102,17 +104,9 @@ export function EvaluationResultCards({
                         </EvaluationResultDetails>
                     </Card>
                 )}
-                {summary.kind === 'pass_rate' && showFailingExamples && (
-                    <Card title="Recent failing examples">
-                        <EvaluationResultDetails load={details} onRetry={onRetryDetails}>
-                            {(details) =>
-                                details.recentFailures && details.recentFailures.length > 0 ? (
-                                    <EvaluationFailingExamples failures={details.recentFailures} />
-                                ) : (
-                                    <div className="text-sm text-secondary">No failed runs in this range.</div>
-                                )
-                            }
-                        </EvaluationResultDetails>
+                {examples && (
+                    <Card title="Examples" className="@2xl:col-span-2">
+                        {examples}
                     </Card>
                 )}
             </div>

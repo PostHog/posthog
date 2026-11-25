@@ -414,12 +414,12 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                         return null
                     }
                     const { date_from, date_to } = values.request.params
-                    // The runs table lists failing runs, so this page leaves the failing examples out.
+                    // The runs table lists every run, so this page leaves the examples out.
                     const load = await fetchEvaluationDetails(
                         String(values.currentTeamId),
                         row,
                         { date_from, date_to, ...(refresh ? { refresh: true } : {}) },
-                        { recentFailures: false }
+                        { examples: false }
                     )
                     breakpoint()
                     return load

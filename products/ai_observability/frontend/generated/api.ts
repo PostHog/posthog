@@ -2548,7 +2548,7 @@ export const getEvaluationsRunsRetrieveUrl = (
 }
 
 /**
- * One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones.
+ * One evaluation's latest runs in a period, newest first, optionally only the passed, failed or N/A ones.
  */
 export const evaluationsRunsRetrieve = async (
     projectId: string,

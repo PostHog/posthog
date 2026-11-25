@@ -136,7 +136,10 @@ function detailRequest(endpoint: string, id: string, url: string): string {
     return `${endpoint} ${id} ${params.toString()}`.trim()
 }
 
-const FAILURES_QUERY = 'outcome=failed&limit=5'
+/** The example reads a pass rate drawer sends: the newest passed runs, then the newest failed ones. */
+function exampleReads(id: string, prefix = ''): string[] {
+    return [`runs ${id} ${prefix}outcome=passed&limit=3`, `runs ${id} ${prefix}outcome=failed&limit=3`]
+}
 
 describe('evaluationsOverviewLogic', () => {
     test.each([
@@ -446,7 +449,7 @@ describe('evaluationsOverviewLogic', () => {
         drawerLogic.actions.prefetchDetails('eval-b')
         await expectLogic(drawerLogic).toFinishAllListeners()
 
-        expect(detailRequests).toEqual([`runs eval-b ${FAILURES_QUERY}`, 'score_distribution eval-b'])
+        expect(detailRequests).toEqual([...exampleReads('eval-b'), 'score_distribution eval-b'])
         expect(drawerLogic.values.details).toMatchObject({
             'eval-b/2026-10-01/2026-10-14': { status: 'ready' },
         })
@@ -463,9 +466,9 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(drawerLogic).toFinishAllListeners()
 
         expect(detailRequests).toEqual([
-            `runs eval-b ${FAILURES_QUERY}`,
+            ...exampleReads('eval-b'),
             'score_distribution eval-b',
-            `runs eval-b ${FAILURES_QUERY}`,
+            ...exampleReads('eval-b'),
             'score_distribution eval-b',
         ])
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
@@ -620,6 +623,28 @@ describe('evaluationsOverviewLogic', () => {
         expect(ids).toEqual(expected)
     })
 
+    it('reads the overview again for only the evaluations the attention filter matches', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/overview/': ({ request }) => {
+                    requests.push(new URL(request.url).searchParams)
+                    return [200, { ...EMPTY_OVERVIEW, buckets: ['2026-10-01'], evaluations: ATTENTION_ROWS }]
+                },
+            },
+        })
+        logic.actions.reloadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+        requests = []
+
+        logic.actions.setAttentionFilter('worse')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests.map((params) => params.get('evaluation_ids'))).toEqual([
+            'worse-5,worse-sentiment,worse-12,worse-8',
+        ])
+        expect(logic.values.attentionCounts).toMatchObject({ all: 8, any: 6, worse: 4 })
+    })
+
     // The evaluation page reads "-7d" as 8 days, so links send the days the overview counted.
     test.each([
         { dateFrom: '-7d', expected: 'date_from=2026-10-16&date_to=2026-10-22' },
@@ -675,9 +700,9 @@ describe('evaluationsOverviewLogic', () => {
         }
 
         expect(detailRequests).toEqual([
-            `runs eval-b ${FAILURES_QUERY}`,
+            ...exampleReads('eval-b'),
             'score_distribution eval-b',
-            `runs eval-b refresh=true&${FAILURES_QUERY}`,
+            ...exampleReads('eval-b', 'refresh=true&'),
             'score_distribution eval-b refresh=true',
         ])
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
@@ -687,32 +712,32 @@ describe('evaluationsOverviewLogic', () => {
         {
             kind: 'boolean pass rate',
             id: 'eval-a',
-            expected: [`runs eval-a ${FAILURES_QUERY}`],
-            details: { recentFailures: [], scoreDistribution: null },
+            expected: exampleReads('eval-a'),
+            details: { examples: [], scoreDistribution: null },
         },
         {
             kind: 'numeric pass rate',
             id: 'eval-b',
-            expected: [`runs eval-b ${FAILURES_QUERY}`, 'score_distribution eval-b'],
-            details: { recentFailures: [], scoreDistribution: HISTOGRAM },
+            expected: [...exampleReads('eval-b'), 'score_distribution eval-b'],
+            details: { examples: [], scoreDistribution: HISTOGRAM },
         },
         {
             kind: 'score',
             id: 'eval-c',
-            expected: ['score_distribution eval-c'],
-            details: { recentFailures: null, scoreDistribution: HISTOGRAM },
+            expected: ['runs eval-c limit=6', 'score_distribution eval-c'],
+            details: { examples: [], scoreDistribution: HISTOGRAM },
         },
         {
             kind: 'score without bounds',
             id: 'eval-d',
-            expected: [],
-            details: { recentFailures: null, scoreDistribution: null },
+            expected: ['runs eval-d limit=6'],
+            details: { examples: [], scoreDistribution: null },
         },
         {
             kind: 'categorical',
             id: 'eval-e',
-            expected: [],
-            details: { recentFailures: null, scoreDistribution: null },
+            expected: ['runs eval-e limit=6'],
+            details: { examples: [], scoreDistribution: null },
         },
     ])('reads only the details a $kind evaluation has', async ({ id, expected, details }) => {
         const drawerLogic = evaluationResultDrawerLogic()

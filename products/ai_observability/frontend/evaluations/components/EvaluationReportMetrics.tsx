@@ -1,10 +1,7 @@
-import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-
 import type { EvaluationReportStoredMetrics } from '../types'
-import { headlineChange, type ReportHeadline } from './reportHeadline'
-import { isPassFailOutput, reportResultMetrics, reportResultSegments } from './reportMetrics'
-import { ReportResultBar, resultTone } from './ReportResultBar'
+import { EvaluationDrawerStat } from './EvaluationDrawerStat'
+import type { ReportHeadline } from './reportHeadline'
+import { reportStats } from './reportStats'
 
 function passingRuleText(metrics: EvaluationReportStoredMetrics): string | null {
     const rule =
@@ -28,43 +25,18 @@ export function EvaluationReportMetrics({
     metrics: EvaluationReportStoredMetrics
     headline: ReportHeadline | null
 }): JSX.Element {
-    const passFail = isPassFailOutput(metrics)
-    const change = headline ? headlineChange(headline) : null
-    const results = reportResultMetrics(metrics).filter(
-        ({ count, rate }) => count != null || (!passFail && rate != null)
-    )
     const rule = passingRuleText(metrics)
-
     return (
-        <section className="flex flex-col gap-3 rounded border bg-surface-primary p-4">
-            {headline && (
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span className="text-3xl font-semibold leading-none tabular-nums">{`${headline.value.toFixed(1)}%`}</span>
-                    <span className="text-sm text-secondary">{headline.label.toLowerCase()}</span>
-                    {change && (
-                        <span className={cn('text-sm font-medium tabular-nums', change.className)}>
-                            {`${change.change > 0 ? '▲' : '▼'} ${Math.abs(change.change).toFixed(1)}pp vs previous report`}
-                        </span>
-                    )}
-                </div>
-            )}
-            <ReportResultBar segments={reportResultSegments(metrics)} className="h-2" />
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                {results.map(({ key, label, count, rate }) => (
-                    <span key={key} className="flex items-center gap-1.5">
-                        <span className={cn('size-2 rounded-full', resultTone(key))} />
-                        <span className="text-secondary">{label}</span>
-                        <span className="font-semibold tabular-nums">{count ?? '–'}</span>
-                        {!passFail && rate != null && <span className="text-secondary">{`(${rate.toFixed(1)}%)`}</span>}
-                    </span>
+        <section className="flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-2 @min-[36rem]:grid-cols-4">
+                {reportStats(metrics, headline).map(({ label, value, detail, detailClassName }) => (
+                    <EvaluationDrawerStat
+                        key={label}
+                        label={label}
+                        value={value}
+                        detail={detail && <span className={detailClassName}>{detail}</span>}
+                    />
                 ))}
-                {metrics.total_runs != null && (
-                    <span className="ml-auto text-secondary">
-                        {`${humanFriendlyNumber(metrics.total_runs)} results`}
-                        {metrics.previous_total_runs != null &&
-                            ` · ${humanFriendlyNumber(metrics.previous_total_runs)} in the previous report`}
-                    </span>
-                )}
             </div>
             {rule && <p className="mb-0 text-xs text-secondary">{rule}</p>}
         </section>

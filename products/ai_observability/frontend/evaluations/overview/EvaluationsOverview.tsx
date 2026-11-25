@@ -1,37 +1,22 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFolder, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
 import { EvaluationOverviewResults } from './EvaluationOverviewResults'
-import { EvaluationScopePicker } from './EvaluationScopePicker'
+import { EvaluationQuickFilters } from './EvaluationQuickFilters'
 import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationsOverview(): JSX.Element {
-    const { dateFilter, request, overviewFailure, selectedDirectory, evaluationListFailed } =
-        useValues(evaluationsOverviewLogic)
-    const { setDates, selectDirectory, retryOverview } = useActions(evaluationsOverviewLogic)
+    const { dateFilter, request, overviewFailure, evaluationListFailed } = useValues(evaluationsOverviewLogic)
+    const { setDates, retryOverview } = useActions(evaluationsOverviewLogic)
 
     return (
         <div className="@container flex flex-col gap-4">
+            {/* Every filter here scopes the chart, its stats and the evaluations table below. */}
             <div className="flex flex-wrap items-center gap-2">
-                {selectedDirectory && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFolder />}
-                        sideIcon={<IconX />}
-                        onClick={() => selectDirectory(null)}
-                        tooltip="Show every directory"
-                        data-attr="evaluation-overview-scope-directory-clear"
-                    >
-                        {selectedDirectory.name}
-                    </LemonButton>
-                )}
-                <EvaluationScopePicker />
                 <DateFilter
                     dateFrom={dateFilter.dateFrom}
                     dateTo={dateFilter.dateTo}
@@ -39,6 +24,7 @@ export function EvaluationsOverview(): JSX.Element {
                     dateOptions={OVERVIEW_DATE_OPTIONS}
                     allowedRollingDateOptions={['hours', 'days', 'weeks', 'months']}
                 />
+                <EvaluationQuickFilters />
             </div>
             {request.notice ? (
                 <LemonBanner type="info">{request.notice}</LemonBanner>
