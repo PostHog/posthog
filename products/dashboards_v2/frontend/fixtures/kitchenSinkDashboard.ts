@@ -1,4 +1,5 @@
 import { NodeKind } from '~/queries/schema/schema-general'
+import { BaseMathType } from '~/types'
 
 import type { WidgetQuery } from '../dashboard/dashboardSchema'
 import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
@@ -98,6 +99,42 @@ export const kitchenSinkDashboard: Dashboard = {
                             },
                             viz: { type: 'line' },
                             time: { from: 'now-24h', to: 'now' },
+                        },
+                    }),
+                    tile('ks-q-multi', 0, 30, 24, 16, {
+                        type: 'chart',
+                        title: 'Several queries in one chart',
+                        description: 'HogQL, a trends query and PromQL, each named by its legend',
+                        config: {
+                            targets: [
+                                {
+                                    refId: 'A',
+                                    query: {
+                                        language: 'hogql',
+                                        query: "select toStartOfHour(timestamp) as hour, count() as pageviews from events where event = '$pageview' and {filters} group by hour order by hour",
+                                    },
+                                    legend: 'Pageviews (HogQL)',
+                                },
+                                {
+                                    refId: 'B',
+                                    query: {
+                                        language: 'insight',
+                                        query: {
+                                            kind: NodeKind.TrendsQuery,
+                                            interval: 'hour',
+                                            series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }],
+                                        },
+                                    },
+                                    legend: 'Unique viewers (trends)',
+                                },
+                                {
+                                    refId: 'C',
+                                    query: { language: 'promql', query: 'sum(rate(http_requests_total[5m]))' },
+                                    legend: 'Requests per second (PromQL)',
+                                },
+                            ],
+                            viz: { type: 'line' },
+                            time: { from: 'now-6h', to: 'now' },
                         },
                     }),
                 ]),
