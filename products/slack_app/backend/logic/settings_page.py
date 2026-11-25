@@ -24,6 +24,7 @@ from products.slack_app.backend.facade.types import (
 )
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
 from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.services.integration_references import read_integration_id, store_integration_id
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.reaction_settings import (
     ReactionSettings,
@@ -119,7 +120,7 @@ def _channel_settings(row: SlackChannel) -> SlackChannelSettings:
     updated_by = row.updated_by
     return SlackChannelSettings(
         slack_channel_id=row.slack_channel_id,
-        default_integration_id=row.default_integration_id,
+        default_integration_id=read_integration_id(row.default_integration_id),
         default_repository=row.default_repository,
         untagged_question_mode=row.untagged_question_mode,
         updated_by_name=(updated_by.first_name or updated_by.email) if updated_by else None,
@@ -131,7 +132,9 @@ def list_channel_settings(integration: WorkspaceIntegration) -> tuple[SlackChann
     """Channels with at least one setting. A row that only records an approval is left out."""
     rows = (
         SlackChannel.objects.filter(slack_workspace_id=_workspace_id(integration))
-        .exclude(default_integration__isnull=True, default_repository__isnull=True, untagged_question_mode__isnull=True)
+        .exclude(
+            default_integration_id__isnull=True, default_repository__isnull=True, untagged_question_mode__isnull=True
+        )
         .select_related("updated_by")
         .order_by("slack_channel_id")
     )
@@ -163,7 +166,7 @@ def update_channel_settings(
         slack_workspace_id=slack_workspace_id,
         slack_channel_id=slack_channel_id,
         defaults={
-            "default_integration_id": default_integration_id,
+            "default_integration_id": store_integration_id(default_integration_id),
             "default_repository": repository,
             "untagged_question_mode": untagged_question_mode.value if untagged_question_mode else None,
             "updated_by": user,

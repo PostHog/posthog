@@ -372,14 +372,14 @@ class SlackChannel(UUIDModel):
         related_name="approved_slack_channels",
         help_text="The PostHog user who clicked Approve. Carries the email and audit trail.",
     )
-    # SET_NULL, not CASCADE: removing one project's install must not drop the channel's approval.
-    default_integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
+    # A stored reference, not a relation, because integration rows are read through the integrations SDK.
+    # Read and write it with ``services/integration_references.py``. A removed install leaves the reference
+    # behind, and routing skips a reference that matches no install of the workspace.
+    default_integration_id = models.CharField(
+        max_length=64,
         null=True,
         blank=True,
-        related_name="+",
-        help_text="The Slack install of the project that mentions in this channel route to.",
+        help_text="Reference to the Slack install of the project that mentions in this channel route to.",
     )
     default_repository = models.CharField(
         max_length=255,

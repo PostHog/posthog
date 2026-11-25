@@ -152,6 +152,7 @@ class TestSlackAppSettings(APIBaseTest):
         assert response.json()["updated_by_name"] == "Jamie"
         channels = self.client.get(self._url("channels/")).json()["channels"]
         assert [c["slack_channel_id"] for c in channels] == ["C111"]
+        assert channels[0]["default_integration_id"] == self.integration.id
         assert SlackChannel.objects.get(slack_channel_id="C111").approved_at is not None
 
     @parameterized.expand(
