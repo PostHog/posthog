@@ -440,16 +440,35 @@ class TestValidateCredentials:
             ),
             ("explore_metrics", ["/metrics/explore/entities"]),
             ("discount_groups", ["/discount-groups"]),
-            # Fan-out tables have no list path without a parent id, so the check reads the parent.
-            ("customer_addresses", ["/customers"]),
-            ("customer_businesses", ["/customers"]),
-            ("subscription_history", ["/subscriptions"]),
+            # With no parent row to read a child path for, a fan-out check falls back to the parent listing.
+            ("customer_addresses", ["/customers", "/customers"]),
+            ("customer_businesses", ["/customers", "/customers"]),
+            ("subscription_history", ["/subscriptions", "/subscriptions"]),
         ],
     )
     def test_probed_paths(self, table_name: str | None, expected_paths: list[str]) -> None:
         with scripted_network(always(ScriptedResponse(status=200))) as network:
             assert validate_credentials("key", table_name) is True
         assert [request.path for request in network.requests_log] == expected_paths
+
+    @pytest.mark.parametrize(
+        "table_name, parent_path, child_path",
+        [
+            ("customer_addresses", "/customers", "/customers/p_1/addresses"),
+            ("customer_businesses", "/customers", "/customers/p_1/businesses"),
+            ("subscription_history", "/subscriptions", "/subscriptions/p_1/history"),
+        ],
+    )
+    def test_fanout_check_reads_the_child_path(self, table_name: str, parent_path: str, child_path: str) -> None:
+        # The key can list parents, but the child endpoint has its own permission.
+        script = [_response([{"id": "p_1"}]), ScriptedResponse(status=403)]
+        with scripted_network(script) as network:
+            with pytest.raises(PaddlePermissionError):
+                validate_credentials("key", table_name)
+
+        assert [request.path for request in network.requests_log] == [parent_path, child_path]
+        assert network.requests_log[0].param("per_page") == "1"
+        assert network.requests_log[1].param("per_page") == "1"
 
 
 class TestSourceValidateCredentials:

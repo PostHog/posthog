@@ -47,7 +47,7 @@ EXPLORE_RETRY_BUDGET_SECONDS = 180
 # Finest first. Each query covers one calendar month, so a weekly bucket would straddle two queries.
 EXPLORE_INTERVALS = ("day", "month")
 
-# A fan-out table has no list path without a parent id, so its check reads the parent listing.
+# A fan-out table check reads the child path of the first parent. With no parent, it reads the parent listing.
 PROBE_PATHS = {
     EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_ENTITIES_PATH,
     CUSTOMER_ADDRESS_RESOURCE_NAME: "customers",
@@ -55,6 +55,7 @@ PROBE_PATHS = {
     SUBSCRIPTION_HISTORY_RESOURCE_NAME: "subscriptions",
     **ENDPOINT_PATHS,
 }
+PROBE_TIMEOUT = 10.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -470,13 +471,44 @@ def paddle_source(
     )
 
 
+def _first_parent_id(api_key: str, endpoint: str) -> Optional[str]:
+    fanout = FANOUT_ENDPOINTS[endpoint].fanout
+    if fanout is None:
+        return None
+    try:
+        response = _get_paddle_session(api_key).get(
+            f"{PADDLE_BASE_URL}/{FANOUT_ENDPOINTS[fanout.parent_name].path}",
+            params={**fanout.parent_params, "per_page": 1},
+            timeout=PROBE_TIMEOUT,
+        )
+        data = response.json().get("data") if response.status_code == 200 else None
+    except Exception:
+        # The parent probe that follows reports the failure.
+        return None
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict) or not data[0].get("id"):
+        return None
+    return str(data[0]["id"])
+
+
+def _probe_url(api_key: str, endpoint: str) -> str:
+    config = FANOUT_ENDPOINTS.get(endpoint)
+    if config is not None and config.fanout is not None:
+        # The child endpoints have their own permissions, so the parent listing alone does not prove access.
+        parent_id = _first_parent_id(api_key, endpoint)
+        if parent_id is not None:
+            child_path = config.path.replace(f"{{{config.fanout.resolve_param}}}", parent_id)
+            return f"{PADDLE_BASE_URL}/{child_path}?per_page=1"
+    return f"{PADDLE_BASE_URL}/{PROBE_PATHS.get(endpoint, endpoint)}"
+
+
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
     endpoints_to_check = [table_name] if table_name else CREDENTIAL_CHECK_ENDPOINTS
 
     for endpoint in endpoints_to_check:
         ok, status = validate_via_probe(
             lambda: _get_paddle_session(api_key),
-            f"{PADDLE_BASE_URL}/{PROBE_PATHS.get(endpoint, endpoint)}",
+            _probe_url(api_key, endpoint),
+            timeout=PROBE_TIMEOUT,
         )
         if status == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")
