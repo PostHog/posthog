@@ -1,3 +1,5 @@
+import './DashboardTileGrid.css'
+
 import clsx from 'clsx'
 import { type ComponentProps, memo, useCallback, useRef } from 'react'
 
@@ -19,11 +21,11 @@ function WindowedContentTile({ id, widget, editable }: ComponentProps<typeof Con
     const mounted = useTileMounted(sentinel)
     return (
         <>
-            <span ref={sentinel} aria-hidden className="DashboardV2__tile-sentinel" />
+            <span ref={sentinel} aria-hidden className="DashboardTileGrid__sentinel" />
             {mounted ? (
                 <ContentTile id={id} widget={widget} editable={editable} />
             ) : (
-                <div className={clsx('DashboardV2__tile-placeholder', editable && 'DashboardV2__handle')} />
+                <div className={clsx('DashboardTileGrid__placeholder', editable && 'TileGrid__handle')} />
             )}
         </>
     )

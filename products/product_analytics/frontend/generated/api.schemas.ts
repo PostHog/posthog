@@ -1477,6 +1477,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -7112,6 +7115,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7208,6 +7213,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7309,6 +7316,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7779,6 +7788,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'

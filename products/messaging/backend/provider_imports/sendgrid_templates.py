@@ -1,7 +1,8 @@
 """Turns a SendGrid template into PostHog's Liquid, and says what did not carry over.
 
 Dynamic templates use Handlebars with SendGrid's own helpers:
-https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates stay as text.
+https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates use `<%...%>` tags
+and `-name-` substitutions, which the app fills when it sends.
 
 Each tag converts on its own (see handlebars_liquid.py), and a tag with no Liquid form stays as written with a note.
 """
@@ -19,8 +20,10 @@ from products.messaging.backend.provider_imports.handlebars_liquid import (
     TextValue,
 )
 from products.messaging.backend.provider_imports.sendgrid_handlebars import (
+    _Liquid,
     _Malformed,
     _parse_nodes,
+    _Text,
     _tokenize,
     liquid_literal,
 )
@@ -29,23 +32,6 @@ _MAX_NOTED_TAGS = 5
 
 _UNSUBSCRIBE_VARIABLES = {"unsubscribe", "unsubscribe_preferences"}
 _SENDER_VARIABLES = {"Sender_Name", "Sender_Address", "Sender_City", "Sender_State", "Sender_Zip"}
-_CONTACT_VARIABLES = {
-    "first_name",
-    "last_name",
-    "email",
-    "alternate_emails",
-    "address_line_1",
-    "address_line_2",
-    "city",
-    "state_province_region",
-    "postal_code",
-    "country",
-    "phone_number",
-    "whatsapp",
-    "line",
-    "facebook",
-    "unique_name",
-}
 
 # https://www.twilio.com/docs/sendgrid/ui/sending-email/group-unsubscribes
 _ASM_TAG = re.compile(r"(?:<|&lt;)%\s*([\w.]+)\s*%(?:>|&gt;)")
@@ -73,13 +59,13 @@ class ConvertedSendGridTemplate:
 class _Found:
     """What a part of the template uses, for the notes."""
 
-    def __init__(self, contact_fields: bool) -> None:
-        self.contact_fields = contact_fields
+    def __init__(self) -> None:
         self.unsupported: list[str] = []
         self.uses_unsubscribe = False
         self.sender_variables: set[str] = set()
-        self.contact_variables: set[str] = set()
         self.web_link = False
+        self.reads_contact = False
+        self.legacy_variables: set[str] = set()
 
     def root_value(self, name: str) -> str | None:
         if name in _UNSUBSCRIBE_VARIABLES:
@@ -88,9 +74,16 @@ class _Found:
             return ""
         if name in _SENDER_VARIABLES:
             self.sender_variables.add(name)
-        elif self.contact_fields and name in _CONTACT_VARIABLES:
-            self.contact_variables.add(name)
         return None
+
+
+# A tag for an unsubscribe link that is still in the converted text, so it prints as it stands.
+_LEFT_UNSUBSCRIBE_TAG = re.compile(
+    r"(?:<|&lt;|%3C)(?:%25|%)\s{0,5}\w{0,50}(?:unsubscribe|asm_preferences)"
+    r"|(?:\{\{|%7B%7B)\s{0,5}(?:\{|%7B)?\s{0,5}unsubscribe(?:_preferences)?\s{0,5}(?:&nbsp;)?\s{0,5}(?:\}|%7D)"
+    r"|\[\s{0,5}unsubscribe\s{0,5}\](?!\()",
+    re.IGNORECASE,
+)
 
 
 def _split_asm_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
@@ -109,9 +102,73 @@ def _split_asm_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
     yield text[position:]
 
 
+# One word between hyphens that no letter, digit or hyphen touches. SendGrid lets an app choose any other delimiter too,
+# and nothing in a template tells those from text.
+_SUBSTITUTION = re.compile(r"(?<![\w-])-([A-Za-z_]\w{0,99})-(?![\w-])")
+_LEGACY_SLOTS = {"subject", "body"}
+_LEGACY_TAG = re.compile(f"{_ASM_TAG.pattern}|{_SUBSTITUTION.pattern}")
+
+
+def _split_legacy_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
+    position = 0
+    for match in _LEGACY_TAG.finditer(text):
+        yield text[position : match.start()]
+        slot, substitution = match.group(1), match.group(2)
+        # Liquid reads `.size` as how many variables there are.
+        if substitution == "size":
+            yield TextValue(source=match.group(0), in_attribute=True)
+        elif substitution:
+            yield TextValue(
+                source=match.group(0),
+                in_attribute=True,
+                value_path=f"variables.{substitution}",
+                stays_when_missing=True,
+            )
+        elif slot == "subject":
+            yield TextValue(source=match.group(0), in_attribute=True, value_path="variables.subject")
+        elif slot == "body" and is_html:
+            yield TextValue(source=match.group(0), in_attribute=False, value_path="variables.body", raw=True)
+        elif slot == "body":
+            yield TextValue(source=match.group(0), in_attribute=False, liquid="{{ variables.body | strip_html }}")
+        else:
+            yield from _split_asm_tags(match.group(0), is_html)
+        position = match.end()
+    yield text[position:]
+
+
+def _legacy_nodes(source: str) -> Iterator[_Text | _Liquid]:
+    """The template's own braces print as they stand, because a legacy template has no Handlebars."""
+    position = 0
+    for match in _ANY_LIQUID_OPENING.finditer(source):
+        yield _Text(text=source[position : match.start()])
+        yield _Liquid(liquid=liquid_literal(match.group(0)), printed=match.group(0))
+        position = match.end()
+    yield _Text(text=source[position:])
+
+
+def _convert_legacy(source: str, is_html: bool) -> tuple[str, _Found]:
+    found = _Found()
+    converter = HandlebarsToLiquid(
+        is_html=is_html, dialect="sendgrid", split_text=lambda text: _split_legacy_tags(text, is_html)
+    )
+    try:
+        converted = converter.convert(tuple(_legacy_nodes(source)))
+    except OutputTooLarge:
+        return _kept_as_text(source, "make a template too large to convert")
+    found.unsupported = [*converter.unsupported, *(match.group(0) for match in _ANY_LIQUID_OPENING.finditer(source))]
+    for tag in converter.converted:
+        if (match := _LEGACY_TAG.fullmatch(tag)) is None:
+            continue
+        if name := match.group(2) or (match.group(1) if match.group(1) in _LEGACY_SLOTS else None):
+            found.legacy_variables.add(name)
+        else:
+            found.uses_unsubscribe = True
+    return converted, found
+
+
 def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Found]:
     source = source or ""
-    found = _Found(contact_fields)
+    found = _Found()
     if not source:
         return "", found
     converter = HandlebarsToLiquid(
@@ -119,28 +176,30 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         dialect="sendgrid",
         root_value=found.root_value,
         split_text=lambda text: _split_asm_tags(text, is_html),
+        root_path="person.properties" if contact_fields else "variables",
+        variable_names=_SENDER_VARIABLES,
+        # Anyone can set their own person properties, so their HTML never goes into an email.
+        allows_raw=not contact_fields,
     )
     try:
         converted = converter.convert(_parse_nodes(_tokenize(source, is_html)))
     except _Malformed:
-        return _kept_as_text(source, contact_fields, "don't form valid Handlebars")
+        return _kept_as_text(source, "don't form valid Handlebars")
     except OutputTooLarge:
-        return _kept_as_text(source, contact_fields, "make a template too large to convert")
+        return _kept_as_text(source, "make a template too large to convert")
     found.unsupported = converter.unsupported
     # Only the links that converted open PostHog's preferences page.
     found.uses_unsubscribe = any(
         tag in _UNSUBSCRIBE_VARIABLES or _ASM_TAG.fullmatch(tag) for tag in converter.converted
     )
     found.web_link = "Weblink" in converter.converted
+    found.reads_contact = contact_fields and converter.read_root
     return converted, found
 
 
-_LEGACY_REASON = "come from a legacy template"
-
-
-def _kept_as_text(source: str, contact_fields: bool, reason: str) -> tuple[str, _Found]:
+def _kept_as_text(source: str, reason: str) -> tuple[str, _Found]:
     """The whole template as text. Its `<%...%>` tags stay text too, so a guarded body can't print unguarded."""
-    found = _Found(contact_fields)
+    found = _Found()
     found.unsupported.append(f"this template's tags, which {reason}")
     return _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source), found
 
@@ -239,6 +298,22 @@ def _control_tags(text: str, span: _Span, tags: list[str]) -> Iterator[str]:
             yield slot.group(0)
 
 
+def _opens_and_closes(slots: Iterator[str], tags: list[str]) -> bool:
+    depth = 0
+    for slot in slots:
+        match = _LIQUID_SLOT.fullmatch(slot)
+        name = tags[int(match.group(1))].strip("{%- \t\r\n").split(" ", 1)[0] if match else ""
+        if name in ("if", "unless", "for"):
+            depth += 1
+        elif name in ("endif", "endunless", "endfor"):
+            depth -= 1
+        elif depth == 0:
+            return False
+        if depth < 0:
+            return False
+    return depth == 0
+
+
 def _without_html_tags(text: str, tags: list[str]) -> str:
     """Removes HTML tags but keeps the control tags inside them, in order, so a condition that opens inside an
     attribute still has its opening when it closes in the text."""
@@ -274,8 +349,16 @@ def plain_text_from_html(html: str) -> str:
     )
 
     def link(match: re.Match[str]) -> str:
-        # A condition inside the link can guard its URL. Expanding the link would print the URL outside that condition.
-        if any(_control_tags(match.string, _Span(start=match.start(), end=match.end()), tags)):
+        # A condition can guard the URL. Expanding the link would print the URL outside that condition, unless each
+        # condition is whole inside the URL or inside the label.
+        around_url = (_Span(start=match.start(), end=match.start(1)), _Span(start=match.end(1), end=match.start(2)))
+        if any(slot for span in around_url for slot in _control_tags(match.string, span, tags)) or not all(
+            _opens_and_closes(_control_tags(match.string, span, tags), tags)
+            for span in (
+                _Span(start=match.start(1), end=match.end(1)),
+                _Span(start=match.start(2), end=match.end(2)),
+            )
+        ):
             return match.group(0)
         label = _without_html_tags(match.group(2), tags).strip()
         return match.group(1) if label == match.group(1) else f"{label} ({match.group(1)})"
@@ -304,16 +387,17 @@ def convert_version(
     version: dict[str, object], *, generation: str = "dynamic", contact_fields: bool = False
 ) -> ConvertedSendGridTemplate:
     """A template version's subject and bodies in Liquid, with notes on anything to review. `contact_fields` says
-    SendGrid fills its reserved contact fields, as it does for a Single Send."""
+    SendGrid fills the tags from each contact, as it does for a Single Send, so they print the person's
+    properties with the same names."""
     html_source = _as_text(version.get("html_content"))
     text_source = _as_text(version.get("plain_content"))
     subject_source = _as_text(version.get("subject"))
     generates_text = version.get("generate_plain_content", True) is not False or not text_source
 
     if generation == "legacy":
-        subject, subject_state = _kept_as_text(subject_source, False, _LEGACY_REASON)
-        html, html_state = _kept_as_text(html_source, False, _LEGACY_REASON)
-        text, text_state = _kept_as_text(text_source, False, _LEGACY_REASON)
+        subject, subject_state = _convert_legacy(subject_source, False)
+        html, html_state = _convert_legacy(html_source, True)
+        text, text_state = _convert_legacy(text_source, False)
     else:
         subject, subject_state = _convert_handlebars(subject_source, False, contact_fields)
         html, html_state = _convert_handlebars(html_source, True, contact_fields)
@@ -331,6 +415,17 @@ def convert_version(
         them = "it" if len(tags) == 1 else "them"
         notes.append(
             f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
+        )
+    bodies = (html,) if generates_text and html else (html, text)
+    if any(_LEFT_UNSUBSCRIBE_TAG.search(body) for body in bodies):
+        notes.append(
+            "An unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
+            "send it as marketing email."
+        )
+    if generation == "legacy":
+        notes.append(
+            "PostHog converts SendGrid's <%...%> tags and -name- substitutions. If your app replaces text in another "
+            "style, such as %name%, rewrite it as a Liquid variable."
         )
     if any(state.web_link for state in states):
         notes.append("PostHog has no view in browser link, so the {{{Weblink}}} tag was removed.")
@@ -352,10 +447,16 @@ def convert_version(
         send_notes.append(
             f"SendGrid fills {', '.join(senders)} from the sender. PostHog doesn't, so your app has to pass the value."
         )
-    if contacts := sorted({name for state in states for name in state.contact_variables}):
+    if any(state.reads_contact for state in states):
         send_notes.append(
-            f"SendGrid fills {', '.join(contacts)} from the contact. PostHog doesn't, so this needs a value when you "
-            "send it."
+            "SendGrid's contact fields print the person's property with the same name. Set those properties on your "
+            "people, or the fields print empty. HTML in them prints as text."
+        )
+    if names := sorted({name for state in states for name in state.legacy_variables}):
+        send_notes.append(
+            f"SendGrid fills {', '.join(names)} when your app sends. Pass each one as a variable with that name. "
+            "PostHog prints HTML only from body, and shows other values as text. A name between hyphens that your app "
+            "doesn't pass prints as written."
         )
     return ConvertedSendGridTemplate(
         subject=subject, html=html, text=text, notes=tuple(notes), send_notes=tuple(send_notes)

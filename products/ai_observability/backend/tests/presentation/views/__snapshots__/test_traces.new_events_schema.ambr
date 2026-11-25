@@ -6,7 +6,9 @@
                                 1) AS page,
          count() AS total,
          countIf(has_error) AS errors,
-         countIf(has_feedback) AS feedback
+         countIf(has_feedback) AS feedback,
+         argMaxIf(tuple(trace_id, first_timestamp), tuple(negate(toUnixTimestamp64Milli(first_timestamp)), trace_id), 0) AS previous,
+         greater(countIf(0), 0) AS has_previous
   FROM
     (SELECT CAST(events.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,

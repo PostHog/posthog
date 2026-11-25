@@ -30,6 +30,7 @@ from products.experiments.backend.health.checks.change_wording import (
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     change_rows,
+    change_values,
     changes_to_check,
     delay_after_launch,
     exposed_when,
@@ -45,6 +46,7 @@ from products.experiments.backend.health.skips import (
     CheckOutcome,
     CheckRows,
     CheckSkip,
+    CheckValues,
     not_applicable,
 )
 from products.experiments.backend.health.split_changes import (
@@ -74,6 +76,10 @@ _NOT_CHECKED_TITLE = "Variant split changes were not checked"
 
 def split_changed_rows(ctx: HealthContext) -> CheckRows:
     return change_rows(ctx, SplitChange)
+
+
+def split_changed_values(ctx: HealthContext) -> CheckValues:
+    return change_values(ctx, SplitChange)
 
 
 def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:

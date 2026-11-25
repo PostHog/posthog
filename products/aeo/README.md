@@ -95,7 +95,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 
 ### Weekly dashboard
 
-`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
+`POST aeo_prompts/create_dashboard/` (MCP tool `aeo-prompts-create-dashboard`) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
 Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
 Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
 This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.

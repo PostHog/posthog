@@ -2005,7 +2005,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(dashboard_updated_calls[0][0][2]["source"], "posthog_ai")
 
     @patch("products.dashboards.backend.max_tools.report_user_action")
-    async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report):
+    async def test_create_dashboard_saves_and_reports_new_insights(self, mock_report):
         state_query = TrendsQuery(series=[EventsNode(name="$pageview")])
         state_content = VisualizationArtifactContent(
             query=state_query,
@@ -2030,7 +2030,14 @@ class TestUpsertDashboardTool(BaseTest):
         insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
         self.assertEqual(len(insight_created_calls), 1)
         self.assertEqual(insight_created_calls[0][0][2]["source"], "posthog_ai")
-        self.assertIn("insight_id", insight_created_calls[0][0][2])
+        tile = await DashboardTile.objects.select_related("insight").aget(dashboard__name="Dashboard with New Insights")
+        insight = tile.insight
+        assert insight is not None
+        self.assertEqual(insight_created_calls[0][0][2]["insight_id"], insight.short_id)
+        self.assertEqual(insight.name, "New Insight")
+        self.assertEqual(insight.description, "From state")
+        self.assertEqual(insight.created_by_id, self.user.id)
+        self.assertTrue(insight.saved)
 
     @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_create_dashboard_does_not_report_insight_created_for_existing_insights(self, mock_report):

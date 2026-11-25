@@ -333,6 +333,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             ("hogql_parser_rs_sources", "rust/hogql/parser/src/lib.rs"),
             ("hogvm", "common/hogvm/python/execute.py"),
             ("personhog_stubs", "packages/personhog-proto/personhog/types/v1/person_pb2.py"),
+            ("db_routing", "products/db_routing.yaml"),
         ]
     )
     def test_non_python_legacy_inputs_signal_full_run(self, _name: str, path: str) -> None:
@@ -348,6 +349,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             ("posthog_conftest", "posthog/api/test/conftest.py", True),
             # products/signals/backend/emission runs in the Temporal leg, below both of these.
             ("products_root_conftest", "products/conftest.py", True),
+            ("products_root_init", "products/__init__.py", True),
             ("temporal_leg_product_conftest", "products/signals/backend/conftest.py", True),
             ("product_conftest", "products/surveys/backend/test/conftest.py", False),
             ("settings_module_without_a_base", "posthog/settings/web.py", True),

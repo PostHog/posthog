@@ -1,5 +1,6 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -336,6 +337,21 @@ describe('TraceDrawerHost', () => {
 
         fireEvent.keyDown(document.body, { key: 'p' })
         await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
+
+    it.each<[string, () => void]>([
+        ['Previous', () => fireEvent.click(attr(document.body, 'trace-drawer-previous'))],
+        ['p', () => fireEvent.keyDown(document.body, { key: 'p' })],
+    ])('steps up from the first row with %s when the list has rows before it', async (_name, stepUp) => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        const drawer = traceDrawerLogic({ listId: LIST_ID })
+        act(() => drawer.actions.setRowsBefore(true))
+        await view.findAllByText('answer-a')
+
+        expect(attr(view.container, 'trace-drawer-previous').getAttribute('aria-disabled')).not.toBe('true')
+        await expectLogic(drawer, stepUp).toDispatchActions([drawer.actionCreators.stepTo('previous')])
     })
 
     it('steps through the tree with j and k, but not with a modal open, and its legend names the trace keys', async () => {

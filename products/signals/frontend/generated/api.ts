@@ -37,7 +37,10 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonitorPRRequestApi,
+    MonitorPRResponseApi,
     MonthlyUsageApi,
+    PRBrowserPageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -465,6 +468,26 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     })
 }
 
+export const getSignalsMonitorPrCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/monitor_pr/`
+}
+
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreate = async (
+    projectId: string,
+    monitorPRRequestApi: MonitorPRRequestApi,
+    options?: RequestInit
+): Promise<MonitorPRResponseApi> => {
+    return apiMutator<MonitorPRResponseApi>(getSignalsMonitorPrCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(monitorPRRequestApi),
+    })
+}
+
 export const getSignalsOnboardingListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/onboarding/`
 }
@@ -594,6 +617,20 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsPullRequestsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/pull_requests/`
+}
+
+/**
+ * @summary List recent authored pull requests
+ */
+export const signalsPullRequestsList = async (projectId: string, options?: RequestInit): Promise<PRBrowserPageApi> => {
+    return apiMutator<PRBrowserPageApi>(getSignalsPullRequestsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -3784,7 +3821,7 @@ export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string)
 }
 
 /**
- * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
  * @summary Preview a source filter
  */
 export const signalsSourceConfigsFilterPreviewCreate = async (

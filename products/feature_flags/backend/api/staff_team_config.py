@@ -20,7 +20,11 @@ from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import (
+    FlagEvaluationsConfig,
+    get_organization_flag_evaluations_config,
+    get_organization_flag_evaluations_configs,
+)
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -33,8 +37,8 @@ from products.feature_flags.backend.flag_limits import (
     resolve_max_feature_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
+    CACHED_SETTING_DEFAULTS,
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
@@ -51,7 +55,12 @@ MAX_TEAM_IDS_PER_QUERY = 50
 # transaction writes. Each team id adds at most one organization.
 MAX_IDS_PER_MODE_WRITE = 50
 
-MUTABLE_SETTINGS = ("minimal_flag_called_events", "property_matching_version", "max_feature_flags_override")
+MUTABLE_SETTINGS = (
+    "minimal_flag_called_events",
+    "property_matching_version",
+    "null_counts_as_not_set",
+    "max_feature_flags_override",
+)
 
 
 def _config_row(
@@ -59,8 +68,9 @@ def _config_row(
     team_id: int,
     minimal_flag_called_events: bool,
     property_matching_version: int,
+    null_counts_as_not_set: bool,
     max_feature_flags_override: int | None,
-    flag_evaluations_mode: int,
+    flag_evaluations_config: FlagEvaluationsConfig,
     feature_flag_count: int,
 ) -> dict[str, Any]:
     """Build the row shape shared by list() and set(), which both feed the same staff tools table."""
@@ -68,9 +78,11 @@ def _config_row(
         "team_id": team_id,
         "minimal_flag_called_events": minimal_flag_called_events,
         "property_matching_version": property_matching_version,
+        "null_counts_as_not_set": null_counts_as_not_set,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
-        "flag_evaluations_mode": flag_evaluations_mode,
+        "flag_evaluations_mode": flag_evaluations_config.mode,
+        "keep_writing_flag_calls_to_events": flag_evaluations_config.keeps_events_writes,
         "feature_flag_count": feature_flag_count,
     }
 
@@ -95,6 +107,12 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         choices=PropertyMatchingVersion.choices,
         help_text="Property matching semantics used by /flags, local evaluation, and cohort generation.",
     )
+    null_counts_as_not_set = serializers.BooleanField(
+        help_text=(
+            "Whether a property whose value is null counts as not set for the is_set and is_not_set "
+            "operators, as it does in insights and cohorts. False means a null value counts as set."
+        )
+    )
     max_feature_flags_override = serializers.IntegerField(
         allow_null=True,
         help_text=(
@@ -113,8 +131,16 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
-            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway."
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. "
+            "An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, "
+            "so that setting moves it back to events as well."
         ),
+    )
+    keep_writing_flag_calls_to_events = serializers.BooleanField(
+        help_text=(
+            "Whether ingestion keeps writing $feature_flag_called to the events table for the organization of this "
+            "team while it is on mode 2. Always false on modes 0 and 1."
+        )
     )
     feature_flag_count = serializers.IntegerField(
         help_text=(
@@ -146,6 +172,14 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
             "New property matching version for the team. Version 1 preserves legacy behavior. "
             "Version 2 uses explicit scalar and array equality. Only set version 2 after confirming "
             "that the team's local-evaluation SDK versions support it. Omit to leave it unchanged."
+        ),
+    )
+    null_counts_as_not_set = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "New value for the team's null_counts_as_not_set setting. True makes a property whose "
+            "value is null count as not set for is_set and is_not_set, which changes the results of "
+            "flags that use those operators on null values. Omit to leave it unchanged."
         ),
     )
     max_feature_flags_override = serializers.IntegerField(
@@ -300,9 +334,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 "team_id", "max_feature_flags_override"
             )
         )
-        organization_config_by_id = OrganizationFeatureFlagsConfig.objects.in_bulk(
-            set(organization_id_by_team_id.values())
-        )
+        organization_config_by_id = get_organization_flag_evaluations_configs(set(organization_id_by_team_id.values()))
         # FeatureFlag.objects excludes soft-deleted rows, so counting the root team gives the
         # number check_flag_limits_for_team compares against the limit. Staff reading this number
         # next to the limit have to see the number the validator sees.
@@ -321,16 +353,14 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             # An unsaved instance stands in for a legacy team whose row predates this extension,
             # so the model's own field defaults answer for it rather than a second copy here.
             config = config_by_team_id.get(team_id) or TeamFeatureFlagsConfig()
-            organization_config = (
-                organization_config_by_id.get(organization_id_by_team_id[team_id]) or OrganizationFeatureFlagsConfig()
-            )
             results.append(
                 _config_row(
                     team_id=team_id,
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
+                    null_counts_as_not_set=config.null_counts_as_not_set,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
-                    flag_evaluations_mode=organization_config.flag_evaluations_mode,
+                    flag_evaluations_config=organization_config_by_id[organization_id_by_team_id[team_id]],
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
@@ -360,18 +390,16 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             )
 
         config = get_or_create_team_extension(team, TeamFeatureFlagsConfig)
-        old_minimal_flag_called_events = config.minimal_flag_called_events
-        old_property_matching_version = config.property_matching_version
-        old_max_feature_flags_override = config.max_feature_flags_override
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
         # same team from overwriting each other.
         update_fields = [setting for setting in MUTABLE_SETTINGS if setting in validated]
+        old_values = {setting: getattr(config, setting) for setting in update_fields}
         for setting in update_fields:
             setattr(config, setting, validated[setting])
         config.save(update_fields=update_fields)
 
-        if {"minimal_flag_called_events", "property_matching_version"} & validated.keys():
+        if CACHED_SETTING_DEFAULTS.keys() & validated.keys():
             # posthog.tasks.team_metadata sits under posthog.tasks, whose __init__ is a celery
             # autoimport aggregator that pulls in every task module — keep that off the API
             # router's import path by deferring it to call time. The local tasks module is
@@ -390,15 +418,10 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # old_value/new_value stay bound to minimal_flag_called_events under those names because
         # dashboards outside this repo were built on them before the endpoint took a second setting.
         changed_values: dict[str, Any] = {}
-        if "minimal_flag_called_events" in validated:
-            changed_values["old_value"] = old_minimal_flag_called_events
-            changed_values["new_value"] = config.minimal_flag_called_events
-        if "property_matching_version" in validated:
-            changed_values["old_property_matching_version"] = old_property_matching_version
-            changed_values["new_property_matching_version"] = config.property_matching_version
-        if "max_feature_flags_override" in validated:
-            changed_values["old_max_feature_flags_override"] = old_max_feature_flags_override
-            changed_values["new_max_feature_flags_override"] = config.max_feature_flags_override
+        for setting in update_fields:
+            suffix = "value" if setting == "minimal_flag_called_events" else setting
+            changed_values[f"old_{suffix}"] = old_values[setting]
+            changed_values[f"new_{suffix}"] = validated[setting]
 
         logger.info(
             "flags_staff_team_config_updated",
@@ -417,12 +440,13 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 team_id=team.id,
                 minimal_flag_called_events=config.minimal_flag_called_events,
                 property_matching_version=config.property_matching_version,
+                null_counts_as_not_set=config.null_counts_as_not_set,
                 max_feature_flags_override=(
                     config.max_feature_flags_override
                     if team.parent_team_id is None
                     else get_max_feature_flags_override_for_team(team.parent_team_id)
                 ),
-                flag_evaluations_mode=get_organization_flag_evaluations_mode(team.organization_id),
+                flag_evaluations_config=get_organization_flag_evaluations_config(team.organization_id),
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )

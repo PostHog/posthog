@@ -249,6 +249,10 @@ jobs:
                         # The AI visibility favicon asset reads brand and cited domains through the facade.
                         - 'products/aeo/backend/facade/api.py'
                         - 'products/aeo/backend/models.py'
+                        # The account favicon asset reads logo domains through this one logic module.
+                        - 'products/customer_analytics/backend/logic/account_logo.py'
+                        - 'products/customer_analytics/backend/domain.py'
+                        - 'products/customer_analytics/backend/models/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
