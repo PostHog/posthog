@@ -39,8 +39,10 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailStatsCounts,
     TransactionalEmailStatsOverTime,
     TransactionalEmailStatsRow,
+    TransactionalEmailTracking,
 )
 from products.messaging.backend.models.email_status_sql import (
+    EMAIL_CLICKS_UNTRACKED_REASON,
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
@@ -95,6 +97,12 @@ _MESSAGE_COLUMNS = f"""
     countIf(status = 'opened') > 0 AS was_opened,
     countIf(status = 'clicked') > 0 AS was_clicked
 """.strip()
+_TRACKING_REASONS = {
+    "untracked_reason": EMAIL_UNTRACKED_REASON,
+    "clicks_untracked_reason": EMAIL_CLICKS_UNTRACKED_REASON,
+}
+_OPENS_OFF = "status = 'sent' AND reason = %(untracked_reason)s"
+_CLICKS_OFF = "status = 'sent' AND reason IN (%(untracked_reason)s, %(clicks_untracked_reason)s)"
 
 
 @frozen
@@ -308,7 +316,12 @@ def get_transactional_email(
     queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
-    params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}
+    params = {
+        "message_id": str(message_id),
+        "start": queued - _CLOCK_SKEW,
+        "end": queued + _CLOCK_SKEW,
+        **_TRACKING_REASONS,
+    }
     where = "team_id = %(team_id)s AND message_id = %(message_id)s AND created_at >= %(start)s AND created_at < %(end)s"
 
     rows = _execute(
@@ -326,7 +339,13 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT {_STATUS}, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT
+            {_STATUS},
+            status_at,
+            {EMAIL_STATUS_SHOWN_REASON} AS shown_reason,
+            max({_OPENS_OFF}) AS opens_off,
+            max({_CLICKS_OFF}) AS clicks_off
+        FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
         GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
@@ -335,7 +354,7 @@ def get_transactional_email(
         query_type="transactional_email_log_timeline",
     )
     timeline: list[TransactionalEmailLogEvent] = []
-    for kind, at, reason in events:
+    for kind, at, reason, *_tracking in events:
         if kind not in EmailLogEventKind.values:
             continue
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
@@ -359,6 +378,10 @@ def get_transactional_email(
         # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
         # the copy itself shows whether the content was withheld.
         sensitive=bool(template and template.sensitive),
+        tracking=TransactionalEmailTracking(
+            opens=not any(opens_off for *_, opens_off, _ in events),
+            clicks=not any(clicks_off for *_, clicks_off in events),
+        ),
     )
 
 
@@ -625,9 +648,9 @@ def transactional_email_impact(
         "start": period.start,
         "end": period.end,
         "workflow_id": workflow_id,
-        "untracked_reason": EMAIL_UNTRACKED_REASON,
+        **_TRACKING_REASONS,
     }
-    [(sent, delivered, opened, clicked, not_clicked, untracked)] = _execute(
+    [(sent, delivered, opened, clicked, not_clicked, untracked, clicks_untracked)] = _execute(
         team.id,
         f"""
         SELECT
@@ -635,12 +658,14 @@ def transactional_email_impact(
             countIf(delivery_status IN ('delivered', 'complained')),
             countIf(was_opened),
             countIf(was_clicked),
-            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked),
-            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND was_untracked)
+            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked AND NOT clicks_off),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND opens_off),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND clicks_off AND NOT opens_off)
         FROM (
             SELECT
                 {_MESSAGE_COLUMNS},
-                countIf(status = 'sent' AND reason = %(untracked_reason)s) > 0 AS was_untracked
+                countIf({_OPENS_OFF}) > 0 AS opens_off,
+                countIf({_CLICKS_OFF}) > 0 AS clicks_off
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
@@ -659,6 +684,7 @@ def transactional_email_impact(
             clicked=clicked,
             not_clicked=not_clicked,
             untracked=untracked,
+            clicks_untracked=clicks_untracked,
             window_days=IMPACT_WINDOW_DAYS,
             after_click=None,
             without_click=None,
@@ -672,6 +698,7 @@ def transactional_email_impact(
         clicked=clicked,
         not_clicked=not_clicked,
         untracked=untracked,
+        clicks_untracked=clicks_untracked,
         window_days=IMPACT_WINDOW_DAYS,
         after_click=_conversions_of([send for send in sends if send.clicked], converted),
         without_click=_conversions_of([send for send in sends if not send.clicked], converted),
@@ -695,17 +722,24 @@ def _sends_to_follow(team: Team, workflow_id: str, period: _Period) -> list[_Fol
             SELECT
                 {_MESSAGE_COLUMNS},
                 minIf(status_at, status = 'clicked') AS first_clicked_at,
-                minIf(status_at, status = 'sent') AS first_sent_at
+                minIf(status_at, status = 'sent') AS first_sent_at,
+                countIf({_CLICKS_OFF}) > 0 AS clicks_off
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
-          AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
+          AND (was_clicked OR (delivery_status IN ('delivered', 'complained') AND NOT clicks_off))
         ORDER BY queued_at DESC
         LIMIT %(limit)s BY was_clicked
         """,
-        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        {
+            "start": period.start,
+            "end": period.end,
+            "workflow_id": workflow_id,
+            "limit": MAX_RESULTS_RECIPIENTS,
+            **_TRACKING_REASONS,
+        },
         _GROUP_AS_READ,
         query_type="transactional_email_impact_sends",
     )

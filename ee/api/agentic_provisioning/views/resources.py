@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import cast
 
+from django.db import transaction
+
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,7 +21,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
-from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
+from ee.api.agentic_provisioning.credentials import delete_provisioned_pats, maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
@@ -29,7 +31,11 @@ from ee.api.agentic_provisioning.teams import (
     ProjectIdCollisionError,
     resolve_or_create_project_team,
 )
-from ee.api.agentic_provisioning.tokens import remove_team_from_token_scopes
+from ee.api.agentic_provisioning.tokens import (
+    lock_application,
+    lock_partner_connections_for_team,
+    remove_team_from_token_scopes,
+)
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
 
 
@@ -41,6 +47,7 @@ def _access_configuration_response(
     access_token: OAuthAccessToken,
     label_prefix: str | None,
     mint_pat: bool = True,
+    replace_existing_pats: bool = False,
 ) -> Response:
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -48,7 +55,13 @@ def _access_configuration_response(
     }
     if mint_pat and (
         personal_api_key := maybe_create_provisioned_pat(
-            user, team, access_token.application, access_token.scope, label_prefix=label_prefix
+            user,
+            team,
+            access_token.application,
+            access_token.scope,
+            label_prefix=label_prefix,
+            access_token=access_token,
+            replace_existing=replace_existing_pats,
         )
     ):
         access_configuration["personal_api_key"] = personal_api_key
@@ -194,6 +207,7 @@ class RotateCredentialsView(BearerResourceAPIView):
             user=user,
             access_token=access_token,
             label_prefix=label_prefix,
+            replace_existing_pats=True,
         )
 
 
@@ -208,19 +222,36 @@ class ResourceRemoveView(BearerResourceAPIView):
 
         team_id = self.parse_resource_team_id(resource_id, access_token)
 
-        try:
-            # Clear the mapping only if it is unclaimed or owned by the caller's
-            # application; an in-scope partner must not delete another partner's
-            # provisioning mapping for the same team.
-            config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
-            if config is not None and config.application_id in (None, access_token.application_id):
-                config.delete()
-        except Exception:
-            capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
-            capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
-            raise ProvisioningError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
+        # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
+        # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
+        with transaction.atomic():
+            # Connection locks, then the application lock, before the mapping and the tokens: the
+            # order both token refresh paths take them, so a refresh that runs during the removal
+            # waits for it and then reads its scope without the removed team.
+            if access_token.application_id is not None:
+                lock_partner_connections_for_team(access_token.application_id, team_id)
+                lock_application(access_token.application_id)
+            try:
+                # Clear the mapping only if it is unclaimed or owned by the caller's
+                # application; an in-scope partner must not delete another partner's
+                # provisioning mapping for the same team.
+                config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+                if config is not None and config.application_id in (None, access_token.application_id):
+                    config.delete()
+            except Exception:
+                capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+                capture_provisioning_event(
+                    "resource_removed", "error", team_id=team_id, error_code="remove_config_failed"
+                )
+                raise ProvisioningError(
+                    "remove_failed", "Failed to remove resource", resource_id=resource_id, status=500
+                )
 
-        remove_team_from_token_scopes(access_token, team_id)
+            remove_team_from_token_scopes(access_token, team_id)
+
+            # After the scope change, so a mint that locked a token before it has committed its key.
+            if access_token.application is not None:
+                delete_provisioned_pats(access_token.application, team_id=team_id)
 
         capture_provisioning_event("resource_removed", "success", team_id=team_id)
 

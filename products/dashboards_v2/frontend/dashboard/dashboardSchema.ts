@@ -21,16 +21,23 @@ import { AccessControlLevel } from '~/types'
  * - `metrics`: a `MetricsQuery` node, as the metrics product builds it.
  * - `traces`: a `TraceSpansQuery` or `TraceSpansAggregationQuery` node, as tracing and APM build them.
  * - `insight`: any query node `/query` runs, such as a `TrendsQuery`, for teams that already build their own nodes.
+ * - `promql` and `logql`: an expression, run as a range query over the chart's time range.
  */
 export type WidgetQuery =
     | { language: 'hogql'; query: string }
     | { language: 'metrics'; query: MetricsQuery }
     | { language: 'traces'; query: TraceSpansQuery | TraceSpansAggregationQuery }
     | { language: 'insight'; query: QuerySchema }
+    | { language: 'promql'; query: string }
+    | { language: 'logql'; query: string }
+
+// The query batch endpoint's limits. A longer value fails the whole batch, and with it every other tile's query.
+const MAX_QUERY_TEXT = 200_000
+const MAX_TIME_END = 100
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const widgetQuerySchema = z.union([
-    z.strictObject({ language: z.literal('hogql'), query: z.string().min(1) }),
+    z.strictObject({ language: z.literal('hogql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
     z.strictObject({
         language: z.literal('metrics'),
         query: z.looseObject({ kind: z.literal(NodeKind.MetricsQuery) }),
@@ -42,6 +49,8 @@ export const widgetQuerySchema = z.union([
         }),
     }),
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
+    z.strictObject({ language: z.literal('promql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('logql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
 /**
@@ -53,6 +62,7 @@ export const RELATIVE_TIME = /^now-(\d+)([smhdwMy])$/
 
 const timePointSchema = z
     .string()
+    .max(MAX_TIME_END)
     .refine(
         (point) => point === 'now' || RELATIVE_TIME.test(point) || !Number.isNaN(Date.parse(point)),
         'Use now, now-<amount><s|m|h|d|w|M|y>, or an ISO 8601 time'

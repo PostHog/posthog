@@ -32,7 +32,7 @@ function keepsSeries(filter: AnalyticsPropertyFilter, name: string): boolean {
 
 // Draws charts for people outside the dashboard-v2 query flags, and for stories. The data is made up from each
 // query's text, so the same query always draws the same chart.
-export const runSampleQuery: RunQuery = async ({ query, time, filters = [] }) => {
+export const runSampleQuery: RunQuery = async ({ query, time, legend, filters = [] }) => {
     const random = seededRandom(JSON.stringify({ query, time, filters }))
     const browser = analyticsPropertyFilters(filters).filter((filter) => filter.key === '$browser')
     const today = new Date('2026-11-23T00:00:00Z')
@@ -46,7 +46,7 @@ export const runSampleQuery: RunQuery = async ({ query, time, filters = [] }) =>
     const shown = names.length > 1 ? names.filter((name) => browser.every((filter) => keepsSeries(filter, name))) : names
     const frames = shown.map(
         (name, position): DataFrame => ({
-            name,
+            name: legend ? legend.replace(/\{\{\s*[\w.]+\s*\}\}/g, name) : name,
             fields: [
                 { name: 'time', type: 'time', values: days },
                 {

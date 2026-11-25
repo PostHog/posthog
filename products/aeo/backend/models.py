@@ -6,6 +6,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    DEFAULT_MAX_ACTIVE_PROMPTS,
     KEYWORD_MAX_LENGTH,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
@@ -580,3 +581,20 @@ class AEOCheckBrand(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.citation_check_id} {self.brand_id} mentioned={self.mentioned} cited={self.cited}"
+
+
+class AEOTeamConfig(TeamScopedRootMixin):
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False
+    )
+    max_active_prompts = models.PositiveIntegerField(
+        default=DEFAULT_MAX_ACTIVE_PROMPTS,
+        db_default=DEFAULT_MAX_ACTIVE_PROMPTS,
+        help_text="How many unarchived prompts the project can keep turned on at once. Each one is checked by every enabled engine on its schedule.",
+    )
+
+    class Meta:
+        db_table = "posthog_aeo_team_config"
+
+    def __str__(self) -> str:
+        return f"AI visibility config for team {self.team_id}"
