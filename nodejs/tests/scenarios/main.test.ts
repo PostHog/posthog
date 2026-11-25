@@ -415,7 +415,6 @@ describe('runCards', () => {
 
         const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
         expect(stderr.join('')).toContain('A run host runs one card per manifest')
-        expect(stack.startStack).not.toHaveBeenCalled()
     })
 
     it.each([

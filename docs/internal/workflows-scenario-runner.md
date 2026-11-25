@@ -572,8 +572,8 @@ It rejects:
 
 **Hashes.**
 The profile hash is the SHA-256 of the profile serialized with sorted keys.
-The card hash is the SHA-256 of the card without `gates` and the profile hash, serialized the same way.
-Gates stay outside the card hash; anything else that changes what runs changes it.
+The card hash is the SHA-256 of the card without `gates` and `pair` and the profile hash, serialized the same way.
+Gates and `pair` stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
 Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/` and `store/` still changes `runner_version`, a test file or the loader included.

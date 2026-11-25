@@ -97,5 +97,4 @@ while kill -0 "$card" 2>/dev/null; do
 done
 wait "$card"
 code=$?
-# SIGURG is ignored by default, so a copier that has not set its trap yet keeps running and sees the ended card at its first check.
 kill -URG "${live[@]}" 2>/dev/null || true
