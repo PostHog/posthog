@@ -19,6 +19,7 @@ from products.experiments.backend.models.experiment import (
     get_experiment_rule,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.filters import stored_payloads
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
@@ -190,19 +191,18 @@ def _project_feature_flag_config(parameters: dict[str, Any], experiment: Experim
     flag = experiment.feature_flag
     parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
-    filters = flag.get_filters()
     if flag.aggregation_group_type_index is not None:
         parameters["aggregation_group_type_index"] = flag.aggregation_group_type_index
     else:
         parameters.pop("aggregation_group_type_index", None)
 
-    groups = filters.get("groups") or []
-    if groups and groups[0].get("rollout_percentage") is not None:
-        parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
+    conditions = flag.conditions
+    if conditions and conditions[0].get("rollout_percentage") is not None:
+        parameters["rollout_percentage"] = conditions[0]["rollout_percentage"]
     else:
         parameters.pop("rollout_percentage", None)
 
-    payloads = filters.get("payloads")
+    payloads = stored_payloads(flag.get_filters())
     if payloads:
         parameters["feature_flag_payloads"] = payloads
     else:

@@ -45,7 +45,7 @@ def _to_experiment_flag(experiment: Experiment) -> ExperimentFlag:
         team_id=flag.team_id,
         name=flag.name,
         key=flag.key,
-        filters=flag.get_filters(),
+        filters=flag.filters,
         deleted=flag.deleted,
         active=flag.active,
         ensure_experience_continuity=flag.ensure_experience_continuity,
