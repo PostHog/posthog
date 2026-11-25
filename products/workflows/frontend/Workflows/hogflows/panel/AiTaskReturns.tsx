@@ -118,7 +118,10 @@ export function AiTaskReturns(): JSX.Element {
                                 key={`type-${index}`}
                                 size="small"
                                 options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
-                                value={variable?.type ?? 'string'}
+                                value={
+                                    WORKFLOW_VARIABLE_TYPE_OPTIONS.find((o) => o.value === variable?.type)?.value ??
+                                    'string'
+                                }
                                 disabledReason={!fieldName ? 'Name the field first.' : undefined}
                                 onChange={(type) => type && setVariableType(mapping.key, type)}
                             />,
