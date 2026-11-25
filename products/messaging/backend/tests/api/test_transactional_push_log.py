@@ -11,6 +11,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -114,6 +115,14 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
         return run_id
+
+    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    def test_the_push_log_follows_property_access(self, _flag, access: PropertyAccess, expected: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        log = f"/api/projects/{self.team.id}/transactional_push_log/"
+
+        assert [self.client.get(log).status_code, self.client.get(f"{log}stats/").status_code] == [expected] * 2
 
     def test_lists_each_send_with_its_outcome(self, _flag):
         sent = self._run(
