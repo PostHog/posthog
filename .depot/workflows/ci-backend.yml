@@ -463,6 +463,7 @@ jobs:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/skills/**'
                         - 'products/workflows/skills/**'
+                        - 'products/billing/skills/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
