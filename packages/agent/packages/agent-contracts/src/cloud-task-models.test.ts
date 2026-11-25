@@ -526,17 +526,17 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
       gatewayUrl: "https://gateway.example.com",
     });
     expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
-      "https://gateway.example.com/posthog_code",
+      "https://gateway.example.com",
     );
     expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 
   it("keeps the derived gateway when the custom cloud has none", () => {
     configureCustomCloud({ url: "https://posthog.example.com" });
     expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 
@@ -546,7 +546,7 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
       gatewayUrl: "https://gateway.example.com",
     });
     expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 });

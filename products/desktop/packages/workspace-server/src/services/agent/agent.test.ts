@@ -129,10 +129,6 @@ vi.mock("@posthog/agent", () => ({
   },
 }));
 
-vi.mock("@posthog/agent/posthog-api", () => ({
-  getLlmGatewayUrl: vi.fn(() => "https://gateway.example.com"),
-}));
-
 vi.mock("@posthog/agent/resume", () => ({
   resumeFromLog: mockResumeFromLog,
   formatConversationForResume: mockFormatConversationForResume,

@@ -105,19 +105,19 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const custom = getCustomCloud();
 
   if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
-    gatewayBaseUrl = custom.gatewayUrl;
+    gatewayBaseUrl = custom.gatewayUrl.replace(/\/+$/, "");
   } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-    gatewayBaseUrl = `${url.protocol}//localhost:3308`;
+    gatewayBaseUrl = `${url.protocol}//localhost:8080`;
   } else if (url.hostname === "host.docker.internal") {
-    gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
+    gatewayBaseUrl = `${url.protocol}//host.docker.internal:8080`;
   } else if (url.hostname === "app.dev.posthog.dev") {
-    gatewayBaseUrl = "https://gateway.dev.posthog.dev";
+    gatewayBaseUrl = "https://ai-gateway.dev.posthog.dev";
   } else {
     const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1] ?? "us";
-    gatewayBaseUrl = `https://gateway.${region}.posthog.com`;
+    gatewayBaseUrl = `https://ai-gateway.${region}.posthog.com`;
   }
 
-  return `${gatewayBaseUrl}/posthog_code`;
+  return gatewayBaseUrl;
 }
 
 function isGatewayModel(value: unknown): value is Partial<GatewayModel> & {
