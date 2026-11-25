@@ -91,7 +91,7 @@ describe('TagsCombobox', () => {
         await userEvent.click(screen.getByPlaceholderText('Add tags...'))
         await userEvent.keyboard('Home')
 
-        await userEvent.click(await screen.findByRole('option', { name: 'HomeScreen' }))
+        await userEvent.click(await screen.findByText('HomeScreen'))
         await act(async () => {})
 
         expect(chipTitles()).toEqual(['HomeScreen'])
