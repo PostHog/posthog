@@ -207,12 +207,17 @@ class TestProvisioningResources(ProvisioningTestBase):
             ("claimed_by_another_project_id", "proj_existing", None),
             ("provisioned_by_another_partner", None, "other_partner"),
             ("not_provisioned_by_a_partner", None, "none"),
+            ("this_partners_project_other_than_the_base_team", None, "other_team"),
         ]
     )
     def test_new_project_id_does_not_claim_a_project_unavailable_to_this_partner(
         self, _name: str, existing_project_id: str | None, owner: str | None
     ) -> None:
-        if owner != "none":
+        other_team = None
+        if owner == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Teammate's partner project")
+            TeamProvisioningConfig.objects.create(team=other_team, application=self.partner)
+        elif owner != "none":
             application = (
                 OAuthApplication.objects.create(
                     name="Other example partner",
@@ -235,6 +240,10 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.status_code == 200, res.content
         assert res.json()["id"] != str(self.team.id)
         assert TeamProvisioningConfig.objects.filter(team=self.team, stripe_project_id="proj_new").count() == 0
+        if other_team is not None:
+            assert other_team.id in OAuthAccessToken.objects.get(token=token).scoped_teams
+            assert res.json()["id"] != str(other_team.id)
+            assert TeamProvisioningConfig.objects.get(team=other_team).stripe_project_id is None
 
     @parameterized.expand(
         [

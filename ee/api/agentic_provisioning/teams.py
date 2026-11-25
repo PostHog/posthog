@@ -105,42 +105,30 @@ def _resolve_race_winner(
 
 def _claim_provisioned_team(
     project_id: str,
-    scoped_teams: list[int],
+    base_team: Team,
     user: User,
     access_token: OAuthAccessToken,
-    enforce_ip_policy: Callable[[Team], None],
 ) -> Team | None:
-    """Bind project_id to a team in the token's scope that this partner provisioned and no project_id claims yet.
+    """Bind project_id to the token's base team when this partner provisioned it and no project_id claims it yet.
 
     The account request already creates a project for the partner, so the first resource call
-    reuses it instead of adding a second project to the organization.
+    reuses it instead of adding a second project to the organization. Only the base team, the
+    project this user's account request created, can be claimed: another member's partner project
+    in the token's scope is theirs, and a new project_id must not take it over or rename it.
     """
-    candidates = (
-        TeamProvisioningConfig.objects.filter(
-            UNCLAIMED_PROJECT_ID,
-            application=access_token.application,
-            team_id__in=scoped_teams,
-            team__is_demo=False,
-        )
-        .exclude(team__project__is_pending_deletion=True)
-        .select_related("team")
-        .order_by("team_id")
-    )
-    for config in candidates:
-        enforce_ip_policy(config.team)
-        if not user_can_access_team(user, config.team):
-            continue
+    if base_team.is_demo or not user_can_access_team(user, base_team):
+        return None
+    if Project.objects.filter(id=base_team.project_id, is_pending_deletion=True).exists():
+        return None
 
-        # The update re-checks that the row is unclaimed, so two concurrent calls with different
-        # project ids never bind the same team. The savepoint keeps a unique-constraint failure
-        # from breaking an enclosing transaction.
-        with transaction.atomic():
-            claimed = TeamProvisioningConfig.objects.filter(UNCLAIMED_PROJECT_ID, team_id=config.team_id).update(
-                stripe_project_id=project_id
-            )
-        if claimed:
-            return config.team
-    return None
+    # The update re-checks that the row is unclaimed, so two concurrent calls with different
+    # project ids never bind the same team. The savepoint keeps a unique-constraint failure
+    # from breaking an enclosing transaction.
+    with transaction.atomic():
+        claimed = TeamProvisioningConfig.objects.filter(
+            UNCLAIMED_PROJECT_ID, application=access_token.application, team_id=base_team.id
+        ).update(stripe_project_id=project_id)
+    return base_team if claimed else None
 
 
 def assert_user_can_create_project(user: User, organization: Organization) -> None:
@@ -170,8 +158,8 @@ def resolve_or_create_project_team(
     project_id → team_id mapping. This ensures idempotency even across cache
     evictions and handles race conditions via IntegrityError.
 
-    An unknown project_id first claims the partner's unclaimed project in the
-    token's scope. Only when there is none does it create a project, and only
+    An unknown project_id first claims the token's base team when the partner
+    provisioned it and no project_id claims it yet. Only when there is none does it create a project, and only
     when the user may create one and the organization is under its project limit.
     Raises ProjectCreationRefusedError otherwise.
 
@@ -189,7 +177,7 @@ def resolve_or_create_project_team(
         return None, scoped_teams
 
     try:
-        claimed_team = _claim_provisioned_team(project_id, scoped_teams, user, access_token, enforce_ip_policy)
+        claimed_team = _claim_provisioned_team(project_id, base_team, user, access_token)
     except IntegrityError:
         return _resolve_race_winner(project_id, scoped_teams, user, access_token, enforce_ip_policy)
     if claimed_team is not None:
