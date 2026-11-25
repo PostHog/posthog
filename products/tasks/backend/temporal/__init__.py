@@ -16,6 +16,7 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
+from .orphaned_objects.workflow import DeleteOrphanedTaskObjectsWorkflow, delete_orphaned_task_objects
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -87,6 +88,7 @@ WORKFLOWS = [
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
     ActivateDevStackImageWorkflow,
+    DeleteOrphanedTaskObjectsWorkflow,
 ]
 
 ACTIVITIES: list[ActivityDefinition] = [
@@ -95,6 +97,7 @@ ACTIVITIES: list[ActivityDefinition] = [
     probe_agent_egress,
     cleanup_agent_egress,
     reconcile_gateway_usage,
+    delete_orphaned_task_objects,
     # process_task activities
     get_task_processing_context,
     prepare_sandbox_for_repository,
