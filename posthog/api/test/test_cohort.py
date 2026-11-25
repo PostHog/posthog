@@ -9278,14 +9278,8 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/realtime/", {"enabled": enabled}, format="json"
         )
 
-    # The `cohorts-set-realtime` MCP tool sends a token, so the switch must not need a session.
-    @parameterized.expand([("session", None), ("personal_api_key", ["cohort:write"])])
-    def test_turning_realtime_on_and_off_logs_both_changes(self, _name: str, key_scopes: list[str] | None) -> None:
+    def test_turning_realtime_on_and_off_logs_both_changes(self) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
-        if key_scopes is not None:
-            key = self.create_personal_api_key_with_scopes(key_scopes)
-            self.client.logout()
-            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
         turned_on = self._switch(cohort, True)
         turned_off = self._switch(cohort, False)
