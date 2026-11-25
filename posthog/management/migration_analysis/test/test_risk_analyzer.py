@@ -1590,6 +1590,27 @@ class TestCombinationRisks:
                 True,
             ),
             (
+                "name_with_dollar_called",
+                "CREATE FUNCTION f$1() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                True,
+            ),
+            (
+                "quoted_name_ending_in_escaped_quote_called",
+                'CREATE FUNCTION "ab"""() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "ab"""();',
+                True,
+            ),
+            (
+                "unquoted_name_called_with_quotes",
+                'CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT "f"();',
+                True,
+            ),
+            (
+                "prefix_of_called_name_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                False,
+            ),
+            (
                 "quoted_name_not_called_leaves_body_out",
                 'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT g();',
                 False,

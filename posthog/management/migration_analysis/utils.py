@@ -39,7 +39,7 @@ _FUNCTION_BODY = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b[^;]*?\bAS\s+(\$\w*\$).*?\1",
     re.IGNORECASE | re.DOTALL,
 )
-_IDENTIFIER = r'(?:"(?:[^"]|"")+"|\w+)'
+_IDENTIFIER = r'(?:"(?:[^"]|"")+"|\w[\w$]*)'
 _ROUTINE_NAME = re.compile(
     rf"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+(?:{_IDENTIFIER}\s*\.\s*)?({_IDENTIFIER})",
     re.IGNORECASE,
@@ -55,11 +55,20 @@ _TRIGGER_EVENTS = re.compile(
 def _calls_created_routine(sql: str, without_bodies: str) -> bool:
     # A trigger's EXECUTE FUNCTION names the routine without running it now.
     outside = _TRIGGER_EXECUTE.sub("", without_bodies)
-    names = {name.strip('"').replace('""', '"') for name in _ROUTINE_NAME.findall(sql)}
-    return any(
-        re.search(rf'(?<![\w$])"?{re.escape(name)}"?{_GAP_BEFORE_ARGS}\(', outside, re.IGNORECASE | re.DOTALL)
-        for name in names
-    )
+    forms = set().union(*(_call_forms(name) for name in _ROUTINE_NAME.findall(sql)))
+    if not forms:
+        return False
+    names = "|".join(re.escape(form) for form in forms)
+    return re.search(rf'(?<![\w$"])(?:{names}){_GAP_BEFORE_ARGS}\(', outside, re.IGNORECASE | re.DOTALL) is not None
+
+
+def _call_forms(identifier: str) -> set[str]:
+    # A call can quote any name, and can leave out the quotes only when the name is a plain identifier.
+    name = identifier[1:-1].replace('""', '"') if identifier.startswith('"') else identifier
+    forms = {'"' + name.replace('"', '""') + '"'}
+    if re.fullmatch(r"\w[\w$]*", name):
+        forms.add(name)
+    return forms
 
 
 def sql_run_at_migration_time(sql: str) -> str:
