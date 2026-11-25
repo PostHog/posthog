@@ -689,8 +689,6 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
     'vision-scanners-suggest-tags': () =>
         'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
-    'llma-tagger-list': () =>
-        'Tool "llma-tagger-list" was removed because taggers are deprecated. Every tagger was switched off or converted into a categorical evaluation. Use "llma-evaluation-list" to list evaluations. Tags that taggers already wrote stay queryable as `$ai_tag` events through "execute-sql".',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
