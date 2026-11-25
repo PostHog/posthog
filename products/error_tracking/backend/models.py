@@ -86,7 +86,6 @@ class ErrorTrackingIssue(UUIDTModel):
 
     class ResolvedUntil(models.TextChoices):
         NEXT_OCCURRENCE = "next_occurrence", "Next occurrence"
-        # Exceptions from the issue's latest release or older ones leave the issue resolved.
         NEW_RELEASE = "new_release", "New release"
 
     class Severity(models.TextChoices):

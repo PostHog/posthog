@@ -543,9 +543,8 @@ def bulk_update_issues(
                 raise InvalidIssueStatusError
             transitions = []
             mode_only_issue_ids: list[UUID] = []
-            # Every changed issue ends with this mode: the requested one, the default for a newly resolved
-            # issue, or none for an issue that is no longer resolved. An issue that is already resolved
-            # keeps its mode unless the request names one.
+            # Every changed issue ends with this mode. An issue that is already resolved keeps its mode
+            # unless the request names one.
             new_resolved_until = (
                 (resolved_until or ErrorTrackingIssue.ResolvedUntil.NEXT_OCCURRENCE)
                 if new_status == ErrorTrackingIssue.Status.RESOLVED
