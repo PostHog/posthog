@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
@@ -160,7 +161,12 @@ class Command(BaseCommand):
             + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
-            + [workflow for queue in combined_registration().queues for workflow in queue.workflows]
+            + [
+                workflow
+                for queue in combined_registration().queues
+                for workflow in queue.workflows
+                if issubclass(workflow, PostHogWorkflow)
+            ]
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
