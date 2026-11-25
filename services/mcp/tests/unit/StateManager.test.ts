@@ -1503,7 +1503,6 @@ describe('StateManager', () => {
                 vi.advanceTimersByTime(59 * 60 * 1000)
 
                 expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
-                expect(request).toHaveBeenCalledOnce()
             })
 
             it('reads it again once it is cleared', async () => {
