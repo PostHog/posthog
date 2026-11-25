@@ -33,7 +33,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
+from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError, TransientQueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -144,7 +144,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
                 return node
 
-            with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+            with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                 prepare_and_print_ast(parse_select("select 1"), context, "hogql", prepared_ast_transform=advance_clock)
             sql, _ = prepare_and_print_ast(parse_select("select 1"), context, "hogql")
             self.assertIn("SELECT 1", sql)
@@ -159,7 +159,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 return parsed
 
             with patch("posthog.hogql.resolver.parse_select", side_effect=parse_slow_view):
-                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 

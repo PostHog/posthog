@@ -4,15 +4,19 @@ import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineItemPayloadReadApi, OfflineResultPayloadReadApi } from '../generated/api.schemas'
+import { JsonValue } from '../redesign/trace/components/JsonValue'
+import type { OfflinePayloadFormat } from './offlineItemInspectorLogic'
 
 export function OfflinePayload({
     payload,
     fields,
+    format,
 }: {
     payload: OfflineItemPayloadReadApi | OfflineResultPayloadReadApi
     fields: Array<
         keyof NonNullable<OfflineItemPayloadReadApi['data']> | keyof NonNullable<OfflineResultPayloadReadApi['data']>
     >
+    format: OfflinePayloadFormat
 }): JSX.Element {
     if (!payload.available || payload.data === null) {
         if (payload.deleted_at) {
@@ -46,17 +50,23 @@ export function OfflinePayload({
                         <div className="min-w-0">
                             {!present ? (
                                 <span className="text-muted">Not provided</span>
-                            ) : typeof value === 'object' && value !== null ? (
-                                <HighlightedJSONViewer
-                                    src={value}
-                                    collapsed={2}
-                                    collapseStringsAfterLength={300}
-                                    groupArraysAfterLength={20}
-                                    name={null}
-                                />
                             ) : (
-                                <div className="whitespace-pre-wrap break-words text-sm leading-relaxed" translate="no">
-                                    {typeof value === 'string' ? value : JSON.stringify(value)}
+                                <div className="min-w-0" translate="no">
+                                    {format === 'pretty' ? (
+                                        <JsonValue value={value} collapseStringsAfterLength={300} />
+                                    ) : typeof value === 'object' && value !== null ? (
+                                        <HighlightedJSONViewer
+                                            src={value}
+                                            collapsed={2}
+                                            collapseStringsAfterLength={300}
+                                            groupArraysAfterLength={20}
+                                            name={null}
+                                        />
+                                    ) : (
+                                        <pre className="m-0 whitespace-pre-wrap break-words text-xs">
+                                            {JSON.stringify(value, null, 2) ?? String(value)}
+                                        </pre>
+                                    )}
                                 </div>
                             )}
                         </div>
