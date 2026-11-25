@@ -1,16 +1,17 @@
 from copy import deepcopy
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.integration import Integration
-from posthog.models.scoping import team_scope
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.messaging.backend.facade.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
@@ -25,8 +26,7 @@ from products.workflows.backend.facade.transactional_emails import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
-from products.workflows.backend.services.hog_flow_revisions import restore_revision
-from products.workflows.backend.services.hog_flow_writes import publish_confirm_value, publish_draft
+from products.workflows.backend.services.hog_flow_writes import save_validated_workflow
 
 
 def _content(
@@ -51,7 +51,7 @@ def _content(
     )
 
 
-class TestTransactionalEmailWorkflows(BaseTest):
+class TestTransactionalEmailWorkflows(APIBaseTest):
     def setUp(self):
         super().setUp()
         template = dict(MOCK_NODE_TEMPLATES[0])
@@ -91,6 +91,24 @@ class TestTransactionalEmailWorkflows(BaseTest):
         )
         assert list(versions) == [1, 2]
 
+    def _restore_and_publish(self, flow_id, version: int) -> dict:
+        restore = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{version}/restore", {})
+        assert restore.status_code == 200, restore.json()
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+            mock_count.return_value = MagicMock(
+                status_code=200, json=lambda: {"count": 0, "by_action": {}, "position_unknown": 0}
+            )
+            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert preview.status_code == 200, preview.json()
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+        assert published.status_code == 200, published.json()
+        live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert live.status_code == 200, live.json()
+        return live.json()
+
     @parameterized.expand(
         [
             ("sensitive_with_default_clicks", False, None, True, None),
@@ -105,7 +123,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
         flow_id = create_transactional_email_workflow(
             team_id=self.team.id,
             user_id=self.user.id,
-            content=_content(sensitive=v1_sensitive, click_tracking_enabled=v1_clicks),
+            content=_content(subject="Original subject", sensitive=v1_sensitive, click_tracking_enabled=v1_clicks),
         )
         update_transactional_email_workflow(
             team_id=self.team.id,
@@ -114,23 +132,78 @@ class TestTransactionalEmailWorkflows(BaseTest):
             content=_content(subject="New subject", sensitive=live_sensitive, click_tracking_enabled=live_clicks),
         )
 
-        with team_scope(self.team.id):
-            restore_revision(hog_flow_id=flow_id, version=1, overwrite=False, expected_draft_updated_at=None)
-            draft_updated_at = HogFlow.objects.get(id=flow_id).draft_updated_at
-            publish_draft(
-                team_id=self.team.id,
-                user_id=self.user.id,
-                hog_flow_id=flow_id,
-                previewed_value=publish_confirm_value(hog_flow_id=flow_id, draft_updated_at=draft_updated_at),
-                validate=lambda _state, content: content,
-            )
+        published = self._restore_and_publish(flow_id, 1)
 
-        config = HogFlow.objects.get(id=flow_id).actions[1]["config"]
+        email_action = next(action for action in published["actions"] if action["type"] == "function_email")
+        config = email_action["config"]
+        assert config["inputs"]["email"]["value"]["subject"] == "Original subject"
         assert config["sensitive"] is live_sensitive
         if live_clicks is None:
             assert "click_tracking_enabled" not in config
         else:
             assert config["click_tracking_enabled"] is live_clicks
+
+    def test_restoring_after_email_step_removed_recovers_template_click_tracking_setting(self):
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Order confirmation",
+                "content": {"email": {"subject": "Order received", "text": "Thanks"}},
+                "type": "email",
+                "sensitive": False,
+            },
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        template_id = created.json()["id"]
+        flow_id = make_transactional(
+            self.team.id, UUID(template_id), user_id=self.user.id, from_integration_id=self.sender.id
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
+            {"click_tracking_enabled": False},
+            format="json",
+        )
+        assert updated.status_code == 200, updated.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        no_email_actions = [action for action in flow.actions if action["type"] != "function_email"]
+        HogFlow.objects.filter(id=flow_id).update(actions=no_email_actions, edges=[])
+
+        published = self._restore_and_publish(flow_id, 1)
+
+        email_action = next(action for action in published["actions"] if action["type"] == "function_email")
+        assert email_action["config"]["sensitive"] is False
+        assert email_action["config"]["click_tracking_enabled"] is False
+
+    def test_resuming_paused_workflow_keeps_concurrent_click_tracking_update(self):
+        flow_id = create_transactional_email_workflow(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            content=_content(sensitive=False, click_tracking_enabled=None),
+        )
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.DRAFT)
+        stale_flow = HogFlow.objects.get(id=flow_id)
+        stale_serializer = HogFlowSerializer(
+            stale_flow,
+            data={"status": HogFlow.State.ACTIVE},
+            partial=True,
+            context={"team_id": self.team.id, "get_team": lambda: self.team},
+        )
+        assert stale_serializer.is_valid(), stale_serializer.errors
+        stale_validated = dict(stale_serializer.validated_data)
+
+        update_transactional_email_workflow(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            hog_flow_id=flow_id,
+            content=_content(sensitive=False, click_tracking_enabled=False),
+        )
+        save_validated_workflow(team_id=self.team.id, hog_flow_id=flow_id, validated_data=stale_validated)
+
+        config = HogFlow.objects.get(id=flow_id).actions[1]["config"]
+        assert config["click_tracking_enabled"] is False
 
     def test_the_stored_workflow_passes_the_workflows_api_validation(self):
         flow = HogFlow.objects.get(
@@ -149,7 +222,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
         assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
-        assert flow.actions[1]["config"]["click_tracking_enabled"] is True
+        assert serializer.validated_data["actions"][1]["config"]["click_tracking_enabled"] is True
 
     @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
     def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):

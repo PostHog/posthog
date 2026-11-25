@@ -158,7 +158,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = self.client.patch(url, {"tags": []}, format="json")
         assert response.json()["tags"] == []
 
-    def test_click_tracking_enabled_round_trips_and_resets_when_sensitivity_changes(self):
+    def test_click_tracking_enabled_round_trips_and_appears_in_basic_list(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {
@@ -175,23 +175,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.json()["click_tracking_enabled"] is True
 
         url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
-        MessageTemplate.objects.filter(id=template_id).update(draft_content={"email": {"subject": "Draft"}})
         renamed = self.client.patch(url, {"name": "Renamed"}, format="json")
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert renamed.json()["click_tracking_enabled"] is True
-
-        same_sensitivity = self.client.patch(url, {"sensitive": True}, format="json")
-        assert same_sensitivity.status_code == status.HTTP_200_OK, same_sensitivity.json()
-        assert same_sensitivity.json()["click_tracking_enabled"] is True
-        assert same_sensitivity.json()["has_draft"] is True
-
-        unprotected = self.client.patch(url, {"sensitive": False}, format="json")
-        assert unprotected.status_code == status.HTTP_200_OK, unprotected.json()
-        assert unprotected.json()["click_tracking_enabled"] is None
-
-        combined = self.client.patch(url, {"sensitive": True, "click_tracking_enabled": True}, format="json")
-        assert combined.status_code == status.HTTP_200_OK, combined.json()
-        assert combined.json()["click_tracking_enabled"] is True
 
         disabled = self.client.patch(url, {"click_tracking_enabled": False}, format="json")
         assert disabled.status_code == status.HTTP_200_OK, disabled.json()
@@ -208,6 +194,65 @@ class TestMessageTemplatesAPI(APIBaseTest):
         cleared = self.client.patch(url, {"click_tracking_enabled": None}, format="json")
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert cleared.json()["click_tracking_enabled"] is None
+
+    @parameterized.expand(
+        [
+            ("same_sensitivity_keeps_override", True, True, {"sensitive": True}, True),
+            ("flipping_off_resets_override", True, True, {"sensitive": False}, None),
+            ("flipping_on_resets_override", False, False, {"sensitive": True}, None),
+            (
+                "flip_with_explicit_value_keeps_sent_value",
+                False,
+                None,
+                {"sensitive": True, "click_tracking_enabled": True},
+                True,
+            ),
+        ]
+    )
+    def test_click_tracking_enabled_resets_when_sensitivity_changes_unless_sent(
+        self,
+        _name: str,
+        initial_sensitive: bool,
+        initial_clicks: bool | None,
+        patch_body: dict[str, Any],
+        expected: bool | None,
+    ):
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset",
+            content={"email": {"subject": "Reset", "text": "Body"}},
+            type="email",
+            sensitive=initial_sensitive,
+            click_tracking_enabled=initial_clicks,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/", patch_body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["click_tracking_enabled"] is expected
+
+    def test_form_put_omitting_click_tracking_enabled_preserves_existing_setting(self):
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Receipt",
+            content={"email": {"subject": "Receipt", "text": "Body"}},
+            type="email",
+            sensitive=False,
+            click_tracking_enabled=False,
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/",
+            {"name": "Renamed receipt"},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["click_tracking_enabled"] is False
+        template.refresh_from_db()
+        assert template.click_tracking_enabled is False
 
     def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
         # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.

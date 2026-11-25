@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models.tag import tagify
 
+from products.messaging.backend.facade.templates import get_transactional_template_tracking
 from products.workflows.backend.facade.contracts import (
     TeamUtmDefaults,
     UtmDefaultsWriteResult,
@@ -205,19 +206,28 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
         for action in before.actions or []
         if isinstance(action, dict) and action.get("type") == step_type
     ]
-    sensitive = any(config.get("sensitive") is True for config in live_configs)
-    click_tracking = (
-        next(
-            (
-                config["click_tracking_enabled"]
-                for config in live_configs
-                if isinstance(config.get("click_tracking_enabled"), bool)
-            ),
-            None,
+    if live_configs:
+        sensitive = any(config.get("sensitive") is True for config in live_configs)
+        click_tracking = (
+            next(
+                (
+                    config["click_tracking_enabled"]
+                    for config in live_configs
+                    if isinstance(config.get("click_tracking_enabled"), bool)
+                ),
+                None,
+            )
+            if step_type == "function_email"
+            else None
         )
-        if step_type == "function_email"
-        else None
-    )
+    elif step_type == "function_email":
+        template_tracking = get_transactional_template_tracking(before.team_id, before.id)
+        if template_tracking is None:
+            return validated_data
+        sensitive = template_tracking.sensitive
+        click_tracking = template_tracking.click_tracking_enabled
+    else:
+        return validated_data
     actions = []
     for action in validated_data["actions"] or []:
         if isinstance(action, dict) and action.get("type") == step_type:
@@ -240,7 +250,7 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
     # sending pause, either lands before this read or waits for this save, and is never overwritten.
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
-        _save_live(locked, _track_disabled_from_active(locked, validated_data))
+        _save_live(locked, _track_disabled_from_active(locked, _keep_live_sensitivity(locked, validated_data)))
 
 
 def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:
