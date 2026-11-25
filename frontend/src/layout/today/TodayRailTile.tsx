@@ -48,7 +48,8 @@ export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(functio
                 className={cn(
                     'relative flex size-10 items-center justify-center rounded-md [&_svg]:size-5',
                     'group-focus-visible:ring-2 group-focus-visible:ring-[var(--ring)]',
-                    active ? 'bg-[var(--fill-selected)]' : 'group-hover:bg-[var(--fill-hover)]'
+                    // The icon takes the brand color, so the open pane reads at a glance. The label stays neutral.
+                    active ? 'bg-[var(--fill-selected)] text-[var(--primary)]' : 'group-hover:bg-[var(--fill-hover)]'
                 )}
             >
                 {icon}

@@ -34,6 +34,7 @@ import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 import { TodayTour } from './TodayTour'
+import { useTodayPaneTransition } from './useTodayPaneTransition'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -88,6 +89,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, paneHasSidebar, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    const paneRef = useRef<HTMLDivElement>(null)
+    // The phone drawer has its own motion, and a hidden pane has nothing to show.
+    useTodayPaneTransition(activePane, paneRef, { animatePane: sidebarVisible && !phoneLayout })
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
     useMountedLogic(todayRecentsLogic)
     useShortcut({
@@ -150,7 +154,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
     const pane = (
-        <div className="TodayShell__pane">
+        <div ref={paneRef} className="TodayShell__pane">
             <QuillSceneHeader
                 // Transparent, not removed: the scene header keeps its border inside the same height, so both headers
                 // center their buttons on the same line.
