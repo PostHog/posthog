@@ -15,7 +15,9 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.redis import get_client
 from posthog.tasks.calculate_cohort import (
     dispatch_static_cohort_reconciliations,
@@ -25,11 +27,13 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.persons import create_person
 
 from products.cohorts.backend import static_reconciliation
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models import util as cohort_util
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     StaticCohortReadBackIncomplete,
     count_cohort_members,
     delete_cohort_member,
+    insert_cohort_members,
     insert_cohort_people_into_pg,
     insert_static_cohort,
 )
@@ -465,3 +469,130 @@ class TestStaticCohortReconciliation(BaseTest):
                 cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)
+
+    @parameterized.expand(
+        [
+            ("pending_replace", {"pending_population_mode": CohortPopulationMode.REPLACE}),
+            ("marker_changed", {"last_replace_marker_now": True}),
+        ]
+    )
+    @patch.object(cohort_util, "CH_PAGE_SIZE", 2)
+    def test_a_repair_stops_between_pages_when_a_replace_claims_or_finishes(
+        self, _name: str, replace_update: dict[str, Any]
+    ) -> None:
+        people = sorted(
+            [create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2)], key=lambda p: str(p.uuid)
+        )
+        cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
+        target = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
+        static_reconciliation._hold(cohort.pk, timedelta(hours=1))
+        update = {
+            key.removesuffix("_now"): self.now if key.endswith("_now") else value
+            for key, value in replace_update.items()
+        }
+        writes = 0
+
+        def claim_replace_after_first_page(*args: Any, **kwargs: Any) -> Any:
+            nonlocal writes
+            writes += 1
+            result = insert_cohort_members(*args, **kwargs)
+            if writes == 1:
+                Cohort.objects.filter(pk=cohort.pk).update(count=1, **update)
+            return result
+
+        skipped_before = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
+        with patch.object(cohort_util, "insert_cohort_members", side_effect=claim_replace_after_first_page):
+            reconcile_static_cohort(target)
+
+        skipped_after = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
+        cohort.refresh_from_db()
+        self.assertEqual(skipped_after - skipped_before, 1)
+        # Page 1 wrote only people[0]; page 2's people[1] was never re-inserted after the replace claimed.
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+        self.assertEqual(cohort.count, 1)
+        self.assertIsNone(cache.get(static_reconciliation._hold_cache_key(cohort.pk)))
+
+    @patch.object(cohort_util, "CH_PAGE_SIZE", 2)
+    def test_a_repair_continues_when_an_append_claims_between_pages(self) -> None:
+        people = sorted(
+            [create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2)], key=lambda p: str(p.uuid)
+        )
+        cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
+        writes = 0
+
+        def claim_append_after_first_page(*args: Any, **kwargs: Any) -> Any:
+            nonlocal writes
+            writes += 1
+            result = insert_cohort_members(*args, **kwargs)
+            if writes == 1:
+                Cohort.objects.filter(pk=cohort.pk).update(pending_population_mode=CohortPopulationMode.APPEND)
+            return result
+
+        with patch.object(cohort_util, "insert_cohort_members", side_effect=claim_append_after_first_page):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+        self.assertEqual(cohort.count, 2)
+
+    def test_a_repair_finishes_on_a_cohort_holding_unkept_failed_replace_rows(self) -> None:
+        kept = create_person(team=self.team, distinct_ids=["kept"])
+        abandoned = create_person(team=self.team, distinct_ids=["abandoned"])
+        cohort = self._static_cohort(person_uuids=(kept.uuid,))
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "person_id": str(abandoned.uuid),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": self.now - timedelta(days=6),
+                    "_offset": REPLACE_ROW_OFFSET,
+                }
+            ],
+        )
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+        self.assertEqual(cohort.count, 1)
+
+    def test_a_repair_after_a_finished_replace_counts_and_copies_only_kept_rows(self) -> None:
+        replaced, added, removed_a, removed_b = (
+            create_person(team=self.team, distinct_ids=[name])
+            for name in ("replaced", "added", "removed_a", "removed_b")
+        )
+        floor = (self.now - timedelta(days=6)).replace(microsecond=0)
+        marker = floor + timedelta(minutes=5)
+        cohort = self._static_cohort(last_replace_marker=marker, last_replace_floor=floor)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "person_id": str(person.uuid),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": timestamp,
+                    "_offset": offset,
+                }
+                for person, timestamp, offset in (
+                    (replaced, marker, REPLACE_ROW_OFFSET),
+                    (added, floor + timedelta(minutes=1), 0),
+                    (removed_a, floor - timedelta(minutes=1), 0),
+                    (removed_b, floor - timedelta(minutes=2), 0),
+                )
+            ],
+        )
+
+        with patch("products.cohorts.backend.models.util.time.sleep"):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(
+            sorted(cohort_util.list_cohort_member_ids(self.team.pk, cohort.pk)),
+            sorted([replaced.id, added.id]),
+        )
+        self.assertEqual(cohort.count, 2)

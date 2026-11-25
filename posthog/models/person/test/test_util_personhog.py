@@ -22,6 +22,7 @@ from posthog.models.person.util import (
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
+    get_person_uuids_by_ids,
     get_persons_mapped_by_distinct_id,
     set_distinct_id_version_floor,
 )
@@ -390,6 +391,54 @@ class TestGetPersonIdsAndUuidsByUuids(SimpleTestCase):
             assert "id" in mask
             assert "team_id" in mask
             assert "properties" not in mask
+
+
+class TestGetPersonUuidsByIds(SimpleTestCase):
+    def test_maps_ids_to_uuids_in_batches_and_skips_missing(self):
+        first, second = uuid4(), uuid4()
+        with fake_personhog_client() as fake, patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 1):
+            fake.add_person(team_id=1, person_id=1, uuid=str(first), distinct_ids=["d1"])
+            fake.add_person(team_id=1, person_id=2, uuid=str(second), distinct_ids=["d2"])
+
+            result = get_person_uuids_by_ids(1, [1, 2, 3])
+
+            assert result == {1: str(first), 2: str(second)}
+            calls = fake.assert_called("get_persons", times=3)
+            assert [list(call.request.person_ids) for call in calls] == [[1], [2], [3]]
+            assert "properties" not in list(calls[0].request.read_options.field_mask)
+
+    def test_fans_out_batches_concurrently_when_not_in_test_mode(self):
+        import threading
+        import contextvars
+
+        first, second = uuid4(), uuid4()
+        marker_var: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="unset")
+        token = marker_var.set("propagated")
+        barrier = threading.Barrier(2, timeout=5)
+        seen_context_values: list[str] = []
+
+        try:
+            with (
+                fake_personhog_client() as fake,
+                patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 1),
+                patch("posthog.models.person.util.TEST", False),
+            ):
+                fake.add_person(team_id=1, person_id=1, uuid=str(first), distinct_ids=["d1"])
+                fake.add_person(team_id=1, person_id=2, uuid=str(second), distinct_ids=["d2"])
+                real_get_persons = fake.get_persons
+
+                def barrier_get_persons(request):
+                    seen_context_values.append(marker_var.get())
+                    barrier.wait()
+                    return real_get_persons(request)
+
+                with patch.object(fake, "get_persons", side_effect=barrier_get_persons):
+                    result = get_person_uuids_by_ids(1, [1, 2], concurrency=2)
+
+            assert result == {1: str(first), 2: str(second)}
+            assert seen_context_values == ["propagated", "propagated"]
+        finally:
+            marker_var.reset(token)
 
 
 # ── Delegation tests ────────────────────────────────────────────────

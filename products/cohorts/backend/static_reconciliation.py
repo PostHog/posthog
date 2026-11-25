@@ -32,12 +32,14 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from posthog.redis import get_client
 from posthog.schema_enums import ProductKey
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
 from products.cohorts.backend.models.util import (
+    ReconcileSuperseded,
     count_cohort_members,
     delete_cohort_member,
     insert_cohort_members,
     insert_cohort_people_into_pg,
+    static_cohort_membership_filter,
 )
 
 logger = structlog.get_logger(__name__)
@@ -273,13 +275,14 @@ def _clickhouse_row_counts(candidates: list[_Candidate]) -> dict[int, int]:
     return {int(cohort_id): int(row_count) for cohort_id, row_count in rows}
 
 
-def _clickhouse_members(cohort: StaticCohortToReconcile) -> _ClickHouseMembers:
+def _clickhouse_members(row: Cohort) -> _ClickHouseMembers:
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    kept, kept_params = static_cohort_membership_filter(row.last_replace_marker, row.last_replace_floor)
     # The copy pages from the nil UUID up, so it never reads one that older query-based inserts wrote.
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    # nosemgrep: clickhouse-fstring-param-audit - table name and kept filter from constants, values parameterized
     [(row_count, people)] = sync_execute(
-        f"SELECT count(), uniqExactIf(person_id, NOT empty(person_id)) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-        {"team_id": cohort.team_id, "cohort_id": cohort.cohort_id},
+        f"SELECT count(), uniqExactIf(person_id, NOT empty(person_id) AND ({kept})) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"team_id": row.team_id, "cohort_id": row.pk, **kept_params},
         workload=Workload.OFFLINE,  # background repair, no person waits for it
         ch_user=ClickHouseUser.COHORTS,
     )
@@ -366,12 +369,17 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
         cache.set(RECONCILE_CURSOR_CACHE_KEY, next_cursor, timeout=int(RECONCILE_CURSOR_TTL.total_seconds()))
 
 
+def _untouched_by_replace(row: Cohort) -> QuerySet[Cohort]:
+    return Cohort.objects.filter(pk=row.pk, last_replace_marker=row.last_replace_marker).exclude(
+        pending_population_mode=CohortPopulationMode.REPLACE
+    )
+
+
 def _write_count(row: Cohort, count: int) -> None:
     # A population or CSV import that has set `is_calculating`, or that finished or failed since `row` was read,
-    # writes its own count.
-    Cohort.objects.filter(
+    # writes its own count. A pending or finished replace also owns the count from that point.
+    _untouched_by_replace(row).filter(
         team_id=row.team_id,
-        id=row.pk,
         is_static=True,
         deleted=False,
         is_calculating=False,
@@ -385,8 +393,8 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     """Copy the cohort's ClickHouse members to Postgres and store the new count.
 
     The repair does not set `is_calculating`: the stuck-cohort sweep reads that flag on a cohort calculated more
-    than an hour ago as a dead population. The copy skips existing members, so a population running at the same
-    time is safe.
+    than an hour ago as a dead population. A replace stops the repair, while an append running alongside it is safe
+    because the copy skips existing members.
     """
     row = _settled_static_cohorts(timezone.now()).filter(team_id=cohort.team_id, id=cohort.cohort_id).first()
     if row is None:
@@ -397,7 +405,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     _delete_recently_removed_members(row)
     # Count again instead of reusing the selection's count. A member removed since then would leave `min_rows` above
     # what ClickHouse holds, so the copy would repeat after every read-back wait and then fail.
-    members = _clickhouse_members(cohort)
+    members = _clickhouse_members(row)
     postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     decision = decide(stored_count=postgres_count, clickhouse_count=members.people)
     if decision == ReconcileDecision.IN_SYNC:
@@ -410,13 +418,26 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_too_large").inc()
         return
 
+    def _still_current() -> bool:
+        return _untouched_by_replace(row).exists()
+
     # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
     try:
-        insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=members.people)
-    finally:
-        # A member removed during the copy may still be in ClickHouse, so the copy can bring it back, also when it
-        # fails partway.
-        _delete_recently_removed_members(row)
+        try:
+            insert_cohort_people_into_pg(
+                row,
+                team_id=cohort.team_id,
+                min_rows=members.people,
+                still_current=_still_current,
+            )
+        finally:
+            # A member removed during the copy may still be in ClickHouse, so the copy can bring it back, also when it
+            # fails partway.
+            _delete_recently_removed_members(row)
+    except ReconcileSuperseded:
+        cache.delete(_hold_cache_key(cohort.cohort_id))
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_replace").inc()
+        return
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     _write_count(row, reconciled_count)

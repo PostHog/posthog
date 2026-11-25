@@ -15,7 +15,7 @@ from posthog.admin.admins.cohort_admin import CohortAdmin
 from posthog.management.commands.resave_cohorts import UnclassifiedCohortsError
 
 from products.cohorts.backend.console import MAX_OUTPUT_LINES
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
 
 RUN_URL = "/admin/console/tools/resave-cohorts/run/"
 RESYNC_URL = "/admin/console/tools/resave-cohorts/resync-static/"
@@ -106,8 +106,10 @@ class TestResaveCohortsTool(BaseTest):
         assert f"Processing team {MAX_OUTPUT_LINES + 50}" in content
         assert content.count("Processing team ") == MAX_OUTPUT_LINES
 
-    def _cohort(self, name: str, is_static: bool, query: dict | None) -> Cohort:
-        return Cohort.objects.create(team=self.team, name=name, is_static=is_static, query=query, count=42)
+    def _cohort(self, name: str, is_static: bool, query: dict | None, mode: str | None = None) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team, name=name, is_static=is_static, query=query, count=42, pending_population_mode=mode
+        )
 
     @patch(RESYNC_TASK)
     def test_a_resync_previews_every_cohort_and_queues_only_the_static_ones(self, task: MagicMock) -> None:
@@ -127,7 +129,7 @@ class TestResaveCohortsTool(BaseTest):
         confirmed = self.client.post(RESYNC_URL, {"confirm_token": preview.context["confirm_token"]})
 
         assert confirmed.status_code == 302
-        task.delay.assert_called_once_with(static.pk, self.team.pk)
+        task.delay.assert_called_once_with(static.pk, self.team.pk, append_only=True)
         sent = self._messages(confirmed)
         assert ("warning", f"Skipped cohort {dynamic.pk} (Dynamic cohort): not static.") in sent
         assert (
@@ -137,16 +139,18 @@ class TestResaveCohortsTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("not_static", False, SOURCE_QUERY),
-            ("no_source_query", True, None),
-            ("not_found", None, None),
+            ("not_static", False, SOURCE_QUERY, None),
+            ("no_source_query", True, None, None),
+            ("not_found", None, None, None),
+            # A re-sync only adds members, so it never runs a replace that is still pending.
+            ("replace_pending", True, SOURCE_QUERY, CohortPopulationMode.REPLACE),
         ]
     )
     @patch(RESYNC_TASK)
     def test_a_resync_with_no_static_cohort_to_resync_is_refused(
-        self, _name: str, is_static: bool | None, query: dict | None, task: MagicMock
+        self, _name: str, is_static: bool | None, query: dict | None, mode: str | None, task: MagicMock
     ) -> None:
-        cohort_id = 999999 if is_static is None else self._cohort("Picked cohort", is_static, query).pk
+        cohort_id = 999999 if is_static is None else self._cohort("Picked cohort", is_static, query, mode).pk
 
         response = self.client.post(RESYNC_URL, {"cohorts": str(cohort_id), "reason": "Stale members"})
 

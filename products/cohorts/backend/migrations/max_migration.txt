@@ -1,1 +1,1 @@
-0024_backfill_cohort_condition_type
+0025_cohort_static_replace
