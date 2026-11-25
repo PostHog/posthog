@@ -55,7 +55,7 @@ from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
-from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
@@ -244,7 +244,8 @@ _EXPERIMENT_KINDS = frozenset(
     }
 )
 _UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
-_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
+_WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode", "BIVisualizationNode"})
+_NEW_ENGINE_MODIFIERS = {"useNewEventsSchema": True, "useMaterializedViews": True}
 _QUERY_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 _EXPOSED_ERRORS = (
     ExposedHogQLError,
@@ -316,11 +317,14 @@ def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
         )
     if target.language == QueryBatchLanguage.HOGQL:
         return ResolvedQuery(
-            query={
-                "kind": "HogQLQuery",
-                "query": target.query,
-                "filters": {"dateRange": {"date_from": date_from, "date_to": date_to}},
-            },
+            query=_with_engine(
+                {
+                    "kind": "HogQLQuery",
+                    "query": target.query,
+                    "filters": {"dateRange": {"date_from": date_from, "date_to": date_to}},
+                },
+                target.engine,
+            ),
             filters=None,
             variables=item.variables,
         )
@@ -328,9 +332,13 @@ def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
         parsed = json.loads(target.query)
     except json.JSONDecodeError:
         parsed = None
+    if isinstance(parsed, dict) and isinstance(parsed.get("kind"), str):
+        parsed = {"query": parsed}
     if not isinstance(parsed, dict) or not isinstance(parsed.get("query"), dict) or "kind" not in parsed["query"]:
-        raise InvalidTarget('An insight target is JSON: {"query": {"kind": ...}, "filters"?, "variables"?}.')
-    query: dict[str, Any] = parsed["query"]
+        raise InvalidTarget(
+            'A query target is a query node, or JSON {"query": {"kind": ...}, "filters"?, "variables"?}.'
+        )
+    query: dict[str, Any] = _with_engine(parsed["query"], target.engine)
     source = query.get("source")
     kinds = {query["kind"], source.get("kind") if isinstance(source, dict) else None}
     if blocked := kinds & _UNBATCHABLE_KINDS:
@@ -358,6 +366,15 @@ def _with_interval(query: dict[str, Any], interval: str) -> dict[str, Any]:
     return {**query, "interval": interval} if query.get("kind") in _INTERVAL_KINDS else query
 
 
+def _with_engine(query: dict[str, Any], engine: Optional[QueryBatchEngine]) -> dict[str, Any]:
+    if engine != QueryBatchEngine.NEW:
+        return query
+    if query.get("kind") in _WRAPPER_KINDS and isinstance(query.get("source"), dict):
+        return {**query, "source": _with_engine(query["source"], engine)}
+    modifiers = query.get("modifiers")
+    return {**query, "modifiers": {**(modifiers if isinstance(modifiers, dict) else {}), **_NEW_ENGINE_MODIFIERS}}
+
+
 def _query_id_part(value: Optional[str]) -> str:
     # The id is read back from query_log and split on `-`, so each part keeps to one safe token.
     return _QUERY_ID_UNSAFE.sub("_", value)[:64] if value else "none"
@@ -366,6 +383,16 @@ def _query_id_part(value: Optional[str]) -> str:
 def query_id_for(prefix: str, item: QueryBatchInput) -> str:
     """`<prefix>-<tile>-<refId>-<short uuid>`, unique per query, so query_log joins a run to its tile and target."""
     return f"{prefix}-{_query_id_part(item.tile)}-{_query_id_part(item.target.ref_id)}-{uuid4().hex[:8]}"
+
+
+def _line_head(item: QueryBatchInput) -> bytes:
+    """The fields every line of `item` starts with after `i`, as JSON members without braces."""
+    head: dict[str, Any] = {"refId": item.target.ref_id}
+    if item.target.legend is not None:
+        head["legend"] = item.target.legend
+    if item.target.format is not None:
+        head["format"] = item.target.format.value
+    return SafeJSONRenderer().render(head)[1:-1]
 
 
 def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
@@ -399,6 +426,8 @@ def _result_line(index: int, response: Any, *, hit: bool, stale: bool) -> dict[s
     }
     if result.get("provenance") is not None:
         line["result"]["provenance"] = result["provenance"]
+    if result.get("hasMore") is True:
+        line["truncated"] = True
     return line
 
 
@@ -555,6 +584,7 @@ class QueryBatch:
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
+        self._heads = [_line_head(item) for item in inputs]
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
@@ -787,7 +817,7 @@ class QueryBatch:
                 self._drop_ready()
             index, body = self.ready[position]
             position += 1
-            yield b'{"i":%d,' % index + body[1:] + b"\n"
+            yield self._frame(index, body)
 
     def _drop_ready(self) -> None:
         self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
@@ -1076,9 +1106,13 @@ class QueryBatch:
             with self._lock:
                 active = tuple(self._active)
 
-    @staticmethod
-    def _encode(line: dict[str, Any]) -> bytes:
-        return SafeJSONRenderer().render(line) + b"\n"
+    def _frame(self, index: int, body: bytes) -> bytes:
+        # `body` is a line's JSON without `i`, which may be shared with other panels, so each panel's own fields are
+        # spliced in front of it here.
+        return b'{"i":%d,' % index + self._heads[index] + b"," + body[1:] + b"\n"
+
+    def _encode(self, line: dict[str, Any]) -> bytes:
+        return self._frame(line["i"], _render_body(line))
 
     def _timed_out_lines(self, pending: set[int]) -> Iterator[bytes]:
         for index in sorted(pending):
