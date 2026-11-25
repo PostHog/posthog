@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -238,6 +239,8 @@ class WorkflowImportRecordSerializer(serializers.Serializer):
 
 
 class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]
