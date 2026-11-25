@@ -15,6 +15,8 @@ import { CredentialsServer } from '@/server'
 
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const BURNED_KEY = 'STRIPE_APP_SECRET_KEY'
+const RECOVERED_KEY = 'SLACK_APP_CLIENT_SECRET'
+const REMOVED_KEY = 'GITHUB_APP_CLIENT_SECRET'
 const SIGNING_KEY_ENTRY = '__CALLER_KEY_TEST_DEPLOYMENT'
 const CALLER_SIGNING_KEY = 'e2e-caller-signing-key'
 const OTHER_SIGNING_KEY = 'e2e-other-signing-key'
@@ -85,8 +87,11 @@ describe('credentials server end to end', () => {
             // A trailing newline is what a human editing the secret by hand leaves behind.
             [KEY]: 'current-value-1\n',
             [BURNED_KEY]: 'sk-live-value',
+            [RECOVERED_KEY]: 'slack-value',
+            [REMOVED_KEY]: 'github-value',
             [SIGNING_KEY_ENTRY]: CALLER_SIGNING_KEY,
             __CALLER_KEY_OTHER_DEPLOYMENT: OTHER_SIGNING_KEY,
+            __ALLOWED_SECRETS_OTHER_DEPLOYMENT: KEY,
         })
         const { server, port, exitCode } = await boot(dir)
         const token = await mint({ signingKey: CALLER_SIGNING_KEY })
@@ -163,11 +168,41 @@ describe('credentials server end to end', () => {
             await rename(held, dir)
             await server.reload()
 
+            // An edit the key load refuses must not bring new values, or the keys still held would
+            // read the values it rotated. What it takes away still lands.
+            await writeFile(join(dir, '__ALLOWED_SECRETS_NO_SUCH_DEPLOYMENT'), KEY)
+            await writeFile(join(dir, KEY), 'refused-value')
+            await writeFile(join(dir, 'CREDENTIALS_RECOVERY_KEYS'), `${BURNED_KEY},${RECOVERED_KEY}`)
+            await unlink(join(dir, REMOVED_KEY))
+            await server.reload()
+            const refused = await resolve(
+                port,
+                await mint({ signingKey: CALLER_SIGNING_KEY, keys: [KEY, RECOVERED_KEY, REMOVED_KEY] })
+            )
+            const refusedBody = (await refused.json()) as { secrets: Record<string, unknown> }
+            expect(refusedBody).toMatchObject({
+                secrets: { [KEY]: { value: 'current-value-1' }, [RECOVERED_KEY]: { state: 'recovery' } },
+                missing: [REMOVED_KEY],
+            })
+            expect(refusedBody.secrets[RECOVERED_KEY]).not.toHaveProperty('value')
+            await unlink(join(dir, '__ALLOWED_SECRETS_NO_SUCH_DEPLOYMENT'))
+            await writeFile(join(dir, KEY), 'current-value-1')
+            await server.reload()
+
             // Revoke the caller: the same token must stop working, other callers must not.
             await unlink(join(dir, SIGNING_KEY_ENTRY))
             await server.reload()
             expect((await resolve(port, token)).status).toBe(401)
             expect((await resolve(port, await mint({ signingKey: OTHER_SIGNING_KEY }))).status).toBe(200)
+
+            // Revoking the last caller in the same edit as a rotation must refuse that caller,
+            // or its old key would read the new value. Its allowlist stays behind, which makes
+            // the key load refuse the snapshot.
+            const lastCaller = await mint({ signingKey: OTHER_SIGNING_KEY })
+            await unlink(join(dir, '__CALLER_KEY_OTHER_DEPLOYMENT'))
+            await writeFile(join(dir, KEY), 'rotated-value-2')
+            await server.reload()
+            expect((await resolve(port, lastCaller)).status).toBe(401)
 
             // The scrape lives on its own listener and never carries a secret value.
             const metricsPort = server.metricsPort()

@@ -250,6 +250,8 @@ class TestCompositeScorers(APIBaseTest):
             )
         visible_ids = {item["id"] for item in self.client.get(self.endpoint).data["results"]}
         self.assertEqual(visible_ids, set() if deny_input else {str(self.source.id), composite["id"]})
+        edit = self.client.patch(f"{self.endpoint}{composite['id']}/", {"description": "Overall score"}, format="json")
+        self.assertEqual(edit.status_code, 404 if deny_input else 200, edit.data)
         self.assertEqual(
             self.client.post(self.endpoint, self.payload, format="json").status_code, 400 if deny_input else 201
         )

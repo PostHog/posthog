@@ -1,8 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor, within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
 import { ApiConfig } from 'lib/api'
 
@@ -44,6 +42,10 @@ const PARTNER_WAITING_FOR_STAFF = {
         opened_at: '2025-12-15T14:00:00Z',
         decided_at: '2025-12-15T14:04:00Z',
         partner_message: "We couldn't find a homepage for this application. Add client_uri to your metadata document.",
+        timeline: [
+            { at: '2025-12-15T14:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-15T14:04:00Z', kind: 'automated_review', status: 'needs_human', message: '', author: '' },
+        ],
     },
     created: '2025-12-15T14:00:00Z',
     updated: '2025-12-15T14:04:00Z',
@@ -62,6 +64,10 @@ const PARTNER_ON = {
         opened_at: '2025-12-01T09:00:00Z',
         decided_at: '2025-12-01T09:02:00Z',
         partner_message: '',
+        timeline: [
+            { at: '2025-12-01T09:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-01T09:02:00Z', kind: 'automated_review', status: 'accepted', message: '', author: '' },
+        ],
     },
     created: '2025-12-01T09:00:00Z',
     updated: '2025-12-01T09:02:00Z',
@@ -91,32 +97,10 @@ export const Empty: Story = {
 
 export const WithApps: Story = {
     parameters: {
-        testOptions: { waitForSelector: '.LemonTable__toggle' },
+        testOptions: { waitForSelector: '[data-attr="oauth-app-open"]' },
     },
     render: () => {
         mockApps([ACME, PARTNER_WAITING_FOR_STAFF, PARTNER_ON])
         return <OAuthApps />
-    },
-}
-
-export const PartnerWaitingForStaff: Story = {
-    parameters: {
-        testOptions: { snapshotBrowsers: [] },
-    },
-    render: () => {
-        mockApps([PARTNER_WAITING_FOR_STAFF])
-        return <OAuthApps />
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        const expand = await waitFor(() => {
-            const toggle = canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')
-            if (!toggle) {
-                throw new Error('Waiting for the applications to load')
-            }
-            return toggle
-        })
-        await userEvent.click(expand)
-        await canvas.findByText('Request verification')
     },
 }

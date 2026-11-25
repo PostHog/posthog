@@ -1,9 +1,11 @@
 """The AI member of the `default-v2` profile: the judge confirms or rejects the buckets that z-score flagged.
 
 A bucket that z-score does not flag makes no model call. A flagged bucket is asked about within the caps:
-per insight per run, newest buckets first, and per project per UTC day. A bucket the judge rejects keeps its
-z-score score and gets flag 0. A flagged bucket the judge was not asked about, or could not answer, keeps its
-flag, and its details say why. `$anomaly_details` holds each member's result, so the z-score flag stays readable.
+per insight per run, newest buckets first, and per project per UTC day. A score step fetches the judge's history
+only when the caps allow a call and the organization consents to AI data processing. A bucket the judge rejects
+keeps its z-score score and gets flag 0. A flagged bucket the judge was not asked about, or could not answer,
+keeps its flag, and its details say why. `$anomaly_details` holds each member's result, so the z-score flag stays
+readable.
 """
 
 import time
@@ -35,8 +37,14 @@ from products.alerts.backend.facade.lazy_judge import (
     not_evaluated,
 )
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import AIJudgeConfig
-from products.signals.backend.anomaly_scores.scoring import FetchedSeries, InsightScores, ScoredPoint, ScoredSeries
+from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, AIJudgeConfig, ScoringLimits
+from products.signals.backend.anomaly_scores.scoring import (
+    FetchedSeries,
+    InsightScores,
+    ScoredPoint,
+    ScoredSeries,
+    fetch_judge_history,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +69,8 @@ class JudgeCounts:
     skipped: int = 0
     # Calls with no verdict: no consent, no credits, a model error, or too short a series.
     failed: int = 0
+    # Fetches of the judge's history by a score step. Each one sends the queries of the pick again.
+    history_fetches: int = 0
 
 
 NO_AI_CHECKS = JudgeCounts()
@@ -224,8 +234,14 @@ class _Judging:
             earlier_flags=earlier,
         )
 
-    def counts(self) -> JudgeCounts:
-        return JudgeCounts(made=self.made, rejected=self.rejected, skipped=self.skipped, failed=self.failed)
+    def counts(self, history_fetches: int) -> JudgeCounts:
+        return JudgeCounts(
+            made=self.made,
+            rejected=self.rejected,
+            skipped=self.skipped,
+            failed=self.failed,
+            history_fetches=history_fetches,
+        )
 
 
 def judge_flags(
@@ -234,9 +250,16 @@ def judge_flags(
     team: Team,
     insight: Insight,
     ai_judge: AIJudgeConfig,
+    limits: ScoringLimits = DEFAULT_LIMITS,
+    before_history_fetch: Callable[[], None] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[InsightScores, JudgeCounts]:
-    """Add the AI member's result to every scored bucket of a profile with an AI member. Never raises for a model error."""
+    """Add the AI member's result to every scored bucket of a profile with an AI member.
+
+    Never raises for a model error. A failed fetch of the judge's history raises, as a failed scoring fetch does.
+    ``before_history_fetch`` runs before that fetch starts, so the caller can charge queries that a failed fetch
+    has already sent.
+    """
     member = scores.ai_member
     if member is None or member.judge is None:
         return scores, NO_AI_CHECKS
@@ -250,6 +273,17 @@ def judge_flags(
     daily_key = _daily_key(team.id, timezone.now())
     reserved = reserve_daily_checks(daily_key, len(wanted), ai_judge.max_checks_per_project_per_day)
     allowed = {(series_key, bucket_start) for bucket_start, series_key in wanted[:reserved]}
+    history_fetches = 0
+    # Without consent the judge refuses every call, so the history would be fetched for nothing.
+    if reserved and scores.judge_history is not None and team.organization.is_ai_data_processing_approved is True:
+        if before_history_fetch is not None:
+            before_history_fetch()
+        try:
+            scores = fetch_judge_history(insight, team, scores, limits)
+        except Exception:
+            release_daily_checks(daily_key, reserved)
+            raise
+        history_fetches = 1
     judging = _Judging(
         scores,
         judge_config=member.judge,
@@ -264,7 +298,7 @@ def judge_flags(
         judged = dataclasses.replace(scores, series=[judging.series(series) for series in scores.series])
     finally:
         release_daily_checks(daily_key, reserved - judging.calls)
-    counts = judging.counts()
+    counts = judging.counts(history_fetches)
     logger.info(
         "anomaly_scoring_ai_judged",
         team_id=team.id,
@@ -274,5 +308,6 @@ def judge_flags(
         rejected=counts.rejected,
         skipped=counts.skipped,
         failed=counts.failed,
+        history_fetches=counts.history_fetches,
     )
     return judged, counts

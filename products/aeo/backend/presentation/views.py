@@ -20,8 +20,8 @@ from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
-    posthog_feature_flag_enabled,
 )
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
@@ -57,7 +57,7 @@ from products.aeo.backend.facade.api import (
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
-    AEO_CITATION_TRACKING_FLAG,
+    AI_VISIBILITY_ACCESS_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
@@ -1329,13 +1329,8 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
 
 
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = AI_VISIBILITY_ACCESS_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
 
 class _WebAnalyticsReadAccessPermission(AccessControlPermission):
@@ -1377,6 +1372,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             APIScopePermission(),
             _WebAnalyticsReadAccessPermission(),
             TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
         ]
 
     @validated_request(

@@ -167,9 +167,24 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        const sensitiveInvocation = {
+            ...invocation,
+            hogFunction: { metadata: { sensitive: true, template_uuid: 'template-1' } },
+        }
+        const clickDisabledInvocation = {
+            ...invocation,
+            hogFunction: { metadata: { sensitive: false, template_uuid: 'template-1', click_tracking_enabled: false } },
+        }
+
         it.each([
             ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
             ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+            [
+                'a template with click tracking disabled',
+                '<body><a href="https://example.com">x</a></body>',
+                clickDisabledInvocation,
+            ],
             [
                 'clicktracking="off" after a quoted >',
                 '<body><a href="https://example.com" title="1 > 0" clicktracking="off">x</a></body>',
@@ -307,6 +322,24 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com" data-ph-no-track>x</a>',
                     invocation,
                     '<a href="https://example.com" data-ph-no-track ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template',
+                    '<a href="https://example.com">x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com" ses:no-track>x</a>',
+                ],
+                [
+                    'a template with click tracking disabled',
+                    '<a href="https://example.com">x</a>',
+                    clickDisabledInvocation,
+                    '<a href="https://example.com" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template with an unquoted trailing-slash href',
+                    '<a ses:tags="campaign:reset" href=https://example.com/reset/token/>x</a>',
+                    sensitiveInvocation,
+                    '<a ses:tags="campaign:reset" href=https://example.com/reset/token/ ses:no-track>x</a>',
                 ],
                 [
                     'clicktracking="off" after a quoted >',
@@ -490,6 +523,30 @@ describe('EmailTrackingService', () => {
 
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe(expected)
+            })
+
+            it('should redirect tracked links on a sensitive template that opts in while leaving opted-out links direct', async () => {
+                const html = addTrackingToEmail(
+                    '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                    {
+                        functionId: hogFunction.id,
+                        id: invocationId,
+                        teamId: team.id,
+                        state: {},
+                        hogFunction: {
+                            metadata: { sensitive: true, template_uuid: 'template-1', click_tracking_enabled: true },
+                        },
+                    } as any,
+                    signer
+                )
+                const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1].replace(/&amp;/g, '&'))
+
+                const res = await supertest(app).get(`${link.pathname}${link.search}`)
+
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com/a')
+                expect(html).toContain('<a href="https://example.com/b" data-ph-no-track>b</a>')
+                await expectLinkClickedMetrics(1)
             })
 
             it.each([

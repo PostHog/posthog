@@ -42,8 +42,13 @@ For `Team`, most new fields shouldn't be on the table at all. Domain-specific fi
 The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in CI. To accept the risk:
 
 1. Confirm the field really is core (team identity, cross-product settings, SDK config) and not a candidate for an extension model.
-2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
+2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` and obtain independent DevEx approval. The acknowledgment accepts the risk; it does not make the migration safe.
 3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
+
+Changes to the hot-table acknowledgment list, `atomic_false_acknowledged_migrations.txt`, and `.github/scripts/migration-deletion-allowlist.txt` require DevEx code-owner approval before merge.
+This review gate does not enforce deployment timing; coordinate the window separately.
+
+The acknowledgment removes the block, but the analyzer still reports the migration as Needs Review, not Safe, because the lock queue risk is unchanged.
 
 ### Foreign Keys to Hot Tables
 

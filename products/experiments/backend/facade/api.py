@@ -44,7 +44,6 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
@@ -81,7 +80,7 @@ from .contracts import (
     TeamExperimentsSettingsUpdate,
     Unset,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
 
 logger = structlog.get_logger(__name__)
 
@@ -439,6 +438,15 @@ def get_experiment_team_id(experiment_id: int) -> int | None:
     return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
 
 
+def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
+    """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
+    (or among all of them when it is None)."""
+    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    if experiment_ids is not None:
+        experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
+    return frozenset(str(id) for id in experiments.values_list("id", flat=True))
+
+
 def team_has_launched_experiments(team_id: int) -> bool:
     """Whether the team has a running or stopped experiment, deleted and archived ones included. Experiments are saved
     on the project's root team, so pass that team's id."""
@@ -546,6 +554,18 @@ def _to_team_experiments_settings(config: TeamExperimentsConfig) -> TeamExperime
 def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     """The first read creates the team's settings row with the defaults."""
     return _to_team_experiments_settings(_team_experiments_config(team_id))
+
+
+def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
+    """Start the recalculation workflow for a run that ``request_recalculation`` created.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the exception propagates.
+    """
+    from products.experiments.backend.temporal.recalculation import (  # noqa: PLC0415 — dispatch imports temporalio, which must stay off the django.setup() path
+        dispatch,
+    )
+
+    dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
 
 
 def validate_recalculation_times(times: Sequence[str] | None) -> None:

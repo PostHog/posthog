@@ -74,6 +74,7 @@ class CheckFrequency(LabeledStrEnum):
 
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10

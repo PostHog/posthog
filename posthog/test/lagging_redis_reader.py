@@ -14,7 +14,7 @@ def unique_key_prefix(name: str) -> str:
     return f"{name}-{uuid4().hex}"
 
 
-def lagging_reader_caches(key_prefix: str) -> dict[str, Any]:
+def lagging_reader_caches(key_prefix: str, *, shared_history_prefix: bool = False) -> dict[str, Any]:
     primary = urlsplit(settings.REDIS_URL)
     own_db = int(parse_url(settings.REDIS_URL).get("db", 0))
     workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
@@ -29,4 +29,6 @@ def lagging_reader_caches(key_prefix: str) -> dict[str, Any]:
         "LOCATION": [settings.REDIS_URL, reader],
         "KEY_PREFIX": key_prefix,
     }
-    return {"default": default, "throttle_history": {**default, "LOCATION": settings.REDIS_URL}}
+    history_prefix = key_prefix if shared_history_prefix else f"{key_prefix}-history"
+    throttle_history = {**default, "LOCATION": settings.REDIS_URL, "KEY_PREFIX": history_prefix}
+    return {"default": default, "throttle_history": throttle_history}

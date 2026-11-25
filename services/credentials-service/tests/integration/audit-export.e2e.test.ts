@@ -245,7 +245,7 @@ describe('AuditExporter', () => {
         }) as unknown as typeof fetch
         const send = captureSender(
             {
-                host: 'http://capture.example.com',
+                host: 'http://capture.posthog.invalid',
                 apiKey: 'phc_fake',
                 batchSize: 10,
                 intervalSeconds: 10,
@@ -266,7 +266,7 @@ describe('AuditExporter', () => {
         const fakeFetch = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch
         const send = captureSender(
             {
-                host: 'http://capture.example.com',
+                host: 'http://capture.posthog.invalid',
                 apiKey: 'phc_fake',
                 batchSize: 10,
                 intervalSeconds: 10,

@@ -20,10 +20,14 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
+    BackfillDetails,
     BaseBatchExportInputs,
     BatchExportField,
     DatabricksBatchExportInputs,
@@ -52,6 +56,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -426,6 +431,15 @@ class BatchExportsDebugger:
         filters = batch_export_run.parent.filters
 
         is_backfill = batch_export_run.backfill is not None
+        backfill_details = (
+            BackfillDetails(
+                backfill_id=str(batch_export_run.backfill.id),
+                start_at=batch_export_run.backfill.start_at.isoformat() if batch_export_run.backfill.start_at else None,
+                end_at=batch_export_run.backfill.end_at.isoformat() if batch_export_run.backfill.end_at else None,
+            )
+            if batch_export_run.backfill is not None
+            else None
+        )
 
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
@@ -443,46 +457,58 @@ class BatchExportsDebugger:
             else:
                 parameters["include_events"] = []
 
-            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-            # may not be able to handle the load from all batch exports
-            if (
-                isinstance(batch_export_run.parent, BatchExport)
-                and batch_export_run.parent.interval == "every 5 minutes"
-                and not is_backfill
-            ):
-                query_template = SELECT_FROM_EVENTS_VIEW_RECENT
-            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-            # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
-            ):
-                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif is_backfill:
-                query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
-            else:
-                query_template = SELECT_FROM_EVENTS_VIEW
-                lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-                    team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
-                )
-                parameters["lookback_days"] = lookback_days
-
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
+            if batch_exports_read_new_events_table(team_id):
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
+                    )
 
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and batch_exports_read_new_events_table()
-
-            filters_str = ""
-            if filters is not None and len(filters) > 0:
-                filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
-                )
-
-            if native_source:
-                query = native_events_export_query(fields, filters_str)
+                if use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+                ):
+                    query = native_recent_events_export_query(
+                        fields,
+                        filters_str,
+                        includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+                        reads_typed_columns=bool(filters_str),
+                    )
+                else:
+                    query = native_events_export_query(fields, filters_str)
             else:
+                # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag,
+                # but may not be able to handle the load from all batch exports
+                if (
+                    isinstance(batch_export_run.parent, BatchExport)
+                    and batch_export_run.parent.interval == "every 5 minutes"
+                    and not is_backfill
+                ):
+                    query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+                # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+                # which is a distributed table that sits in front of the `events_recent` table
+                elif use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+                ):
+                    query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+                elif is_backfill:
+                    query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+                else:
+                    query_template = SELECT_FROM_EVENTS_VIEW
+                    parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+                        team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+                    )
+
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=False
+                    )
+
                 query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
-                if filters_str:
-                    filters_str = f"AND {filters_str}"
-                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
+                query = query_template.safe_substitute(
+                    fields=query_fields, filters=f"AND {filters_str}" if filters_str else "", order=""
+                )
 
         parameters = {**parameters, **extra_query_parameters}
 

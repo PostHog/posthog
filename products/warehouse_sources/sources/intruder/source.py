@@ -6,7 +6,7 @@ from products.warehouse_sources.sources.intruder.intruder import (
     intruder_source,
     validate_credentials as validate_intruder_credentials,
 )
-from products.warehouse_sources.sources.intruder.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.intruder.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHOULD_SYNC_DEFAULT
 from products.warehouse_sources.sources.sdk import (
     NOT_DETECTABLE,
     CanonicalDescriptions,
@@ -95,7 +95,7 @@ Create an access token under **My account > API Access Tokens** in your [Intrude
         # Intruder is full refresh only: no list endpoint exposes a verifiable server-side
         # created/updated-after cursor we can persist between runs, so nothing supports incremental
         # (empty INCREMENTAL_FIELDS → supports_incremental/append both False).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

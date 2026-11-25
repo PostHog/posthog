@@ -14,7 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import claim_message_handled
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackChannelSettings, SlackSettings, UntaggedFollowupMode
 from products.slack_app.backend.temporal.activities.untagged_question import (
     ANSWERABLE_QUESTION_ID,
     ASKS_QUESTION_ID,
@@ -60,8 +60,8 @@ class TestClassifyUntaggedQuestion(SimpleTestCase):
 class TestRequestUntaggedQuestionConfirmation(TestCase):
     def setUp(self):
         cache.clear()
-        organization = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=organization, name="Team")
+        self.organization = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=self.organization, name="Team")
         self.user = User.objects.create(email="alice@example.com", distinct_id="user-1")
         self.integration = Integration.objects.create(
             team=team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
@@ -86,14 +86,36 @@ class TestRequestUntaggedQuestionConfirmation(TestCase):
             ("never stays quiet", UntaggedFollowupMode.NEVER, True, False, []),
             ("ask offers privately", UntaggedFollowupMode.ASK, True, True, []),
             ("unset offers privately", None, True, True, []),
+            ("channel never beats the authors auto", UntaggedFollowupMode.AUTO, True, False, [], "never", True),
+            ("channel ask makes the authors auto ask first", UntaggedFollowupMode.AUTO, True, True, [], "ask", True),
+            ("channel cannot loosen the authors never", UntaggedFollowupMode.NEVER, True, False, [], "ask", True),
+            (
+                "channel mode ignored with the flag off",
+                UntaggedFollowupMode.AUTO,
+                False,
+                False,
+                ["slack app unprompted answer started automatically"],
+                "never",
+                False,
+            ),
         ]
     )
-    def test_the_authors_mode_decides(self, _name, user_mode, expect_stop, expect_prompt, expect_events):
+    def test_the_authors_mode_decides(
+        self, _name, user_mode, expect_stop, expect_prompt, expect_events, channel_mode=None, flag_on=False
+    ):
         if user_mode is not None:
             SlackSettings.objects.create(
                 slack_workspace_id="T_WS", slack_user_id="U_ALICE", untagged_question_mode=user_mode
             )
+        if channel_mode is not None:
+            SlackChannelSettings.objects.create(
+                slack_workspace_id="T_WS",
+                slack_channel_id="C1",
+                organization=self.organization,
+                untagged_question_mode=channel_mode,
+            )
         with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_on),
             patch("products.slack_app.backend.api._post_untagged_question_prompt", return_value=True) as mock_prompt,
             patch(f"{MODULE}.channel_is_ext_shared", return_value=False),
             patch("products.slack_app.backend.analytics.ph_background_capture") as capture_factory,
