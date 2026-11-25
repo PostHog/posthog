@@ -407,6 +407,16 @@ class TestPRStatusAPI(APIBaseTest):
         }
         assert body["latest_resolution"]["status"] == "resolving"
 
+    def test_rejects_a_request_poll_without_its_run_mode(self) -> None:
+        # Without the mode, a Standard turn after a Deep request would read as that request's answer.
+        report = self._report(last_run_at=AFTER + timedelta(minutes=1))
+        self._turn(report, 1, REVIEW_MODE_FLASH, at=AFTER)
+
+        res = self.client.get(self.url, {"pr_url": PR_URL, "requested_at": REQUESTED_AT.isoformat()})
+
+        assert res.status_code == 400
+        assert res.json()["attr"] == "run_mode"
+
     def test_rejects_a_url_that_is_not_a_pull_request(self) -> None:
         res = self.client.get(self.url, {"pr_url": "https://github.com/PostHog/posthog/issues/5"})
 

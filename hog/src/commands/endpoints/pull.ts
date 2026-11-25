@@ -4,7 +4,7 @@ import { stringify } from 'yaml'
 import { defineCommand } from '@/core/command'
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import { Output } from '@/core/output'
-import { absolutePath } from '@/core/paths'
+import { absolutePath, confinedWritePath, isInside, realWritePath } from '@/core/paths'
 import { plural } from '@/core/text'
 import { findEndpoints, findInsightVariables, getInsightVariable, readAllEndpoints } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
@@ -120,6 +120,19 @@ export default defineCommand({
                   ? absolutePath(loaded.root, configured)
                   : ctx.runtime.cwd()
         const fileTarget = isYamlFile(target)
+        // posthog.json and repository files may come from someone else. A --to file is the person's own choice.
+        const confinement = fileTarget ? (options.to !== undefined ? undefined : loaded?.root) : target
+        if (loaded && configured && options.to === undefined) {
+            const realRoot = await realWritePath(ctx.runtime, loaded.root)
+            const realTarget = await realWritePath(ctx.runtime, target)
+            if (realTarget !== realRoot && !isInside(realRoot, realTarget)) {
+                throw new HogError(
+                    'unsafe_endpoints_dir',
+                    `posthog.json sets endpoints.dir to ${configured}, which is outside the project, so hog won't write there.`,
+                    'Change endpoints.dir in posthog.json to a folder inside the project, or pass --to to choose where hog writes the files.'
+                )
+            }
+        }
 
         const api = await ctx.posthog()
         const problems: FileProblem[] = []
@@ -160,27 +173,43 @@ export default defineCommand({
         const claimed = new Set(locals.map((local) => absolutePath(cwd, local.path)))
         const broken = new Map(unreadable.map((problem) => [absolutePath(cwd, problem.path), problem.message]))
         const written = new Set<string>()
-        // Never write a file twice, replace a file that defines another endpoint, or overwrite one hog can't read.
-        const items = planPull(selected, locals, (name) => (fileTarget ? target : join(target, `${name}.yaml`))).map(
-            (planned): PullItem => {
-                const item = { ...planned, path: absolutePath(cwd, planned.path) }
-                const blocked = written.has(item.path)
-                    ? 'Another endpoint pulled to the same file'
-                    : item.action === 'create' && broken.has(item.path)
-                      ? `The file exists but hog can't read it (${broken.get(item.path)}), so hog leaves it alone`
-                      : item.action === 'create' && claimed.has(item.path)
-                        ? 'The file defines another endpoint'
-                        : undefined
-                if (blocked) {
-                    problems.push({ path: relative(cwd, item.path) || item.path, message: `${item.name}: ${blocked}` })
-                    return { ...item, action: 'skip', reason: blocked }
-                }
-                if (item.action !== 'skip') {
-                    written.add(item.path)
-                }
-                return item
-            }
+        const planned = planPull(selected, locals, (name) => (fileTarget ? target : join(target, `${name}.yaml`))).map(
+            (item) => ({ ...item, path: absolutePath(cwd, item.path) })
         )
+        const confinedFolder = relative(cwd, confinement ?? cwd)
+        const confinedLabel =
+            confinement === loaded?.root
+                ? 'the project'
+                : confinedFolder
+                  ? `the ${confinedFolder} folder`
+                  : 'the working folder'
+        const writeTargets = new Map<string, string | undefined>()
+        for (const item of planned) {
+            writeTargets.set(
+                item.path,
+                confinement === undefined ? item.path : await confinedWritePath(ctx.runtime, confinement, item.path)
+            )
+        }
+        // Never write a file twice, replace another endpoint's file, overwrite an unreadable one, or follow a link out.
+        const items = planned.map((item): PullItem => {
+            const blocked = written.has(item.path)
+                ? 'Another endpoint pulled to the same file'
+                : item.action !== 'skip' && writeTargets.get(item.path) === undefined
+                  ? `The file points outside ${confinedLabel}, so hog leaves it alone`
+                  : item.action === 'create' && broken.has(item.path)
+                    ? `The file exists but hog can't read it (${broken.get(item.path)}), so hog leaves it alone`
+                    : item.action === 'create' && claimed.has(item.path)
+                      ? 'The file defines another endpoint'
+                      : undefined
+            if (blocked) {
+                problems.push({ path: relative(cwd, item.path) || item.path, message: `${item.name}: ${blocked}` })
+                return { ...item, action: 'skip', reason: blocked }
+            }
+            if (item.action !== 'skip') {
+                written.add(item.path)
+            }
+            return item
+        })
         const shown = (path: string): string => relative(ctx.runtime.cwd(), path) || path
         const plan = items.map(({ endpoint: _endpoint, ...item }) => ({ ...item, path: shown(item.path) }))
         const pending = items.filter((item) => item.action !== 'skip')
@@ -199,7 +228,7 @@ export default defineCommand({
             new Map(pending.flatMap((item) => remoteVariableIds(item.endpoint)))
         )
         for (const item of pending) {
-            await ctx.runtime.writeFile(item.path, endpointYaml(item.path, item, types))
+            await ctx.runtime.writeFile(writeTargets.get(item.path) ?? item.path, endpointYaml(item.path, item, types))
         }
         return { status: 'written', plan, written: pending.map((item) => shown(item.path)), problems }
     },

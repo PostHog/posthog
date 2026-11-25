@@ -100,8 +100,14 @@ API-key requests and background jobs retain the query runner's existing exemptio
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
-An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
+An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding. Opening a saved query without SQL variables leaves the Edited label hidden until the query changes.
 Views and insights can be saved or updated before running the SQL. Save and update buttons show a warning when the query has not been run successfully. Clicking opens a confirmation near the pointer: **Run latest** runs the current editor SQL without saving, **Show diff** compares it with the saved view or insight (or the latest run for a new query), and **Save anyway** saves without opening a diff. All three choices close the confirmation. The read-only diff lets you review and save the changes or cancel to continue editing. Managed Trino views still require a successful run to determine their columns. View updates use the same change check as the **Edited** label, including saved query filters. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+Choose **Save as cohort** after running a single query against PostHog. Return a column named `person_id`, `actor_id`, or `distinct_id`. A query on the `persons` table can also return `id`. Give the cohort a name to save a static snapshot with the query's filters and variables.
+
+In a Markdown notebook, open the SQL cell’s **⋯** menu after running it. **Save as warehouse table** saves the returned rows under a new name. To refresh a table created by that cell, choose **Update from this run** and confirm **Replace rows**. **Manage table** opens the table in the warehouse, where you can delete it. **Save as cohort** saves a static cohort when the result includes a `person_id`, `actor_id`, or `distinct_id` column. Direct SQL runs keep up to 300 rows. SQL results stored in the notebook’s compute sandbox can be saved from runs of up to 10,000 rows.
+
+If the warehouse rejects a save, you can retry from the same dialog with the captured rows. Closing the dialog releases the browser’s copy.
 
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
@@ -174,6 +180,7 @@ The comparison picker adds the previous period or a custom offset, including one
 Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
 
 Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
+If a table name is too long to fit, the picker keeps its ending visible. Hover over the table or focus it with the keyboard to see its full name. The selected name wraps in the data pane.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
@@ -410,6 +417,15 @@ This changes setup recommendations and diagnostic actions, not report attributio
 The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
 For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
 Stats tables contain performance metrics and do not replace the dimension table's data.
+
+X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for each entity separately, then for each account-local day if needed.
+Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
+If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
+The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
+For `429` responses during an import, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+Account listing and credential validation run inside web requests, so they keep the shared retry policy and request budget and do not wait for X's reset.
+This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
+Each retry prepares a new OAuth1 signature after the wait, so a rate-limit reset does not leave the request with an expired timestamp.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.

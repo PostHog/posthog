@@ -1,16 +1,21 @@
 """Whether the check that a policy `attestations` entry pins has reported on a head.
 
 The review re-run after an attestation WAIT and reviewer routing of a fully attested pull request both
-poll this, so each one reads the check the way the engine does.
+poll this, so each one reads the check the way the engine does. An entry pins its check to an App, or
+to a workflow publisher whose result counts only once the server verified its signature.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
+from products.stamphog.backend.logic.attestation_policy import WorkflowPublisher, workflow_publisher
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.workflow_proofs import RunOrder, WorkflowProofs
 
 
 @frozen
@@ -49,9 +54,38 @@ def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, 
     )
 
 
-def all_reported(client: StamphogGitHubClient, repository: str, head_sha: str, checks: list[PendingCheck]) -> bool:
-    """Whether every check reported on the head. A shed or rate-limited read answers False, so the poll tries again."""
+AttestationCheck = PendingCheck | WorkflowPublisher
+
+
+def attestation_check(entry: object) -> AttestationCheck | None:
+    """The check a pending entry of the engine names, or None when the entry is malformed."""
+    return PendingCheck.from_entry(entry) or workflow_publisher(entry)
+
+
+def all_reported(
+    client: StamphogGitHubClient,
+    repository: str,
+    head_sha: str,
+    checks: Sequence[AttestationCheck],
+    *,
+    pr_number: int,
+    seen: Mapping[str, RunOrder],
+) -> bool:
+    """Whether every check reported on the head. A shed or rate-limited read answers False, so the poll tries again.
+
+    `seen` is the newest run of each publisher that a review of the head verified, so an older result
+    that a review would refuse does not spend one of the head's re-reviews.
+    """
+    publishers = [check for check in checks if isinstance(check, WorkflowPublisher)]
+    proofs = WorkflowProofs(
+        client, repository, pr_number=pr_number, head_sha=head_sha, priority=Priority.BATCH, seen=seen
+    )
     try:
-        return all(_has_reported(client, repository, head_sha, check) for check in checks)
+        if not all(
+            _has_reported(client, repository, head_sha, check) for check in checks if isinstance(check, PendingCheck)
+        ):
+            return False
+        # Any job can post a check run of the publisher's name, so only a result it signed has reported.
+        return all(proofs.has_result(publisher) for publisher in publishers)
     except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False

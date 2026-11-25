@@ -12,6 +12,7 @@ describe('reportSpendLogic', () => {
         generation: { total_spend: amount, incomplete },
         implementation: { total_spend: null, incomplete: false },
         shared_scout_runs: { total_spend: null, incomplete: false },
+        scout_authored: false,
     })
 
     beforeEach(() => {

@@ -21,7 +21,9 @@ const AGENT_PROMPT =
 
 const CLI_EXAMPLE = `cio api /v1/environments/$ENV_ID/campaigns/$CAMPAIGN_ID > automation.json
 cio api /v1/environments/$ENV_ID/templates/$TEMPLATE_ID > template.json
-cio api /v1/environments/$ENV_ID/segments/$SEGMENT_ID > segment.json`
+cio api /v1/environments/$ENV_ID/segments/$SEGMENT_ID > segment.json
+cio api /v1/environments/$ENV_ID/snippets > snippets.json
+cio api "/v1/environments/$ENV_ID/identities?type=email" > senders.json`
 
 const STATUS_TAGS: Record<WorkflowImportResultApi['status'], { label: string; type: LemonTagType }> = {
     preview: { label: 'Ready to import', type: 'default' },
@@ -105,8 +107,8 @@ export function CustomerioImportModal(): JSX.Element {
                     <p className="mb-0 text-secondary">
                         Save each automation, then add the files here. If you imported opt-outs from Customer.io,
                         PostHog reads the message content with that API key. Otherwise, save the templates its messages
-                        use too. Save the segments an automation checks, and the import turns each one it can match
-                        exactly into a realtime cohort.
+                        use too, with your snippets and senders. Save the segments an automation checks, and the import
+                        turns each one it can match exactly into a realtime cohort.
                     </p>
                     <CodeSnippet language={Language.Bash}>{CLI_EXAMPLE}</CodeSnippet>
                     <LemonFileInput

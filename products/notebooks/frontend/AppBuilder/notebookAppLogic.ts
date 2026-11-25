@@ -33,11 +33,12 @@ import { urls } from 'scenes/urls'
 import type { NotebookBlockNode } from '../../../../frontend/src/lib/components/MarkdownNotebook/types'
 import type { NotebookVariable } from '../../../../frontend/src/scenes/notebooks/Notebook/notebookVariables'
 import type { NotebookType } from '../../../../frontend/src/scenes/notebooks/types'
-import { notebooksPartialUpdate, notebooksRetrieve } from '../generated/api'
+import { notebooksAppPreviewCreate, notebooksPartialUpdate, notebooksRetrieve } from '../generated/api'
 import type {
     NotebookApi,
     NotebookAppBlockApi,
     NotebookAppLayoutApi,
+    NotebookAppReleaseReviewApi,
     NotebookRunStatusResponseApi,
 } from '../generated/api.schemas'
 import type { NotebookAppBlockKindEnumApi } from '../generated/api.schemas'
@@ -77,6 +78,8 @@ export interface notebookAppLogicValues {
     }
     layout: NotebookAppLayoutApi
     preview: boolean
+    releaseReview: NotebookAppReleaseReviewApi | null
+    releaseReviewLoading: boolean
     savedNotebook: NotebookApi | null
     savedNotebookLoading: boolean
     selectedBlock: NotebookAppBlockApi | null
@@ -125,6 +128,21 @@ export interface notebookAppLogicActions {
     }
     changeLayout: (layout: NotebookAppLayoutApi) => {
         layout: NotebookAppLayoutApi
+    }
+    checkRelease: (layout: NotebookAppLayoutApi) => NotebookAppLayoutApi
+    checkReleaseFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkReleaseSuccess: (
+        releaseReview: NotebookAppReleaseReviewApi,
+        payload?: NotebookAppLayoutApi
+    ) => {
+        releaseReview: NotebookAppReleaseReviewApi
+        payload?: NotebookAppLayoutApi
     }
     duplicateBlock: (id: string) => {
         id: string
@@ -175,6 +193,21 @@ export interface notebookAppLogicActions {
     }
     removeTab: (id: string) => {
         id: string
+    }
+    restoreRelease: () => any
+    restoreReleaseFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    restoreReleaseSuccess: (
+        savedNotebook: NotebookApi,
+        payload?: any
+    ) => {
+        savedNotebook: NotebookApi
+        payload?: any
     }
     saveApp: (publish?: boolean) => boolean
     saveAppFailure: (
@@ -311,6 +344,20 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
         openSource: (nodeId: string) => ({ nodeId }),
     }),
     loaders(({ props, values }) => ({
+        releaseReview: [
+            null as NotebookAppReleaseReviewApi | null,
+            {
+                checkRelease: async (layout: NotebookAppLayoutApi, breakpoint) => {
+                    const result = await notebooksAppPreviewCreate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        props.shortId,
+                        normalizeAppLayout(layout)
+                    )
+                    breakpoint()
+                    return result
+                },
+            },
+        ],
         savedNotebook: [
             null as NotebookApi | null,
             {
@@ -342,6 +389,18 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                         tab_count: values.layout.tabs.length,
                     })
                     lemonToast.success(publish ? 'App layout published' : 'App draft saved')
+                    return result
+                },
+                restoreRelease: async () => {
+                    const result = await notebooksPartialUpdate(String(ApiConfig.getCurrentTeamId()), props.shortId, {
+                        app_revision: values.savedNotebook?.app_revision,
+                        restore_previous_app_release: true,
+                    })
+                    posthog.capture('notebook app release restored', {
+                        short_id: props.shortId,
+                        revision: result.app_revision,
+                    })
+                    lemonToast.success('Previous release restored')
                     return result
                 },
                 unpublishApp: async () => {
@@ -406,7 +465,14 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                 loadAppSuccess: (_, { savedNotebook }) => savedNotebook.app_draft?.tabs[0]?.id ?? 'overview',
             },
         ],
-        preview: [false, { setPreview: (_, { preview }) => preview }],
+        preview: [
+            false,
+            {
+                setPreview: (_, { preview }) => preview,
+                restoreReleaseSuccess: () => false,
+                saveAppSuccess: (state, { payload }) => (payload ? false : state),
+            },
+        ],
         error: [
             null as string | null,
             {
@@ -415,6 +481,9 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
                 loadAppFailure: (_, { error }) => error,
                 saveAppFailure: (_, { error }) => error,
                 unpublishAppFailure: (_, { error }) => error,
+                checkRelease: () => null,
+                checkReleaseFailure: (_, { error }) => error,
+                restoreReleaseFailure: (_, { error }) => error,
             },
         ],
     }),

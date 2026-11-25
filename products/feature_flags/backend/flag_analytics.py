@@ -16,15 +16,15 @@ from posthog.clickhouse.materialized_columns import get_materialized_column_for_
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.usage_dashboard import add_enriched_insights_to_feature_flag_dashboard
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
@@ -377,8 +377,8 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
                 with transaction.atomic():
                     flag.has_enriched_analytics = True
                     flag.save()
-                    if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
-                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
+                    if flag.usage_dashboard_id and not flag.usage_dashboard_has_enriched_insights:
+                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard_id)
         except (Team.DoesNotExist, FeatureFlag.DoesNotExist):
             pass
         except Exception as e:
@@ -463,7 +463,9 @@ def get_cached_evaluations_7d_by_team(
     if not team_ids:
         return {}
 
-    from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
+    from_flag_evaluations = (
+        get_flag_evaluations_read_config(organization_id, team_id=team_ids[0]).mode != FlagEvaluationsMode.EVENTS
+    )
     # The key names the source table, so a mode change cannot serve a count read from the other table.
     source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
