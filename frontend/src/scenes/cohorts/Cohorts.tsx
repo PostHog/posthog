@@ -136,10 +136,10 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                {cohort.realtime?.state === 'off' && !cohort.realtime.reason && (
+                                {cohortId !== null && cohort.realtime?.state === 'off' && !cohort.realtime.reason && (
                                     <LemonButton
-                                        onClick={() => turnOnRealtime(cohort)}
-                                        loading={cohortId !== null && cohortIdsTurningOnRealtime.includes(cohortId)}
+                                        onClick={() => turnOnRealtime(cohortId, cohort.name)}
+                                        loading={cohortIdsTurningOnRealtime.includes(cohortId)}
                                         fullWidth
                                         // pinned: data-attr, because autocapture insights find the click by it
                                         data-attr="cohorts-list-turn-on-realtime"

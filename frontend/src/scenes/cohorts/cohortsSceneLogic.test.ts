@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { CohortType } from '~/types'
 
 import type { RealtimeCohortsJoinStateEnumApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { realtimeCohortsJoinLogic } from 'products/cohorts/frontend/realtime/realtimeCohortsJoinLogic'
@@ -51,12 +51,7 @@ const MOCK_COHORTS = {
         },
     ],
 }
-const OFF_REALTIME_COHORT = {
-    ...MOCK_COHORTS.results[0],
-    id: 3,
-    name: 'Realtime off',
-    realtime: { state: 'off', ready_at: null, build: null, reason: null, history_limit_days: null },
-} as unknown as CohortType
+const REFUSAL_DETAIL = "Realtime can't be turned on for cohort 'Realtime off', because it is a static cohort."
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.Dashboards]: blankScene }
 
@@ -202,26 +197,44 @@ describe('cohortsSceneLogic', () => {
                 expect(listCohorts).toHaveBeenCalledTimes(extraRequests)
             })
 
-            it.each<[string, [number, Record<string, any>]]>([
-                ['the server turns realtime on', [200, {}]],
-                ['the server refuses', [400, { detail: 'Your plan allows 5 realtime cohorts.' }]],
+            it.each<[string, [number, Record<string, any>], string | null]>([
+                ['the server turns realtime on', [200, {}], null],
+                ['the server refuses', [400, { detail: REFUSAL_DETAIL }], REFUSAL_DETAIL],
             ])(
                 'after a turn-on from a row where %s, clears its pending state and reloads the list and the team once',
-                async (_, [status, body]) => {
-                    useMocks({ post: { '/api/projects/:team/cohorts/:id/realtime/': () => [status, body] } })
+                async (_, [status, body], shownError) => {
+                    let requestBody: unknown = null
+                    useMocks({
+                        post: {
+                            '/api/projects/:team/cohorts/3/realtime/': async ({ request }) => {
+                                requestBody = await request.json()
+                                return [status, body]
+                            },
+                        },
+                    })
+                    const toastError = jest.spyOn(lemonToast, 'error')
                     router.actions.push(urls.cohorts())
                     logic = cohortsSceneLogic()
                     logic.mount()
                     await jest.advanceTimersByTimeAsync(0)
                     listCohorts.mockClear()
 
-                    logic.actions.turnOnRealtime(OFF_REALTIME_COHORT)
+                    logic.actions.turnOnRealtime(3, 'Realtime off')
                     expect(logic.values.cohortIdsTurningOnRealtime).toEqual([3])
                     await jest.advanceTimersByTimeAsync(0)
 
+                    expect(requestBody).toEqual({ enabled: true })
+                    if (shownError) {
+                        expect(toastError).toHaveBeenCalledWith(shownError, {
+                            capturedMessage: expect.not.stringContaining('Realtime off'),
+                        })
+                    } else {
+                        expect(toastError).not.toHaveBeenCalled()
+                    }
                     expect(logic.values.cohortIdsTurningOnRealtime).toEqual([])
                     expect(listCohorts).toHaveBeenCalledTimes(1)
                     await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeam'])
+                    toastError.mockRestore()
                 }
             )
         })

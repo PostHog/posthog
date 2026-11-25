@@ -120,8 +120,12 @@ export interface cohortsSceneLogicActions {
     setCohortSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
     }
-    turnOnRealtime: (cohort: CohortType) => {
-        cohort: CohortType
+    turnOnRealtime: (
+        cohortId: number,
+        cohortName?: string
+    ) => {
+        cohortId: number
+        cohortName: string | undefined
     }
     turnOnRealtimeFinished: (cohortId: number) => {
         cohortId: number
@@ -178,7 +182,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
-        turnOnRealtime: (cohort: CohortType) => ({ cohort }),
+        turnOnRealtime: (cohortId: number, cohortName?: string) => ({ cohortId, cohortName }),
         turnOnRealtimeFinished: (cohortId: number) => ({ cohortId }),
     })),
     reducers({
@@ -196,7 +200,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         cohortIdsTurningOnRealtime: [
             [] as number[],
             {
-                turnOnRealtime: (state, { cohort }) => (typeof cohort.id === 'number' ? [...state, cohort.id] : state),
+                turnOnRealtime: (state, { cohortId }) => [...state, cohortId],
                 turnOnRealtimeFinished: (state, { cohortId }) => state.filter((id) => id !== cohortId),
             },
         ],
@@ -369,24 +373,20 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 actions.loadCohorts()
             }
         },
-        turnOnRealtime: async ({ cohort }) => {
-            if (typeof cohort.id !== 'number') {
-                return
-            }
+        turnOnRealtime: async ({ cohortId, cohortName }) => {
             // pinned: analytics event name and properties, because insights that count clicks read them
             posthog.capture('cohort realtime turn on clicked', { location: 'cohorts_list' })
             try {
-                await cohortsRealtimeCreate(String(values.currentProjectId), cohort.id, { enabled: true })
+                await cohortsRealtimeCreate(String(values.currentProjectId), cohortId, { enabled: true })
                 lemonToast.success(
-                    `Realtime is on for '${cohort.name || 'Untitled'}'. PostHog is preparing it, so feature flags can't target it yet.`
+                    `Realtime is on for '${cohortName || 'Untitled'}'. PostHog is preparing it, so feature flags can't target it yet.`
                 )
             } catch (error: any) {
-                lemonToast.error(
-                    error.detail ||
-                        "Realtime couldn't be turned on for this cohort. Try again, and if it keeps happening contact support."
-                )
+                const genericMessage =
+                    "Realtime couldn't be turned on for this cohort. Try again, and if it keeps happening contact support."
+                lemonToast.error(error.detail || genericMessage, { capturedMessage: genericMessage })
             }
-            actions.turnOnRealtimeFinished(cohort.id)
+            actions.turnOnRealtimeFinished(cohortId)
             actions.loadCohorts()
             actions.refreshCurrentTeam()
         },
