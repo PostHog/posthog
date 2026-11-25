@@ -315,6 +315,9 @@ pub struct Config {
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
 
+    #[envconfig(from = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK")]
+    pub kafka_emergency_fallback: Option<String>,
+
     #[envconfig(from = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK_CHECK")]
     pub kafka_emergency_fallback_check: Option<String>,
 

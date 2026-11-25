@@ -215,6 +215,7 @@ mod tests {
             },
             replay_envelope_compression: EnvelopeCompression::None,
             outputs_completeness_check_enabled: true,
+            kafka_emergency_fallback: None,
             kafka_emergency_fallback_check: None,
             fallback_outputs: Default::default(),
             otel_url: None,
