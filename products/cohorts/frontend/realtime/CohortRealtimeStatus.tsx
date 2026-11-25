@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
-import { dailyReasonSentence, unpreparableReasonSentence } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -78,11 +78,11 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 ),
             }
         case 'needs_attention': {
-            const unpreparable = unpreparableReasonSentence(realtime)
+            const unpreparable = unpreparableExplanation(realtime)
             if (unpreparable) {
                 return {
                     label: <span className="text-secondary">Unavailable</span>,
-                    tooltip: <div>{`Feature flags can't target this cohort. ${unpreparable}`}</div>,
+                    tooltip: <div>{unpreparable}</div>,
                 }
             }
             return {
@@ -115,11 +115,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
             if (realtime.reason) {
                 return {
                     label: <span className="text-secondary">Off</span>,
-                    tooltip: (
-                        <div>
-                            {`Realtime can't be turned on for this cohort, so feature flags can't target it. ${unpreparableReasonSentence(realtime) ?? ''}`.trim()}
-                        </div>
-                    ),
+                    tooltip: <div>{unpreparableExplanation(realtime)}</div>,
                 }
             }
             return {

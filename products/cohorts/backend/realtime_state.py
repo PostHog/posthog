@@ -443,7 +443,7 @@ def _too_large_to_build(team_id: int, cohorts: Sequence[Cohort]) -> set[int]:
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
-    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no team.
+    # Loaded only when a cohort needs the plan's history limit or the team's day, so a page of cohorts that are on reads no team.
     team = cache(lambda: Team.objects.select_related("organization").get(id=team_id))
     plan_history_days = cache(lambda: max_realtime_history_days(team().organization))
     team_today = cache(lambda: day_of_instant(timezone.now(), resolve_zoneinfo(team().timezone)))

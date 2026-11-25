@@ -50,6 +50,22 @@ export function unpreparableReasonSentence(realtime: CohortRealtimeReadinessApi)
     }
 }
 
+/** What feature flags can't do with an `off` cohort that can't be turned on or a `needs_attention` cohort PostHog can't prepare, and why, or null for any other cohort. */
+export function unpreparableExplanation(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.state) {
+        case 'off':
+            return realtime.reason
+                ? `Realtime can't be turned on for this cohort, so feature flags can't target it. ${unpreparableReasonSentence(realtime) ?? ''}`.trim()
+                : null
+        case 'needs_attention': {
+            const sentence = unpreparableReasonSentence(realtime)
+            return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
+        }
+        default:
+            return null
+    }
+}
+
 /** Whether to offer the switch on an `off` cohort. The server refuses one with a reason, and can still refuse one without. False for every other state. */
 export const canTurnOnRealtime = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
     realtime?.state === 'off' && !realtime.reason

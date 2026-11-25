@@ -4,7 +4,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortRealtimeReadinessApi, CohortRealtimeStateEnumApi } from '../generated/api.schemas'
-import { canTurnOnRealtime, dailyReasonSentence, unpreparableReasonSentence } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
 
 type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 
@@ -55,16 +55,8 @@ function reasonExplanation(realtime: CohortRealtimeReadinessApi): string | null 
             const sentence = dailyReasonSentence(realtime)
             return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
         }
-        case 'off':
-            return canTurnOnRealtime(realtime)
-                ? null
-                : `Realtime can't be turned on for this cohort, so feature flags can't target it. ${unpreparableReasonSentence(realtime) ?? ''}`.trim()
-        case 'needs_attention': {
-            const sentence = unpreparableReasonSentence(realtime)
-            return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
-        }
         default:
-            return null
+            return unpreparableExplanation(realtime)
     }
 }
 
