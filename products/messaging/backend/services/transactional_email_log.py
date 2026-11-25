@@ -17,7 +17,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.restricted_properties import hidden_event_properties
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import default_settings, sync_execute
@@ -683,9 +682,6 @@ def transactional_email_impact(
     )
 
 
-_SESSION_ATTRIBUTION_PROPERTIES = frozenset({"$current_url", "$session_id"})
-
-
 def _sessions_with_a_pageview_from_the_email(
     team: Team, user: User | None, workflow_id: str, period: _Period
 ) -> int | None:
@@ -698,9 +694,6 @@ def _sessions_with_a_pageview_from_the_email(
 
 
 def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int | None:
-    # HogQL hides a restricted property from the scan, which would read as no sessions rather than an unknown count.
-    if hidden_event_properties(team_id=team.id, user=user, names=_SESSION_ATTRIBUTION_PROPERTIES):
-        return None
     rows = _execute(
         team.id,
         f"""

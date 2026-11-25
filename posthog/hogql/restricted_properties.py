@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from typing import Any
 
 import structlog
 
@@ -132,23 +131,6 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
     else:
         source = None
     return (source,) if source is not None else ()
-
-
-def hidden_event_properties(*, team_id: int, user: Any, names: Iterable[str]) -> frozenset[str]:
-    """The event properties in `names` that property-level access control hides from the user's queries.
-
-    For a product that must not import the access control facade without closing a product cycle.
-    """
-    # Deferred: the access control facade pulls in the Django model layer; keep it off this module's import path.
-    from products.access_control.backend.facade.api import (  # noqa: PLC0415
-        get_restricted_properties_with_group_type_index_for_team,
-        split_restricted_property_names,
-    )
-
-    restricted = split_restricted_property_names(
-        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
-    ).event
-    return restricted & frozenset(names)
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
