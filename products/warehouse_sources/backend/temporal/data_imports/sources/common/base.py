@@ -192,7 +192,7 @@ def nest_flat_select_containers(
         stored_values = stored_container if isinstance(stored_container, dict) else {}
         if not isinstance(container, dict):
             options = {option.value for option in field.options}
-            if container not in (None, "") and container not in options:
+            if container not in (None, "") and not (isinstance(container, str) and container in options):
                 nested.update(flat)
                 continue
             # A select sent as a bare string names the chosen branch, as config parsing reads it.
