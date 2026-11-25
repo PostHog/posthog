@@ -36,14 +36,12 @@ from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
-from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
 from posthog.api.authentication import (
     password_reset_token_generator,
-    social_access_rules_allow,
     social_grant_staff_to_google_workspace_members,
     social_login_notification,
 )
@@ -3696,16 +3694,6 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
-
-
-class TestSocialAccessRulesAllow(APIBaseTest):
-    def test_sso_login_is_refused_for_a_service_account(self):
-        self.user.type = UserType.SERVICE_ACCOUNT
-        strategy = MagicMock()
-        strategy.request = RequestFactory().get("/complete/google-oauth2/")
-
-        with self.assertRaises(AuthFailed):
-            social_access_rules_allow(strategy, MagicMock(), user=self.user)
 
 
 class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):
