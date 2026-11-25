@@ -11,7 +11,7 @@ import type {
     ContextMenuSubTrigger,
 } from '@posthog/quill'
 
-import type { MenuAction } from './menuAction'
+import { MENU_GROUPS, type MenuAction } from './menuAction'
 
 /** Typed as the right-click parts; quill's dropdown parts take the same props. */
 export interface MenuParts {
@@ -100,6 +100,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
             data-attr={action.dataAttr}
             variant={action.destructive ? 'destructive' : 'default'}
             disabled={!!action.disabledReason}
+            closeOnClick={!action.keepOpen}
             onClick={action.onSelect}
         >
             <EntryLabel action={action} />
@@ -107,11 +108,14 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     )
 }
 
-/** Actions first, then how the target looks, then destructive actions on their own. Empty groups are left out. */
 function menuGroups(actions: MenuAction[]): { key: string; label?: string; actions: MenuAction[] }[] {
     const groups = [
         { key: 'actions', label: 'Actions', actions: actions.filter((action) => !action.group && !action.destructive) },
-        { key: 'display', label: 'Display', actions: actions.filter((action) => action.group === 'display') },
+        ...MENU_GROUPS.map(({ group, label }) => ({
+            key: group,
+            label,
+            actions: actions.filter((action) => action.group === group),
+        })),
         { key: 'destructive', actions: actions.filter((action) => action.destructive) },
     ]
     return groups.filter((group) => group.actions.length > 0)
