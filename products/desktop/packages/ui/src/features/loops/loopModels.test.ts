@@ -148,7 +148,6 @@ describe("loopModelOptions", () => {
       name: "falls back to the known codex models when the config has no model select",
       adapter: "codex",
       expectedValues: [
-        "gpt-5",
         "gpt-5.5",
         "gpt-5.6-sol",
         "gpt-5.6-terra",

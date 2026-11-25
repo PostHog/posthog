@@ -62,7 +62,7 @@ interface AIEnrichmentEditorSnapshot {
     outputFields: AIEnrichmentOutputField[]
 }
 
-const DEFAULT_MODEL = 'gpt-5-mini'
+const DEFAULT_MODEL = 'gpt-6-luna'
 
 function sameInputFieldSet(a: string[], b: string[]): boolean {
     if (a.length !== b.length) {

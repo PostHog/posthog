@@ -70,7 +70,6 @@ CHOICES: tuple[ModelChoice, ...] = (
     ModelChoice("codex", "gpt-5.5", "GPT-5.5", _XHIGH),
     ModelChoice("codex", "gpt-5.4", "GPT-5.4", _STANDARD),
     ModelChoice("codex", "gpt-5.3-codex", "GPT-5.3 Codex", _STANDARD),
-    ModelChoice("codex", "gpt-5-mini", "GPT-5 Mini", _STANDARD),
 )
 
 

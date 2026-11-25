@@ -366,7 +366,7 @@ class Command(BaseCommand):
             version="ai-pilled-clay-v1",
             defaults={
                 "prompt_text": _AI_PILLED_CLAY_V1_PROMPT,
-                "model": "gpt-5-mini",
+                "model": "gpt-6-luna",
                 "input_fields": _AI_PILLED_INPUT_FIELDS,
                 "output_fields": _AI_PILLED_OUTPUT_FIELDS,
                 "is_active": False,

@@ -72,7 +72,6 @@ const FALLBACK_MODEL_IDS: Record<
     "moonshotai/kimi-k3.1-pro",
   ],
   codex: [
-    "gpt-5",
     "gpt-5.5",
     "gpt-5.6-sol",
     "gpt-5.6-terra",

@@ -311,12 +311,6 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
-    id: "gpt-5-mini",
-    owned_by: "openai",
-    context_window: 272000,
-    supports_vision: true,
-  },
-  {
     id: "@cf/zai-org/glm-5.2",
     owned_by: "cloudflare",
     context_window: 128000,

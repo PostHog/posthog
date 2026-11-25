@@ -400,6 +400,7 @@ export const MODELS: readonly CatalogModel[] = [
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high'],
         label: 'GPT-5',
+        retired: true,
     },
     {
         id: 'gpt-5.5',

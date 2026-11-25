@@ -367,12 +367,11 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
     """Call the LLM for a single batch, with automatic retry on transient errors."""
     user_prompt = json.dumps(batch)
     response = client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-6-luna",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=1,  # gpt-5 models only support temperature=1
         response_format={"type": "json_object"},
         timeout=180,
     )

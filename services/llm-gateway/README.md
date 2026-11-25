@@ -87,7 +87,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gpt-5-mini",
+    model="gpt-6-luna",
     messages=[{"role": "user", "content": "Hello"}],
     user="user_distinct_id_123",  # End-user attribution
 )
@@ -104,7 +104,7 @@ const client = new OpenAI({
 })
 
 const response = await client.chat.completions.create({
-  model: 'gpt-5-mini',
+  model: 'gpt-6-luna',
   messages: [{ role: 'user', content: 'Hello' }],
   user: 'user_distinct_id_123', // End-user attribution
 })

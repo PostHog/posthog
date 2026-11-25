@@ -401,7 +401,7 @@
       "models": {
         "gpt-5": {
           "cost_multiplier": null,
-          "offered": true,
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",

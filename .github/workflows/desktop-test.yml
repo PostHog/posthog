@@ -300,7 +300,7 @@ jobs:
         # gateway — and only when a products/desktop/packages/ file changed. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
         # present (fork PRs never see it). Drives cheap models (claude-haiku-4-5 /
-        # gpt-5-mini), so a run is a handful of short turns.
+        # gpt-6-luna), so a run is a handful of short turns.
         needs: [changes, unit-test, electron-test]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
         # once unit-test + electron-test have passed. There is intentionally NO

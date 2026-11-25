@@ -1551,7 +1551,7 @@ except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
-AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-6.1-terra")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)

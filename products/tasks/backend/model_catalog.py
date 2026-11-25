@@ -264,7 +264,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
     # anyone can check it against.
-    CatalogModel("gpt-5", CODEX, _STANDARD),
+    CatalogModel("gpt-5", CODEX, _STANDARD, retired=True),
     CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST),
     CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST),
     CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),

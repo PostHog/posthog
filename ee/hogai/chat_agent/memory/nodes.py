@@ -232,7 +232,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-5-mini",
+            model="gpt-6-luna",
             streaming=True,
             use_responses_api=True,
             store=False,  # We can't store, because we want zero data retention

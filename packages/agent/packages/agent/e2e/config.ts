@@ -58,9 +58,7 @@ export const E2E = {
     if (adapter === "claude") {
       return process.env.POSTHOG_CODE_E2E_CLAUDE_MODEL || "claude-haiku-4-5";
     }
-    // gpt-5-mini is on the product block list, but that gate is only enforced in
-    // Agent.run — the e2e drives createAcpConnection directly, so it's accepted.
-    return process.env.POSTHOG_CODE_E2E_CODEX_MODEL || "gpt-5-mini";
+    return process.env.POSTHOG_CODE_E2E_CODEX_MODEL || "gpt-6-luna";
   },
 
   /**

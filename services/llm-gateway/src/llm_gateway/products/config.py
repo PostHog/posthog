@@ -276,7 +276,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "customer_archetype_classification": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-5-mini"}),
+        allowed_models=frozenset({"gpt-5-mini", "gpt-6-luna"}),
         allow_api_keys=True,
     ),
     "product_analytics": ProductConfig(
