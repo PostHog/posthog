@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react'
 
+import { useDashboard } from '../dashboard/dashboardContext'
 import type { ContentWidget } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { useContentTileActions } from './TileContextMenu'
 import { WidgetCard } from './WidgetCard'
 
@@ -14,7 +14,7 @@ export function ContentTile({
     widget: ContentWidget
     editable: boolean
 }): JSX.Element {
-    const { widgets, disabledReasonFor, onEdit } = useDashboardV2()
+    const { widgets, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, widget)
     const canSetConfig = !disabledReasonFor('setWidgetConfig')
     // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `WidgetView`'s memo, so moving tiles

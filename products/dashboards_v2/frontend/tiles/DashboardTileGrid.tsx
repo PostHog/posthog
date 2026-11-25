@@ -3,8 +3,8 @@ import './DashboardTileGrid.css'
 import clsx from 'clsx'
 import { type ComponentProps, memo, useCallback, useContext, useRef } from 'react'
 
+import { useDashboard } from '../dashboard/dashboardContext'
 import { type Tile, type TilePlace, isSectionWidget } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { findTile } from '../dashboard/tileTree'
 import type { DropTarget } from '../grid/dropTargets'
 import { type OnSectionRows, TileGrid } from '../grid/TileGrid'
@@ -70,7 +70,7 @@ export function DashboardTileGrid({
     editable,
     onLiveRows,
 }: Omit<SectionGridProps, 'onLiveRows'> & Partial<Pick<SectionGridProps, 'onLiveRows'>>): JSX.Element {
-    const { dashboard, onEdit, sizeOf, can } = useDashboardV2()
+    const { dashboard, onEdit, sizeOf, can } = useDashboard()
     const renderTile = useCallback(
         (tile: Tile, columnPx: number, onSectionRows: OnSectionRows) => (
             <TileFrame tile={tile} columnPx={columnPx} editable={editable} onSectionRows={onSectionRows} />

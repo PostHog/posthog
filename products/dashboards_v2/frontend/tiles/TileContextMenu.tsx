@@ -16,10 +16,10 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
+import { type DashboardState, useDashboard } from '../dashboard/dashboardContext'
 import type { DashboardEdit } from '../dashboard/dashboardEdits'
 import { downloadImageAction } from '../dashboard/dashboardImage'
 import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
-import { type DashboardV2State, useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
@@ -62,7 +62,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
         downloadImage,
         downloadingImage,
         presentTile,
-    } = useDashboardV2()
+    } = useDashboard()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const definition = findWidget(widgets, widget.type)
 
@@ -165,7 +165,7 @@ const TILE_BACKGROUND_COLOR = {
 function tileImageAction(
     id: string,
     downloadingImage: boolean,
-    downloadImage: DashboardV2State['downloadImage']
+    downloadImage: DashboardState['downloadImage']
 ): MenuAction {
     return downloadImageAction('Download as image', 'dashboard-v2-tile-download-image', downloadingImage, (format) =>
         downloadImage(format, id)
@@ -197,7 +197,7 @@ function autoLayoutAction(
 }
 
 export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
-    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
+    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
     const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
     const actions: MenuAction[] = [
         {

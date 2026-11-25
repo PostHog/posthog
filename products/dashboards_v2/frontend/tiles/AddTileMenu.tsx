@@ -10,10 +10,10 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { useDashboard } from '../dashboard/dashboardContext'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {
-    const { widgets, onEdit } = useDashboardV2()
+    const { widgets, onEdit } = useDashboard()
     return (
         <DropdownMenu>
             <DropdownMenuTrigger

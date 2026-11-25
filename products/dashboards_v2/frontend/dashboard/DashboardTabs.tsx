@@ -1,4 +1,4 @@
-import './DashboardV2Tabs.css'
+import './DashboardTabs.css'
 
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
@@ -19,8 +19,8 @@ import {
 import { hasDangerousScheme } from 'lib/utils/url'
 
 import { useGridDrag } from '../grid/gridDrag'
+import { useDashboard } from './dashboardContext'
 import { type DashboardTab, isGridTab } from './dashboardTypes'
-import { useDashboardV2 } from './dashboardV2Context'
 
 interface TabDraft {
     id: string
@@ -32,8 +32,8 @@ interface TabInsert {
     side: 'before' | 'after'
 }
 
-export function DashboardV2Tabs(): JSX.Element | null {
-    const { dashboard, activeTab, disabledReasonFor, can, onActiveTabChange, onEdit } = useDashboardV2()
+export function DashboardTabs(): JSX.Element | null {
+    const { dashboard, activeTab, disabledReasonFor, can, onActiveTabChange, onEdit } = useDashboard()
     const { dropTarget } = useGridDrag()
     const [draft, setDraft] = useState<TabDraft | null>(null)
     const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -103,7 +103,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         <div className="flex items-center gap-2 border-b">
             <Tabs
                 ref={setScroller}
-                className="DashboardV2Tabs__scroller hide-scrollbar min-w-0 overflow-x-auto"
+                className="DashboardTabs__scroller hide-scrollbar min-w-0 overflow-x-auto"
                 value={activeTab.id}
                 onValueChange={(value) => onActiveTabChange(String(value))}
             >
@@ -138,7 +138,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
                         const insertClass =
-                            insert?.id === tab.id ? `DashboardV2Tabs__tab--insert-${insert.side}` : undefined
+                            insert?.id === tab.id ? `DashboardTabs__tab--insert-${insert.side}` : undefined
                         const moves = [
                             {
                                 key: 'left',
@@ -211,7 +211,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                 key={tab.id}
                                 value={tab.id}
                                 data-dv2-tab={tab.id === activeTab.id ? undefined : tab.id}
-                                className={isDropTarget ? 'DashboardV2Tabs__tab--drop-target' : insertClass}
+                                className={isDropTarget ? 'DashboardTabs__tab--drop-target' : insertClass}
                                 onClick={(event) =>
                                     event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })
                                 }

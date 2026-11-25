@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { IconCalendar } from '@posthog/icons'
 import { Button, DateTimePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
-import type { TimeRange } from '../dashboard/dashboardTypes'
+import type { TimeRange } from '../../dashboard/dashboardTypes'
 import {
     DEFAULT_QUICK_RANGES,
     type QuickRange,

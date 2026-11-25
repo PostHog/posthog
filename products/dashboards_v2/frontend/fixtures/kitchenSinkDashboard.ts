@@ -6,6 +6,9 @@ import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboar
 import type { ChartConfig } from '../widgets/chart/chartSpec'
 import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
 
+// TODO(2026-11-25): Delete once the scene loads dashboards from the API.
+// It stands in for a saved dashboard and shows every widget and layout case.
+
 const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
     type: 'chart',
     title,

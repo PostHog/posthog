@@ -3,14 +3,14 @@ import { Button } from '@posthog/quill'
 
 import { AddTileMenu } from '../tiles/AddTileMenu'
 import { AutoRefreshButton } from './AutoRefreshButton'
+import { useDashboard } from './dashboardContext'
 import { DashboardMenu } from './DashboardMenu'
-import { useDashboardV2 } from './dashboardV2Context'
 
-export function DashboardV2Actions(): JSX.Element {
-    const { history, refresh, can, activeTab } = useDashboardV2()
+export function DashboardActions(): JSX.Element {
+    const { history, refresh, can, activeTab } = useDashboard()
 
     return (
-        <div className="DashboardV2Actions flex flex-wrap items-center gap-1">
+        <div className="DashboardActions flex flex-wrap items-center gap-1">
             {can('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
             {refresh && <AutoRefreshButton {...refresh} />}
             {history && can('undo') && (

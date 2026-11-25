@@ -5,23 +5,23 @@ import { Button } from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
-import { DashboardV2Unavailable } from './DashboardV2Unavailable'
+import { DashboardUnavailable } from './DashboardUnavailable'
 
 const HedgehogRocket = pngHoggie(rocket)
 
-const meta: Meta<typeof DashboardV2Unavailable> = {
-    title: 'Products/Dashboards v2/DashboardV2Unavailable',
-    component: DashboardV2Unavailable,
+const meta: Meta<typeof DashboardUnavailable> = {
+    title: 'Products/Dashboards v2/DashboardUnavailable',
+    component: DashboardUnavailable,
     parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 export default meta
 
-export const Defaults: StoryObj<typeof DashboardV2Unavailable> = {
+export const Defaults: StoryObj<typeof DashboardUnavailable> = {
     render: () => (
         <div className="grid grid-cols-2 gap-4">
             {(['notFound', 'noAccess'] as const).map((problem) => (
                 <div key={problem} className="h-80">
-                    <DashboardV2Unavailable problem={problem} />
+                    <DashboardUnavailable problem={problem} />
                 </div>
             ))}
         </div>
@@ -29,10 +29,10 @@ export const Defaults: StoryObj<typeof DashboardV2Unavailable> = {
 }
 
 /** A product that replaces the words and hedgehog, and adds its own next step. */
-export const Customized: StoryObj<typeof DashboardV2Unavailable> = {
+export const Customized: StoryObj<typeof DashboardUnavailable> = {
     render: () => (
         <div className="h-80">
-            <DashboardV2Unavailable
+            <DashboardUnavailable
                 problem="noAccess"
                 illustration={<HedgehogRocket />}
                 title="This service dashboard is private"

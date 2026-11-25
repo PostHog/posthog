@@ -5,8 +5,8 @@ import { useEffect } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { Button, Dialog, DialogContent, DialogTitle } from '@posthog/quill'
 
+import { useDashboard } from '../dashboard/dashboardContext'
 import { type ContentWidget, type Tile, isSectionWidget } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { inReadingOrder } from '../grid/gridTiles'
 import { WidgetCard } from './WidgetCard'
 
@@ -18,7 +18,7 @@ function contentTilesInOrder(tiles: Tile[]): { id: string; widget: ContentWidget
 }
 
 export function PresentedTile(): JSX.Element {
-    const { activeTab, widgets, presentedTileId, presentTile } = useDashboardV2()
+    const { activeTab, widgets, presentedTileId, presentTile } = useDashboard()
     const tiles = contentTilesInOrder(activeTab.tiles)
     const index = tiles.findIndex((tile) => tile.id === presentedTileId)
     const widget = tiles[index]?.widget ?? null

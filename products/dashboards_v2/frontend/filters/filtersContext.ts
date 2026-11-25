@@ -1,6 +1,6 @@
 import { createContext } from 'react'
 
-import type { DashboardFilter } from '../dashboard/dashboardTypes'
+import type { DashboardFilter, TimeRange } from '../dashboard/dashboardTypes'
 
 export interface AppliedFilter<Config = unknown, Value = unknown> {
     id: string
@@ -9,11 +9,18 @@ export interface AppliedFilter<Config = unknown, Value = unknown> {
     value: Value
 }
 
+export const DEFAULT_TIME_RANGE: TimeRange = { from: 'now-7d', to: 'now' }
+
+export interface ActiveFilters {
+    time: TimeRange
+    filters: AppliedFilter[]
+}
+
 /**
- * The filters that apply to the widgets inside it. `DashboardV2View` provides the dashboard's, and a host that renders
- * a widget on its own can provide its own, so widgets never read the dashboard to get them.
+ * The time range and filters that apply to the widgets inside it. `DashboardView` provides the dashboard's, and a host
+ * that renders a widget on its own can provide its own, so widgets never read the dashboard to get them.
  */
-export const FiltersContext = createContext<AppliedFilter[]>([])
+export const FiltersContext = createContext<ActiveFilters>({ time: DEFAULT_TIME_RANGE, filters: [] })
 
 /** A filter's value, read as an own property, so an id such as `constructor` never picks up an inherited one. */
 export function filterValue(values: Record<string, unknown>, id: string): unknown {

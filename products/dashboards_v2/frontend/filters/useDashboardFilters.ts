@@ -1,9 +1,9 @@
 import type { ComponentType } from 'react'
 
-import type { QuickRange } from '../time/timeRanges'
-import { type TimeRangeController, useTimeRangeController } from '../time/useTimeRangeController'
 import type { FilterBarProps } from './FilterBar'
 import type { FilterDefinition } from './filterDefinition'
+import type { QuickRange } from './time/timeRanges'
+import { type TimeRangeController, useTimeRangeController } from './time/useTimeRangeController'
 import { type FiltersController, useFiltersController } from './useFiltersController'
 
 export interface DashboardFiltersOptions {

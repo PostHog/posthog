@@ -108,7 +108,8 @@ export function activeGridTab(dashboard: Dashboard, activeTabId: string | null):
     return tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
 }
 
-export type Dashboard = z.infer<typeof dashboardSchema>
+// An interface rather than an alias, so kea-typegen writes `Dashboard` instead of every field of it.
+export interface Dashboard extends z.infer<typeof dashboardSchema> {}
 
 export type DashboardDocument = z.infer<typeof dashboardDocumentSchema>
 

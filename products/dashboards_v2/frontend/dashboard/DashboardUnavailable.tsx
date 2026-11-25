@@ -10,7 +10,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 const HedgehogSearching = pngHoggie(magnifyingGlass)
 const HedgehogDenied = pngHoggie(stampDenied)
 
-export type DashboardV2Problem = 'notFound' | 'noAccess'
+export type UnavailableReason = 'notFound' | 'noAccess'
 
 interface ProblemView {
     illustration: ReactNode
@@ -18,7 +18,7 @@ interface ProblemView {
     description: ReactNode
 }
 
-const DEFAULT_VIEWS: Record<DashboardV2Problem, ProblemView> = {
+const DEFAULT_VIEWS: Record<UnavailableReason, ProblemView> = {
     notFound: {
         illustration: <HedgehogSearching />,
         title: 'Dashboard not found',
@@ -31,25 +31,25 @@ const DEFAULT_VIEWS: Record<DashboardV2Problem, ProblemView> = {
     },
 }
 
-export interface DashboardV2UnavailableProps extends Partial<ProblemView> {
-    problem: DashboardV2Problem
+export interface DashboardUnavailableProps extends Partial<ProblemView> {
+    problem: UnavailableReason
     /** Buttons or links for the next step, such as going back to a list. The default view has none. */
     actions?: ReactNode
     className?: string
 }
 
 /**
- * What a host renders in place of `DashboardV2View` when the dashboard can't load. Each slot replaces the default for
+ * What a host renders in place of `DashboardView` when the dashboard can't load. Each slot replaces the default for
  * that problem, so a product can change only the words, or add its own next step.
  */
-export function DashboardV2Unavailable({
+export function DashboardUnavailable({
     problem,
     illustration,
     title,
     description,
     actions,
     className,
-}: DashboardV2UnavailableProps): JSX.Element {
+}: DashboardUnavailableProps): JSX.Element {
     const defaults = DEFAULT_VIEWS[problem]
     return (
         <Empty className={clsx('h-full', className)} data-attr={`dashboard-v2-unavailable-${problem}`}>

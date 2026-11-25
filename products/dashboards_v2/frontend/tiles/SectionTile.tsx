@@ -7,8 +7,8 @@ import { type ReactNode, useCallback, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
+import { useDashboard } from '../dashboard/dashboardContext'
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './AddTileMenu'
@@ -42,7 +42,7 @@ export function SectionTile({
     /** Draws the section's own grid. Passed in because that grid draws sections too. */
     renderGrid: (grid: SectionGridProps) => ReactNode
 }): JSX.Element {
-    const { onEdit, onSectionFoldedChange, can } = useDashboardV2()
+    const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, widget, () => setDraft(widget.title))

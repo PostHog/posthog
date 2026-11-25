@@ -8,26 +8,26 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
-import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
-import { DashboardV2View } from './dashboard/DashboardV2View'
-import { dashboardV2Logic } from './dashboardV2Logic'
-import { createQueryBatchRunner } from './data/queryBatchRunner'
-import { ANALYTICS_FILTER_TYPES } from './filters/analytics/analyticsFilterTypes'
-import { useDashboardFilters } from './filters/useDashboardFilters'
-import { runSampleQuery } from './fixtures/runSampleQuery'
-import { createChartWidget } from './widgets/chart/createChartWidget'
-import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
+import { DashboardActions } from '../dashboard/DashboardActions'
+import type { DashboardController } from '../dashboard/dashboardContext'
+import { DashboardView } from '../dashboard/DashboardView'
+import { createQueryBatchRunner } from '../data/queryBatchRunner'
+import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
+import { useDashboardFilters } from '../filters/useDashboardFilters'
+import { runSampleQuery } from '../fixtures/runSampleQuery'
+import { createChartWidget } from '../widgets/chart/createChartWidget'
+import { DEFAULT_WIDGETS } from '../widgets/defaultWidgets'
+import { dashboardSceneLogic } from './dashboardSceneLogic'
 
 const NON_CHART_WIDGETS = DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart')
 const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), ...NON_CHART_WIDGETS]
 
 export const scene: SceneExport = {
-    component: DashboardV2Scene,
-    logic: dashboardV2Logic,
+    component: DashboardScene,
+    logic: dashboardSceneLogic,
 }
 
-export function DashboardV2Scene(): JSX.Element {
+export function DashboardScene(): JSX.Element {
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.DASHBOARDS_V2} fallback={<NotFound object="page" />}>
             <DashboardV2 />
@@ -36,8 +36,8 @@ export function DashboardV2Scene(): JSX.Element {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardSceneLogic)
+    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
@@ -69,7 +69,7 @@ function DashboardV2(): JSX.Element {
         types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
         time: { timezone },
     })
-    const controller = useMemo<DashboardV2Controller>(
+    const controller = useMemo<DashboardController>(
         () => ({
             dashboard,
             activeTabId,
@@ -99,7 +99,7 @@ function DashboardV2(): JSX.Element {
     )
 
     return (
-        <DashboardV2View
+        <DashboardView
             controller={controller}
             header={
                 <header className="flex flex-wrap items-center justify-between gap-2">
@@ -109,7 +109,7 @@ function DashboardV2(): JSX.Element {
                             <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
                         )}
                     </div>
-                    <DashboardV2Actions />
+                    <DashboardActions />
                 </header>
             }
         />

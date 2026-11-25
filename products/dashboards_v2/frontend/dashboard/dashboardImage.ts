@@ -12,7 +12,7 @@ export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
 ]
 
 const LEFT_OUT =
-    '.TileHoverReveal, .react-resizable-handle, .TileGrid__drop-preview, .DashboardV2Actions, [data-attr="dashboard-v2-add-tab"]'
+    '.TileHoverReveal, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]'
 const NOT_READY = '.DashboardTileGrid__placeholder, [aria-busy="true"]'
 const READY_TIMEOUT_MS = 20000
 const POLL_MS = 100

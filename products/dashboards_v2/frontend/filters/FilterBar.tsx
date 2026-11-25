@@ -1,11 +1,13 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+
+import { IconChevronDown, IconFilter } from '@posthog/icons'
+import { Button, Popover, PopoverContent, PopoverTrigger, Separator, Text } from '@posthog/quill'
 
 import type { DashboardFilter } from '../dashboard/dashboardTypes'
 import { AddFilterMenu } from './AddFilterMenu'
 import type { FilterDefinition } from './filterDefinition'
 import { FilterPill } from './FilterPill'
 import { activeFirst, filterValue } from './filtersContext'
-import { FitRow } from './FitRow'
 
 export interface FilterBarProps {
     filters: DashboardFilter[]
@@ -17,8 +19,8 @@ export interface FilterBarProps {
 }
 
 /**
- * The default arrangement of the filter pieces: pills with a value first, on one line that overflows into "+N filters",
- * after the add filter menu. A page that wants less composes `FilterPill`, `FitRow` and `AddFilterMenu` itself.
+ * The default arrangement of the filter pieces: one "N filters" button that opens every filter, with the add filter
+ * menu inside. A page that wants another layout composes `FilterPill` and `AddFilterMenu` itself.
  */
 export function FilterBar({
     filters,
@@ -28,47 +30,100 @@ export function FilterBar({
     onAdd,
     onRemove,
 }: FilterBarProps): JSX.Element | null {
-    // The filter this bar just added mounts with its picker open. Undo or redo bringing a filter back does not.
+    const [open, setOpen] = useState(false)
+    // A filter this bar just added stays on the bar with its picker open until it has a value. Undo or redo bringing
+    // a filter back does not count as added here.
+    const [pendingId, setPendingId] = useState<string | null>(null)
     const addedHere = useRef(false)
     const knownIds = useRef(new Set(filters.map((filter) => filter.id)))
-    const justAdded = addedHere.current ? filters.find((filter) => !knownIds.current.has(filter.id))?.id : undefined
     useLayoutEffect(() => {
+        if (addedHere.current) {
+            const added = filters.find((filter) => !knownIds.current.has(filter.id))
+            if (added) {
+                setPendingId(added.id)
+            }
+        }
         knownIds.current = new Set(filters.map((filter) => filter.id))
         addedHere.current = false
     }, [filters])
-    const items = useMemo(
-        () =>
-            activeFirst(filters, values).map((filter) => ({
-                id: filter.id,
-                element: (
-                    <FilterPill
-                        filter={filter}
-                        types={types}
-                        value={filterValue(values, filter.id)}
-                        onChange={(value) => onValueChange(filter.id, value)}
-                        onRemove={onRemove && (() => onRemove(filter.id))}
-                        defaultOpen={filter.id === justAdded}
-                    />
-                ),
-            })),
-        [filters, types, values, onValueChange, onRemove, justAdded]
-    )
+
+    const pending = filters.find((filter) => filter.id === pendingId && filterValue(values, filter.id) === undefined)
+    const listed = activeFirst(filters, values).filter((filter) => filter !== pending)
     if (filters.length === 0 && !onAdd) {
         return null
     }
+
+    const pill = (filter: DashboardFilter): JSX.Element => (
+        <FilterPill
+            key={filter.id}
+            filter={filter}
+            types={types}
+            value={filterValue(values, filter.id)}
+            onChange={(value) => onValueChange(filter.id, value)}
+            onRemove={onRemove && (() => onRemove(filter.id))}
+            defaultOpen={filter === pending}
+        />
+    )
+    const addMenu = onAdd && (
+        <AddFilterMenu
+            filters={filters}
+            types={types}
+            onAdd={(filter) => {
+                addedHere.current = true
+                setOpen(false)
+                onAdd(filter)
+            }}
+        />
+    )
+
+    if (listed.length === 0) {
+        return (
+            <div className="flex items-center gap-2" data-attr="dashboard-v2-filter-bar">
+                {pending && pill(pending)}
+                {addMenu}
+            </div>
+        )
+    }
+
+    const countLabel = listed.length === 1 ? '1 filter' : `${listed.length} filters`
+    const withValue = listed.filter((filter) => filterValue(values, filter.id) !== undefined)
     return (
         <div className="flex items-center gap-2" data-attr="dashboard-v2-filter-bar">
-            {onAdd && (
-                <AddFilterMenu
-                    filters={filters}
-                    types={types}
-                    onAdd={(filter) => {
-                        addedHere.current = true
-                        onAdd(filter)
-                    }}
-                />
-            )}
-            <FitRow items={items} />
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger
+                    render={<Button size="sm" variant="outline" data-attr="dashboard-v2-filters-trigger" />}
+                >
+                    <IconFilter />
+                    <span>{countLabel}</span>
+                    <IconChevronDown />
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto min-w-80 max-w-[min(40rem,90vw)] gap-0 p-0">
+                    <div className="flex items-center justify-between gap-4 px-3 pt-2">
+                        <Text size="sm" render={<span />}>
+                            <span className="font-semibold">Filters</span>
+                            <span className="text-muted-foreground"> · {countLabel}</span>
+                        </Text>
+                        {withValue.length > 0 && (
+                            <Button
+                                onClick={() => withValue.forEach((filter) => onValueChange(filter.id, undefined))}
+                                data-attr="dashboard-v2-filters-clear"
+                            >
+                                Clear all
+                            </Button>
+                        )}
+                    </div>
+                    <div className="flex max-h-[60vh] flex-col items-start gap-2 overflow-y-auto p-3">
+                        {listed.map(pill)}
+                    </div>
+                    {addMenu && (
+                        <>
+                            <Separator />
+                            <div className="p-2">{addMenu}</div>
+                        </>
+                    )}
+                </PopoverContent>
+            </Popover>
+            {pending && pill(pending)}
         </div>
     )
 }

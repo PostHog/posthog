@@ -1,15 +1,15 @@
 import { useMemo } from 'react'
 
 import { showAction } from '../presentation/tileAppearance'
+import { useDashboard } from './dashboardContext'
 import { downloadImageAction } from './dashboardImage'
 import { gridTabs } from './dashboardTypes'
-import { useDashboardV2 } from './dashboardV2Context'
 import type { MenuAction } from './menuAction'
 import { everyTile } from './tileTree'
 
 /**
  * The dashboard's own actions, after the host's `dashboardActions`. `DashboardMenu` shows them; a host with its own menu,
- * such as a scene's menu bar, can render them there instead. Call it inside `DashboardV2View`, such as in its `header`.
+ * such as a scene's menu bar, can render them there instead. Call it inside `DashboardView`, such as in its `header`.
  */
 export function useDashboardActions(): MenuAction[] {
     const {
@@ -22,7 +22,7 @@ export function useDashboardActions(): MenuAction[] {
         downloadingImage,
         dashboardActions,
         filters,
-    } = useDashboardV2()
+    } = useDashboard()
     const hasFilterTypes = !!filters && filters.types.length > 0
     const allowFilters = !!dashboard.allowFilters
     // The image shows only the tab on screen, so with several tabs the menu names it.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AutoRefreshProps } from './AutoRefreshButton'
-import type { RefreshController } from './dashboardV2Context'
+import type { RefreshController } from './dashboardContext'
 
 /** `count` goes up on every refresh, from the button or the timer, so each chart runs its query again. */
 export function useDashboardRefresh(refresh: RefreshController | undefined): {

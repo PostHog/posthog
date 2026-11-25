@@ -1,4 +1,4 @@
-import './DashboardV2View.css'
+import './DashboardView.css'
 
 import clsx from 'clsx'
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -8,32 +8,35 @@ import { useContainerWidth } from 'react-grid-layout'
 // oxlint-disable-next-line no-restricted-imports
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import type { DashboardV2Action } from '../access/dashboardV2Access'
 import { FilterBar } from '../filters/FilterBar'
-import { FiltersContext, appliedFilters } from '../filters/filtersContext'
+import { type ActiveFilters, DEFAULT_TIME_RANGE, FiltersContext, appliedFilters } from '../filters/filtersContext'
+import { TimeRangePicker } from '../filters/time/TimeRangePicker'
 import type { DropTarget } from '../grid/dropTargets'
 import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { PresentedTile } from '../tiles/PresentedTile'
-import { TimeRangePicker } from '../time/TimeRangePicker'
 import { RefreshContext } from '../widgets/refreshContext'
-import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
+import {
+    type DashboardAction,
+    type DashboardController,
+    type DashboardState,
+    DashboardStateContext,
+} from './dashboardContext'
 import { withFolds } from './dashboardEdits'
 import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
+import { DashboardTabs } from './DashboardTabs'
 import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
-import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
-import { DashboardV2Tabs } from './DashboardV2Tabs'
 import { findTile } from './tileTree'
 import { useDashboardRefresh } from './useDashboardRefresh'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
 const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
 
-export interface DashboardV2ViewProps {
-    controller: DashboardV2Controller
+export interface DashboardViewProps {
+    controller: DashboardController
     /** Rendered above the tabs, inside the dashboard, so it can use the dashboard's own controls. */
     header?: ReactNode
 }
@@ -79,7 +82,7 @@ function imageWords(
 }
 
 /** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
-export function DashboardV2View({ controller, header }: DashboardV2ViewProps): JSX.Element {
+export function DashboardView({ controller, header }: DashboardViewProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
     const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
@@ -120,9 +123,9 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         [controller]
     )
 
-    const state = useMemo<DashboardV2State>(() => {
+    const state = useMemo<DashboardState>(() => {
         const { activeTabId, disabledReasonFor: hostReason, onEdit: hostOnEdit, ...rest } = controller
-        const disabledReasonFor = (action: DashboardV2Action): string | null =>
+        const disabledReasonFor = (action: DashboardAction): string | null =>
             hostReason(action) ?? (stacked && action === 'placeTiles' ? STACKED_REASON : null)
         const view = (dashboard: Dashboard): Dashboard => withFolds(dashboard, folds, sizeOf)
         const dashboard = view(rest.dashboard)
@@ -166,6 +169,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         [filtersOn, savedFilters, filterValues]
     )
     const time = controller.timeRange?.value ?? controller.dashboard.time ?? DEFAULT_TIME_RANGE
+    const activeFilters = useMemo<ActiveFilters>(() => ({ time, filters: applied }), [time, applied])
     const tiles = useMemo(
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns, sizeOf) : activeTab.tiles),
         [stacked, activeTab.tiles, sizeOf]
@@ -195,80 +199,78 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     }, [undoable, can])
 
     return (
-        <DashboardV2StateContext.Provider value={state}>
+        <DashboardStateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
-                <TimeRangeContext.Provider value={time}>
-                    <FiltersContext.Provider value={applied}>
-                        <RefreshContext.Provider value={refresh.count}>
-                            <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
-                                <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
-                                    <div
-                                        ref={rootRef}
-                                        data-quill
-                                        className={clsx(
-                                            'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
-                                            downloadingImage && 'DashboardV2View--capturing'
-                                        )}
-                                    >
-                                        {header}
-                                        {(filtersOn || controller.timeRange) && (
-                                            <div className="flex items-start gap-2">
-                                                {controller.timeRange && (
-                                                    <TimeRangePicker
-                                                        value={time}
-                                                        onChange={controller.timeRange.onChange}
-                                                        ranges={controller.timeRange.ranges}
-                                                        timezone={controller.timeRange.timezone}
-                                                    />
-                                                )}
-                                                <div className="min-w-0 flex-1">
-                                                    {filtersOn && controller.filters && (
-                                                        <FilterBarComponent
-                                                            filters={savedFilters ?? []}
-                                                            types={controller.filters.types}
-                                                            values={controller.filters.values}
-                                                            onValueChange={controller.filters.onValueChange}
-                                                            onAdd={
-                                                                can('addFilter')
-                                                                    ? (filter) =>
-                                                                          state.onEdit({ edit: 'addFilter', filter })
-                                                                    : undefined
-                                                            }
-                                                            onRemove={
-                                                                can('removeFilter')
-                                                                    ? (id) => state.onEdit({ edit: 'removeFilter', id })
-                                                                    : undefined
-                                                            }
-                                                        />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <DashboardV2Tabs />
-                                        <div
-                                            ref={containerRef as RefObject<HTMLDivElement>}
-                                            className="DashboardV2View__canvas"
-                                        >
-                                            {mounted && width > 0 && (
-                                                <DashboardTileGrid
-                                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                                    gridId={activeTab.id}
-                                                    tiles={tiles}
-                                                    cols={GRID.columns}
-                                                    width={width}
-                                                    editable={can('placeTiles')}
+                <FiltersContext.Provider value={activeFilters}>
+                    <RefreshContext.Provider value={refresh.count}>
+                        <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
+                            <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
+                                <div
+                                    ref={rootRef}
+                                    data-quill
+                                    className={clsx(
+                                        'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                        downloadingImage && 'DashboardView--capturing'
+                                    )}
+                                >
+                                    {header}
+                                    {(filtersOn || controller.timeRange) && (
+                                        <div className="flex items-start gap-2">
+                                            {controller.timeRange && (
+                                                <TimeRangePicker
+                                                    value={time}
+                                                    onChange={controller.timeRange.onChange}
+                                                    ranges={controller.timeRange.ranges}
+                                                    timezone={controller.timeRange.timezone}
                                                 />
                                             )}
+                                            <div className="min-w-0 flex-1">
+                                                {filtersOn && controller.filters && (
+                                                    <FilterBarComponent
+                                                        filters={savedFilters ?? []}
+                                                        types={controller.filters.types}
+                                                        values={controller.filters.values}
+                                                        onValueChange={controller.filters.onValueChange}
+                                                        onAdd={
+                                                            can('addFilter')
+                                                                ? (filter) =>
+                                                                      state.onEdit({ edit: 'addFilter', filter })
+                                                                : undefined
+                                                        }
+                                                        onRemove={
+                                                            can('removeFilter')
+                                                                ? (id) => state.onEdit({ edit: 'removeFilter', id })
+                                                                : undefined
+                                                        }
+                                                    />
+                                                )}
+                                            </div>
                                         </div>
+                                    )}
+
+                                    <DashboardTabs />
+                                    <div
+                                        ref={containerRef as RefObject<HTMLDivElement>}
+                                        className="DashboardView__canvas"
+                                    >
+                                        {mounted && width > 0 && (
+                                            <DashboardTileGrid
+                                                key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                                gridId={activeTab.id}
+                                                tiles={tiles}
+                                                cols={GRID.columns}
+                                                width={width}
+                                                editable={can('placeTiles')}
+                                            />
+                                        )}
                                     </div>
-                                    <PresentedTile />
-                                </CapturingTileContext.Provider>
-                            </TileMountContext.Provider>
-                        </RefreshContext.Provider>
-                    </FiltersContext.Provider>
-                </TimeRangeContext.Provider>
+                                </div>
+                                <PresentedTile />
+                            </CapturingTileContext.Provider>
+                        </TileMountContext.Provider>
+                    </RefreshContext.Provider>
+                </FiltersContext.Provider>
             </GridDragContext.Provider>
-        </DashboardV2StateContext.Provider>
+        </DashboardStateContext.Provider>
     )
 }
