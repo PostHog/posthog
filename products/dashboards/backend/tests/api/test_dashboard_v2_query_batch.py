@@ -4,9 +4,10 @@ import asyncio
 import datetime as dt
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing, contextmanager
-from threading import Event
+from threading import Event, Semaphore
 from typing import Any, cast
 from urllib.parse import parse_qsl
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -229,6 +230,39 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
         self.assertEqual(features, ["query"])
 
+    def test_misses_past_a_users_query_share_are_busy_and_the_share_comes_back(self) -> None:
+        # A worker hands its share back after its line is streamed, so the test waits for both hand-backs.
+        ended = Semaphore(0)
+        query_ended = query_batch_module._query_ended
+
+        def counted(keys: tuple[Any, ...], future: Any) -> None:
+            query_ended(keys, future)
+            ended.release()
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch.MAX_RUN_QUERIES_PER_USER", 2),
+            patch("products.dashboards.backend.v2.query_batch.process_query_dict", return_value={"results": []}),
+            patch.object(query_batch_module, "_query_ended", counted),
+        ):
+            lines = self._lines([_insight("$pageview"), _insight("$autocapture"), _insight("$pageleave")])
+            self.assertTrue(all(ended.acquire(timeout=10) for _ in range(2)))
+
+        self.assertEqual(
+            [line.get("error") for line in lines],
+            [None, None, "Too many dashboards are loading at once. Try again shortly."],
+        )
+        self.assertEqual(query_batch_module._org_queries, {})
+
+    def test_a_batch_that_cannot_start_its_workers_gives_its_shares_back(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.query_batch.ThreadPoolExecutor.submit", side_effect=RuntimeError),
+            self.assertRaises(RuntimeError),
+        ):
+            self._lines([_insight("$pageview"), _insight("$autocapture")])
+
+        self.assertEqual(query_batch_module._org_queries, {})
+        self.assertEqual(query_batch_module._org_batches, {})
+
     def test_a_disconnect_cancels_running_queries_with_tags_set(self) -> None:
         cancelled = Event()
         seen: list[tuple[str | None, str | None]] = []
@@ -279,7 +313,8 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": i, **too_large} for i in range(7)])
         self.assertEqual(reads.call_count, 1)
 
-    def test_a_client_that_stops_reading_gives_its_place_back_when_the_stream_expires(self) -> None:
+    @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
+    def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
 
         def open_batch(asynchronous: bool) -> Any:
@@ -305,16 +340,16 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             reader.cancel()
             return ended
 
-        with (
-            patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1),
-            patch("products.dashboards.backend.v2.query_batch.MAX_STREAM_SECONDS", 0.0),
-            patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
-        ):
-            ended = asyncio.run(ended_by_the_batch())
+        with patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1):
+            with (
+                patch(f"products.dashboards.backend.v2.query_batch.{deadline}", 0.0),
+                patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
+            ):
+                ended = asyncio.run(ended_by_the_batch())
             next_batch = b"".join(cast(Iterator[bytes], open_batch(asynchronous=False)))
 
         self.assertTrue(ended)
-        self.assertEqual(json.loads(next_batch), {"i": 0, "error": "The dashboard took too long to load. Try again."})
+        self.assertEqual(json.loads(next_batch)["result"]["cache"]["hit"], False)
 
     def test_a_batch_dropped_before_it_streams_stops_its_watchdog(self) -> None:
         batch = QueryBatch(
@@ -326,6 +361,43 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         watchdog.join(timeout=5)
 
         self.assertFalse(watchdog.is_alive())
+
+    def test_a_batch_whose_cancel_thread_cannot_start_still_frees_its_slot(self) -> None:
+        batch = QueryBatch(
+            team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="no-thread"
+        )
+        batch._watchdog.cancel()
+        self.addCleanup(batch._open.release)
+        batch._admitted = query_batch_module._admit_batch(batch._shares)
+        batch._active.add("running")
+
+        with patch.object(query_batch_module, "Thread", side_effect=RuntimeError), self.assertRaises(RuntimeError):
+            batch._close(False)
+
+        self.assertEqual(query_batch_module._org_batches, {})
+
+    def test_a_client_still_reading_a_long_line_is_not_idle(self) -> None:
+        # The reader receives 16 bytes per idle window, so a line split into 8-byte slices marks progress twice per
+        # window, while the same line handed over whole would take several windows to arrive.
+        idle_bytes_per_second = 16 / query_batch_module.MAX_IDLE_SECONDS
+        now = [0.0]
+        with (
+            patch.object(query_batch_module, "monotonic", lambda: now[0]),
+            patch.object(query_batch_module, "MAX_STREAM_SECONDS", 1e9),
+            patch.object(query_batch_module, "PULL_SLICE_BYTES", 8),
+        ):
+            batch = QueryBatch(
+                team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="slow"
+            )
+            batch._watchdog.cancel()
+            received = b""
+            for piece in batch.stream():
+                now[0] += len(piece) / idle_bytes_per_second
+                self.assertIsNotNone(batch._check_deadlines())
+                received += piece
+
+        self.assertGreater(len(received), 32)
+        self.assertEqual(json.loads(received)["i"], 0)
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
@@ -415,6 +487,28 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         query_id = "dashboard-v2-batch-none-t_1-a-0123abcd"
         self.assertEqual(runs, [(query_id, query_id, traceparent)])
+
+
+class TestQueryShares(SimpleTestCase):
+    def test_one_users_large_batches_leave_room_for_another_organization(self) -> None:
+        org_a, org_b = uuid4(), uuid4()
+        member, colleague, other_org = (
+            query_batch_module._share_keys(org, user) for org, user in ((org_a, 1), (org_a, 2), (org_b, 3))
+        )
+        with (
+            patch.object(query_batch_module, "MAX_RUN_QUERIES", 4),
+            patch.object(query_batch_module, "MAX_RUN_QUERIES_PER_ORG", 3),
+            patch.object(query_batch_module, "MAX_RUN_QUERIES_PER_USER", 2),
+            patch.object(query_batch_module, "_org_queries", {}),
+        ):
+            granted = [
+                query_batch_module._reserve_queries(member, 500),
+                query_batch_module._reserve_queries(member, 500),
+                query_batch_module._reserve_queries(colleague, 500),
+                query_batch_module._reserve_queries(other_org, 500),
+            ]
+
+        self.assertEqual(granted, [2, 0, 1, 1])
 
 
 _NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)
