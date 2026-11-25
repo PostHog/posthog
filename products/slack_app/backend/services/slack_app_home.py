@@ -1726,6 +1726,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Work
     if not slack_user_id:
         return
 
+    _default_daily_focus_on(integration, slack_user_id)
     slack = SlackIntegration(integration)
     render = _build_home_view(slack, integration, slack_user_id)
     try:
@@ -1751,6 +1752,18 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Work
             account_linked=bool(render.account_state.linked_email),
             has_project_access=render.has_project_access,
         )
+
+
+def _default_daily_focus_on(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """Turns the daily work focus on for a person who can run it and never chose, so the Home tab shows what runs.
+    A person who turned it off has a row and stays off. Never raises, so the Home tab still publishes."""
+    try:
+        if can_run_daily_focus(integration, slack_user_id) and (
+            resolve_daily_focus(integration.integration_id, slack_user_id).enabled is None
+        ):
+            turn_on_daily_focus(integration, slack_user_id, source="home_default")
+    except Exception:
+        logger.warning("slack_app_home_daily_focus_default_failed", slack_user_id=slack_user_id, exc_info=True)
 
 
 def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpResponse:
