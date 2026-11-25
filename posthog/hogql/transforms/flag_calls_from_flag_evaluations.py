@@ -185,10 +185,13 @@ def can_read_flag_evaluations(
     )
 
 
-def swaps_flag_calls(node: ast.AST, context: HogQLContext) -> bool:
+def swaps_flag_calls(node: ast.AST, context: HogQLContext, enclosing_ctes: Mapping[str, ast.CTE] | None = None) -> bool:
     """Whether `resolve_flag_calls_from_flag_evaluations` can change where `node` reads flag calls from. It reads
-    only the context and the text of `node`, and it resolves nothing."""
-    return swap_database(context) is not None and names_flag_called_event(node)
+    only the context and the text of `node`, and it resolves nothing. A `matchesAction` call on an `events` scan
+    counts, because its action can name flag calls. `enclosing_ctes` is as in `swap_flag_calls`."""
+    return swap_database(context) is not None and (
+        names_flag_called_event(node) or bool(_matches_action_aliases(node, enclosing_ctes or {}))
+    )
 
 
 def swap_database(context: HogQLContext) -> "Database | None":
@@ -239,7 +242,7 @@ def swap_flag_calls(
     The resolver runs this on the body of each saved view that it inlines, with `scope` naming that view for the
     error. The check of resolved filters skips the joins of a view's body in the enclosing query, because the swap of
     that body already checked them. A top-level query raises when it reads a view whose resolved body still reads
-    only flag calls from `events`, such as a body that filters with `matchesAction`.
+    only flag calls from `events`, such as a body that reads `posthog.events` under an enclosing CTE named `events`.
 
     Before any rule reads the query, each `matchesAction` call on an `events` scan becomes the condition of its
     action, as the resolver would expand it. The rules then see the events that the action names. `enclosing_ctes`
@@ -264,8 +267,8 @@ def swap_flag_calls(
             source=node,
             resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, scope),
         )
-    # A view's body names flag calls only after resolution when it filters with `matchesAction`, so its swap never
-    # runs. The check reads the whole resolved query, so it runs once, for the top-level query.
+    # The resolver skips the swap of a view body under an enclosing CTE named `events`, and that body can still read
+    # `posthog.events`. The check reads the whole resolved query, so it runs once, for the top-level query.
     if context.flag_calls_only_in_flag_evaluations() and scope is None:
         unswapped_view = _view_reading_flag_calls_from_events(swap.resolved)
         if unswapped_view is not None:
@@ -1097,11 +1100,16 @@ def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
 def _matches_action_expanded(node: _T_AST, context: HogQLContext, enclosing_ctes: Mapping[str, ast.CTE]) -> _T_AST:
     """`node` with each `matchesAction` call on an `events` scan replaced by the condition of its action. The
     resolver builds the same condition in the same scope, so the query selects the same rows."""
+    events_aliases = _matches_action_aliases(node, enclosing_ctes)
+    if not events_aliases:
+        return node
+    return _MatchesActionExpander(events_aliases, context).visit(node)
+
+
+def _matches_action_aliases(node: ast.AST, enclosing_ctes: Mapping[str, ast.CTE]) -> dict[int, str]:
     finder = _MatchesActionFinder(enclosing_ctes)
     finder.visit(node)
-    if not finder.events_aliases:
-        return node
-    return _MatchesActionExpander(finder.events_aliases, context).visit(node)
+    return finder.events_aliases
 
 
 def _events_join_alias(join: ast.JoinExpr, ctes: Collection[str]) -> str | None:

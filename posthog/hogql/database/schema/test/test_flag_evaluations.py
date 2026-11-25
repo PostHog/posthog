@@ -1515,6 +1515,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         [
             ("select_star", "SELECT * FROM events WHERE event = '$feature_flag_called'", "it selects \\* or COLUMNS"),
             (
+                "select_star_matching_an_action",
+                "SELECT * FROM events WHERE matchesAction({flag})",
+                "it selects \\* or COLUMNS",
+            ),
+            (
                 "event_time_group_properties",
                 f"SELECT distinct_id, goe_0.properties FROM events WHERE {FLAG_CALL_CONJUNCTS}",
                 "it reads something that table doesn't have",
@@ -1524,17 +1529,92 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     def test_view_flag_evaluations_cannot_answer_raises_an_error_that_names_the_view(
         self, _name: str, body: str, reason: str
     ):
-        self._create_view("calls", body)
+        action = create_action(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+        self._create_view("calls", body.format(flag=action.id))
 
         with self.assertRaisesRegex(QueryError, f"the view calls can't read them there because {reason}"):
             self._query_events("SELECT distinct_id FROM calls")
 
-    def test_view_that_names_flag_calls_only_through_an_action_raises(self):
-        action = create_action(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
-        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.id})")
+    @parameterized.expand(
+        [
+            (
+                "by_id",
+                "SELECT distinct_id FROM events WHERE matchesAction({flag})",
+                "SELECT distinct_id FROM calls",
+                ["probe-distinct-id"],
+            ),
+            (
+                "by_name",
+                "SELECT distinct_id FROM events WHERE matchesAction('probe flag')",
+                "SELECT distinct_id FROM calls",
+                ["probe-distinct-id"],
+            ),
+            (
+                "flag_calls_and_pageviews",
+                "SELECT distinct_id FROM events WHERE matchesAction({mixed}) AND timestamp >= now() - INTERVAL 7 DAY",
+                "SELECT distinct_id FROM calls ORDER BY distinct_id",
+                ["pageview-distinct-id", "probe-distinct-id"],
+            ),
+            (
+                "under_an_enclosing_cte_named_posthog_events",
+                "SELECT distinct_id FROM events WHERE matchesAction({flag})",
+                "WITH `posthog.events` AS (SELECT 1 AS x) SELECT distinct_id FROM calls",
+                ["probe-distinct-id"],
+            ),
+            (
+                "joined_into_a_query",
+                "SELECT distinct_id FROM events WHERE matchesAction({flag})",
+                f"SELECT c.distinct_id FROM {PROBE_DISTINCT_IDS} JOIN calls AS c ON c.distinct_id = d.id",
+                ["probe-distinct-id"],
+            ),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_view_that_matches_a_flag_call_action_reads_flag_evaluations(
+        self, _name: str, body: str, query: str, expected: list[str]
+    ):
+        self._create_events_only_flag_call()
+        _create_event(team=self.team, event="$pageview", distinct_id="pageview-distinct-id", timestamp=self.occurred_at)
+        flush_persons_and_events()
+        keyed_flag_step: dict[str, object] = {
+            "event": "$feature_flag_called",
+            "properties": [{"key": "$feature_flag", "value": "probe-flag", "type": "event", "operator": "exact"}],
+        }
+        flag_step: dict[str, object] = {"event": "$feature_flag_called"}
+        create_action(team=self.team, name="probe flag", steps_json=[keyed_flag_step])
+        actions = {
+            "flag": create_action(team=self.team, steps_json=[flag_step]).id,
+            "mixed": create_action(team=self.team, steps_json=[flag_step, {"event": "$pageview"}]).id,
+        }
+        self._create_view("calls", body.format(**actions))
+
+        assert [row[0] for row in self._query_events(query).results] == expected
+
+    @parameterized.expand(
+        [
+            ("events", "SELECT distinct_id FROM events WHERE matchesAction({action})"),
+            ("posthog_events", "SELECT distinct_id FROM posthog.events WHERE matchesAction({action})"),
+            (
+                "events_after_persons",
+                "SELECT e.distinct_id FROM persons AS p JOIN events AS e ON e.person_id = p.id "
+                "WHERE matchesAction({action})",
+            ),
+        ]
+    )
+    def test_view_that_matches_an_action_without_flag_calls_is_unchanged_once_events_gets_no_flag_calls(
+        self, _name: str, body: str
+    ):
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview", "url": "example.com"}])
+        self._create_view("pageviews", body.format(action=action.id))
+        query = "SELECT distinct_id FROM pageviews"
+
+        assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
+
+    def test_view_reading_posthog_events_under_an_enclosing_cte_named_events_raises(self):
+        self._create_view("calls", "SELECT distinct_id FROM posthog.events WHERE event = '$feature_flag_called'")
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
-            self._query_events("SELECT distinct_id FROM calls")
+            self._query_events("WITH events AS (SELECT 1 AS x) SELECT distinct_id FROM calls")
 
     def test_view_under_an_enclosing_cte_named_posthog_events_matches_its_action_on_the_events_table(self):
         for distinct_id, url in (
