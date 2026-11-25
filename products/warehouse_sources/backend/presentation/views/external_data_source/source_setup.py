@@ -702,6 +702,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 }
             )
 
+        new_column_policy_changed = (
+            "new_column_policy" in validated_data and validated_data["new_column_policy"] != instance.new_column_policy
+        )
+
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_query:
@@ -1035,6 +1039,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     credentials_reference=requested_reference,
                 )
             updated_source: ExternalDataSource = super().update(instance, validated_data)
+            # In the source's transaction, so a failed pin also undoes the policy change and a retry redoes both.
+            if new_column_policy_changed:
+                pin_columns_for_exclude_policy(instance.team_id, updated_source.id)
             if stored_credential is not None:
                 # Stored credentials are single-use. A concurrent update that used the same credential first
                 # deleted it, so roll this update back.
@@ -1046,10 +1053,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         {"payload": {"credential_id": f"Stored credential '{stored_credential.pk}' was already used"}}
                     )
         cast(Any, updated_source)._connection_warning = connection_warning
-
-        # Also when the value is unchanged, so retrying a save that failed before every table was pinned finishes it.
-        if "new_column_policy" in validated_data:
-            pin_columns_for_exclude_policy(instance.team_id, updated_source.id)
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their
