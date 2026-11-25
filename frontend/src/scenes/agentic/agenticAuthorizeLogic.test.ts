@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -76,6 +78,16 @@ describe('agenticAuthorizeLogic', () => {
             409,
             'This authorization request changed while the page was open. Start over to review it.',
         ],
+        [
+            'project_limit_reached',
+            403,
+            'This organization has reached its project limit, so PostHog cannot create a project for the requesting app. Delete a project you no longer need, then try again.',
+        ],
+        [
+            'forbidden',
+            403,
+            'Only organization admins can create projects in this organization. Ask an admin to connect the requesting app.',
+        ],
     ])('maps the %s error to a specific message', async (code, status, message) => {
         confirmResponse = [status as number, { error: code }]
         startConfirm()
@@ -88,6 +100,24 @@ describe('agenticAuthorizeLogic', () => {
         expect(posthog.capture).toHaveBeenCalledWith('agentic authorize confirm failed', {
             reason: code,
             retryable: expect.any(Boolean),
+        })
+    })
+
+    it.each([
+        ['forbidden', 'only organization admins can create one'],
+        ['project_limit_reached', 'it has reached its project limit'],
+    ])('shows the %s error from the authorize redirect instead of the project picker', async (code, reason) => {
+        logic = agenticAuthorizeLogic()
+        logic.mount()
+
+        router.actions.push(urls.agenticAuthorize(), { state: 'valid_state', error: code })
+
+        await expectLogic(logic).toMatchValues({
+            pageError: expect.objectContaining({
+                title: 'No project to connect',
+                description: expect.stringContaining(reason),
+            }),
+            allTeams: null,
         })
     })
 

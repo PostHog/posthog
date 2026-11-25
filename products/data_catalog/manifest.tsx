@@ -65,7 +65,7 @@ export const manifest: ProductManifest = {
                 {
                     name: 'Tables & views',
                     href: urls.dataCatalog('tables'),
-                    requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                    requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                     searchKeywords: [
                         'models',
                         'materialized views',
@@ -78,33 +78,25 @@ export const manifest: ProductManifest = {
                 {
                     name: 'Lineage',
                     href: urls.dataCatalog('lineage'),
-                    requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                    requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                     searchKeywords: ['dag', 'dependencies'],
                 },
                 {
                     name: 'Data quality',
                     href: urls.dataCatalog('data-quality'),
-                    requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                    requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                     searchKeywords: ['data tests', 'checks', 'freshness'],
                 },
                 {
                     name: 'Usage',
                     href: urls.dataCatalog('usage'),
-                    requiredFlags: [
-                        FEATURE_FLAGS.TODAY_RAIL_NAV,
-                        FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
-                        FEATURE_FLAGS.DATA_MODELING_USAGE,
-                    ],
+                    requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE, FEATURE_FLAGS.DATA_MODELING_USAGE],
                     searchKeywords: ['bytes read', 'cpu'],
                 },
                 {
                     name: 'Governance',
                     href: urls.dataCatalog('governance'),
-                    requiredFlags: [
-                        FEATURE_FLAGS.TODAY_RAIL_NAV,
-                        FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
-                        FEATURE_FLAGS.DATA_CATALOG_USAGE,
-                    ],
+                    requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE, FEATURE_FLAGS.DATA_CATALOG_USAGE],
                     searchKeywords: ['agent topics', 'proposed metrics', 'metric usage'],
                 },
                 { name: 'Relationships', href: urls.dataCatalog('relationships') },

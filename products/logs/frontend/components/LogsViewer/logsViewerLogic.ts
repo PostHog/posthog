@@ -67,7 +67,6 @@ function tryOpenLinkedLog(
 export interface logsViewerLogicValues {
     isLogDetailsOpen: boolean // logDetailsModalLogic
     sessionErrorCounts: Record<string, number> // logsSessionErrorsLogic
-    showSessionErrors: boolean // logsSessionErrorsLogic
     columns: LogsColumnConfig[] // logsViewerConfigLogic
     customColumns: string[] | undefined // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
@@ -290,7 +289,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             logsViewerConfigLogic({ id }),
             ['orderBy', 'columns', 'customColumns'],
             logsSessionErrorsLogic({ id }),
-            ['sessionErrorCounts', 'showSessionErrors'],
+            ['sessionErrorCounts'],
         ],
         actions: [
             logsViewerSettingsLogic,

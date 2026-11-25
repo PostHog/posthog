@@ -1,6 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { apiValueToMathType } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 

@@ -5,6 +5,7 @@ import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType } from '~/types'
@@ -17,6 +18,13 @@ import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from './hogFunctionTemplateListLogic'
+import { QuillHogFunctionTemplateList } from './QuillHogFunctionTemplateList'
+
+export function getTemplateAccessDisabledReason(template: HogFunctionTemplateType): string | null {
+    return isManagedSourceTemplate(template)
+        ? getAccessControlDisabledReason(AccessControlResourceType.ExternalDataSource, AccessControlLevel.Editor)
+        : null
+}
 
 export function HogFunctionTemplateList({
     extraControls,
@@ -30,12 +38,17 @@ export function HogFunctionTemplateList({
         hogFunctionTemplateListLogic(props)
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
+    const quillSurface = useQuillSurface()
 
     useEffect(() => {
         if (!props.manualTemplatesOnly) {
             loadHogFunctionTemplates()
         }
     }, [props.type, props.manualTemplatesOnly]) // oxlint-disable-line exhaustive-deps
+
+    if (quillSurface) {
+        return <QuillHogFunctionTemplateList {...props} extraControls={extraControls} hideFeedback={hideFeedback} />
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -88,12 +101,7 @@ export function HogFunctionTemplateList({
                         key: 'name',
                         dataIndex: 'name',
                         render: (_, template) => {
-                            const hasAccess =
-                                !isManagedSourceTemplate(template) ||
-                                !getAccessControlDisabledReason(
-                                    AccessControlResourceType.ExternalDataSource,
-                                    AccessControlLevel.Editor
-                                )
+                            const hasAccess = !getTemplateAccessDisabledReason(template)
                             return (
                                 <LemonTableLink
                                     to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
@@ -126,12 +134,7 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
-                            const dataWarehouseSourceAccessDisabledReason =
-                                isManagedSourceTemplate(template) &&
-                                getAccessControlDisabledReason(
-                                    AccessControlResourceType.ExternalDataSource,
-                                    AccessControlLevel.Editor
-                                )
+                            const dataWarehouseSourceAccessDisabledReason = getTemplateAccessDisabledReason(template)
 
                             if (template.status === 'coming_soon') {
                                 return (

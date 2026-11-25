@@ -49,34 +49,55 @@ class TestSendQuarantineNotice:
             yield post
 
     def _quarantine(
-        self, repo, user, identifier: str = _IDENTIFIER, source: ActorType = ActorType.HUMAN
+        self,
+        repo,
+        user,
+        identifier: str = _IDENTIFIER,
+        source: ActorType = ActorType.HUMAN,
+        reason: str = "Animation <!channel> timing",
     ) -> QuarantinedIdentifier:
         return quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier=identifier,
             run_type=RunType.STORYBOOK,
-            reason="Animation <!channel> timing",
+            reason=reason,
             user_id=None if source == ActorType.AUTO else user.id,
             team_id=repo.team_id,
             source=source,
         )
 
-    @pytest.mark.parametrize("source", [ActorType.HUMAN, ActorType.AUTO])
-    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post, source):
-        entry = self._quarantine(repo, user, source=source)
+    @pytest.mark.parametrize(
+        "source,reason,lead",
+        [
+            (ActorType.HUMAN, "Animation <!channel> timing", None),
+            (
+                ActorType.AUTO,
+                "Flake proven: changed and unchanged in two runs of abc1234",
+                "*Visual review* quarantined a story owned by you automatically, "
+                "because the same code rendered it two ways. Please check.",
+            ),
+            (
+                ActorType.AUTO,
+                "Extended automatically: changed in 3 of the last 100 default-branch runs, 2 pictures",
+                "*Visual review* extended the quarantine of a story owned by you automatically, "
+                "because the story still renders differently on the default branch. Please check.",
+            ),
+        ],
+    )
+    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post, source, reason, lead):
+        entry = self._quarantine(repo, user, source=source, reason=reason)
 
         assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is True
-        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark", source=source)
+        second = self._quarantine(
+            repo, user, identifier="scenes-app-button--primary--dark", source=source, reason=reason
+        )
         assert quarantine_notice.send_quarantine_notice(second.id, team.id) is True
 
         assert post.channel_map.call_count == 1
         _, channel_id, blocks, text = post.call_args.args
         assert channel_id == "C1"
         if source == ActorType.AUTO:
-            assert text.startswith(
-                "*Visual review* quarantined a story owned by you automatically, "
-                "because the same code rendered it two ways. Please check."
-            )
+            assert text.startswith(lead)
             assert "opened by visual review automatically" in blocks[1]["text"]["text"]
         else:
             assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")

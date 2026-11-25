@@ -6,6 +6,8 @@ import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import type { OrganizationType } from '~/types'
+
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
@@ -111,7 +113,7 @@ export interface addCrossProjectTileLogicActions {
 export interface addCrossProjectTileLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        projectOptions: (currentOrganization: null | import('~/types').OrganizationType) => LemonInputSelectOption[]
+        projectOptions: (currentOrganization: OrganizationType | null) => LemonInputSelectOption[]
         insightOptions: (insightPage: InsightPage, selectedInsight: InsightOption | null) => LemonInputSelectOption[]
         canAdd: (projectId: number | null, selectedInsight: InsightOption | null) => boolean
     }

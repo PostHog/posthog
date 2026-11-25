@@ -2773,6 +2773,72 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
+    def test_account_source_rejects_remove_missing_row_behavior(self):
+        response = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+                "missing_row_behavior": "remove",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_patch_rejects_remove_missing_row_behavior_for_account_source(self):
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/", {"missing_row_behavior": "remove"}, format="json"
+        )
+
+        assert patched.status_code == status.HTTP_400_BAD_REQUEST, patched.content
+        assert b"only supported for person properties" in patched.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_patch_rejects_remove_missing_row_behavior_for_group_source(self, _flag):
+        definition = self.client.post(
+            f"/api/projects/{self.team.id}/custom_property_definitions/",
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/", {"missing_row_behavior": "remove"}, format="json"
+        )
+
+        assert patched.status_code == status.HTTP_400_BAD_REQUEST, patched.content
+        assert b"only supported for person properties" in patched.content
+
     def _person_definition_and_schema(self):
         definition = create_custom_property_definition(
             team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value
@@ -2811,6 +2877,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
                 "column_descriptions": {"seats": " Seat count "},
+                "missing_row_behavior": "remove",
             },
             format="json",
         )
@@ -2819,6 +2886,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert patched.json()["id"] == source_id
         assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
         assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+        assert patched.json()["missing_row_behavior"] == "remove"
 
         invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
         assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
@@ -2858,6 +2926,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert create_properties["target_type"] == TargetType.PERSON.value
         assert create_properties["mapped_column_count"] == 2
         assert create_properties["reads_warehouse_table"] is True
+        assert create_properties["missing_row_behavior"] == "keep"
 
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()

@@ -1,0 +1,128 @@
+name: MCP Registry publish
+
+on:
+    pull_request:
+        paths:
+            - 'services/mcp/server.json'
+            - '.github/workflows/mcp-registry-publish.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'services/mcp/server.json'
+            - '.github/workflows/mcp-registry-publish.yml'
+    workflow_dispatch:
+
+# Every push and manual run shares one group, so a check and its publish never overlap another
+# run's: the second run sees the version as published instead of uploading it twice. Pull request
+# runs key on the PR number, because a head branch name is author-controlled and could match a
+# trusted ref.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'publish' }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    SERVER_JSON: services/mcp/server.json
+    REGISTRY_URL: https://registry.modelcontextprotocol.io
+    MCP_PUBLISHER_VERSION: v1.8.11
+    MCP_PUBLISHER_SHA256: 99fbd857ae2277e5e4a4a2cddc7f4d3e64612c6f90950f44584c3539c9df854f
+
+jobs:
+    check:
+        name: Validate server.json
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            publish: ${{ steps.check.outputs.publish }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: services/mcp/server.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Install mcp-publisher
+              run: |
+                  archive="$RUNNER_TEMP/mcp-publisher.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+                  echo "${MCP_PUBLISHER_SHA256}  $archive" | sha256sum -c -
+                  tar -xzf "$archive" -C "$RUNNER_TEMP" mcp-publisher
+                  echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+            # `mcp-publisher validate` sends one request to the registry and does not retry, so a
+            # transient registry error would otherwise fail the run and leave the listing stale.
+            - name: Validate server.json
+              run: |
+                  for delay in 10 30 0; do
+                      if mcp-publisher validate "$SERVER_JSON"; then
+                          exit 0
+                      fi
+                      sleep "$delay"
+                  done
+                  exit 1
+
+            # The registry rejects a second publish of the same version, and it returns a published
+            # server.json byte-for-byte. So a published version with different content means the
+            # file changed without a version bump, and the change would never reach the registry.
+            - name: Check whether this version is published
+              id: check
+              run: |
+                  name=$(jq -r .name "$SERVER_JSON")
+                  version=$(jq -r .version "$SERVER_JSON")
+                  published="$RUNNER_TEMP/published.json"
+                  status=$(curl -sS --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$published" -w '%{http_code}' \
+                      "${REGISTRY_URL}/v0/servers/${name//\//%2F}/versions/${version}")
+
+                  case "$status" in
+                      404)
+                          echo "${name}@${version} is not published yet."
+                          echo "publish=true" >> "$GITHUB_OUTPUT"
+                          ;;
+                      200)
+                          if [ "$(jq -S .server "$published")" = "$(jq -S . "$SERVER_JSON")" ]; then
+                              echo "${name}@${version} is already published with this content."
+                              echo "publish=false" >> "$GITHUB_OUTPUT"
+                          else
+                              echo "::error file=${SERVER_JSON}::${name}@${version} is already published with different content. Bump \"version\" in ${SERVER_JSON}."
+                              exit 1
+                          fi
+                          ;;
+                      *)
+                          echo "::error::The registry answered HTTP ${status} for ${name}@${version}."
+                          exit 1
+                          ;;
+                  esac
+
+    # The signing key proves ownership of the whole com.posthog namespace. It lives only in the
+    # mcp-registry environment, which admits master, so a workflow on another branch cannot read it.
+    publish:
+        name: Publish to the MCP Registry
+        needs: check
+        if: needs.check.outputs.publish == 'true' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        environment: mcp-registry
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: services/mcp/server.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Install mcp-publisher
+              run: |
+                  archive="$RUNNER_TEMP/mcp-publisher.tar.gz"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$archive" \
+                      "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+                  echo "${MCP_PUBLISHER_SHA256}  $archive" | sha256sum -c -
+                  tar -xzf "$archive" -C "$RUNNER_TEMP" mcp-publisher
+                  echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+            - name: Publish
+              env:
+                  MCP_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+              run: |
+                  mcp-publisher login http --domain posthog.com
+                  mcp-publisher publish "$SERVER_JSON"

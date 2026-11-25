@@ -145,6 +145,8 @@ fn shortest_scientific(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     fn number(f: f64) -> String {
@@ -153,7 +155,26 @@ mod tests {
         out
     }
 
-    // Expected strings come from `String(x)` in Node 22.
+    fn finite_f64() -> impl Strategy<Value = f64> {
+        prop_oneof![
+            any::<u64>()
+                .prop_map(f64::from_bits)
+                .prop_filter("finite", |f| f.is_finite()),
+            (any::<i32>(), -30i32..30).prop_map(|(m, e)| m as f64 * 10f64.powi(e)),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn every_finite_number_parses_back_to_itself(f in finite_f64()) {
+            let text = number(f);
+            prop_assert_eq!(text.parse::<f64>(), Ok(f), "{}", text);
+        }
+    }
+
+    // Expected strings come from `String(x)` in Node.
     #[test]
     fn numbers_match_javascript() {
         let cases: &[(f64, &str)] = &[
@@ -172,6 +193,23 @@ mod tests {
             (1e15 + 0.25, "1000000000000000.2"),
             (f64::from_bits(0x409a_ab1c_d000_0000), "1706.7781372070312"),
             (-1417389728594571.2, "-1417389728594571.2"),
+            (999999999999999900000.0, "999999999999999900000"),
+            (1.5e21, "1.5e+21"),
+            (0.0000015, "0.0000015"),
+            (9.999999999999997e-7, "9.999999999999997e-7"),
+            (1e-7, "1e-7"),
+            (1.23e-18, "1.23e-18"),
+            (-5e-324, "-5e-324"),
+            (1e-323, "1e-323"),
+            (2.225073858507201e-308, "2.225073858507201e-308"),
+            (2.2250738585072014e-308, "2.2250738585072014e-308"),
+            (-1.7976931348623157e308, "-1.7976931348623157e+308"),
+            (9007199254740992.0, "9007199254740992"),
+            (9007199254740994.0, "9007199254740994"),
+            (0.30000000000000004, "0.30000000000000004"),
+            (2.220446049250313e-16, "2.220446049250313e-16"),
+            (123456789012345680000.0, "123456789012345680000"),
+            (-0.000001, "-0.000001"),
         ];
         for (input, expected) in cases {
             assert_eq!(number(*input), *expected, "{input}");

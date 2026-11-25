@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
     postgres::{PgPool, PgPoolOptions},
-    Error as SqlxError, Postgres,
+    Connection, Error as SqlxError, Postgres,
 };
 use thiserror::Error;
 
@@ -117,6 +117,10 @@ pub fn get_pool_with_timeout(
 ///
 /// This is the recommended function for services to use.
 pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
+    pool_options(config).connect_lazy(url)
+}
+
+pub fn pool_options(config: PoolConfig) -> PgPoolOptions {
     let mut options = PgPoolOptions::new()
         .min_connections(config.min_connections)
         .max_connections(config.max_connections)
@@ -158,7 +162,27 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         });
     }
 
-    options.connect_lazy(url)
+    options
+}
+
+/// sqlx pings each connection when it goes back to the pool, so a connection idle for less than
+/// `min_idle` passed a ping that recently. The idle reaper is the exception: it puts the
+/// connections it keeps back without a ping and restarts their idle time, so a `min_idle` at or
+/// above `idle_timeout` never pings.
+///
+/// This replaces any `before_acquire` hook installed before it, so it cannot be combined with
+/// `install_writer_guard`.
+pub fn install_idle_ping(options: PgPoolOptions, min_idle: Duration) -> PgPoolOptions {
+    options
+        .test_before_acquire(false)
+        .before_acquire(move |conn, meta| {
+            Box::pin(async move {
+                if meta.idle_for >= min_idle {
+                    conn.ping().await?;
+                }
+                Ok(true)
+            })
+        })
 }
 
 #[async_trait]

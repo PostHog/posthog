@@ -1,9 +1,6 @@
-"""No backfill: existing rows keep condition_type = NULL until they're next saved (or resaved
-via the resave_cohorts management command), which the Rust realtime-membership gate treats as
-"no behavioral condition" (safe default, falls back to legacy dynamic evaluation). Before
-allowlisting a team in REALTIME_COHORT_EVALUATION_TEAM_IDS, run
-`python manage.py resave_cohorts --team-id <id>` so its already-backfilled behavioral cohorts
-get classified and keep using the realtime cohort_membership path."""
+"""Existing rows keep condition_type = NULL until they're next saved, or until
+0024_backfill_cohort_condition_type classifies them. The Rust realtime-membership gate treats NULL
+as "no behavioral condition" and falls back to legacy dynamic evaluation."""
 
 from django.db import migrations, models
 

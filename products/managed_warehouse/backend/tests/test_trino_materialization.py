@@ -164,17 +164,16 @@ class TestTrinoShadowMaterialization(BaseTest):
             self.execute()
 
         writes = [
-            call.args for call in self.cursor.execute.call_args_list if call.args[0].startswith("CREATE OR REPLACE")
+            call.args[0] for call in self.cursor.execute.call_args_list if call.args[0].startswith("CREATE OR REPLACE")
         ]
         assert len(writes) == 2
-        for sql, _values in writes:
+        for sql in writes:
             assert 'FROM "org_catalog"."posthog"."events_current"' in sql
-            assert "= ?)" in sql
             assert "SELECT 0" not in sql
-        assert "LIMIT" not in writes[0][0]
-        assert writes[0][1] == ["signup"]
-        assert writes[1][0].endswith("LIMIT 75000")
-        assert writes[1][1] == ["purchase"]
+        assert "LIMIT" not in writes[0]
+        assert "= 'signup')" in writes[0]
+        assert writes[1].endswith("LIMIT 75000")
+        assert "= 'purchase')" in writes[1]
 
     @parameterized.expand(
         [
@@ -218,6 +217,13 @@ class TestTrinoShadowMaterialization(BaseTest):
                 ("hits", "one"),
             ),
             (
+                "union_by_name_unaliased_expression",
+                "SELECT event, max(timestamp) FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT max(timestamp), event FROM events GROUP BY event",
+                None,
+                ("max(toTimeZone(timestamp, 'UTC'))",),
+            ),
+            (
                 "resolved_calls",
                 "SELECT max(timestamp), toStartOfDay(timestamp), toDate(timestamp), timestamp AS ts "
                 "FROM events GROUP BY timestamp",
@@ -238,7 +244,7 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "guard_names_inner_columns",
                 "SELECT event, count(), max(timestamp), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
-                ("count()", "max(timestamp)"),
+                ("count()", "max(toTimeZone(timestamp, 'UTC'))"),
             ),
             (
                 "string_constant",
@@ -263,6 +269,24 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "SELECT event, countIf(match(event, 'sign.?up')), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
                 ("countIf(match(event, 'sign.?up'))",),
+            ),
+            (
+                "repeated_name_full_build",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                None,
+                ("a.event", "ts", "event"),
+            ),
+            (
+                "array_join_alias_merge_stage",
+                "SELECT event, n, timestamp AS ts FROM events ARRAY JOIN [1, 2] AS n",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("n",),
+            ),
+            (
+                "repeated_name_merge_stage",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("a.event", "ts", "event"),
             ),
         ]
     )

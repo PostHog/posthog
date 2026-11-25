@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -1201,6 +1202,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
+    )
 
 
 class SourceSetupResponseSerializer(serializers.Serializer):
@@ -2260,6 +2266,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         detected_primary_keys,
                         incremental_field,
                         normalize=False,
+                        fall_back_to_all_columns=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
@@ -2509,11 +2516,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Syncs every enabled schema, so it needs editor on each - a table locked below the source
         # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
-        self._assert_can_write_schemas(
+        schemas = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .exclude(deleted=True)
             .select_related("source", "table")
         )
+        self._assert_can_write_schemas(schemas)
 
         if is_any_external_data_schema_paused(self.team_id):
             return setup_error_response(
@@ -2521,6 +2529,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
+        request_manual_runs([schema.id for schema in schemas], self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 
@@ -2576,7 +2585,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 

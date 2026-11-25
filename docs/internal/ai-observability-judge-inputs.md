@@ -54,7 +54,7 @@ Attachments a judge can't read take none of its 20 slots, and one summary line n
 Media the event never carried, such as an SDK's `[base64 image redacted]` placeholder, becomes `[image, not attached]`.
 When any attachment is left out, the judge is told it can't see it and not to guess what it contains.
 
-Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Generation evaluation user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
@@ -68,7 +68,7 @@ Responses, including errors and streamed completions, are limited to 1 MiB.
 The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
 Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
 
-The OpenAI SDK does not retry custom-provider requests. Online evaluations and taggers use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
+The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
 Rate-limit responses retry without disabling the evaluation or marking its connection invalid, honoring `Retry-After` up to one minute. Quota and authentication errors keep their existing terminal behavior.
 Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
 Oversized or compressed completion responses skip the evaluation as a rejected request without disabling the connection.
@@ -104,7 +104,7 @@ The picker does not exclude individual decision models. Listed models may not su
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
-Models without text output are excluded from the playground and tagger model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
+Models without text output are excluded from the playground and evaluation model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
 The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
 For projects with this flag enabled, an unavailable catalogue makes automatically routed OpenRouter runs retry only when no successful response is cached.
 Automatic routing and explicit decision selection also need the catalogue when changing a model or output configuration, changing the evaluation type, enabling an evaluation, or changing the judge method.
@@ -329,6 +329,8 @@ Source-property rules do not automatically apply to evaluation outputs. To keep 
 User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
 results even when the project's default rules hide those result properties from users.
 Report agents also read complete source conversations when inspecting trace or session evaluation results.
+Evaluation reports require organization approval for third-party AI processing.
+If an admin withdraws approval during a run, the agent stops before its next model request, including a retry.
 
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.

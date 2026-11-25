@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, alw
         (403, "people", False, "Crisp denied access to this table"),
         (404, None, False, "Crisp could not find the workspace"),
         (200, "messages", True, None),
+        (402, "teams", False, "Your Crisp plan does not include this table"),
     ],
 )
 def test_credential_probe_maps_workspace_and_table_errors(
@@ -32,11 +33,8 @@ def test_credential_probe_maps_workspace_and_table_errors(
     else:
         assert result[1] is not None and message in result[1]
     request = network.requests_log[0]
-    assert request.path == (
-        f"/v1/website/{config.website_id}"
-        if schema is None
-        else f"/v1/website/{config.website_id}/{'conversations/1' if schema == 'messages' else 'people/profiles/1'}"
-    )
+    probed = {None: "", "messages": "/conversations/1", "people": "/people/profiles/1", "teams": "/teams/list/1"}
+    assert request.path == f"/v1/website/{config.website_id}{probed[schema]}"
     assert request.headers["x-crisp-tier"] == "website"
 
 

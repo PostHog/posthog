@@ -74,7 +74,7 @@ export interface slackIntegrationLogicActions {
     loadAllSlackChannelsSuccess: (
         allSlackChannels: {
             channels: SlackChannelType[]
-            has_more?: boolean | undefined
+            has_more?: boolean
             lastRefreshedAt: string
         } | null,
         payload?: {
@@ -84,7 +84,7 @@ export interface slackIntegrationLogicActions {
     ) => {
         allSlackChannels: {
             channels: SlackChannelType[]
-            has_more?: boolean | undefined
+            has_more?: boolean
             lastRefreshedAt: string
         } | null
         payload?: {

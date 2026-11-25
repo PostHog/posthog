@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from change_prover.core.policy import ALLOWED_AUTHOR_IDS, Refused
+from change_prover.core.policy import ALLOWED_AUTHOR_IDS, AUTHOR_LANES, LANE_FILES, Refused, lane_for
 
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
@@ -32,6 +32,24 @@ def pick_pull_request(pulls: list[dict[str, Any]]) -> dict[str, Any] | None:
     if len(candidates) > 1:
         raise Refused(f"{len(candidates)} pull requests by an allowed author have this head")
     return candidates[0]
+
+
+def changed_paths(listed: list[dict[str, Any]], page_size: int) -> list[str]:
+    """The paths a pull request changes, from one page of the API.
+
+    The proof job reads them again from git and refuses any mismatch.
+    """
+    if len(listed) >= page_size:
+        raise Refused("the pull request changes more files than this proof reads")
+    return [item["filename"] for item in listed]
+
+
+def author_lane(pr: dict[str, Any], paths: list[str]) -> str | None:
+    """The lane the changed files pick, or None when the author may not have a proof in it."""
+    lane = lane_for(paths)
+    if lane != AUTHOR_LANES[pr["user"]["id"]]:
+        return None
+    return lane
 
 
 def pick_any_pull_request(pulls: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -62,6 +80,11 @@ def check_handover(pull_request: str, merge_base: str) -> None:
         raise Refused("the pull request number is not a positive integer")
     if not COMMIT_SHA.fullmatch(merge_base):
         raise Refused("the merge base is not a commit id")
+
+
+def check_lane_handover(lane: str) -> None:
+    if lane not in LANE_FILES:
+        raise Refused("the lane is not one this proof knows")
 
 
 def check_reverted_handover(reverted: str) -> None:

@@ -29,6 +29,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
+from products.mcp_store.backend.borrowed_credential import is_posthog_connection as is_posthog_connection
 from products.mcp_store.backend.connector_approvals import (
     ConnectorApprovalBinding,
     consume_connector_approval,
@@ -68,7 +69,13 @@ from products.mcp_store.backend.policy import (
     is_read_only_connector_tool,
     legacy_state_for_caller,
 )
-from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.proxy import (
+    borrowed_refusal_detail,
+    is_posthog_installation,
+    record_tool_call_audit,
+    resolve_call_decision,
+    validate_installation_auth,
+)
 from products.mcp_store.backend.tasks import sync_installation_tools_task
 from products.mcp_store.backend.tools import (
     ToolCallError,
@@ -77,8 +84,8 @@ from products.mcp_store.backend.tools import (
     resync_installation_tools,
 )
 
-# Re-exported for the presentation layer ("presentation must use facade"
-# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# Re-exported for the presentation layer (hoglint's `presentation-uses-facade`
+# rule): the single MCP URL policy entry point — shared SSRF
 # validation, overridden only by the exact team-scoped internal allowlist.
 from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
 
@@ -358,6 +365,12 @@ def _mounts_for_agent_run(
                     "needs_reconnect" if owns_grant else "teammate_needs_reconnect",
                 )
             continue
+        if is_posthog_installation(installation):
+            # The gateway refuses every agent call on a PostHog connection, so mounting it gives the run a dead server.
+            dropped_by_server.setdefault(
+                access.gateway_server_id, _agent_unmounted(access.gateway_server, access.scope, "owner_only")
+            )
+            continue
         healthy_by_server[access.gateway_server_id].append((access, installation))
 
     mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
@@ -608,6 +621,8 @@ def _member_unmounted_reason(
         health_failure = "server_disabled"
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
+    elif installation.user_id != user_id and is_posthog_installation(installation):
+        health_failure = "owner_only"
     elif not _is_oauth_ready(installation):
         health_failure = "needs_reconnect" if installation.user_id == user_id else "teammate_needs_reconnect"
     # Healthy unselected installations stay in play until the personal-copy dedup has run.
@@ -993,6 +1008,19 @@ def call_member_server_tool(
     installation = member_installation_for_host(team_id, user_id, server_host)
     if installation is None:
         return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
+    borrowed = installation.user_id != user_id
+    refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
+    if refusal_detail is not None:
+        if installation.gateway_server is not None:
+            record_tool_call_audit(
+                installation,
+                installation.gateway_server,
+                GatewayCaller(kind="member", user_id=user_id),
+                actor_label,
+                tool_name,
+                "blocked",
+            )
+        return ConnectorCallOutcome(status="blocked", detail=refusal_detail)
     access_outcome = _member_access_outcome(installation, team_id, user_id)
     if access_outcome is not None:
         return access_outcome
@@ -1056,7 +1084,7 @@ def call_member_server_tool(
         return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")
 
     try:
-        result = call_upstream_tool(installation, tool_name, arguments)
+        result = call_upstream_tool(installation, tool_name, arguments, borrowed=borrowed)
     except (ToolCallError, ToolsFetchError) as exc:
         logger.warning(
             "mcp_store member tool call failed",

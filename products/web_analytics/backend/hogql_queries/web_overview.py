@@ -28,6 +28,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
     DimensionalJobIds,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
@@ -271,8 +272,13 @@ CROSS JOIN {sessions_agg} AS sessions_agg
     def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
         if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
             return None, None
-        # The overview builder reads only the bounces table.
-        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
+        # Live counts every session with a pageview on the page, but the bounces table holds only the session's
+        # entry page, so a page filter would count only the sessions that entered on it.
+        if any(getattr(prop, "key", None) == "$pathname" for prop in self.query.properties):
+            return None, None
+        job_ids = ready_dimensional_job_ids(
+            self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+        )
         if job_ids is None:
             return None, None
         response = self._execute_pre_aggregated(

@@ -9,9 +9,13 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from rest_framework.test import APIClient
+from slack_sdk.errors import SlackApiError
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
 from posthog.models import Organization, OrganizationMembership
@@ -23,17 +27,25 @@ from products.slack_app.backend.logic.daily_focus import (
     daily_focus_footer_block,
     resolve_daily_focus,
 )
+from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread
 from products.slack_app.backend.logic.onboarding.work_focus import (
+    MAX_BOT_LOOKUPS,
+    MAX_PRIMED_USERS,
     WorkFocus,
     WorkFocusRateLimited,
     WorkFocusSuggestion,
+    WorkFocusSummaryItem,
     WorkFocusTransientError,
+    _BotLookup,
+    clip,
     find_and_send_daily_focus,
     find_and_send_work_focus,
+    start_work_focus,
     work_focus_blocks,
 )
 from products.slack_app.backend.models import SlackDailyFocus, SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_settings import resolve_onboarding
+from products.slack_app.backend.services.slack_user_info import get_slack_user_info
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     require_workspace_integration,
@@ -45,6 +57,18 @@ WORK_FOCUS = "products.slack_app.backend.logic.onboarding.work_focus"
 SECRET_MESSAGE = "the churn numbers for the enterprise plan look wrong again"
 SIGNUP_MESSAGE = "can someone check why signups dropped after the release"
 CHATTER = "lunch at noon?"
+ASKED_THE_APP = "<@U_BOT|PostHog> can you check why signups dropped after the release"
+HANDLED_MESSAGE = "who owns the flaky retention test?"
+RESOLVED_MESSAGE = "the nightly export job is failing again"
+AGENT = "UCLAUDE1"
+OWN_MESSAGE = f"<@{SLACK_USER_ID}> note to self: rebuild the retention dashboard"
+HANDED_TO_AN_AGENT = f"<@{AGENT}|Claude> can you fix the flaky funnel test? cc <@{SLACK_USER_ID}>"
+# The agent tag sits past the 500 characters the models read, in a thread the bot cannot read.
+LATE_HANDOFF = (
+    f"<@{SLACK_USER_ID}> the onboarding emails go out twice. " + "Details: " * 60 + f"<@{AGENT}> please fix it"
+)
+AGENT_THREAD_MESSAGE = "the csv export drops rows past ten thousand"
+MONDAY = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
 REQUEST = "Find out why churn by plan looks wrong for the enterprise plan, and fix the query."
 
 
@@ -59,14 +83,17 @@ def _install(team) -> WorkspaceIntegration:
     return require_workspace_integration(row.id, SLACK_TEAM_ID)
 
 
-def _messages(contents: list[str], *, prefix: str, author: str = SLACK_USER_ID) -> list[dict[str, Any]]:
+def _messages(
+    contents: list[str], *, prefix: str, author: str = "U_ANDY", thread_ts: str | None = None
+) -> list[dict[str, Any]]:
+    query = f"?thread_ts={thread_ts}" if thread_ts else ""
     return [
         {
             "channel_id": "C1",
             "channel_name": "product",
             "message_ts": f"{prefix}.{index}",
             "content": content,
-            "permalink": f"https://example.slack.com/archives/C1/p{prefix}{index}",
+            "permalink": f"https://example.slack.com/archives/C1/p{prefix}{index}{query}",
             "author_user_id": author,
             "is_author_bot": False,
         }
@@ -75,35 +102,59 @@ def _messages(contents: list[str], *, prefix: str, author: str = SLACK_USER_ID) 
 
 
 def _search(found: int) -> Any:
-    """Two pages for each search: the first carries a cursor, the second ends the search."""
+    """Two pages: the first carries a cursor, the second ends the search."""
 
     def api_call(_method: str, *, params: dict[str, Any]) -> dict[str, Any]:
-        query_key = "mine" if params["query"].startswith("from:") else "mentions"
         if found < 5:
-            # Both searches find the same few messages, so they count once.
             return {"ok": True, "results": {"messages": _messages([CHATTER] * found, prefix="few")}}
         if not params.get("cursor"):
-            first = [SECRET_MESSAGE, CHATTER, CHATTER] if query_key == "mine" else [SIGNUP_MESSAGE, CHATTER]
             bots = [{"channel_id": "C1", "message_ts": "9", "content": "bot noise", "is_author_bot": True}]
             return {
                 "ok": True,
                 "results": {
                     "messages": [
-                        *_messages(first, prefix=query_key, author=SLACK_USER_ID if query_key == "mine" else "U_ANDY"),
+                        *_messages([SECRET_MESSAGE], prefix="secret"),
+                        *_messages(
+                            [SIGNUP_MESSAGE, CHATTER, ASKED_THE_APP, HANDED_TO_AN_AGENT, LATE_HANDOFF],
+                            prefix="mentions",
+                        ),
+                        *_messages([OWN_MESSAGE], prefix="own", author=SLACK_USER_ID),
+                        *_messages([RESOLVED_MESSAGE], prefix="resolved", thread_ts="1700.5"),
+                        *_messages([HANDLED_MESSAGE], prefix="handled", thread_ts="1700.7"),
+                        *_messages([AGENT_THREAD_MESSAGE], prefix="agent", thread_ts="1700.9"),
                         *bots,
                     ]
                 },
                 "response_metadata": {"next_cursor": "page-2"},
             }
-        return {"ok": True, "results": {"messages": _messages([CHATTER], prefix=f"{query_key}-2")}}
+        return {"ok": True, "results": {"messages": _messages([CHATTER], prefix="page-2")}}
 
     return api_call
 
 
 def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> SystemOneResult:
     def probability(content: str) -> float:
-        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7}.get(content, 0.1)
+        return {
+            SECRET_MESSAGE: 0.9,
+            SIGNUP_MESSAGE: 0.7,
+            ASKED_THE_APP: 0.95,
+            OWN_MESSAGE: 0.97,
+            HANDED_TO_AN_AGENT: 0.96,
+            LATE_HANDOFF[:500]: 0.96,
+            AGENT_THREAD_MESSAGE: 0.9,
+            RESOLVED_MESSAGE: 0.8,
+            HANDLED_MESSAGE: 0.85,
+        }.get(content, 0.1)
 
+    if "threads" in state:
+        # The second pass reads the thread: one that says "merged" is finished work.
+        return SystemOneResult(
+            model="jev",
+            answers={
+                key: NoulAnswer(probability=0.1 if "merged" in state["threads"][key] else 0.9) for key in questions
+            },
+            input_tokens=None,
+        )
     messages = state["messages"]
     return SystemOneResult(
         model="jev",
@@ -112,10 +163,14 @@ def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> Syste
     )
 
 
-def _written(suggestions: list[dict[str, Any]]) -> MagicMock:
+def _written(suggestions: list[dict[str, Any]], summary: list[dict[str, Any]] | None = None) -> MagicMock:
     completion = MagicMock()
     completion.choices[0].message.content = json.dumps(
-        {"intro": "Looks like your week is about churn and signups.", "suggestions": suggestions}
+        {
+            "intro": "Looks like your week is about churn and signups.",
+            "suggestions": suggestions,
+            "summary": summary or [],
+        }
     )
     return completion
 
@@ -129,11 +184,32 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         patch(f"{WORK_FOCUS}.build_ai_gateway_openai_client") as writer,
         patch(f"{WORK_FOCUS}.consume", return_value=allowed) as bucket,
         patch(f"{WORK_FOCUS}.refund") as refunded,
-        patch(f"{WORK_FOCUS}.capture_slack_event"),
+        patch(f"{WORK_FOCUS}.capture_slack_event") as captured,
+        patch(
+            f"{WORK_FOCUS}.get_slack_user_info",
+            side_effect=lambda client, integration, user_id: (
+                {"user": {"is_bot": True}} if user_id == AGENT else get_slack_user_info(client, integration, user_id)
+            ),
+        ),
+        # The first work focus rolls out with the daily one; a test that needs it off turns it off.
+        patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True) as daily_flag,
+        patch(f"{WORK_FOCUS}.get_cached_bot_user_id", return_value="U_BOT"),
         patch("posthog.models.integration.slack.WebClient") as bot_client,
     ):
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
+        threads = {
+            "1700.5": [{"user": "U_ANDY", "text": RESOLVED_MESSAGE}, {"user": "U_ANDY", "text": "fixed, merged"}],
+            # The app answered in this thread, so nobody needs to ask Jev whether the work is open.
+            "1700.7": [{"user": "U_ANDY", "text": HANDLED_MESSAGE}, {"user": "U_BOT", "text": "It is yours."}],
+            "1700.9": [
+                {"user": "U_ANDY", "text": AGENT_THREAD_MESSAGE},
+                {"user": SLACK_USER_ID, "text": f"<@{AGENT}> can you take this one?"},
+            ],
+        }
+        bot_client.return_value.conversations_replies.side_effect = lambda **kwargs: {
+            "messages": threads.get(kwargs.get("ts"), [])
+        }
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
             [
                 {"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1},
@@ -151,6 +227,8 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
             "bucket": bucket,
             "refund": refunded,
             "bot": bot_client.return_value,
+            "daily_flag": daily_flag,
+            "captured": captured,
         }
 
 
@@ -161,16 +239,23 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     _, team, user = org_team_user
     integration = _install(team)
     link_user(user, user_scopes="search:read.public search:read.im users:read")
+    # The cached profile gives the models the person\'s name next to their token.
+    SlackUserProfileCache.objects.create(
+        integration_id=integration.id, slack_user_id=SLACK_USER_ID, display_name="Dana", refreshed_at=MONDAY
+    )
 
-    assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
-    assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
+    with time_machine.travel(MONDAY, tick=False):
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
 
     searches = slack["search"].return_value.api_call.call_args_list
-    assert len(searches) == 4
-    # All six calls are reserved at once, and the two the search did not need go back.
-    assert slack["bucket"].call_args.kwargs["cost"] == 6
-    assert slack["refund"].call_args.args[2] == 2
-    assert [call.kwargs["params"].get("cursor") for call in searches] == [None, "page-2", None, "page-2"]
+    assert {call.kwargs["params"]["query"] for call in searches} == {f"<@{SLACK_USER_ID}>"}
+    # A Monday run reads back to Friday, the same time of day.
+    assert {call.kwargs["params"]["after"] for call in searches} == {int((MONDAY - timedelta(days=3)).timestamp())}
+    # All three calls are reserved at once, and the one the search did not need goes back.
+    assert slack["bucket"].call_args_list[0].kwargs["cost"] == 3
+    assert slack["refund"].call_args.args[2] == 1
+    assert [call.kwargs["params"].get("cursor") for call in searches] == [None, "page-2"]
     assert {call.kwargs["params"]["channel_types"] for call in searches} == {"public_channel,im"}
     assert slack["ranker"].call_args.kwargs["privacy_mode"] is True
     # Both calls bill the team's PostHog AI credits, and say which run made them.
@@ -183,18 +268,43 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     written_from = create.call_args.kwargs["messages"][1]["content"]
     assert SECRET_MESSAGE in written_from and SIGNUP_MESSAGE in written_from
     assert CHATTER not in written_from and "bot noise" not in written_from
+    # A message that tagged the app was answered in its thread, so it is never ranked or offered again.
+    assert ASKED_THE_APP not in written_from
+    # Jev read the thread of each kept message, and the one whose thread says it is merged is finished work.
+    assert RESOLVED_MESSAGE not in written_from
+    # Every model call knows whose digest it is, so the writer says "you" and the classifiers judge for them.
+    assert written_from.startswith(f"<person><@{SLACK_USER_ID}> (Dana)</person>\n")
+    assert all(
+        call.kwargs["state"]["person"] == {"slack_user_id": SLACK_USER_ID, "name": "Dana"}
+        for call in slack["ranker"].return_value.decide.call_args_list
+    )
+    # A thread the app already replied in, or where someone tagged another agent, is dropped before Jev is asked.
+    assert HANDLED_MESSAGE not in written_from and AGENT_THREAD_MESSAGE not in written_from
+    assert OWN_MESSAGE not in written_from and HANDED_TO_AN_AGENT not in written_from
+    assert LATE_HANDOFF[:40] not in written_from
+    assert all(
+        ASKED_THE_APP not in json.dumps(call.kwargs["state"])
+        and OWN_MESSAGE not in json.dumps(call.kwargs["state"])
+        and HANDED_TO_AN_AGENT not in json.dumps(call.kwargs["state"])
+        and HANDLED_MESSAGE not in json.dumps(call.kwargs["state"].get("threads", {}))
+        and AGENT_THREAD_MESSAGE not in json.dumps(call.kwargs["state"].get("threads", {}))
+        for call in slack["ranker"].return_value.decide.call_args_list
+    )
+    # Four messages (own, tagged the app, two tagged an agent) and two threads (the app replied, an agent was tagged).
+    assert slack["captured"].call_args.kwargs["handed_off_count"] == 6
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert dm["channel"] == SLACK_USER_ID
-    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"] * 2
+    # The daily flag is on, so the first DM also turns the daily one on and carries its footer.
+    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"] * 2 + [DAILY_FOCUS_OFF_ACTION_ID]
     shown = all_block_text(dm["blocks"])
     assert "Looks like your week is about churn and signups." in shown
     # The DM stays short: no message previews, and the full request rides in the button.
     assert dm["unfurl_links"] is False and dm["unfurl_media"] is False
     assert REQUEST not in shown and REQUEST in json.dumps(dm["blocks"])
-    # The suggestion links the message Jev ranked first, which the writer named as its source.
-    # Each suggestion links its message as a nested line: the person's own message, or the thread with the author.
-    assert "◦ <https://example.slack.com/archives/C1/pmine0|Your message> in #product" in shown
-    assert "◦ <https://example.slack.com/archives/C1/pmentions0|Here's the thread> with <@U_ANDY> in #product" in shown
+    # Each offer ends in a small numbered link to the message the writer named as its source, nothing more.
+    assert "Want me to dig in? <https://example.slack.com/archives/C1/psecret0|[1]>" in shown
+    assert "Want me to check? <https://example.slack.com/archives/C1/pmentions0|[2]>" in shown
+    assert "◦" not in shown and "Your message" not in shown
     stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID).onboarding
     assert isinstance(stored, dict) and stored["work_focus_outcome"] == "sent"
     assert SECRET_MESSAGE not in json.dumps(stored)
@@ -205,7 +315,7 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     "outcome, scopes, found, writer_fails",
     [
         ("no_search_scope", "users:read", 6, False),
-        ("not_enough_messages", "search:read.public", 3, False),
+        ("not_enough_messages", "search:read.public", 0, False),
         ("nothing_actionable", "search:read.public", 5, False),
     ],
 )
@@ -260,6 +370,34 @@ def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
     assert slack["search"].return_value.api_call.called is (reason == "model_failed")
     slack["bot"].chat_postMessage.assert_not_called()
     assert resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID) is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("flag_on", [True, False], ids=["flag on", "flag off"])
+def test_the_first_work_focus_rolls_out_with_the_daily_work_focus_flag(
+    flag_on: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    row = Integration.objects.create(
+        team=team,
+        kind="slack",
+        integration_id=SLACK_TEAM_ID,
+        config={"scope": "chat:write,im:history"},
+        sensitive_config={"access_token": "xoxb-test"},
+    )
+    integration = require_workspace_integration(row.id, SLACK_TEAM_ID)
+    link_user(user, user_scopes="search:read.public")
+    slack["daily_flag"].return_value = flag_on
+
+    with patch(f"{WORK_FOCUS}._start_workflow") as started:
+        start_work_focus(integration, SLACK_USER_ID)
+    outcome = find_and_send_work_focus(integration, SLACK_USER_ID)
+
+    assert started.called is flag_on
+    # A run queued before the flag went off sends nothing and stores nothing, so a later trigger can still run it.
+    assert outcome == ("sent" if flag_on else "flag_off")
+    assert slack["search"].return_value.api_call.called is flag_on
+    assert (resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID) is not None) is flag_on
 
 
 @pytest.mark.django_db
@@ -455,6 +593,85 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("quiet_inbox", [False, True], ids=["suggestions and summary", "summary only"])
+def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
+    quiet_inbox: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+    _turn_on_daily(integration)
+    thread = SummaryThread(
+        channel_id="C1",
+        ts="1700.1",
+        text="<@U_LEAD>: we are rolling back the release\n<@U_OTHER>: on it",
+        involves_person=False,
+        permalink="https://example.slack.com/archives/C1/p17001",
+    )
+    if quiet_inbox:
+        slack["ranker"].return_value.decide.side_effect = None
+        slack["ranker"].return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
+    written = _written(
+        []
+        if quiet_inbox
+        else [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}],
+        summary=[{"text": "<@U_LEAD> rolled back the release.", "source": 1}],
+    )
+    slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
+
+    with (
+        patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True),
+        patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
+        patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
+        time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),
+    ):
+        bot_integration.return_value.missing_scopes.return_value = frozenset()
+        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT) == "sent"
+
+    assert threads.call_args.kwargs["since"] == SINCE
+    prompt = slack["writer"].return_value.with_options.return_value.chat.completions.create.call_args.kwargs[
+        "messages"
+    ][1]["content"]
+    assert "<threads>\n[1] in <#C1>:\n<@U_LEAD>: we are rolling back" in prompt
+    blocks = bot_integration.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
+    text = all_block_text(blocks)
+    # A quiet inbox still gets the news from its channels, without an empty offer list.
+    assert "• <@U_LEAD> rolled back the release in <#C1>. <https://example.slack.com/archives/C1/p17001|[1]>" in text
+    assert ("Here's where I can jump in" in text) is not quiet_inbox
+    assert "I read your messages and the channels we share since Friday" in text
+
+
+@pytest.mark.django_db
+def test_the_first_run_opens_with_the_channels_and_numbers_the_offers_after_them(
+    org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+    thread = SummaryThread(
+        channel_id="C1", ts="1700.1", text="<@U_LEAD>: rolling back", involves_person=False, permalink="https://x/p1"
+    )
+    written = _written(
+        [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}],
+        summary=[{"text": "<@U_LEAD> rolled back.", "source": 1}],
+    )
+    slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
+
+    with (
+        patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
+        time_machine.travel(MONDAY, tick=False),
+    ):
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
+
+    assert threads.call_args.kwargs["since"] == MONDAY - timedelta(days=3)
+    text = all_block_text(slack["bot"].chat_postMessage.call_args.kwargs["blocks"])
+    assert "• <@U_LEAD> rolled back in <#C1>. <https://x/p1|[1]>" in text
+    # The offers continue the numbering, so every link in the DM has its own number.
+    assert "Want me to dig in? <https://example.slack.com/archives/C1/psecret0|[2]>" in text
+    assert "I read your recent messages and the channels we share once" in text
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "reason", ["quiet_day", "turned_off", "superseded", "flag_off", "no_project_access", "out_of_ai_credits"]
 )
@@ -524,3 +741,73 @@ def test_turn_off_in_the_dm_stops_the_daily_work_focus_and_says_so(mock_slack_cl
     assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is False
     updated = mock_slack_cls.return_value.client.chat_update.call_args.kwargs["blocks"]
     assert action_ids(updated) == [] and "daily work focus is off" in all_block_text(updated)
+
+
+def test_model_text_cannot_carry_a_link_or_a_broadcast_but_keeps_mentions() -> None:
+    focus = WorkFocus(
+        intro="<!channel> your week",
+        suggestions=[WorkFocusSuggestion(offer="<https://evil.example.com|Reconnect PostHog> now?", request="r")],
+        summary=[
+            WorkFocusSummaryItem(
+                text="<@U_LEAD> shared <https://evil.example.com|the fix>",
+                channel_id="C1",
+                permalink="https://example.slack.com/archives/C1/p1",
+            )
+        ],
+    )
+
+    text = all_block_text(work_focus_blocks(MagicMock(id=1), focus, SLACK_USER_ID))
+
+    # A thread anyone in the channel wrote shapes this text, so only user mentions stay live.
+    assert "<https://evil.example.com" not in text and "<!channel>" not in text
+    assert "&lt;https://evil.example.com|the fix&gt;" in text and "&lt;!channel&gt;" in text
+    assert "• <@U_LEAD> shared" in text and "in <#C1>. <https://example.slack.com/archives/C1/p1|[1]>" in text
+
+
+@pytest.mark.parametrize(
+    "text,limit,want",
+    [
+        ("fits as it is", 20, "fits as it is"),
+        (
+            "<@U0RORY> ran the migration and explained it is still transitioning",
+            50,
+            "<@U0RORY> ran the migration and explained it is…",
+        ),
+        # The cut lands inside a mention, which would leave a broken token in the DM.
+        ("You and <@U0LONGTOKEN> fixed it", 16, "You and…"),
+        ("cut, at a comma here", 6, "cut…"),
+    ],
+    ids=["fits", "mid word", "mid mention", "trailing comma"],
+)
+def test_clip_never_cuts_a_word_or_a_mention(text: str, limit: int, want: str) -> None:
+    assert clip(text, limit) == want
+    assert len(clip(text, limit)) <= limit
+
+
+@pytest.mark.django_db
+def test_bot_lookups_read_the_cache_once_and_stop_at_the_cap_or_a_rate_limit(
+    org_team_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, _ = org_team_user
+    integration = _install(team)
+    SlackUserProfileCache.objects.create(
+        integration_id=integration.id, slack_user_id=AGENT, is_bot=True, refreshed_at=timezone.now()
+    )
+    made_up = [f"UFAKE{index:04d}" for index in range(MAX_PRIMED_USERS + 50)]
+
+    with patch(f"{WORK_FOCUS}.get_slack_user_info", return_value={"user": {"is_bot": False}}) as users_info:
+        bots = _BotLookup(integration, "U_BOT")
+        with CaptureQueriesContext(connection) as queries:
+            bots.prime([AGENT, *made_up])
+        # The same text sizes the cache query, so it reads at most MAX_PRIMED_USERS users.
+        assert len(queries) == 1 and queries[0]["sql"].count("UFAKE") == MAX_PRIMED_USERS - 1
+        assert bots.is_bot(AGENT) and bots.is_bot("U_BOT")
+        # A message full of made-up mentions costs at most MAX_BOT_LOOKUPS Slack calls.
+        assert not any(bots.is_bot(user) for user in made_up)
+        assert users_info.call_count == MAX_BOT_LOOKUPS
+
+        users_info.reset_mock()
+        users_info.side_effect = SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        bots = _BotLookup(integration, "U_BOT")
+        assert not bots.is_bot(made_up[0]) and not bots.is_bot(made_up[1])
+        assert users_info.call_count == 1

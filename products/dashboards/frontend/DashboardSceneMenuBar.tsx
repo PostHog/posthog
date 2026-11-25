@@ -250,25 +250,31 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         </SceneMenuBarItem>
                         {canEditDashboard && (
                             <SceneMenuBarSubMenu label="Export">
-                                <SceneMenuBarItem
-                                    disabled={!!exportAccessControlDisabledReason}
-                                    tooltip={exportAccessControlDisabledReason ?? undefined}
-                                    onClick={() =>
-                                        startExport({
-                                            export_format: ExporterFormat.PNG,
-                                            dashboard: dashboard.id,
-                                            export_context: {
-                                                path: apiUrl(),
-                                                variables_override: currentDashboardVariables,
-                                                filters_override: effectiveRefreshFilters,
-                                            },
-                                        })
-                                    }
-                                    data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
-                                >
-                                    <IconDownload />
-                                    PNG
-                                </SceneMenuBarItem>
+                                {[
+                                    { format: ExporterFormat.PNG, label: 'PNG' },
+                                    { format: ExporterFormat.PDF, label: 'PDF' },
+                                ].map(({ format, label }) => (
+                                    <SceneMenuBarItem
+                                        key={format}
+                                        disabled={!!exportAccessControlDisabledReason}
+                                        tooltip={exportAccessControlDisabledReason ?? undefined}
+                                        onClick={() =>
+                                            startExport({
+                                                export_format: format,
+                                                dashboard: dashboard.id,
+                                                export_context: {
+                                                    path: apiUrl(),
+                                                    variables_override: currentDashboardVariables,
+                                                    filters_override: effectiveRefreshFilters,
+                                                },
+                                            })
+                                        }
+                                        data-attr={`${RESOURCE_TYPE}-menubar-export-${label.toLowerCase()}`}
+                                    >
+                                        <IconDownload />
+                                        {label}
+                                    </SceneMenuBarItem>
+                                ))}
                                 {user?.is_staff && (
                                     <SceneMenuBarItem
                                         onClick={() =>

@@ -28,7 +28,7 @@ class DirectPostgresTable(DirectSQLTable):
             parts.append(escape_postgres_identifier(postgres_catalog))
         parts.append(escape_postgres_identifier(self.postgres_schema))
         parts.append(escape_postgres_identifier(self.postgres_table_name))
-        return ".".join(parts)
+        return self.project_allowed_columns(".".join(parts), escape_postgres_identifier)
 
     def to_printed_clickhouse(self, context) -> str:
         raise QueryError("Direct Postgres tables cannot be printed into ClickHouse SQL")

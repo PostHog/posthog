@@ -91,19 +91,30 @@ class TestBuildInitialUrls:
         assert result.requests[0].param("from") == EARLIEST_FROM_DATE
         assert result.requests[0].param("to") == "2026-06-15"
 
-    def test_project_fan_out_one_url_per_project(self) -> None:
+    @pytest.mark.parametrize(
+        "project_pages, expected_project_offsets",
+        [
+            ([[{"id": "p1"}, {"id": "p2"}]], ["0"]),
+            ([_items(0, 100), _items(100, 1)], ["0", "100"]),
+            # /projects can ignore `offset` and re-serve the same full page; discovery must stop
+            # instead of collecting the same projects until the worker runs out of memory.
+            ([_items(0, 100), _items(0, 100)], ["0", "100"]),
+        ],
+    )
+    def test_project_fan_out_one_url_per_project(
+        self, project_pages: list[list[dict[str, Any]]], expected_project_offsets: list[str]
+    ) -> None:
+        project_ids = list(dict.fromkeys(project["id"] for page in project_pages for project in page))
         result = _driver().run(
             "tasks",
-            [
-                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
-                ScriptedResponse(json=[]),
-                ScriptedResponse(json=[]),
-            ],
+            [ScriptedResponse(json=page) for page in project_pages] + [ScriptedResponse(json=[])] * len(project_ids),
         )
 
         assert result.raised is None
-        assert result.paths == ["/projects", "/projects/p1/tasks", "/projects/p2/tasks"]
-        assert result.params("limit") == ["100", "100", "100"]
+        project_requests = [r for r in result.requests if r.path == "/projects"]
+        assert [r.param("offset") for r in project_requests] == expected_project_offsets
+        assert result.paths[len(project_requests) :] == [f"/projects/{pid}/tasks" for pid in project_ids]
+        assert set(result.params("limit")) == {"100"}
 
 
 class TestGetRows:

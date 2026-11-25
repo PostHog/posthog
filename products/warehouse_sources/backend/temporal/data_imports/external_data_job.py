@@ -100,12 +100,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -468,10 +472,11 @@ def _customer_facing_error(cause: BaseException | None, activity_type: str | Non
         return CANCELLED_RUN_MESSAGE
     # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
     # connection, or a timeout). Temporal records it as an ApplicationError typed
-    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # `RESTClientRetryableError` (or `RetryableHTTPError` for a source on `vendor_retry`), whose
+    # message is a raw string like "HTTP 503 for <url>". That status
     # code means nothing to a customer, so replace it with a message that names the cause and says the
     # sync retries on its next schedule.
-    if getattr(cause, "type", None) == "RESTClientRetryableError":
+    if getattr(cause, "type", None) in (RESTClientRetryableError.__name__, RetryableHTTPError.__name__):
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
     # timeout"), which names our orchestration rather than anything the customer can act on. Only the
@@ -905,6 +910,16 @@ def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uui
     # event, so replay reads the same value.
     scheduled_by = search_attributes.get("TemporalScheduledById") or []
     return any(str(value) == str(schema_id) for value in scheduled_by)
+
+
+def _reads_complete_table(
+    *, incremental_or_append: bool, scheduled_full_refresh: bool, reset_pipeline: bool, is_resumable_source: bool
+) -> bool:
+    """Whether this run staged the whole table. Incremental and append runs stage only changed rows,
+    and a resumable source can pick a run up part way through."""
+    if is_resumable_source:
+        return False
+    return not incremental_or_append or scheduled_full_refresh or bool(reset_pipeline)
 
 
 # TODO: update retry policies
@@ -1394,6 +1409,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
+                    complete_table_read=_reads_complete_table(
+                        incremental_or_append=incremental_or_append,
+                        scheduled_full_refresh=scheduled_full_refresh,
+                        reset_pipeline=bool(inputs.reset_pipeline),
+                        is_resumable_source=is_resumable_source,
+                    ),
                 )
                 # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
                 # S3 prefix that only its own child consumes. A per-schema id would coalesce a

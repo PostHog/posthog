@@ -37,7 +37,6 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
-    _holds_rows,
     _json_drop_keys_expr,
     _presence_params,
     _property_removal_where,
@@ -83,10 +82,13 @@ from posthog.models.data_deletion_request import (
 from posthog.models.deletion_targets import (
     EVENTS,
     EVENTS_JSON,
+    FLAG_EVALUATIONS,
+    PERSONAL_DATA_TARGETS,
     DeletionTarget,
     TargetPlacement,
     UnreachableTargetError,
     placement_for,
+    resolve_placements,
 )
 from posthog.models.event.sql import (
     EVENTS_DATA_TABLE,
@@ -183,19 +185,6 @@ def _truncate_flag_evaluations(client: Client) -> None:
 
 def _truncate_adhoc_events_deletion(client: Client) -> None:
     client.execute(f"TRUNCATE TABLE IF EXISTS {ADHOC_EVENTS_DELETION_TABLE}")
-
-
-def _insert_events_json_rows(rows: list[tuple], client: Client) -> None:
-    for team_id, event, uuid, timestamp, properties in rows:
-        client.execute(
-            "INSERT INTO sharded_events_json (team_id, event, uuid, timestamp, properties) "
-            "SELECT %(team_id)s, %(event)s, %(uuid)s, %(timestamp)s, %(properties)s",
-            {"team_id": team_id, "event": event, "uuid": uuid, "timestamp": timestamp, "properties": properties},
-        )
-
-
-def _truncate_events_json(client: Client) -> None:
-    client.execute("TRUNCATE TABLE IF EXISTS sharded_events_json")
 
 
 def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
@@ -884,24 +873,15 @@ def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseC
 
     recent = DataDeletionRequest.objects.create(**common)
     old = DataDeletionRequest.objects.create(**common)
-    old_hogql, _ = _deferred_hogql_flag_request("test-verify-queued-hogql")
-    old_hogql_past_ttl, _ = _deferred_hogql_flag_request("test-verify-queued-hogql-past-ttl")
-    DataDeletionRequest.objects.filter(pk=old_hogql_past_ttl.pk).update(
-        start_time=now - timedelta(days=400), end_time=now - timedelta(days=300)
-    )
-    DataDeletionRequest.objects.filter(pk__in=[old.pk, old_hogql.pk, old_hogql_past_ttl.pk]).update(
-        created_at=timezone.now() - timedelta(days=60)
-    )
+    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
 
     result = verify_queued_deletion_requests_job.execute_in_process()
     assert result.success
 
-    for request in (recent, old, old_hogql, old_hogql_past_ttl):
+    for request in (recent, old):
         request.refresh_from_db()
     assert recent.status == RequestStatus.COMPLETED
     assert old.status == RequestStatus.QUEUED
-    assert old_hogql.status == RequestStatus.COMPLETED
-    assert old_hogql_past_ttl.status == RequestStatus.QUEUED
 
 
 def test_verify_queued_job_registered_in_clickhouse_location():
@@ -2982,7 +2962,7 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
     from posthog.models.data_deletion_request import verify_queued_request
 
     outcome = verify_queued_request(request)
-    assert outcome.remaining == 1
+    assert outcome.remaining == 2
     assert outcome.promoted is False
 
     cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3022,14 +3002,11 @@ def _deferred_hogql_flag_request(
 @pytest.mark.parametrize(
     "hogql_predicate",
     [
-        pytest.param("properties.$browser = 'Chrome'", id="predicate_runs_on_flag_evaluations"),
-        pytest.param(
-            "properties.$browser = 'Chrome' AND properties.plan = 'pro'",
-            id="predicate_cannot_run_on_flag_evaluations",
-        ),
+        pytest.param("properties.$browser = 'Chrome'", id="dollar_property"),
+        pytest.param("properties.$browser = 'Chrome' AND properties.plan = 'pro'", id="property_group_map"),
     ],
 )
-def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_through_event_uuids(
+def test_deferred_event_removal_with_a_hogql_predicate_queues_what_each_table_matches(
     cluster: ClickhouseCluster, hogql_predicate: str
 ) -> None:
     from posthog.models.data_deletion_request import verify_queued_request
@@ -3060,8 +3037,8 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
                 (ctx.team_id, "", chrome_pro, str(chrome), now, now),
                 (ctx.team_id, "", '{"$browser": "Firefox"}', str(firefox), now, now),
                 (ctx.team_id, "", chrome_pro, str(earlier_chrome), earlier, earlier),
-                # The predicate matches this flag row and not its events copy. The drain deletes a queued
-                # uuid from every table, so queueing it would also delete an events row the predicate excludes.
+                # The predicate matches this flag row and not the events row with the same uuid. Each
+                # table queues the rows that its own compile of the predicate matches.
                 (ctx.team_id, "", chrome_pro, str(drifted), now, now),
             ],
         )
@@ -3069,35 +3046,21 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
 
     try:
         _run_event_deletion(cluster, ctx)
-        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome, earlier_chrome}
+        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {
+            chrome,
+            earlier_chrome,
+            drifted,
+        }
 
-        # The queued events no longer match the predicate, so only their queued uuids hold the request.
         for queued_uuid in (chrome, earlier_chrome):
             cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), queued_uuid)).result()
-        cluster.any_host(
-            partial(
-                _insert_events_with_properties,
-                [
-                    (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, "{}"),
-                    (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, earlier_chrome, earlier, "{}"),
-                ],
-            )
-        ).result()
-        outcome = verify_queued_request(request)
-        assert outcome.remaining == 2
-        assert outcome.promoted is False
+            cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, queued_uuid)).result()
+        cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, drifted)).result()
+        # Every matching row is gone, so only the queued uuids hold the request until the drain runs.
+        assert verify_queued_request(request).promoted is False
 
-        # Emptying the queue stands in for the drain marking the queued uuids deleted. From here on only
-        # flag rows with no events copy hold the request.
+        # Emptying the queue stands in for the drain marking the queued uuids deleted.
         cluster.any_host(_truncate_adhoc_events_deletion).result()
-        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
-        assert verify_queued_request(request).promoted is False
-
-        cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, chrome)).result()
-        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), earlier_chrome)).result()
-        assert verify_queued_request(request).promoted is False
-
-        cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, earlier_chrome)).result()
         assert verify_queued_request(request).promoted is True
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3105,23 +3068,12 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "hogql_predicate, refusal",
-    [
-        pytest.param("properties.$browser = 'Chrome'", None, id="predicate_runs_on_flag_evaluations"),
-        pytest.param(
-            "properties.$browser = 'Chrome' AND properties.plan = 'pro'",
-            "property-group map",
-            id="predicate_cannot_run_on_flag_evaluations",
-        ),
-    ],
-)
-def test_deferred_event_removal_with_a_hogql_predicate_handles_flag_rows_without_an_event(
-    cluster: ClickhouseCluster, hogql_predicate: str, refusal: str | None
+def test_deferred_event_removal_with_a_hogql_predicate_queues_flag_rows_without_an_event(
+    cluster: ClickhouseCluster,
 ) -> None:
     from posthog.models.data_deletion_request import verify_queued_request
 
-    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-no-copy", hogql_predicate)
+    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-no-copy")
     earlier = datetime.now(UTC) - timedelta(days=10)
     chrome, firefox = uuid4(), uuid4()
     cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3137,16 +3089,14 @@ def test_deferred_event_removal_with_a_hogql_predicate_handles_flag_rows_without
     ).result()
 
     try:
-        with pytest.raises(dagster.Failure, match=refusal) if refusal else nullcontext():
-            _run_event_deletion(cluster, ctx)
-        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == (set() if refusal else {chrome})
+        _run_event_deletion(cluster, ctx)
+        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome}
         assert verify_queued_request(request).promoted is False
 
         # Emptying the queue stands in for the drain marking the queued uuids deleted.
         cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, chrome)).result()
-        # The Firefox row holds the request only when verification cannot narrow by the predicate.
-        assert verify_queued_request(request).promoted is (refusal is None)
+        assert verify_queued_request(request).promoted is True
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(_truncate_flag_evaluations).result()
@@ -3154,67 +3104,55 @@ def test_deferred_event_removal_with_a_hogql_predicate_handles_flag_rows_without
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "has_events_copy, native_properties, refusal",
+    "execution_mode, hogql_predicate",
     [
-        # The predicate excludes the native copy. The drain deletes a queued uuid from every table, so
-        # queueing the flag row would delete that copy too.
-        pytest.param(False, '{"$browser": "Firefox"}', "sharded_events_json holds flag calls", id="only_a_native_copy"),
-        pytest.param(True, '{"$browser": "Chrome"}', None, id="events_and_native_copies"),
+        pytest.param(ExecutionMode.DEFERRED, "properties.$browser = 'Chrome'", id="deferred_with_predicate"),
+        pytest.param(ExecutionMode.DEFERRED, "", id="deferred_without_predicate"),
+        pytest.param(ExecutionMode.IMMEDIATE, "properties.$browser = 'Chrome'", id="immediate_with_predicate"),
     ],
 )
-def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
-    cluster: ClickhouseCluster, has_events_copy: bool, native_properties: str, refusal: str | None
+def test_event_removal_reaches_flag_evaluations_on_another_cluster(
+    cluster: ClickhouseCluster, execution_mode: ExecutionMode, hogql_predicate: str
 ) -> None:
-    _, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-native-copy")
-    earlier = datetime.now(UTC) - timedelta(days=10)
+    request, _ = _deferred_hogql_flag_request(
+        f"test-flag-other-cluster-{execution_mode.value}-{bool(hogql_predicate)}", hogql_predicate
+    )
+    request.execution_mode = execution_mode.value
+    request.save()
+    ctx = _request_context(request)
+    now = datetime.now(UTC)
     flag_uuid = uuid4()
     cluster.any_host(_truncate_adhoc_events_deletion).result()
     cluster.any_host(_truncate_flag_evaluations).result()
-    cluster.any_host(_truncate_events_json).result()
+    # The flag row has no events row, so only a read of flag_evaluations finds its uuid.
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
-            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(flag_uuid), earlier, earlier)],
-        )
-    ).result()
-    if has_events_copy:
-        cluster.any_host(
-            partial(
-                _insert_events_with_properties,
-                [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, flag_uuid, earlier, '{"$browser": "Chrome"}')],
-            )
-        ).result()
-    cluster.any_host(
-        partial(
-            _insert_events_json_rows,
-            [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, flag_uuid, earlier, native_properties)],
+            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(flag_uuid), now, now)],
         )
     ).result()
 
+    # A second handle over the same node stands in for the flags cluster.
+    flags_cluster = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+
+    def placements(handle: ClickhouseCluster, targets=PERSONAL_DATA_TARGETS) -> list[TargetPlacement]:
+        return [
+            replace(p, cluster=flags_cluster) if p.target is FLAG_EVALUATIONS else p
+            for p in resolve_placements(handle, targets)
+        ]
+
     try:
-        with pytest.raises(dagster.Failure, match=refusal) if refusal else nullcontext():
+        with patch("posthog.dags.data_deletion_requests.resolve_placements", side_effect=placements):
             _run_event_deletion(cluster, ctx)
-        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == (
-            set() if refusal else {flag_uuid}
-        )
+        queued = cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result()
+        flag_rows = cluster.any_host(partial(_flag_evaluation_person_ids, ctx.team_id)).result()
+        if execution_mode == ExecutionMode.DEFERRED:
+            assert queued == {flag_uuid}
+        else:
+            assert flag_rows == []
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(_truncate_flag_evaluations).result()
-        cluster.any_host(_truncate_events_json).result()
-
-
-def test_holds_rows_reads_storage_on_another_cluster_when_the_proxy_reads_empty() -> None:
-    def resolved(value: object) -> Future:
-        future: Future = Future()
-        future.set_result(value)
-        return future
-
-    cluster = Mock(spec=ClickhouseCluster)
-    cluster.any_host_by_role.return_value = resolved([(0,)])
-    sibling = Mock(spec=ClickhouseCluster)
-    sibling.map_one_host_per_shard.return_value = resolved({"events-host": [(3,)]})
-
-    assert _holds_rows(cluster, TargetPlacement(target=EVENTS_JSON, cluster=sibling), "team_id = 1", {})
 
 
 @pytest.mark.django_db
@@ -3521,33 +3459,33 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "events, delete_all_events, hogql_predicate, flag_row_has_events_copy, refusal",
+    "events, delete_all_events, hogql_predicate, refusal, rows_left",
     [
-        pytest.param([FLAG_EVALUATIONS_SOURCE_EVENT], False, "", False, None, id="named_event"),
-        pytest.param([], True, "", False, None, id="all_events"),
+        pytest.param([FLAG_EVALUATIONS_SOURCE_EVENT], False, "", None, 0, id="named_event"),
+        pytest.param([], True, "", None, 0, id="all_events"),
         pytest.param(
             [FLAG_EVALUATIONS_SOURCE_EVENT],
             False,
             "properties.$browser = 'Chrome'",
-            True,
             None,
-            id="hogql_predicate_leaves_rows_with_an_events_copy_to_the_ttl",
+            0,
+            id="hogql_predicate_that_matches",
         ),
         pytest.param(
             [FLAG_EVALUATIONS_SOURCE_EVENT],
             False,
-            "properties.$browser = 'Chrome'",
-            False,
-            "as deferred",
-            id="hogql_predicate_refuses_matching_rows_without_an_events_copy",
+            "properties.$browser = 'Firefox'",
+            None,
+            1,
+            id="hogql_predicate_that_does_not_match",
         ),
         pytest.param(
             [FLAG_EVALUATIONS_SOURCE_EVENT],
             False,
-            "properties.$browser = 'Chrome' AND NOT elements_chain ILIKE '%checkout%'",
-            False,
-            "elements_chain",
-            id="hogql_predicate_that_cannot_run_on_flag_evaluations_refuses_rows_without_an_events_copy",
+            "properties.$browser = 'Chrome' AND person_id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'",
+            "does not run on this table",
+            1,
+            id="hogql_predicate_that_cannot_run_on_flag_evaluations",
         ),
     ],
 )
@@ -3556,8 +3494,8 @@ def test_immediate_event_deletion_of_flag_evaluations(
     events: list[str],
     delete_all_events: bool,
     hogql_predicate: str,
-    flag_row_has_events_copy: bool,
     refusal: str | None,
+    rows_left: int,
 ) -> None:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
@@ -3574,11 +3512,10 @@ def test_immediate_event_deletion_of_flag_evaluations(
             [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, event_uuid, now, '{"$browser": "Chrome"}')],
         )
     ).result()
-    flag_uuid = event_uuid if flag_row_has_events_copy else uuid4()
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
-            [(team.id, "someone", '{"$browser": "Chrome"}', str(flag_uuid), now, now)],
+            [(team.id, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
         )
     ).result()
 
@@ -3595,13 +3532,10 @@ def test_immediate_event_deletion_of_flag_evaluations(
         _run_event_deletion(cluster, deletion_ctx)
 
     # A refusal comes before any delete, so the events row survives it too.
-    assert cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == (
-        1 if refusal else 0
+    assert (
+        cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == rows_left
     )
-    # An immediate request with a predicate never deletes flag rows.
-    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == (
-        1 if hogql_predicate else 0
-    )
+    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == rows_left
 
     cluster.any_host(_truncate_flag_evaluations).result()
 

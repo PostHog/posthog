@@ -4,11 +4,13 @@ import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect } from '@p
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { ImportStatusHeader } from '../../components/ImportStatusHeader/ImportStatusHeader'
+import { QuillIntercomImportForm } from '../../components/QuillIntercomImportForm/QuillIntercomImportForm'
 import { intercomImportLogic, IntercomRegion } from './intercomImportLogic'
 
 const REGION_OPTIONS: { label: string; value: IntercomRegion }[] = [
@@ -25,6 +27,12 @@ function startDisabledReason(isImportRunning: boolean, accessToken: string): str
 }
 
 export function IntercomImportSection(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <IntercomImportForm />
+    }
+
     return (
         <SceneSection
             title="Intercom import"
@@ -53,6 +61,15 @@ function IntercomImportForm(): JSX.Element {
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const startImportDisabledReason = adminRestrictionReason || startDisabledReason(isImportRunning, accessToken)
+
+    if (todayRailNav) {
+        return (
+            <QuillIntercomImportForm regionOptions={REGION_OPTIONS} startDisabledReason={startImportDisabledReason} />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-y-3">
@@ -120,7 +137,7 @@ function IntercomImportForm(): JSX.Element {
                     type="primary"
                     onClick={submitImport}
                     loading={importJobLoading}
-                    disabledReason={adminRestrictionReason || startDisabledReason(isImportRunning, accessToken)}
+                    disabledReason={startImportDisabledReason}
                 >
                     Start import
                 </LemonButton>

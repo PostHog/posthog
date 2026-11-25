@@ -69,7 +69,13 @@ export const CloudProfile = z
             .strict(),
         engineVersion: Name,
         writerClass: Name,
-        readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
+        readerAcu: z
+            .object({
+                min: z.literal(1),
+                max: z.number().int().positive(),
+                idleMax: z.number().optional(),
+            })
+            .strict(),
         readerMonitoringIntervalSeconds: z
             .literal([1, 5, 10, 15, 30, 60])
             .default(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),

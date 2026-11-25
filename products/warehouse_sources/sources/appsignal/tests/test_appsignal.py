@@ -707,3 +707,190 @@ class TestDeployStatsRows:
 
         assert result.raised is None
         assert result.requests[0].param("from") == str(watermark - 1)
+
+
+class TestAppLookupRows:
+    @pytest.mark.parametrize(
+        "endpoint, app_node, expected_ids",
+        [
+            (
+                "uptime_monitors",
+                {"uptimeMonitors": [{"id": "m1", "name": "home"}, {"name": "no id"}, None]},
+                ["m1"],
+            ),
+            ("uptime_monitors", {"uptimeMonitors": None}, []),
+            (
+                "check_in_triggers",
+                {"checkIns": {"triggers": [{"id": "t1", "kind": "CRON"}, {"id": "t2", "kind": "HEARTBEAT"}]}},
+                ["t1", "t2"],
+            ),
+            ("check_in_triggers", {"checkIns": None}, []),
+        ],
+    )
+    def test_rows_come_from_the_app_node(
+        self, endpoint: str, app_node: dict[str, Any], expected_ids: list[str]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": {"app": app_node}})])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.requests[0].json()["variables"] == {"appId": "app-id"}
+
+    def test_uptime_monitor_headers_are_not_requested(self) -> None:
+        # A monitor's headers are sent to the monitored endpoint and can carry its credentials.
+        result = _driver().run("uptime_monitors", [ScriptedResponse(json={"data": {"app": {"uptimeMonitors": []}}})])
+        assert "headers" not in result.requests[0].json()["query"]
+
+
+def _error_traces_handler(
+    traces_by_digest: dict[str, list[dict[str, Any]]],
+) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def respond(body: dict[str, Any]) -> list[dict[str, Any]]:
+        (digest,) = body["digests"]
+        cursor = _parse_iso(body["pagination"]["cursor"]["time"])
+        # Inclusive of the cursor instant, the less convenient reading of the undocumented bound.
+        matching = [
+            trace
+            for trace in traces_by_digest.get(digest, [])
+            if cursor is None or (_parse_iso(trace["time"]) or cursor) >= cursor
+        ]
+        return matching[: body["pagination"]["per_page"]]
+
+    return respond
+
+
+class TestErrorTraceRows:
+    WINDOW_START = 1_800_000_000 - 1_800_000_000 % 3600
+
+    def _trace(self, trace_id: str, offset: int) -> dict[str, Any]:
+        return {"trace_id": trace_id, "site_id": "app-id", "time": _to_iso(self.WINDOW_START + offset)}
+
+    def _run(self, script: Any, **kwargs: Any) -> Any:
+        with time_machine.travel(datetime.fromtimestamp(self.WINDOW_START + 3600, UTC), tick=False):
+            return _driver().run(
+                "error_traces", script, resume_state=AppsignalResumeConfig(window_start=self.WINDOW_START), **kwargs
+            )
+
+    @mock.patch(f"{MODULE}.V2_PAGE_SIZE", 2)
+    @mock.patch(f"{MODULE}.TRACES_WINDOW_SECONDS", 3600)
+    def test_walks_each_digest_to_the_window_end_and_sorts_the_window(self) -> None:
+        traces_by_digest = {
+            "d1": [self._trace("a", 10), self._trace("b", 30), self._trace("c", 50), self._trace("late", 4000)],
+            "d2": [self._trace("x", 20), self._trace("y", 40)],
+        }
+        result = self._run(
+            _v2_script(
+                post={
+                    "/tracing/errors": [{"incident_digest": "d1"}, {"incident_digest": "d2"}, {"error_count": 1}],
+                    "/tracing/traces/errors": _error_traces_handler(traces_by_digest),
+                }
+            )
+        )
+
+        assert result.raised is None
+        # The boundary trace re-served on each page lands once, the trace after the window is left
+        # for the next one, and the two digests' traces are merged into time order.
+        assert [(row["trace_id"], row["digest"]) for row in result.rows] == [
+            ("a", "d1"),
+            ("x", "d2"),
+            ("b", "d1"),
+            ("y", "d2"),
+            ("c", "d1"),
+        ]
+        assert result.committed_states[-1].window_start == self.WINDOW_START + 3600
+        # The endpoint has no upper time bound, so the walk must stop by itself at the window end
+        # rather than page on through the incident's later history.
+        window_end = datetime.fromtimestamp(self.WINDOW_START + 3600, UTC)
+        cursors = [
+            _parse_iso(request.json()["pagination"]["cursor"]["time"])
+            for request in result.requests
+            if request.path == "/api/v2/tracing/traces/errors"
+        ]
+        assert all(cursor is not None and cursor < window_end for cursor in cursors)
+
+    @mock.patch(f"{MODULE}.TRACES_WINDOW_SECONDS", 3600)
+    def test_a_trace_with_errors_from_two_incidents_is_a_row_per_incident(self) -> None:
+        shared = self._trace("shared", 10)
+        result = self._run(
+            _v2_script(
+                post={
+                    "/tracing/errors": [{"incident_digest": "d1"}, {"incident_digest": "d2"}],
+                    "/tracing/traces/errors": _error_traces_handler({"d1": [shared], "d2": [shared]}),
+                }
+            )
+        )
+
+        assert result.raised is None
+        assert sorted((row["trace_id"], row["digest"]) for row in result.rows) == [("shared", "d1"), ("shared", "d2")]
+
+    @mock.patch(f"{MODULE}.V2_PAGE_SIZE", 2)
+    @mock.patch(f"{MODULE}.TRACES_WINDOW_SECONDS", 3600)
+    def test_full_page_on_one_instant_steps_past_it_instead_of_looping(self) -> None:
+        traces = [self._trace("a", 10), self._trace("b", 10), self._trace("c", 10), self._trace("d", 20)]
+        result = self._run(
+            _v2_script(
+                post={
+                    "/tracing/errors": [{"incident_digest": "d1"}],
+                    "/tracing/traces/errors": _error_traces_handler({"d1": traces}),
+                }
+            )
+        )
+
+        assert result.raised is None
+        assert [row["trace_id"] for row in result.rows] == ["a", "b", "d"]
+
+    @pytest.mark.parametrize("status_code", [404, 422])
+    @mock.patch(f"{MODULE}.TRACES_WINDOW_SECONDS", 3600)
+    def test_an_incident_without_trace_data_is_skipped(self, status_code: int) -> None:
+        result = self._run(
+            _v2_script(post={"/tracing/errors": [{"incident_digest": "d1"}], "/tracing/traces/errors": status_code})
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.committed_states[-1].window_start == self.WINDOW_START + 3600
+
+
+class TestKubernetesRows:
+    @pytest.mark.parametrize(
+        "endpoint, path, rows, expected_keys",
+        [
+            (
+                "kubernetes_nodes",
+                "/kubernetes/nodes",
+                [
+                    {"node_name": "node-1", "timestamp": "2026-01-01T00:42:00Z"},
+                    {"node_name": "", "timestamp": "2026-01-01T00:42:00Z"},
+                ],
+                [("node-1",)],
+            ),
+            (
+                "kubernetes_pods",
+                "/kubernetes/pods",
+                [
+                    {"pod_namespace": "default", "pod_name": "web-1", "timestamp": "2026-01-01T00:42:00Z"},
+                    {"pod_namespace": "jobs", "pod_name": "web-1", "timestamp": "2026-01-01T00:42:00Z"},
+                    {"pod_name": "orphan", "timestamp": "2026-01-01T00:42:00Z"},
+                ],
+                [("default", "web-1"), ("jobs", "web-1")],
+            ),
+        ],
+    )
+    @mock.patch(f"{MODULE}.AGGREGATE_INITIAL_LOOKBACK_SECONDS", 3600)
+    def test_snapshots_are_keyed_by_the_bucket_and_keep_their_own_time(
+        self, endpoint: str, path: str, rows: list[dict[str, Any]], expected_keys: list[tuple[str, ...]]
+    ) -> None:
+        bucket_start = 1_800_000_000 - 1_800_000_000 % AGGREGATE_BUCKET_SECONDS
+        with time_machine.travel(datetime.fromtimestamp(bucket_start + AGGREGATE_BUCKET_SECONDS, UTC), tick=False):
+            result = _driver().run(endpoint, _v2_script(post={path: rows}))
+
+        assert result.raised is None
+        key_fields = APPSIGNAL_ENDPOINTS[endpoint].primary_keys[1:]
+        assert [tuple(row[field] for field in key_fields) for row in result.rows] == expected_keys
+        assert {row["timestamp"] for row in result.rows} == {_to_iso(bucket_start)}
+        assert {row["snapshot_timestamp"] for row in result.rows} == {"2026-01-01T00:42:00Z"}
+        assert result.requests[0].json() == {
+            "site_id": "app-id",
+            "from": _to_iso(bucket_start),
+            "to": _to_iso(bucket_start + AGGREGATE_BUCKET_SECONDS),
+        }

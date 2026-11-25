@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, InsightShortId, OrganizationType, SharingConfigurationType } from '~/types'
+import type { PreflightStatus } from '~/types'
 
 import type { ImageSizeApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -298,16 +299,16 @@ export interface sharingLogicActions {
 export interface sharingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        siteUrl: (preflight: null | import('~/types').PreflightStatus) => string | undefined
+        siteUrl: (preflight: PreflightStatus | null) => string | undefined
         whitelabelAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         accessControlAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         canManagePublicSharing: (
             isAdminOrOwner: boolean | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         sharingAllowed: (currentOrganization: OrganizationType | null) => boolean
         params: (arg: any, linkSize: ImageSizeApi) => any

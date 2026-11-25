@@ -313,6 +313,7 @@ def lineage_database(team: "Team") -> Database:
         team=team,
         bypass_warehouse_access_control=True,
         allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        trigger="saved_query_dag_sync",
     )
 
 

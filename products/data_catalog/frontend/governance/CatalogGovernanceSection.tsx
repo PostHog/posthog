@@ -12,29 +12,26 @@ import {
     ItemDescription,
     ItemTitle,
     Skeleton,
-    Text,
 } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
-import type { UsageSnapshotApi } from '../generated/api.schemas'
+import { UsageScanWindow } from '../components/UsageScanWindow'
 import { usageLogic } from '../usageLogic'
-import { GovernanceProposedTable } from './GovernanceProposedTable'
 import { GovernanceSourcesTable } from './GovernanceSourcesTable'
 import { GovernanceTopicsTable } from './GovernanceTopicsTable'
 
 const SKELETON_ROWS = 4
 
-function RecomputeButton(): JSX.Element {
+function RecomputeButton({ size, dataAttr }: { size?: 'sm'; dataAttr: string }): JSX.Element {
     const { recomputeDisabledReason, recomputedLoading } = useValues(usageLogic)
     const { recompute } = useActions(usageLogic)
     return (
         <Button
             variant="outline"
+            size={size}
             onClick={recompute}
             loading={recomputedLoading}
             disabledReason={recomputeDisabledReason}
-            data-attr="data-catalog-governance-recompute"
+            data-attr={dataAttr}
         >
             Run a new scan
         </Button>
@@ -63,24 +60,10 @@ function NoScanYet(): JSX.Element {
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
-                    <RecomputeButton />
+                    <RecomputeButton dataAttr="data-catalog-governance-recompute" />
                 </EmptyContent>
             </Empty>
         </div>
-    )
-}
-
-function ScanWindow({ scan }: { scan: UsageSnapshotApi }): JSX.Element {
-    return (
-        <Text size="xs" variant="muted" render={<p className="m-0" />}>
-            Usage from <TZLabel time={scan.window_start} /> to <TZLabel time={scan.window_end} />
-            {scan.computed_at && (
-                <>
-                    , scanned <TZLabel time={scan.computed_at} />
-                </>
-            )}
-            .
-        </Text>
     )
 }
 
@@ -140,7 +123,10 @@ function GovernanceContent(): JSX.Element {
                 </Item>
             )}
             <div className="flex flex-col gap-2">
-                <ScanWindow scan={latest} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <UsageScanWindow scan={latest} />
+                    <RecomputeButton size="sm" dataAttr="data-catalog-governance-rescan" />
+                </div>
                 <div className="@container">
                     <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-2">
                         <GovernanceTopicsTable />
@@ -148,7 +134,6 @@ function GovernanceContent(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <GovernanceProposedTable />
         </div>
     )
 }

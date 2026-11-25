@@ -317,6 +317,13 @@ class ApplyScannerWorkflow(PostHogWorkflow):
 
         observation_id = create_result.observation_id
         scanner_type = create_result.scanner_type
+        # None means the create activity's recorded output predates this field, so this run started
+        # gated on the scanner type. Keep gating it that way rather than changing a run mid-flight.
+        watches_experiment = (
+            create_result.watches_experiment
+            if create_result.watches_experiment is not None
+            else scanner_type == ScannerType.EXPERIMENT
+        )
         folded = wf.patched(APPLY_FOLDED_STEPS_PATCH)
 
         uploaded: UploadedVideo | None = None
@@ -330,8 +337,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         observation_id=observation_id,
                         team_id=inputs.team_id,
                         session_id=inputs.session_id,
-                        # Deterministic: scanner_type comes from the create activity's recorded output.
-                        resolve_experiment=scanner_type == ScannerType.EXPERIMENT,
+                        # Deterministic: the create activity recorded this, so a replay reads the
+                        # same answer. Gated on the scope, so a scan whose scanner is narrowed only
+                        # by the `scope` column still gets its variant attributed.
+                        resolve_experiment=watches_experiment,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=2),
                     schedule_to_close_timeout=dt.timedelta(minutes=5),
@@ -339,7 +348,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 )
                 asset_result, experiment_resolution = prepared.asset, prepared.experiment_resolution
             else:
-                asset_result, experiment_resolution = await self._prepare_legacy(inputs, observation_id, scanner_type)
+                asset_result, experiment_resolution = await self._prepare_legacy(
+                    inputs, observation_id, watches_experiment
+                )
             self._advance_phase("rendering", rasterizer_workflow_id=_rasterizer_workflow_id(inputs))
             await self._run_rasterize_child(inputs, asset_result.asset_id)
             self._advance_phase("uploading")
@@ -430,7 +441,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     pass
 
     async def _prepare_legacy(
-        self, inputs: ApplyScannerInputs, observation_id: UUID, scanner_type: ScannerType
+        self, inputs: ApplyScannerInputs, observation_id: UUID, watches_experiment: bool
     ) -> tuple[EnsureSessionAssetOutput, ResolveExperimentVariantOutput | None]:
         """The steps before rendering as runs started before `APPLY_FOLDED_STEPS_PATCH` recorded them."""
         await wf.execute_activity(
@@ -441,7 +452,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             retry_policy=STATE_ACTIVITY_RETRY,
         )
         self._advance_phase("fetching")
-        return await self._fetch_and_ensure_asset(inputs, observation_id, scanner_type)
+        return await self._fetch_and_ensure_asset(inputs, observation_id, watches_experiment)
 
     async def _finalize_legacy(
         self,
@@ -503,11 +514,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
 
     async def _fetch_and_ensure_asset(
-        self, inputs: ApplyScannerInputs, observation_id: UUID, scanner_type: ScannerType
+        self, inputs: ApplyScannerInputs, observation_id: UUID, watches_experiment: bool
     ) -> tuple[EnsureSessionAssetOutput, ResolveExperimentVariantOutput | None]:
-        # Gating on scanner_type is deterministic: it comes from the create activity's recorded output.
+        # Deterministic: the create activity recorded this, so a replay reads the same answer.
         resolve_task = None
-        if scanner_type == ScannerType.EXPERIMENT:
+        if watches_experiment:
             # Rides alongside the fetch, so attribution costs no wall-clock. An unexposed session
             # raises IneligibleSessionError here, before any model call and at no credit cost.
             resolve_task = wf.execute_activity(

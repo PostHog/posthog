@@ -11,6 +11,7 @@ from posthog.admin.console.panels import Owner, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.distinct_id_usage.report import (
+    REPORT_CACHE_SECONDS,
     DistinctIdUsage,
     RestrictionRefused,
     TokenRestriction,
@@ -251,6 +252,12 @@ class DistinctIdUsageTool(ConsoleTool):
         return Page(
             blocks=(
                 *(Notice(text=error) for error in report.errors),
+                Notice(
+                    text=(
+                        f"Event counts were read at {report.computed_at:%Y-%m-%d %H:%M} UTC and are reused for "
+                        f"{REPORT_CACHE_SECONDS // 60} minutes. Restrictions are always current."
+                    )
+                ),
                 Notice(
                     text=(
                         f"High usage distinct IDs: {len(report.high_usage)}. One distinct ID sends at least "
