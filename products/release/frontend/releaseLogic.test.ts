@@ -78,6 +78,9 @@ describe('releaseLogic', () => {
     it('counts a release page open once per page, not per hash change', async () => {
         const capture = jest.mocked(posthog.capture)
         capture.mockClear()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         router.actions.push(urls.release('r1'))
         const logic = releaseLogic()
         logic.mount()
@@ -91,6 +94,48 @@ describe('releaseLogic', () => {
             ['release page opened', { release_id: 'r2' }],
         ])
     })
+
+    it.each([
+        ['flags never arrive', [], urls.releaseCalendar(), []],
+        [
+            'flags arrive while the page is still open',
+            [FEATURE_FLAGS.RELEASE_OBJECTS],
+            urls.releaseCalendar(),
+            ['release calendar opened'],
+        ],
+        ['flags arrive after the person left the page', [FEATURE_FLAGS.RELEASE_OBJECTS], urls.projectHomepage(), []],
+        [
+            'the area flag arrives for the view all page',
+            [FEATURE_FLAGS.RELEASES_AREA],
+            null,
+            ['release view all opened'],
+        ],
+        ['only the objects flag arrives for the view all page', [FEATURE_FLAGS.RELEASE_OBJECTS], null, []],
+    ])(
+        'counts a page open only when the gate lets the person in: %s',
+        async (_name, arrivingFlags, pathWhenFlagsArrive, expected) => {
+            const capture = jest.mocked(posthog.capture)
+            capture.mockClear()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const opened = pathWhenFlagsArrive === null ? urls.releases() : urls.releaseCalendar()
+            router.actions.push(opened)
+            const logic = releaseLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (pathWhenFlagsArrive && pathWhenFlagsArrive !== opened) {
+                router.actions.push(pathWhenFlagsArrive)
+            }
+            featureFlagLogic.actions.setFeatureFlags(
+                arrivingFlags,
+                Object.fromEntries(arrivingFlags.map((flag) => [flag, true]))
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const opens = capture.mock.calls.map((call) => String(call[0])).filter((event) => event.endsWith(' opened'))
+            expect(opens).toEqual(expected)
+        }
+    )
 
     it.each([
         [

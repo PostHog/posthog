@@ -158,7 +158,6 @@ from products.experiments.backend.recalculation import (
     get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
-    get_run_results,
     request_recalculation,
 )
 from products.experiments.backend.running_time_calculator import (
@@ -2197,10 +2196,7 @@ def _check_warehouse_native_result_access(experiment: Experiment, team: Team, us
 
 
 def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
-    results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results, include_live_progress=True)
-    payload["results"] = results
-    return payload
+    return build_job_payload(recalc, include_results=True, include_live_progress=True)
 
 
 def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:

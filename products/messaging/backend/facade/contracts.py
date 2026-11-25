@@ -201,6 +201,14 @@ class EmailAttachment:
     content_id: str | None = None
 
 
+@frozen
+class ReplyHeaders:
+    """Message-IDs, each in angle brackets, that thread a reply under the message it answers. At most 100 references."""
+
+    in_reply_to: str
+    references: tuple[str, ...] = ()
+
+
 class SenderRequired(TransactionalEmailError):
     code = "sender_required"
 
@@ -257,6 +265,7 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    reply_headers: ReplyHeaders | None = None
 
 
 class DeliveryUnavailable(Exception):

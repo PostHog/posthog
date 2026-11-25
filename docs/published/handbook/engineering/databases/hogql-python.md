@@ -314,6 +314,21 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 A `FieldTraverser` can use `..` to reach its parent table, followed by the target field.
 The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
 
+Direct reads of custom properties on `posthog.ai_events` use their event property definitions for Boolean, numeric, and DateTime conversions, as `events` does.
+Properties mapped to native String AI columns and unconverted Duration values stay strings.
+Direct property aliases in subqueries and CTEs expose their converted types.
+CTE comparisons on untyped person and group aliases use the original field even when another column changes type.
+Type inference also sees those converted types in `UNION ALL` projections and in direct arguments to `coalesce` and `ifNull`.
+
+On `posthog.ai_events`, direct property reads keep their stored strings in string-compatible `if` and `CASE` branches and in aggregates such as `any` and `max`.
+For numeric ordering, use an explicit conversion such as `max(toFloat(properties.score))`. A CTE column that already carries a converted type keeps that type through these expressions.
+
+`LIKE`, regex functions such as `match`, and other string-only functions can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`) when a property definition converts their input to another type.
+Use `toString(properties.score)` when a string comparison or function should read the converted value as text.
+
+When HogQL compiles to ClickHouse, `toFloatOrZero` and `toIntOrZero` stringify inputs HogQL identifies as non-strings. For example, `toIntOrZero(3.5)` parses `'3.5'` and returns `0`.
+Two-argument `toFloatOrDefault` and `toIntOrDefault` keep native numeric inputs, including decimal truncation for integer conversions.
+
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
 An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.

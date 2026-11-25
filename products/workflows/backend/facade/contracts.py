@@ -236,6 +236,7 @@ SuggestionsScoutRunReason = Literal[
     "published",
     "suggestion_resolved",
     "sends_matured",
+    "conversions_settled",
 ]
 
 
@@ -296,6 +297,8 @@ class AudienceSize:
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
     # Set when a sending rate limit can raise this audience's limit. None when no rate can.
     rate_limited: RateLimitedAudienceAllowance | None = None
+    # Keys of the project's test account filters the audience leaves out because they only apply to events.
+    skipped_test_account_filters: list[str] = field(default_factory=list)
 
 
 @frozen
