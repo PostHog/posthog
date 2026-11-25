@@ -15,6 +15,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
@@ -6184,6 +6185,83 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         )
         response = self.client.get(auth_url)
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+
+@override_settings(OAUTH_PROXY_CALLBACK_URLS=["https://proxy.example/oauth/callback/"])
+class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "own_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_a/",
+                True,
+            ),
+            ("shared_route", "https://proxy.example/oauth/callback/", "https://proxy.example/oauth/callback/", True),
+            (
+                "other_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_not_registered",
+                "https://app.example/cb",
+                "https://proxy.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_explicitly",
+                "https://proxy.example/oauth/callback/ https://proxy.example/oauth/callback/app_b/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_extra_query",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/?client=app_a",
+                False,
+            ),
+            (
+                "callback_of_unlisted_host",
+                "https://other.example/oauth/callback/",
+                "https://other.example/oauth/callback/app_a/",
+                False,
+            ),
+        ]
+    )
+    def test_proxy_callback_is_bound_to_the_requesting_client(
+        self, _name: str, registered: str, requested: str, allowed: bool
+    ) -> None:
+        app = OAuthApplication(client_id="app_a", redirect_uris=registered)
+
+        result = OAuthValidator().validate_redirect_uri("app_a", requested, SimpleNamespace(client=app))
+
+        assert result is allowed
+
+    @parameterized.expand(
+        [
+            ("shared_route", "https://proxy.example/oauth/callback/", True),
+            ("client_route", "https://proxy.example/oauth/callback/app_b/", False),
+            ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
+        ]
+    )
+    def test_only_the_shared_proxy_callback_can_be_registered(self, _name: str, redirect_uri: str, valid: bool) -> None:
+        app = OAuthApplication(
+            client_id="app_a",
+            redirect_uris=redirect_uri,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+
+        try:
+            app.clean()
+            registered = True
+        except ValidationError:
+            registered = False
+
+        assert registered is valid
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):

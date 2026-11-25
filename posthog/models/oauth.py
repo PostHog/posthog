@@ -108,6 +108,14 @@ OIDC_SIGNING_KEY_MISSING_MESSAGE = (
 )
 
 
+def proxy_callback_containing(uri: str) -> str | None:
+    lowered = uri.lower()
+    return next(
+        (callback for callback in settings.OAUTH_PROXY_CALLBACK_URLS if lowered.startswith(callback.lower())),
+        None,
+    )
+
+
 def oidc_signing_key_configured() -> bool:
     # Every OAuth client PostHog creates (CIMD, DCR, toolbar) uses RS256, and OAuthApplication.clean()
     # rejects RS256 without this key, so no client can be created or updated while it is unset.
@@ -519,6 +527,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
+            proxy_callback = proxy_callback_containing(uri)
+            if proxy_callback is not None and uri != proxy_callback:
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} is reserved for the PostHog OAuth proxy. Use your own callback URL."
+                    }
+                )
+
             # RFC 8252 Section 7.1 private-use scheme redirects (e.g. com.example.app:/oauth)
             # are authority-less by design; django-oauth-toolkit validator rejects them solely for lacking a host.
             # Everything else goes through validator unchanged.
@@ -629,6 +645,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.authorization_grant_type == self.GRANT_DEVICE_CODE and not self.is_verified:
             return False
         return super().allows_grant_type(*grant_types)
+
+    def redirect_uri_allowed(self, uri: str) -> bool:
+        proxy_callback = proxy_callback_containing(uri)
+        if proxy_callback is None or uri == proxy_callback:
+            return super().redirect_uri_allowed(uri)
+        # An application that registered a proxy callback also accepts "<callback><its client_id>/".
+        # The OAuth proxy (services/oauth-proxy) reads the client_id from that path to refuse a code
+        # issued to another client, so no other path under the callback is ever accepted.
+        return proxy_callback in self.redirect_uris.split() and uri == f"{proxy_callback}{self.client_id}/"
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
