@@ -1841,6 +1841,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
                 aggregation_temporality=temporality,
                 histogram_bounds=bounds or self.BOUNDS,
                 histogram_counts=counts,
+                count=sum(counts),
                 points=[(timestamp, 0.0)],
                 **kwargs,
             )
@@ -1888,8 +1889,8 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # The first cumulative sample contributes nothing.
         self._seed_histogram(
             [
-                (self.anchor + dt.timedelta(seconds=0), [100, 100, 100, 0]),
-                (self.anchor + dt.timedelta(seconds=30), [110, 110, 110, 0]),
+                (self.anchor + dt.timedelta(seconds=0), [1000, 1000, 1000, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [1010, 1010, 1010, 0]),
             ],
             temporality="cumulative",
         )
@@ -1898,24 +1899,58 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
-    def test_cumulative_lone_sample_emits_no_point(self):
-        # The histogram has no predecessor. Return a gap, not zero.
-        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
-        rows = self._run(0.95)
-        self.assertEqual(rows, [])
+    @parameterized.expand(
+        [
+            ("skewed", [[0, 0, 1, 0], [10, 0, 1, 0]], 11, 0.725),
+            ("lone", [[0, 0, 1, 0]], 1, 0.975),
+            ("flat", [[0, 0, 1, 0], [0, 0, 1, 0]], 1, 0.975),
+            ("lone_below_threshold", [[0, 0, 9, 0]], 9, 0.975),
+            ("lone_at_threshold", [[0, 0, 10, 0]], 0, None),
+            ("threshold_uses_total", [[9, 9, 9, 0]], 0, None),
+            ("historical", [[0, 0, 1000, 0], [10, 0, 1000, 0]], 10, 0.095),
+            ("below_threshold", [[0, 0, 19, 0], [1, 0, 19, 0]], 20, 0.5 + 0.5 * 18 / 19),
+            ("at_threshold", [[0, 0, 20, 0], [1, 0, 20, 0]], 1, 0.095),
+            ("reset_below_threshold", [[0, 0, 19, 0], [1, 0, 0, 0]], 20, 0.5 + 0.5 * 18 / 19),
+            ("reset_at_threshold", [[0, 0, 20, 0], [1, 0, 0, 0]], 1, 0.095),
+            ("historical_then_reset", [[0, 0, 1000, 0], [1, 0, 0, 0]], 1, 0.095),
+        ]
+    )
+    def test_cumulative_first_distribution_matches_count_increase(
+        self, _name: str, samples: list[list[int]], expected_count: int, expected_p95: float | None
+    ) -> None:
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=15 * i), counts) for i, counts in enumerate(samples)])
+
+        count_rows = self._run(quantile=None, aggregation="count_increase")
+        self.assertEqual(sum(row["value"] for row in count_rows), expected_count)
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="latency",
+            aggregation="histogram_quantile",
+            quantile=0.95,
+            date_from=self.anchor - dt.timedelta(minutes=1),
+            date_to=self.anchor + dt.timedelta(minutes=2),
+            interval="minute",
+        )
+        distributions = runner.histogram_rows()
+        self.assertEqual(sum(sum(row[2]) for row in distributions), expected_count)
+        rows = runner.quantile_rows(distributions)
+        if expected_p95 is None:
+            self.assertEqual(rows, [])
+        else:
+            self.assertEqual(len(rows), 1)
+            self.assertAlmostEqual(rows[0]["value"], expected_p95)
 
     def test_first_bucket_diffs_against_the_histogram_before_the_range(self):
-        # A missing predecessor drops the histogram point.
         self._seed_histogram(
             [
-                (self.anchor - dt.timedelta(seconds=90), [100, 100, 100, 0]),
-                (self.anchor - dt.timedelta(seconds=30), [110, 110, 110, 0]),
+                (self.anchor - dt.timedelta(seconds=90), [0, 0, 1, 0]),
+                (self.anchor - dt.timedelta(seconds=30), [10, 0, 1, 0]),
             ],
             temporality="cumulative",
         )
-        rows = self._run(0.5)
+        rows = self._run(0.95)
         self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        self.assertAlmostEqual(rows[0]["value"], 0.095)
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
 
@@ -1964,15 +1999,17 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
         self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
 
-    def test_cumulative_bucket_count_change_does_not_fail(self):
-        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
-        self._seed_histogram(
-            [
-                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
-                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
-            ],
-            temporality="cumulative",
-        )
+    @parameterized.expand(
+        [
+            ("count_length", [101, 101, 101, 0, 0], [0.1, 0.5, 1.0]),
+            ("bounds", [101, 101, 101, 0], [0.2, 0.6, 2.0]),
+        ]
+    )
+    def test_cumulative_layout_change_emits_no_point(
+        self, _name: str, next_counts: list[int], next_bounds: list[float]
+    ) -> None:
+        self._seed_histogram([(self.anchor, [100, 100, 100, 0])])
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=30), next_counts)], bounds=next_bounds)
         self.assertEqual(self._run(0.5), [])
 
     def test_exponential_histogram_reads_upper_edges(self):

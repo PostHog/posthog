@@ -193,7 +193,7 @@ def get_rankings(
                 is_target=is_target,
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
-                previous_visibility=_share(*brand_days.previous[domain]),
+                previous_visibility=comparable_previous_share(brand_days.current[domain], brand_days.previous[domain]),
                 positive_share=positive_share if is_target else None,
             )
             for domain, _, is_target in brands
@@ -379,6 +379,19 @@ def _brand_name(domain: str) -> str:
 
 def _share(answers: int, mentioning: int) -> float | None:
     return mentioning / answers if answers else None
+
+
+# Tracking that started inside the window before leaves that window with a handful of answers, and a share of a
+# handful swings far enough to show a large change that is not real.
+MIN_PREVIOUS_ANSWERS_RATIO = 0.25
+
+
+def comparable_previous_share(current: list[int], previous: list[int]) -> float | None:
+    """The share in the window before, or None when that window has too few answers to compare with this one."""
+    current_answers, previous_answers = current[0], previous[0]
+    if previous_answers < current_answers * MIN_PREVIOUS_ANSWERS_RATIO:
+        return None
+    return _share(*previous)
 
 
 def _ranked(counter: Mapping[str, int], limit: int) -> list[tuple[str, int]]:

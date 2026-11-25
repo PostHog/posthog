@@ -36,6 +36,15 @@ HOBBY_MEMORY_BUDGET_MIB = 9500
 # A total below this means the measurement failed, because no working install is this small.
 HOBBY_MEMORY_FLOOR_MIB = 2000
 
+# The oldest, in days, that the Node image of a fresh Hobby install may be. CI builds that image
+# from master many times a day, and an install asks for a moving tag to get the current build. An
+# image older than this means the tag no longer moves, for example because CI stopped publishing
+# to that registry, so every install runs old Node services beside a current web service.
+# Only this image is checked. Other PostHog images are rebuilt when their own code changes, and a
+# quiet service can be older than any limit without a fault.
+HOBBY_NODE_IMAGE_MAX_AGE_DAYS = 14
+HOBBY_NODE_IMAGE_NAME = "posthog-node"
+
 DOCKER_MEMORY_UNITS_IN_MIB = {"B": 1 / 1024**2, "KiB": 1 / 1024, "MiB": 1, "GiB": 1024}
 
 
@@ -136,23 +145,47 @@ class HobbyTester:
             "fi"
         )
 
+    @staticmethod
+    def _node_image_exists_command(tag):
+        """Return a shell command that succeeds when GHCR has a posthog-node image with this tag.
+
+        It uses curl, not `docker manifest inspect`, because a fresh droplet runs it before the
+        installer installs Docker. A missing docker command would look the same as a missing tag.
+        """
+        repository = f"posthog/{HOBBY_NODE_IMAGE_NAME}"
+        # The fresh install puts this command in a YAML list inside double quotes, where a backslash
+        # must start one of YAML's own escapes. So the command contains no backslash, and it reads
+        # the token with cut: the fourth field of {"token":"..."} split on double quotes.
+        accept = ",".join(
+            [
+                "application/vnd.oci.image.index.v1+json",
+                "application/vnd.docker.distribution.manifest.list.v2+json",
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json",
+            ]
+        )
+        token = f"""$(curl -sf 'https://ghcr.io/token?scope=repository:{repository}:pull' | cut -d'"' -f4)"""
+        return (
+            f'curl -sf -o /dev/null -H "Accept:{accept}" -H "Authorization:Bearer {token}" '
+            f"https://ghcr.io/v2/{repository}/manifests/{tag}"
+        )
+
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
-        ci-nodejs-container.yml tags images as pr-<number> for PRs.
-        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
-        so the hobby-installer writes it to .env and docker-compose uses
-        the branch image. Otherwise falls back to 'latest'.
+        ci-nodejs-container.yml tags images as pr-<number> for PRs, and builds one only when the
+        PR changes the Node code. Checks GHCR for that tag; if found, exports POSTHOG_NODE_TAG
+        so the hobby-installer writes it to .env and docker-compose uses the branch image.
+        Otherwise falls back to 'latest', the newest master build. check_node_image_age fails
+        the smoke test when that fallback is an old image.
         """
         if self.pr_number and self.pr_number != "unknown":
             tag = f"pr-{self.pr_number}"
         else:
             tag = "$CURRENT_COMMIT"
         return (
-            "if curl -sf "
-            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
-            "> /dev/null 2>&1; then "
-            f"echo posthog-node image found on DockerHub with tag {tag}; "
+            f"if {self._node_image_exists_command(tag)}; then "
+            f"echo posthog-node image found on GHCR with tag {tag}; "
             f"export POSTHOG_NODE_TAG={tag}; "
             "else "
             "echo posthog-node image not found, using latest; "
@@ -926,6 +959,42 @@ runcmd:
             )
         return True, f"Containers use {total_mib:.0f} MiB of the {budget_mib} MiB budget"
 
+    def check_node_image_age(self, max_age_days=HOBBY_NODE_IMAGE_MAX_AGE_DAYS):
+        output = self.run_command_on_droplet(
+            "for image in $(docker ps --format '{{.Image}}' | sort -u); do "
+            'echo "$image $(docker image inspect --format \'{{.Created}}\' "$image" 2>/dev/null)"; done',
+            timeout=120,
+        )
+        if not output:
+            return False, "Could not read the image list from the droplet"
+
+        now = datetime.datetime.now(datetime.UTC)
+        ages: dict[str, int] = {}
+        for line in output.strip().splitlines():
+            fields = line.split()
+            if len(fields) != 2:
+                continue
+            image, created = fields
+            if image.rsplit(":", 1)[0].rsplit("/", 1)[-1] != HOBBY_NODE_IMAGE_NAME:
+                continue
+            # Docker prints nanoseconds, which datetime does not parse, so only the seconds are read.
+            ages[image] = (now - datetime.datetime.fromisoformat(created[:19] + "+00:00")).days
+            print(f"  {ages[image]:4d} days  {image}", flush=True)
+
+        if not ages:
+            return (
+                False,
+                f"No running container uses a {HOBBY_NODE_IMAGE_NAME} image, so the image list is not a real reading",
+            )
+        stale = [f"{image} ({age} days)" for image, age in ages.items() if age > max_age_days]
+        if stale:
+            return False, (
+                f"The Node image of this install is more than {max_age_days} days old: {', '.join(stale)}. "
+                "CI builds it from master many times a day, so a tag that old is no longer published. "
+                "Publish the image to that registry again, or point docker-compose.hobby.yml at the registry that has it."
+            )
+        return True, f"The Node image is at most {max_age_days} days old"
+
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
         """Find an existing droplet for a PR by tag"""
@@ -959,9 +1028,8 @@ runcmd:
         update_repo_cmd = f"cd /hobby/posthog && git fetch origin {new_sha} && git checkout {new_sha}"
         result = self.run_ssh_command(update_repo_cmd, timeout=120)
         if result["exit_code"] != 0:
-            print(f"⚠️ Failed to update repo checkout: {result['stderr']}")
-        else:
-            print("✅ Repo checkout updated")
+            raise RuntimeError(f"Failed to update repo checkout: {result['stderr']}")
+        print("✅ Repo checkout updated")
 
         # Update .env file with new image tag
         update_env_cmd = (
@@ -976,7 +1044,7 @@ runcmd:
         pr_tag = f"pr-{self.pr_number}" if self.pr_number and self.pr_number != "unknown" else None
         candidate_tag = pr_tag or new_sha
         print(f"🔍 Checking if node image exists with tag: {candidate_tag}...")
-        check_node_cmd = f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{candidate_tag}" > /dev/null 2>&1'
+        check_node_cmd = self._node_image_exists_command(candidate_tag)
         result = self.run_ssh_command(check_node_cmd, timeout=30)
         if result["exit_code"] == 0:
             node_tag = candidate_tag
@@ -999,6 +1067,20 @@ runcmd:
             raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
         print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
 
+        # Render docker-compose.yml again from the checkout, the way bin/upgrade-hobby does. A reused
+        # preview otherwise keeps the services and image paths of the commit it was installed from.
+        print("📝 Rendering docker-compose.yml from the checkout...")
+        render_compose_cmd = (
+            "cd /hobby && cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl && "
+            "(set -a && . ./.env && set +a && "
+            "bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml.new) && "
+            "mv docker-compose.yml.new docker-compose.yml"
+        )
+        result = self.run_ssh_command(render_compose_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to render docker-compose.yml: {result['stderr']}")
+        print("✅ docker-compose.yml rendered")
+
         # Update the baked-in image tags in docker-compose.yml.
         # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
         # into docker-compose.yml at install time, so updating .env alone has no effect on
@@ -1007,7 +1089,7 @@ runcmd:
         update_compose_cmd = (
             f"cd /hobby && "
             f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
-            f"sed -i 's|posthog/posthog-node:[^[:space:]]*|posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+            f"sed -i 's|\\(posthog-node}}\\{{0,1\\}}\\):[^[:space:]]*|\\1:{node_tag}|g' docker-compose.yml"
         )
         result = self.run_ssh_command(update_compose_cmd, timeout=30)
         if result["exit_code"] != 0:
@@ -2039,6 +2121,15 @@ def main():
 
         ht = HobbyTester(droplet_id=droplet_id)
         success, message = ht.check_memory_budget()
+        print(f"{'✅' if success else '❌'} {message}", flush=True)
+        exit(0 if success else 1)
+
+    if command == "check-node-image-age":
+        print("Checking the age of the Node image", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+
+        ht = HobbyTester(droplet_id=droplet_id)
+        success, message = ht.check_node_image_age()
         print(f"{'✅' if success else '❌'} {message}", flush=True)
         exit(0 if success else 1)
 

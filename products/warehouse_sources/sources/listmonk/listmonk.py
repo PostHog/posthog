@@ -16,10 +16,12 @@ from products.warehouse_sources.sources.listmonk.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
     frozen,
     is_cloud,
@@ -101,7 +103,9 @@ def _client_config(host: str, api_user: str, api_token: str) -> ClientConfig:
 
 
 def get_resource(config: ListmonkEndpointConfig, is_incremental: bool) -> EndpointResource:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE, "order": "asc", **(config.extra_params or {})}
+    params: dict[str, Any] = {"order": "asc", **(config.extra_params or {})}
+    if config.paginated:
+        params["per_page"] = PAGE_SIZE
     if config.order_by is not None:
         params["order_by"] = config.order_by
     if is_incremental:
@@ -111,12 +115,16 @@ def get_resource(config: ListmonkEndpointConfig, is_incremental: bool) -> Endpoi
             "initial_value": "1970-01-01T00:00:00+00:00",
             "convert": updated_at_query,
         }
+    endpoint: Endpoint = {"path": config.path, "params": params, "data_selector": "data.results"}
+    if not config.paginated:
+        endpoint["data_selector"] = "data"
+        endpoint["paginator"] = SinglePagePaginator()
     return {
         "name": config.name,
         "table_name": config.name,
         "primary_key": config.primary_keys,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
-        "endpoint": {"path": config.path, "params": params, "data_selector": "data.results"},
+        "endpoint": endpoint,
         "table_format": "delta",
     }
 

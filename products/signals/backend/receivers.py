@@ -33,6 +33,7 @@ from products.signals.backend.report_embeddings import (
 )
 from products.signals.backend.report_priority import refresh_report_priority_rank
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
+from products.signals.backend.transition_credit import TransitionCredit, resolve_transition_credit
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 if TYPE_CHECKING:
@@ -340,43 +341,32 @@ def _transition_actor_user(instance: SignalReport) -> User | None:
     return getattr(instance, "_transition_actor_user", None)
 
 
-def _credited_user(instance: SignalReport) -> User | None:
+def _transition_credit(instance: SignalReport) -> TransitionCredit | None:
     """The person an automated transition credits, such as the owner of the pull request that merged."""
-    return getattr(instance, "_credited_user", None)
+    return getattr(instance, "_transition_credit", None)
 
 
-def _actor_properties(
-    actor: ArtefactAttribution | None, actor_user: User | None = None, credited_user: User | None = None
-) -> dict[str, Any]:
+def _transition_credit_resolved(instance: SignalReport) -> bool:
+    """Whether the caller already resolved the credit, so that no credit means nobody stands behind the transition."""
+    return bool(getattr(instance, "_transition_credit_resolved", False))
+
+
+def _actor_properties(actor: ArtefactAttribution | None, credit: TransitionCredit | None) -> dict[str, Any]:
     """Actor properties for the status-change label. A transition with no caller-set actor is `system`.
 
-    An actor without a user, such as the PR-merge resolve, keeps its kind and names `credited_user`, so
-    the person counts as active while the ranking labels still read the transition as automatic.
+    An actor without a user, such as the PR-merge resolve, keeps its kind and names the credited
+    person, so the person counts as active while the ranking labels still read the transition as
+    automatic.
     """
     actor = actor or ArtefactAttribution.system()
-    properties: dict[str, Any] = {
+    return {
         "actor_kind": actor.kind,
-        "actor_user_uuid": None,
-        "actor_distinct_id": None,
+        "actor_user_uuid": str(credit.user.uuid) if credit is not None else None,
+        "actor_distinct_id": credit.user.distinct_id if credit is not None else None,
+        "actor_user_source": credit.source if credit is not None else None,
         "actor_agent": actor.agent_name,
         "actor_task_id": actor.task_id,
     }
-    if actor.user_id is None:
-        if credited_user is not None:
-            properties["actor_user_uuid"] = str(credited_user.uuid)
-            properties["actor_distinct_id"] = credited_user.distinct_id
-        return properties
-    # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
-    # user to skip a repeat lookup per report.
-    if actor_user is not None and actor_user.id == actor.user_id:
-        properties["actor_user_uuid"] = str(actor_user.uuid)
-        properties["actor_distinct_id"] = actor_user.distinct_id
-        return properties
-    user = User.objects.filter(id=actor.user_id).values("uuid", "distinct_id").first()
-    if user is not None:
-        properties["actor_user_uuid"] = str(user["uuid"])
-        properties["actor_distinct_id"] = user["distinct_id"]
-    return properties
 
 
 def _status_changed_on_this_save(
@@ -1114,7 +1104,8 @@ def capture_status_change_analytics(
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
     actor = _transition_actor(instance)
     actor_user = _transition_actor_user(instance)
-    credited_user = _credited_user(instance)
+    caller_credit = _transition_credit(instance)
+    credit_resolved = _transition_credit_resolved(instance)
 
     def _capture() -> None:
         try:
@@ -1133,14 +1124,19 @@ def capture_status_change_analytics(
             collapsed_prior = getattr(instance, "_collapsed_prior_status", None)
             instance._collapsed_prior_status = None  # type: ignore[attr-defined]
             previous_status = collapsed_prior or properties["previous_status"]
+            credit = (
+                caller_credit
+                if credit_resolved
+                else resolve_transition_credit(actor, caller_credit, team_id=instance.team_id, actor_user=actor_user)
+            )
             posthoganalytics.capture(
                 event="signal_report_status_changed",
-                distinct_id=str(team.uuid),
+                distinct_id=(credit.user.distinct_id if credit is not None else None) or str(team.uuid),
                 properties={
                     **properties,
                     "previous_status": previous_status,
                     "is_first_report": _is_first_visible_report(instance.team_id, report_id),
-                    **_actor_properties(actor, actor_user, credited_user),
+                    **_actor_properties(actor, credit),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback

@@ -75,7 +75,11 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_running_time_target
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_running_time_target,
+    start_metrics_recalculation_workflow,
+)
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
     LegacyMigrationError,
@@ -153,7 +157,6 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
-    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
