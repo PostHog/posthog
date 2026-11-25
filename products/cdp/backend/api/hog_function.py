@@ -117,10 +117,6 @@ MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE = {
 # FEATURE_FLAGS.LOGS_TRANSFORMATIONS on the frontend
 LOGS_TRANSFORMATIONS_FEATURE_FLAG = "logs-transformations"
 
-# Deprecated legacy plugin templates that no new function may use. Existing functions built from
-# them keep running and stay editable.
-NON_CREATABLE_TEMPLATE_IDS = frozenset({"plugin-posthog-gcs-plugin", "plugin-pubsub-plugin"})
-
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -532,12 +528,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         }
 
     def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
-        if template.template_id in NON_CREATABLE_TEMPLATE_IDS:
-            raise serializers.ValidationError(
-                {
-                    "template_id": f"Template '{template.template_id}' is no longer available for new functions. Choose a different destination template."
-                }
-            )
         # Hidden templates are internal building blocks (e.g. the native email destination) that the
         # workflow editor renders but that are never offered as standalone destinations. Block creating a
         # function from one via this API/MCP entirely — they are not a supported destination type.

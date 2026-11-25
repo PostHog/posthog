@@ -845,37 +845,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
-    @parameterized.expand(
-        [
-            # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
-            # keep creating from them - integrations reference legacy plugin template ids directly.
-            ("deprecated_allowed", "plugin-deprecated-transformation", "transformation", status.HTTP_201_CREATED),
-            ("legacy_gcs_blocked", "plugin-posthog-gcs-plugin", "destination", status.HTTP_400_BAD_REQUEST),
-            ("legacy_pubsub_blocked", "plugin-pubsub-plugin", "destination", status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    def test_create_from_deprecated_template(self, _name, template_id, function_type, expected_status):
+    def test_create_from_deprecated_template_is_allowed(self):
+        # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
+        # keep creating from them - integrations reference legacy plugin template ids directly.
         HogFunctionTemplate.objects.create(
-            template_id=template_id,
+            template_id="plugin-deprecated-transformation",
             sha="1.0.0",
-            name="Deprecated template",
+            name="Deprecated transformation",
             description="Legacy plugin",
             code="return event",
             code_language="hog",
             inputs_schema=[],
-            type=function_type,
+            type="transformation",
             status="deprecated",
             category=["Other"],
             free=True,
         )
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"type": function_type, "name": "X", "template_id": template_id, "inputs": {}},
+            data={
+                "type": "transformation",
+                "name": "X",
+                "template_id": "plugin-deprecated-transformation",
+                "inputs": {},
+            },
         )
-        assert response.status_code == expected_status, response.json()
-        assert HogFunction.objects.filter(template_id=template_id).exists() == (
-            expected_status == status.HTTP_201_CREATED
-        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
 
     @parameterized.expand(
         [
