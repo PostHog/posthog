@@ -226,6 +226,23 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert (properties["outcome"], properties["reason"]) == ("unavailable", "attempt_out_of_time")
         assert self._jobs() == 0
 
+    def test_a_multi_series_alert_compares_the_series_it_watches(self) -> None:
+        _create_event(team=self.team, event="upgraded", distinct_id="p1", timestamp="2024-01-14T09:00:00Z")
+        flush_persons_and_events()
+        query = _trends_query("day")
+        query["series"].append({"kind": "EventsNode", "event": "upgraded", "math": "total"})
+        alert = self._alert_on(
+            query, {"type": "TrendsAlertConfig", "series_index": 1}, detector=None, calculation_interval="daily"
+        )
+        live = check_alert_for_insight(alert)
+
+        shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["max_abs_difference"]) == ("match", 0.0)
+        assert properties["buckets_compared"] > 0
+        assert properties["features"] == ["multiple_series"]
+
     def test_a_compared_check_records_the_features_its_query_used(self) -> None:
         plan_filter = {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}
         alert = self._alert_on(
@@ -363,9 +380,9 @@ class TestCompareClosedValues(SimpleTestCase):
         precomputed = PrecomputedSeriesValues(
             values={datetime(2024, 1, 13): 5, datetime(2024, 1, 14): stored}, live_from=datetime(2024, 1, 15)
         )
-        live = [{"days": ["2024-01-14", "2024-01-15"], "data": [2, 3]}]
+        live_series = {"days": ["2024-01-14", "2024-01-15"], "data": [2, 3]}
 
-        comparison = compare_precomputed_values(precomputed, live)
+        comparison = compare_precomputed_values(precomputed, live_series)
 
         assert (
             comparison.outcome,
