@@ -25,13 +25,11 @@ pace every request through a `RequestPacer` (see `_PacedSession`).
 """
 
 import re
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
-import structlog
 from requests import PreparedRequest, Request, Response, Session
 
 from products.warehouse_sources.sources.moxie.settings import (
@@ -54,13 +52,12 @@ from products.warehouse_sources.sources.sdk import (
     _is_host_safe,
     build_dependent_resource,
     format_datetime,
+    frozen,
     make_tracked_session,
     parse_retry_after,
     rest_api_resource,
     validate_via_probe,
 )
-
-logger = structlog.get_logger(__name__)
 
 HOST_NOT_ALLOWED_ERROR = "Moxie workspace base URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Moxie workspace base URL must use HTTPS"
@@ -75,14 +72,23 @@ TIME_ENTRIES_ROW_CAP = 10_000
 # The lower bound of the first `timerStart` window. Moxie did not exist before this date.
 TIME_ENTRIES_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
 
-TimeWindow = tuple[datetime, datetime]
+
+@frozen
+class TimeWindow:
+    # Both bounds are inclusive on the API side.
+    earliest: datetime
+    latest: datetime
+
+
+class MoxieTimeEntriesCapError(Exception):
+    pass
 
 
 class MoxieHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class MoxieResumeConfig:
     # `build_dependent_resource` checkpoint for a fan-out table: the parents already done and the
     # cursor of the one in progress.
@@ -146,13 +152,12 @@ def get_resource(endpoint: str, params: Optional[dict[str, Any]] = None) -> Endp
     return resource
 
 
-def _split(window: TimeWindow) -> Optional[tuple[TimeWindow, TimeWindow]]:
-    lower, upper = window
-    half = timedelta(seconds=int((upper - lower).total_seconds()) // 2)
+def _split(window: TimeWindow) -> Optional[list[TimeWindow]]:
+    half = timedelta(seconds=int((window.latest - window.earliest).total_seconds()) // 2)
     if half <= timedelta(0):
         return None
-    middle = lower + half
-    return (lower, middle), (middle, upper)
+    middle = window.earliest + half
+    return [TimeWindow(earliest=window.earliest, latest=middle), TimeWindow(earliest=middle, latest=window.latest)]
 
 
 def iter_time_entries(
@@ -169,22 +174,22 @@ def iter_time_entries(
             yield rows
         return
 
-    pending: list[TimeWindow] = [(TIME_ENTRIES_EARLIEST, now + timedelta(days=366))]
+    pending = [TimeWindow(earliest=TIME_ENTRIES_EARLIEST, latest=now + timedelta(days=366))]
     previous_ids: set[Any] = set()
     while pending:
         window = pending.pop()
         rows = fetch(window)
         if len(rows) >= TIME_ENTRIES_ROW_CAP:
             halves = _split(window)
-            if halves is not None:
-                pending.extend(reversed(halves))
-                continue
-            logger.warning(
-                "moxie_time_entries_window_at_row_cap",
-                earliest=window[0].isoformat(),
-                latest=window[1].isoformat(),
-                rows=len(rows),
-            )
+            if halves is None:
+                # Yielding the capped page would drop rows without a trace. This also ends a walk
+                # against a host that returns a full page for every window.
+                raise MoxieTimeEntriesCapError(
+                    f"Moxie returned {len(rows)} time entries for the one-second window starting "
+                    f"{window.earliest.isoformat()}, so some entries cannot be read"
+                )
+            pending.extend(reversed(halves))
+            continue
         # Both bounds are inclusive, so an entry that starts on the shared bound of two windows
         # comes back from both.
         page = [row for row in rows if row.get("id") is None or row.get("id") not in previous_ids]
@@ -265,7 +270,9 @@ def _fanout_resource(
     if config.name == "ticket_comments":
         child_endpoint_extra: Any = {
             "data_selector": "comments",
-            "paginator": JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="cursor"),
+            "paginator": JSONResponseCursorPaginator(
+                cursor_path="nextCursor", cursor_param="cursor", raise_on_repeated_cursor=True
+            ),
         }
     else:
         child_endpoint_extra = {"paginator": SinglePagePaginator()}
@@ -305,7 +312,7 @@ def moxie_source(
 
     def fetch_time_entries(window: Optional[TimeWindow]) -> list[dict[str, Any]]:
         params = (
-            {"earliest": format_datetime(window[0], "iso_z"), "latest": format_datetime(window[1], "iso_z")}
+            {"earliest": format_datetime(window.earliest, "iso_z"), "latest": format_datetime(window.latest, "iso_z")}
             if window
             else None
         )

@@ -123,6 +123,21 @@ class TestMoxieTransport:
         assert [query.get("cursor") for query in comment_requests] == [None, ("n1",), None, None]
         assert all(query["commentType"] == ("ALL",) and query["limit"] == ("100",) for query in comment_requests)
 
+    def test_ticket_comments_stop_on_a_repeated_cursor(self, pacers: Any) -> None:
+        page = ScriptedResponse(json={"comments": [], "nextCursor": "same", "hasMore": True})
+        result = _driver().run(
+            "ticket_comments",
+            route(
+                {
+                    "/action/tickets/list": [ScriptedResponse(json=[{"id": "t1"}])],
+                    "/action/tickets/comments/list": [page, page, page],
+                }
+            ),
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "repeated cursor" in str(result.raised)
+
     def test_ticket_comments_resume_after_the_last_finished_ticket(self, pacers: Any) -> None:
         tickets = ScriptedResponse(json=[{"id": "t1"}, {"id": "t2"}])
         t1_comments = ScriptedResponse(
@@ -250,16 +265,16 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 def _fake_time_entries_api(
     entries: list[dict[str, Any]], cap: int
-) -> tuple[Any, list[Optional[tuple[datetime, datetime]]]]:
+) -> tuple[Any, list[Optional[moxie_module.TimeWindow]]]:
     """Answer like List Time Entries: inclusive `timerStart` bounds, at most `cap` rows, no order."""
-    calls: list[Optional[tuple[datetime, datetime]]] = []
+    calls: list[Optional[moxie_module.TimeWindow]] = []
 
-    def fetch(window: Optional[tuple[datetime, datetime]]) -> list[dict[str, Any]]:
+    def fetch(window: Optional[moxie_module.TimeWindow]) -> list[dict[str, Any]]:
         calls.append(window)
         matching = [
             entry
             for entry in entries
-            if window is None or window[0] <= datetime.fromisoformat(entry["timerStart"]) <= window[1]
+            if window is None or window.earliest <= datetime.fromisoformat(entry["timerStart"]) <= window.latest
         ]
         return list(reversed(matching))[:cap]
 
@@ -272,10 +287,12 @@ def _entry(entry_id: str, start: datetime) -> dict[str, Any]:
 
 class TestIterTimeEntries:
     def test_splits_capped_windows_and_reads_each_entry_once(self) -> None:
-        first_window = (moxie_module.TIME_ENTRIES_EARLIEST, NOW + timedelta(days=366))
+        first_window = moxie_module.TimeWindow(
+            earliest=moxie_module.TIME_ENTRIES_EARLIEST, latest=NOW + timedelta(days=366)
+        )
         halves = moxie_module._split(first_window)
         assert halves is not None
-        boundary = halves[0][1]
+        boundary = halves[0].latest
         entries = [
             _entry("a", datetime(2001, 5, 1, tzinfo=UTC)),
             _entry("b", datetime(2010, 5, 1, tzinfo=UTC)),
@@ -294,15 +311,17 @@ class TestIterTimeEntries:
         assert calls[0] is None
         assert calls[1] == first_window
 
-    def test_a_window_that_cannot_split_further_is_still_read(self) -> None:
+    def test_a_capped_window_that_cannot_split_fails_instead_of_dropping_rows(self) -> None:
         instant = datetime(2024, 3, 3, 12, 0, 0, tzinfo=UTC)
         entries = [_entry(entry_id, instant) for entry_id in ("x", "y", "z")]
-        fetch, _calls = _fake_time_entries_api(entries, cap=3)
+        fetch, calls = _fake_time_entries_api(entries, cap=3)
 
         with mock.patch.object(moxie_module, "TIME_ENTRIES_ROW_CAP", 3):
-            pages = list(moxie_module.iter_time_entries(fetch, NOW))
+            with pytest.raises(moxie_module.MoxieTimeEntriesCapError):
+                list(moxie_module.iter_time_entries(fetch, NOW))
 
-        assert sorted(row["id"] for page in pages for row in page) == ["x", "y", "z"]
+        # About 30 halvings reach one second from the first window, with at most two calls each.
+        assert len(calls) <= 64
 
     @pytest.mark.parametrize("rows", [[], [{"id": "only", "timerStart": "2024-01-01T00:00:00+00:00"}]])
     def test_under_the_cap_yields_the_single_call(self, rows: list[dict[str, Any]]) -> None:
