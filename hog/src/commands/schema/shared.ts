@@ -51,7 +51,7 @@ export const LANGUAGE_INFO: Record<Language, LanguageInfo> = {
     },
 }
 
-// Go treats each major from 2 on as its own module, so the generated package imports one of these.
+// Go majors from 2 on have their own import path.
 const GO_IMPORT_PATHS: Record<GoSdk, string> = {
     'posthog-go': 'github.com/posthog/posthog-go',
     'posthog-go-v2': 'github.com/posthog/posthog-go/v2',
@@ -70,22 +70,19 @@ function goNextSteps(file: string, sdk: GoSdk): string[] {
     ]
 }
 
-// What one language lets `--sdk` and the `sdk` entry in posthog.json choose. A language with a new choice
-// changes only its own entry.
+// What one language lets `--sdk` and the `sdk` entry in posthog.json choose.
 interface LanguageSdks {
     // The first choice is the default.
     choices: readonly SchemaSdk[]
-    // Whether posthog.json records the default when nothing chose an SDK. Go leaves it out, so go.mod keeps
-    // deciding.
+    // Go doesn't record its default, so go.mod keeps deciding.
     recordsDefault: boolean
-    // Reads the choice from the project, searching up from the module's folder. hog never saves what it read.
+    // Reads the choice from the project, searching up from the module's folder.
     detect?: (runtime: Pick<Runtime, 'exists' | 'readFile'>, folder: string) => Promise<SchemaSdk | undefined>
-    // The error for a PostHog that predates a choice. The default has none: such a PostHog generates it
-    // anyway, so hog never asks for it.
+    // The error when an older PostHog can't generate a choice. The default needs none.
     unsupported: Partial<Record<SchemaSdk, [message: string, hint: string]>>
     // The module a choice writes, where it differs from the language's own.
     info: Partial<Record<SchemaSdk, LanguageInfo>>
-    // What hog asks when neither a flag nor the project chooses.
+    // The question when nothing else chooses.
     prompt?: { message: string; options: { value: SchemaSdk; label: string }[] }
 }
 
@@ -144,14 +141,13 @@ export function sdkLanguage(sdk: SchemaSdk): Language {
     return LANGUAGES.find((language) => LANGUAGE_SDKS[language]?.choices.includes(sdk)) ?? 'typescript'
 }
 
-// The SDK posthog.json sets for a module. A value that belongs to another language sets nothing.
+// Ignores a value that belongs to another language.
 export function savedSdk(language: Language, saved: SchemaLanguage | undefined): SchemaSdk | undefined {
     const sdk = saved?.sdk
     return sdk !== undefined && LANGUAGE_SDKS[language]?.choices.includes(sdk) ? sdk : undefined
 }
 
-// The SDK the project picks for a module when no flag does: the one posthog.json sets, then what the
-// language reads from the project. Undefined when neither says.
+// posthog.json's SDK, else the project's. Undefined when neither says.
 export async function projectSdk(
     ctx: Context,
     language: Language,
@@ -161,8 +157,7 @@ export async function projectSdk(
     return savedSdk(language, saved) ?? (await LANGUAGE_SDKS[language]?.detect?.(ctx.runtime, folder))
 }
 
-// The posthog-go major the nearest go.mod requires, searching up from `folder`. Undefined when that go.mod
-// requires neither major, or both.
+// The posthog-go major the nearest go.mod requires. Undefined when it requires neither or both.
 export async function goModSdk(
     runtime: Pick<Runtime, 'exists' | 'readFile'>,
     folder: string
@@ -180,7 +175,7 @@ export async function goModSdk(
     }
 }
 
-// Reads `require` lines only, alone or in a block, so a `replace` of posthog-go does not count as a requirement.
+// Reads `require` lines only, so a `replace` of posthog-go does not count.
 export function requiredGoSdk(goMod: string): GoSdk | undefined {
     const found = new Set<GoSdk>()
     let block: string | undefined
@@ -234,7 +229,7 @@ export async function fetchDefinitions(
     const query = new URLSearchParams(sdk !== undefined && unsupported ? { sdk } : {})
     const path = query.size > 0 ? `event_definitions/${language}/?${query}` : `event_definitions/${language}/`
     const definitions = await (await ctx.posthog()).get(path, Definitions)
-    // A PostHog that predates the choice ignores the query and sends the default module, without saying which SDK.
+    // An older PostHog ignores the query and sends the default module without `sdk`.
     if (unsupported && definitions.sdk !== sdk) {
         throw new HogError('sdk_unsupported', ...unsupported)
     }

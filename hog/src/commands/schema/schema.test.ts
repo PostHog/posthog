@@ -41,7 +41,6 @@ const GO_MOD_REPLACE_ONLY =
 const goRequests = (result: { requests: { url: string }[] }): (string | undefined)[] =>
     result.requests.map((request) => request.url.split('/event_definitions/')[1])
 
-// The `sdk` posthog.json records for the Go module, or undefined when it records none.
 const recordedGoSdk = (result: { files: Record<string, string> }): string | undefined =>
     (readJson(result.files['/work/posthog.json']!) as { languages: { golang: { sdk?: string } } }).languages.golang.sdk
 
