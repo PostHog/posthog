@@ -33,6 +33,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
+from posthog.temporal.ai.anomaly_investigation.ingestion_freshness import describe_ingestion_freshness
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
@@ -194,6 +195,11 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
             team=team, event=event
         )
+    # An alert with no evaluation delay scores a bucket that can still be filling. Late events show
+    # only by their absence, so measure that before the agent reads a lag tail as a traffic drop.
+    ingestion_freshness = await sync_to_async(describe_ingestion_freshness, thread_sensitive=False)(
+        team=team, event=event, evaluation_delay_intervals=alert.evaluation_delay_intervals or 0
+    )
 
     anomaly_context_text = build_anomaly_context(
         alert_name=alert.name or "Unnamed alert",
@@ -208,6 +214,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
             insight.query, series_index=alerted.series_index, alert_config=alert.config
         ),
         event_provenance=event_provenance,
+        ingestion_freshness=ingestion_freshness,
     )
 
     # Render a chart of the metric with the detector's anomaly points marked and

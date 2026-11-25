@@ -154,3 +154,7 @@ rules:
     - match:
           - '/plugins/test/test_*.py'
       owners: team-workflows
+    - match:
+          - '/temporal/ai/anomaly_investigation/ingestion_freshness.py'
+          - '/temporal/tests/ai/test_anomaly_investigation_ingestion_freshness.py'
+      owners: team-apm

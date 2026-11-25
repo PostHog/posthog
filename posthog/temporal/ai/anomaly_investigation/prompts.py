@@ -28,12 +28,14 @@ Workflow:
 1. Read the metric definition block in the anomaly context first, and look at the
    attached chart. Write down what the metric measures before you think about
    causes — see "Ground the metric" below.
-2. Sanity-check the magnitude *before* spending tool budget — see "Magnitude
+2. Check that the triggered bucket is complete — see "Data freshness check"
+   below. A bucket that is still filling cannot support a `true_positive`.
+3. Sanity-check the magnitude *before* spending tool budget — see "Magnitude
    check" below. If the absolute counts and relative deviation both look small,
    lean toward `false_positive` or `inconclusive` and use any remaining budget
    to confirm rather than to keep hunting for a story.
-3. Decide which tool, if any, confirms or refutes your leading hypothesis.
-4. Submit the final report with the `submit_investigation_report` tool. If the
+4. Decide which tool, if any, confirms or refutes your leading hypothesis.
+5. Submit the final report with the `submit_investigation_report` tool. If the
    tool is unavailable, emit a final JSON report matching the schema below with no
    free-form text around it.
 
@@ -90,6 +92,29 @@ Corroborating with a second data stream:
   is unverified rather than presenting it as the cause.
 - Even a stream that did change is a coincidence until you can name the
   mechanism. Say "coincides with" unless you have evidence for causation.
+
+Data freshness check (do this before classifying):
+- Events can arrive minutes or hours after their timestamp. Until they arrive,
+  the newest buckets read low and fill in later. Late data only removes events:
+  it makes counts and unique-user totals read low, and a ratio can move in
+  either direction.
+- Read the ingestion freshness block in the anomaly context. It gives the age
+  of the newest event and the event volume per 5 minutes up to the measurement.
+  If the newest event is many minutes old, ingestion is behind.
+- A tail that falls step by step toward the newest event is the shape of late
+  data. It is not evidence that the data is on time, and it is not on its own
+  a site-wide traffic drop. A real drop starts at a point in time and then
+  holds at the lower level; it does not fall toward zero at the newest event.
+- `created_at` records capture time, not insertion time, so a small gap between
+  `created_at` and `timestamp` says nothing about lag.
+- The calculated value at fire was measured when the check ran. Compare it with
+  the same bucket in `fetch_metric_series`. If that bucket is now higher, the
+  check scored an incomplete bucket, and the difference is late data.
+- If the triggered bucket is still filling and the firing is a drop, the verdict
+  is `inconclusive`. Say that ingestion lag can explain the drop, give the
+  newest event's age, and recommend a re-check after the late events arrive.
+  When the alert's evaluation delay is 0, also recommend setting it to 1
+  interval, so the check scores only completed buckets.
 
 Magnitude check (do this before classifying):
 - Compare the triggered point against the typical baseline for the series (the
@@ -152,6 +177,8 @@ Verdict rubric:
 - `inconclusive` — not enough evidence to call it either way within the
   budget; say so plainly rather than forcing a verdict. Do not use it for a
   hypothesis that one query can confirm or refute: run that query first.
+  Includes a drop in a triggered bucket that is still filling, because its
+  final value is not known yet.
 
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.
@@ -194,6 +221,7 @@ def build_anomaly_context(
     interval: str | None,
     metric_definition: str,
     event_provenance: str = "",
+    ingestion_freshness: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
     md = dict(triggered_metadata or {})
@@ -219,6 +247,7 @@ def build_anomaly_context(
             metadata_line = "Trigger metadata: " + ", ".join(parts) + "."
 
     provenance_block = f"{event_provenance}\n\n" if event_provenance else ""
+    freshness_block = f"{ingestion_freshness}\n\n" if ingestion_freshness else ""
 
     return (
         f"Alert: {alert_name}\n"
@@ -232,6 +261,7 @@ def build_anomaly_context(
         f"{metadata_line}\n\n"
         f"{metric_definition}\n\n"
         f"{provenance_block}"
+        f"{freshness_block}"
         "Use your tools to validate the anomaly and investigate the likely cause. "
         "Read the metric definition above before forming a hypothesis, and state what the "
         "metric measures in `metric_meaning`. "
