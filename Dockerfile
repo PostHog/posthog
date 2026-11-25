@@ -39,6 +39,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 COPY package.json ./
 RUN npm install -g corepack@0.36.0 && corepack enable && corepack install
 ENV COREPACK_ENABLE_NETWORK=0
+# Turbo sends usage events to telemetry.vercel.com on every run unless this is set.
+ENV TURBO_TELEMETRY_DISABLED=1
 
 
 #

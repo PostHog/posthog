@@ -1137,7 +1137,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             return EXPERIMENT_EXPOSURE_EVENT
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_default_exposure_event(obj.start_date or timezone.now())
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
