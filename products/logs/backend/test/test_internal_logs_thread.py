@@ -131,6 +131,28 @@ def test_send_in_a_forked_child_starts_its_own_loop(
     assert _records(bodies) == [("parent", 17), ("child", 17)]
 
 
+def test_send_after_a_failed_thread_start_starts_the_loop(
+    monkeypatch: pytest.MonkeyPatch, received: tuple[list[dict[str, Any]], threading.Event]
+) -> None:
+    bodies, arrived = received
+    start = threading.Thread.start
+
+    def fail_once(thread: threading.Thread) -> None:
+        monkeypatch.setattr(threading.Thread, "start", start)
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_once)
+    with pytest.raises(RuntimeError):
+        _send(message="first")
+    assert internal_logs_thread._loop is None
+    assert internal_logs_thread._pending_bytes == 0
+
+    _send(message="second")
+
+    assert arrived.wait(WAIT_SECONDS)
+    assert _records(bodies) == [("second", 17)]
+
+
 def _dropped_records() -> float:
     return (
         REGISTRY.get_sample_value("logs_internal_producer_records_total", {"source": "endpoints", "outcome": "dropped"})

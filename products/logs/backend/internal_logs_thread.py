@@ -100,12 +100,17 @@ def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
         if _pending_bytes + size > _max_pending_bytes:
             RECORDS_COUNTER.labels(source=source, outcome="dropped").inc(len(entries))
             return
-        _pending_bytes += size
         if _loop is None:
-            _loop = asyncio.new_event_loop()
-            threading.Thread(target=_loop.run_forever, name="internal-logs-producer", daemon=True).start()
+            new_loop = asyncio.new_event_loop()
+            try:
+                threading.Thread(target=new_loop.run_forever, name="internal-logs-producer", daemon=True).start()
+            except BaseException:
+                new_loop.close()
+                raise
+            _loop = new_loop
             # Not `atexit`, because those handlers run after the interpreter stops every thread pool, and the
             # producer needs one to read the team token and to resolve the capture-logs host.
             _register_before_thread_shutdown(_drain, _pid, producer, _loop)
+        _pending_bytes += size
         loop = _loop
     loop.call_soon_threadsafe(_enqueue, producer, source, entries, size)
