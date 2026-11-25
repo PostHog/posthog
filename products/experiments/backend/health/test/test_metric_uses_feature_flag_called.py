@@ -37,6 +37,11 @@ class TestMetricUsesFeatureFlagCalled(TestCase):
             ("no_metric_reads_an_event", _context(), not_applicable(NEEDS_METRIC_EVENT)),
             ("ended", _context(FLAG_CALLS, **ENDED), not_applicable(NOT_AFTER_END)),
             ("archived", _context(FLAG_CALLS, archived=True), not_applicable(NOT_ON_ARCHIVED)),
+            (
+                "self_hosted",
+                _context(FLAG_CALLS, flag_calls_kept_shorter=False),
+                not_applicable("Runs only on PostHog Cloud"),
+            ),
         ]
     )
     def test_outcome_follows_the_metrics_and_the_state(

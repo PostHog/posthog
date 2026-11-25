@@ -27,7 +27,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import EXPE
 
 
 def metric_uses_feature_flag_called_values(ctx: HealthContext) -> CheckValues:
-    if ctx.archived or ctx.has_ended:
+    if not ctx.flag_calls_kept_shorter or ctx.archived or ctx.has_ended:
         return {}
     return {
         ExperimentHealthValueKey.PRIMARY_METRIC_COUNT: ctx.primary_metric_count,
@@ -36,6 +36,8 @@ def metric_uses_feature_flag_called_values(ctx: HealthContext) -> CheckValues:
 
 
 def metric_uses_feature_flag_called(ctx: HealthContext) -> CheckOutcome:
+    if not ctx.flag_calls_kept_shorter:
+        return not_applicable("Runs only on PostHog Cloud")
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
     # An experiment that ran before EXPERIMENT_EXPOSURE_EVENT_CUTOFF has no `$experiment_exposure` events, so after the

@@ -27,6 +27,7 @@ from posthog.schema import (
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -678,6 +679,10 @@ class HealthContext:
     # None without a start date.
     daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
+    # Whether PostHog keeps `$feature_flag_called` events for a shorter time than other events, and copies each call of
+    # a multivariate flag to `$experiment_exposure`. Both hold on PostHog Cloud only: self-hosted ingestion makes no
+    # copy and keeps flag calls in the events table.
+    flag_calls_kept_shorter: bool
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
@@ -1337,6 +1342,7 @@ def load_health_context(
         past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
+        flag_calls_kept_shorter=is_cloud(),
         exposure_events=exposure_events,
         events_received=events_received,
         exposure_properties_received=properties_received,
