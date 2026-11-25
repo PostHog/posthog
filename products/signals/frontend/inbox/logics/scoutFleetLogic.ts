@@ -433,8 +433,8 @@ export interface scoutFleetLogicActions {
         entryPoint?: ScoutDeleteEntryPoint | null
     ) => {
         configId: string
-        surface: ScoutSurface
         entryPoint: ScoutDeleteEntryPoint | null
+        surface: ScoutSurface
     }
     deleteScoutFinished: (configId: string) => {
         configId: string

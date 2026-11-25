@@ -162,8 +162,8 @@ export interface scannerScoutLogicActions {
         entryPoint?: ScoutDeleteEntryPoint | null | undefined
     ) => {
         configId: string
-        surface: ScoutSurface
         entryPoint: ScoutDeleteEntryPoint | null
+        surface: ScoutSurface
     } // scoutFleetLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic

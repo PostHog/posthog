@@ -78,8 +78,8 @@ export interface scoutDetailActionsLogicActions {
         entryPoint?: ScoutDeleteEntryPoint | null | undefined
     ) => {
         configId: string
-        surface: ScoutSurface
         entryPoint: ScoutDeleteEntryPoint | null
+        surface: ScoutSurface
     } // scoutFleetLogic
     publishScoutToCommunity: (
         configId: string,
