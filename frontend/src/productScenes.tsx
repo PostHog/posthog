@@ -98,7 +98,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
     Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
     NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
-    DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
+    DataOps: () => import('../../products/data_warehouse/frontend/scenes/WarehouseDataOpsEntry/DataOpsEntryScene'),
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
@@ -111,6 +111,25 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
     WarehouseDestinationConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
+    Warehouse: () => import('../../products/data_warehouse/frontend/scenes/WarehouseUpsellScene/WarehouseUpsellScene'),
+    WarehouseOverview: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseOverviewScene/WarehouseOverviewScene'),
+    WarehouseUsage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseUsageScene/WarehouseUsageScene'),
+    WarehouseQueries: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseQueriesScene/WarehouseQueriesScene'),
+    WarehouseStorage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseStorageScene/WarehouseStorageScene'),
+    WarehousePostHogData: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehousePipelineHealthScene/WarehousePostHogDataScene'),
+    WarehouseSourceData: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehousePipelineHealthScene/WarehouseSourceDataScene'),
+    WarehouseAccess: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseAccessScene/WarehouseAccessScene'),
+    WarehouseConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseConnectScene/WarehouseConnectScene'),
+    WarehouseSettings: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseSettingsScene/WarehouseSettingsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),

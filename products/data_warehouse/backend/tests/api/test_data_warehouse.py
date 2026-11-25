@@ -28,10 +28,31 @@ _MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed
 
 
 class TestDataWarehouseAPI(APIBaseTest):
+    @parameterized.expand([("default", "", 7), ("thirty_days", "?days=30", 30)])
+    def test_landing_history_returns_one_zero_filled_bucket_per_day(self, _name: str, query: str, days: int) -> None:
+        with patch(f"{_MW}.is_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-landing-history/{query}"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["days"], days)
+        self.assertEqual(len(response.json()["buckets"]), days)
+        self.assertEqual(response.json()["buckets"][0]["source_failed"], 0)
+
+    def test_landing_history_rejects_an_unsupported_window(self) -> None:
+        with patch(f"{_MW}.is_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-landing-history/?days=5"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             ("data_status", "managed-warehouse-data-status/"),
             ("source_schemas", "managed-warehouse-source-schemas/?source_id=00000000-0000-0000-0000-000000000000"),
+            ("landing_history", "managed-warehouse-landing-history/"),
         ]
     )
     def test_overview_endpoints_require_a_managed_warehouse_flag(self, _name: str, path: str) -> None:

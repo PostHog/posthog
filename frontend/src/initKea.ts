@@ -51,6 +51,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadOfflineHistoryPrimaryPage',
     'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
+    'loadWarehouseOverviewHealthIssues', // The warehouse overview renders its own retry state
+    'loadWarehouseOverviewRecentRuns', // The warehouse overview renders its own retry state
+    'loadWarehouseOverviewJobStats', // The warehouse overview renders its own retry state
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
     'authenticate', // Special error handling on login
@@ -134,6 +137,20 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
+    // The warehouse console pages render each failure inline with a retry, and the running list and workload poll every 10 to 15 seconds
+    loadRunning: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadMoreHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadOverviewUsage: 'products.data_warehouse.frontend.scenes.WarehouseOverviewScene.warehouseConsoleOverviewLogic',
+    loadWorkload: 'products.data_warehouse.frontend.scenes.WarehouseOverviewScene.warehouseConsoleOverviewLogic',
+    loadUsage: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
+    loadSettings: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
+    loadStorage: 'products.data_warehouse.frontend.scenes.WarehouseStorageScene.warehouseStorageLogic',
+    loadLogins: 'products.data_warehouse.frontend.scenes.WarehouseAccessScene.warehouseLoginsLogic',
+    // The console Performance tab and the warehouse data pages show each failure inline with a retry, and both poll
+    loadMonitoringSeries: 'scenes.data-warehouse.scene.managedWarehouseTrinoMonitoringLogic',
+    loadMonitoringSnapshot: 'scenes.data-warehouse.scene.managedWarehouseTrinoMonitoringLogic',
+    loadManagedWarehouseDataStatus: 'scenes.data-warehouse.scene.managedWarehouseDataStatusLogic',
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     // The AI visibility filter bar shows a retry in place of the topic filter
