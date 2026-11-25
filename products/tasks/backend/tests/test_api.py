@@ -3874,30 +3874,57 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("implementation", "implementation", ["acme/web", "acme/assets"]),
-            ("discussion", "discussion", None),
+            ("implementation", "implementation", True, False, ["acme/web", "acme/assets"], "default"),
+            ("implementation_without_image_default", "implementation", False, False, ["acme/web", "acme/assets"], None),
+            (
+                "implementation_with_requested_image",
+                "implementation",
+                True,
+                True,
+                ["acme/web", "acme/assets"],
+                "requested",
+            ),
+            ("discussion", "discussion", True, False, None, None),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_inbox_started_implementation_run_gets_the_extra_repositories(
-        self, _name, relationship, expected_access, _mock_workflow
+    def test_inbox_started_implementation_run_gets_the_project_defaults(
+        self, _name, relationship, image_default, request_image, expected_access, expected_image, _mock_workflow
     ):
         from products.signals.backend.models import SignalReport, SignalTeamConfig
 
+        default_image_id = uuid.uuid4()
         SignalTeamConfig.objects.create(
-            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+            team=self.team,
+            implementation_repositories=["acme/assets", "other-owner/assets"],
+            implementation_custom_image_id=default_image_id if image_default else None,
         )
+        with team_scope(self.team.id):
+            requested_image = SandboxCustomImage.objects.create(
+                team=self.team,
+                name="Requested image",
+                status=SandboxCustomImage.Status.READY,
+                modal_image_name="posthog-test-image:latest",
+            )
         report = SignalReport.objects.create(team=self.team)
         create_response = self._post_signal_report_task(report.id, relationship)
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=create_response.json()["id"])
 
-        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        run_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"custom_image_id": str(requested_image.id)} if request_image else {},
+            format="json",
+        )
 
         self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
         run = TaskRun.objects.get(task=task)
         self.assertEqual(run.state.get("github_access_repositories"), expected_access)
         self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
+        self.assertEqual(
+            run.state.get("custom_image_id"),
+            {"default": str(default_image_id), "requested": str(requested_image.id), None: None}[expected_image],
+        )
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
