@@ -1431,10 +1431,10 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_far_ahead", True, "2026-11-30T08:00:00Z", 240.0),
-            ("a_millisecond_over_seven_days", True, "2026-11-27T08:00:00.001Z", 604_800_001 / 3_600_000),
-            ("while_scheduled_sends_are_off", False, "2026-11-21T14:00:00Z", 30.0),
-            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T08:00:00Z", -24.0),
+            ("too_far_ahead", True, "2026-11-30T09:00:00Z", 240.0),
+            ("a_millisecond_over_seven_days", True, "2026-11-27T09:00:00.001Z", 604_800_001 / 3_600_000),
+            ("while_scheduled_sends_are_off", False, "2026-11-21T15:00:00Z", 30.0),
+            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T09:00:00Z", -24.0),
         ]
     )
     def test_a_send_refused_for_its_time_reports_how_far_ahead_it_asked(

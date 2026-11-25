@@ -1265,9 +1265,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def _check_scheduled_at(self, scheduled_at: datetime | None) -> None:
         if scheduled_at is None:
             return
-        # A refusal reports this lead, so its event and the check agree on the side of now and of the cap it fell.
+        scheduled_sends_on = _flag_enabled(self.team, EMAIL_SCHEDULED_SENDS_FLAG)
         self._scheduled_lead = lead = scheduled_at - timezone.now()
-        if not _flag_enabled(self.team, EMAIL_SCHEDULED_SENDS_FLAG):
+        if not scheduled_sends_on:
             raise serializers.ValidationError(
                 {
                     "scheduled_at": "Scheduled sends are off for this project, so PostHog didn't send this request's "
