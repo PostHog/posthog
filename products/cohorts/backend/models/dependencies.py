@@ -612,19 +612,23 @@ def _backfill_trigger_kind(instance: Cohort, kwargs: dict, *, shape_changed: boo
     return CohortBackfillTrigger.COHORT_EDITED if shape_changed else None
 
 
-def queue_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> None:
-    """Queue one debounced run-creation task on commit, when the team and the cohort can take the run."""
+def queue_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> bool:
+    """Queue one debounced run-creation task on commit, when the team and the cohort can take the run.
+
+    Returns whether it queued one. After the commit, the debounce key or a Redis or broker failure can still drop it.
+    """
     if not is_cohort_backfill_trigger_team(cohort.team_id):
-        return
+        return False
     if not is_processing_team(cohort.team_id, fresh=True):
         COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="not_realtime_team").inc()
-        return
+        return False
     ineligibility = backfill_ineligibility_reason(cohort, kind)
     if ineligibility is not None:
         _report_backfill_ineligible(cohort, kind, ineligibility)
-        return
+        return False
 
     transaction.on_commit(lambda: _trigger_cohort_backfill(cohort, trigger_kind, kind))
+    return True
 
 
 def supersede_cohort_backfills(cohort: Cohort, kind: CohortBackfillKind) -> None:

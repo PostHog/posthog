@@ -118,6 +118,7 @@ from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
     RealtimeTurnOnRefused,
     flag_calls_table_refusal,
+    prepare_again,
     refuse_edit_over_plan_limits,
     turn_realtime_off,
     turn_realtime_on,
@@ -765,7 +766,8 @@ class CohortRealtimeRequestSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
         "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
-        "with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. "
+        "with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is "
+        "already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. "
         "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
         "cohort.",
     )
@@ -3317,7 +3319,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         request_serializer=CohortRealtimeRequestSerializer,
         responses={200: CohortSerializer},
         description="Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort "
-        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them.",
+        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them. "
+        "Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
     def realtime(self, request: ValidatedRequest, **kwargs) -> Response:
@@ -3327,9 +3330,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         enabled: bool = request.validated_data["enabled"]
         before = cohort.to_dict()
+        retried = False
         if enabled:
+            was_on = cohort.realtime_enabled
             try:
                 turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+                if was_on:
+                    retried = bool(prepare_again(cohort.team_id, cohort.pk))
             except RealtimeLimitReached as error:
                 _report_realtime_limit_reached(request, cohort, error, "switch")
                 raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
@@ -3355,6 +3362,14 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             report_user_action(
                 cast(User, request.user),
                 "cohort realtime enabled" if enabled else "cohort realtime disabled",
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
+                team=cohort.team,
+                request=request,
+            )
+        if retried:
+            report_user_action(
+                cast(User, request.user),
+                "cohort realtime retried",
                 {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
                 team=cohort.team,
                 request=request,
