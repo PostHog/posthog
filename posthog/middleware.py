@@ -45,6 +45,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
+from posthog.api.current_alias_deprecation import add_current_alias_deprecation_headers
 from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
@@ -711,6 +712,8 @@ class CHQueries:
             # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
             if is_api_request and http_request_id and "X-Request-ID" not in response:
                 response["X-Request-ID"] = str(http_request_id)
+            if is_api_request:
+                add_current_alias_deprecation_headers(request, response)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
@@ -928,7 +931,7 @@ class EnvironmentsRewriteMiddleware:
         response.setdefault("Link", f'<{successor}>; rel="successor-version"')
         sunset = self._sunset_http_date()
         if sunset:
-            response["Sunset"] = sunset
+            response.setdefault("Sunset", sunset)
         return response
 
     @staticmethod

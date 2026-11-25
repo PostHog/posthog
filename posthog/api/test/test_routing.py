@@ -14,7 +14,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.db.models import Count
 from django.db.models.functions import Lower
-from django.test import Client, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import include, path
 from django.utils import timezone
@@ -29,7 +29,12 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION
+from posthog.api.current_alias_deprecation import (
+    CURRENT_ALIAS_DEPRECATION,
+    CURRENT_ALIAS_DOCS_URL,
+    CURRENT_ALIAS_SUNSET,
+)
+from posthog.api.request_scope import ScopeLevel, resolve_request_scope
 from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -841,13 +846,15 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
+        self.assertEqual(response["Sunset"], CURRENT_ALIAS_SUNSET)
+        docs_link = f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"'
         if successor is None:
-            self.assertNotIn("Link", response)
+            self.assertEqual(response["Link"], docs_link)
         else:
             expected = successor.format(
                 project_id=self.team.project_id, team_id=self.team.id, organization_id=self.organization.id
             )
-            self.assertEqual(response["Link"], f'<{expected}>; rel="successor-version"')
+            self.assertEqual(response["Link"], f'<{expected}>; rel="successor-version", {docs_link}')
 
     def test_refused_current_alias_request_gets_no_successor(self) -> None:
         other_team = Team.objects.create(organization=self.organization, project=self.project)
@@ -866,10 +873,69 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
-        self.assertNotIn("Link", response)
+        self.assertEqual(response["Link"], f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"')
 
     def test_request_naming_its_project_is_not_deprecated(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.project_id}/feature_flags/")
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("Deprecation", response)
+
+
+class TestResolveRequestScope(SimpleTestCase):
+    path_team = Team(id=11, project_id=10, organization_id=UUID("00000000-0000-0000-0000-00000000000a"))
+    token_team = Team(id=21, project_id=20, organization_id=UUID("00000000-0000-0000-0000-00000000000b"))
+    key_team = Team(id=31, project_id=30, organization_id=UUID("00000000-0000-0000-0000-00000000000c"))
+
+    @parameterized.expand(
+        [
+            ("path_id", ScopeLevel.TEAM, {"team_id": "11"}, False, False, ("path", "11")),
+            ("path_wins_over_token_and_key", ScopeLevel.TEAM, {"team_id": "11"}, True, True, ("path", "11")),
+            ("alias_takes_token", ScopeLevel.TEAM, {"team_id": "@current"}, True, False, ("token", "21")),
+            ("token_names_project", ScopeLevel.PROJECT, {"project_id": "@current"}, True, False, ("token", "20")),
+            ("token_before_secret_key", ScopeLevel.TEAM, {"team_id": "@current"}, True, True, ("token", "21")),
+            (
+                "view_without_token_takes_key",
+                ScopeLevel.TEAM,
+                {"team_id": "@current"},
+                False,
+                True,
+                ("secret_key", "31"),
+            ),
+            (
+                "organization_from_key",
+                ScopeLevel.ORGANIZATION,
+                {"organization_id": "@current"},
+                False,
+                True,
+                ("secret_key", "00000000-0000-0000-0000-00000000000c"),
+            ),
+            (
+                "organization_path",
+                ScopeLevel.ORGANIZATION,
+                {"organization_id": "00000000-0000-0000-0000-00000000000a"},
+                False,
+                True,
+                ("path", "00000000-0000-0000-0000-00000000000a"),
+            ),
+            ("flat_route_without_credential", ScopeLevel.TEAM, {}, False, False, None),
+            ("alias_without_credential", ScopeLevel.PROJECT, {"project_id": "@current"}, False, False, None),
+        ]
+    )
+    def test_resolves_scope_from_the_request_only(
+        self,
+        _name: str,
+        level: ScopeLevel,
+        path_kwargs: dict[str, str],
+        accepts_token: bool,
+        has_secret_key: bool,
+        expected: tuple[str, str] | None,
+    ) -> None:
+        resolved = resolve_request_scope(
+            level,
+            path_kwargs=path_kwargs,
+            token_team=(lambda: self.token_team) if accepts_token else None,
+            secret_key_team=self.key_team if has_secret_key else None,
+        )
+
+        assert (None if resolved is None else (resolved.source.value, resolved.scope_id)) == expected
