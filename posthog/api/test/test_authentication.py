@@ -1110,6 +1110,20 @@ class TestDevLoginAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_refuses_service_account(self) -> None:
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        listed = self.client.get("/api/login/dev")
+        self.assertNotIn(self.user.email, {user["email"] for user in listed.json()["users"]})
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "user_not_found")
+        self.assertNotIn(SESSION_KEY, self.client.session)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.last_login)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
         for url in DEV_OAUTH_CONNECTOR_CIMD_URLS:
             OAuthApplication.objects.create(

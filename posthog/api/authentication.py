@@ -876,7 +876,7 @@ class DevLoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
         user = EmailLookupHandler.get_user_by_email(validated_data["email"])
-        if user is None:
+        if user is None or user.is_service_account:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -968,7 +968,8 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         # alphabetical: on instances with hundreds of test accounts, the handful you actually
         # switch between float up on their own. Email breaks ties to keep the order stable.
         users = list(
-            User.objects.filter(is_active=True)
+            User.objects.humans()
+            .filter(is_active=True)
             .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
             .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
             .values("email", "first_name", "is_staff", "last_login")

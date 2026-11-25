@@ -80,8 +80,9 @@ def login_required(view):
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
-            user = User.objects.filter(is_active=True).first()
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            user = User.objects.humans().filter(is_active=True).first()
+            if user is not None:
+                login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         response = base_handler(request, *args, **kwargs)
 
         # Don't include next=/ in the login redirect URL since "/" is the default destination
