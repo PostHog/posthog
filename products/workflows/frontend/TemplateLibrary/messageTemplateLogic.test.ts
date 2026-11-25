@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -227,6 +228,48 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ externallyEdited: false, deferredExternalEdit: null })
             expect(logic.values.template.name).toBe(name)
         })
+
+        it.each([
+            {
+                read: 'lands',
+                exportEdit: (callback: (data: any) => void) => callback({ html: '<p>Mine</p>', design: { mine: 1 } }),
+            },
+            {
+                read: 'fails',
+                exportEdit: () => {
+                    throw new Error('unreadable')
+                },
+            },
+        ])(
+            'shows the banner instead of reloading over an edit still in the canvas when its read $read',
+            async ({ exportEdit }) => {
+                const email = { subject: 'Hi', html: '<p>Old</p>', text: 'Old', design: null, from: '', to: '' }
+                const templater = emailTemplaterLogic({
+                    value: email,
+                    onChange: (value) => logic.actions.setTemplateValue('content.email', value),
+                    type: 'native_email_template',
+                    layout: 'inline',
+                })
+                const unmountTemplater = templater.mount()
+                templater.actions.setEmailEditorRef({
+                    editor: {
+                        loadDesign: jest.fn(),
+                        addEventListener: jest.fn(),
+                        exportHtml: exportEdit,
+                        exportPlainText: (callback: (data: any) => void) => callback({ text: 'Mine' }),
+                    },
+                } as any)
+                templater.actions.onEmailEditorReady()
+                templater.actions.designUpdated()
+
+                resourceEditedLogic.actions.resourceEdited(edited())
+
+                await waitFor(() => expect(logic.values.externallyEdited).toBe(true))
+                expect(logic.values.isSyncingExternalEdit).toBe(false)
+                expect(logic.values.template.name).toBe('Existing')
+                unmountTemplater()
+            }
+        )
 
         // A failed reload leaves the stale copy on the form, so the conflict must stay visible with its retry.
         it('shows the banner when the reload of a clean form fails', async () => {

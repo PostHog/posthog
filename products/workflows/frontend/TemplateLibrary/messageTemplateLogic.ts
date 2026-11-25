@@ -13,6 +13,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -796,25 +797,36 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
-        templateEditedElsewhere: ({ event }) => {
+        templateEditedElsewhere: async ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (
-                values.templateLoading ||
-                values.savedTemplateLoading ||
-                values.isMakingTransactional ||
-                values.isSavingSensitive ||
-                values.isSavingDraft ||
-                values.isDiscardingDraft
-            ) {
-                actions.setDeferredExternalEdit(event)
+            const parkedOrStale = (): boolean => {
+                if (
+                    values.templateLoading ||
+                    values.savedTemplateLoading ||
+                    values.isMakingTransactional ||
+                    values.isSavingSensitive ||
+                    values.isSavingDraft ||
+                    values.isDiscardingDraft
+                ) {
+                    actions.setDeferredExternalEdit(event)
+                    return true
+                }
+                const loadedUpdatedAt = values.originalTemplate.updated_at
+                return !loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))
+            }
+            if (parkedOrStale()) {
                 return
             }
-            const loadedUpdatedAt = values.originalTemplate.updated_at
-            if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
-                return
+            // The canvas hands its edits over late, so the form can look clean while it holds one.
+            const templater = emailTemplaterLogic.findMounted()
+            if (templater) {
+                await templater.asyncActions.flushPendingDesignEdit()
+                if (!messageTemplateLogic.isMounted(props) || parkedOrStale()) {
+                    return
+                }
             }
-            if (values.hasUnsavedChanges) {
+            if (values.hasUnsavedChanges || (templater?.isMounted() && templater.values.latestEditUnsaved)) {
                 actions.setExternallyEdited(true)
             } else {
                 actions.syncExternalEdit()
