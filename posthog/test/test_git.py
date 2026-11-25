@@ -198,6 +198,8 @@ class TestGitCommit:
             pytest.param(
                 "git", f"{INJECTED_SHA[:5]}\n{INJECTED_SHA[6:]}", FROM_GIT, id="multiline_injected_falls_back_to_git"
             ),
+            pytest.param("git", INJECTED_SHA.upper(), FROM_GIT, id="uppercase_injected_falls_back_to_git"),
+            pytest.param("git", "g" * 40, FROM_GIT, id="non_hex_injected_falls_back_to_git"),
             pytest.param("nothing", INJECTED_SHA, (INJECTED_SHA, INJECTED_SHA[:10]), id="injected_without_git"),
             pytest.param("nothing", None, ("None", "None"), id="unknown"),
         ],
