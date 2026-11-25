@@ -527,8 +527,8 @@ describe('provider edge', () => {
     it.each<[string, string, string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>, number, boolean]>([
         ['keeps', 'observed', 'before', observedUntil, 0, true],
         ['keeps', 'accepted', 'before', acceptedUntil, 0, true],
-        ['does not count', 'observed', 'after', observedUntil, 60_000, false],
-        ['does not count', 'accepted', 'after', acceptedUntil, 60_000, false],
+        ['does not count', 'observed', 'after', observedUntil, 1_000, false],
+        ['does not count', 'accepted', 'after', acceptedUntil, 1_000, false],
     ])(
         '%s a fault %s that applied %s the hold ended, while a read was on its way back',
         async (_, __, ___, waitOn, appliedFromEndMs, expected) => {
@@ -547,6 +547,40 @@ describe('provider edge', () => {
             answerFirstRead!()
 
             expect(await waiting).toBe(expected)
+        }
+    )
+
+    it.each<[string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>]>([
+        ['observed', observedUntil],
+        ['accepted', acceptedUntil],
+    ])(
+        'stops reading a fault %s after one more read once the hold ended, even within the same millisecond',
+        async (_, waitOn) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+            try {
+                let answerFirstRead: (() => void) | undefined
+                let readsAfterTheEnd = 0
+                const held = holdOf({
+                    firstAppliedAt: () => {
+                        if (answerFirstRead === undefined) {
+                            return new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        }
+                        readsAfterTheEnd += 1
+                        return readsAfterTheEnd > 5
+                            ? Promise.reject(new Error('still reading after the hold ended'))
+                            : Promise.resolve(undefined)
+                    },
+                    remove: () => Promise.resolve(),
+                })
+                const holdEnds = new AbortController()
+                const waiting = waitOn(held, holdEnds.signal)
+                holdEnds.abort()
+                answerFirstRead!()
+
+                expect({ applied: await waiting, readsAfterTheEnd }).toEqual({ applied: false, readsAfterTheEnd: 1 })
+            } finally {
+                clock.mockRestore()
+            }
         }
     )
 

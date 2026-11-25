@@ -61,15 +61,13 @@ async function appliedBefore(
     try {
         let readFrom = Date.now()
         let applied = await appliedInWindow()
-        // A read that started before the window ended can answer after it, so its negative answer gets one more read.
-        while (!applied && readFrom <= windowEndsAt) {
-            if (Date.now() <= windowEndsAt) {
-                await sleep(FAULT_POLL_MS, undefined, { signal: windowEnds }).catch(() => undefined)
-            }
+        while (!applied && !windowEnds?.aborted && Date.now() <= deadline) {
+            await sleep(FAULT_POLL_MS, undefined, { signal: windowEnds }).catch(() => undefined)
             readFrom = Date.now()
             applied = await appliedInWindow()
         }
-        return applied
+        // A read that started before the window ended can answer after it, so its negative answer gets one more read.
+        return applied || (readFrom <= windowEndsAt && (await appliedInWindow()))
     } finally {
         windowEnds?.removeEventListener('abort', endWindow)
     }
