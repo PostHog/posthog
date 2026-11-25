@@ -20,6 +20,7 @@ use crate::{
     },
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
+    modes::processing::team_db_slots::acquire_connection,
     stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
@@ -248,7 +249,16 @@ async fn resolve_issue(
     let team_id = event_properties.team_id();
     let fingerprint = event_properties.fingerprint().value().to_string();
 
-    let mut conn = context.posthog_pool.acquire().await?;
+    // This runs only on an issue-cache miss, and once per fingerprint in a batch, so the team's
+    // slot count follows its new fingerprints and not its event volume. Grouping refills the cache
+    // only for automatic fingerprints, so a known client or grouping-rule fingerprint lands here
+    // again after its cache entry expires.
+    let mut conn = acquire_connection(
+        context.team_db_slots.as_deref(),
+        &context.posthog_pool,
+        team_id,
+    )
+    .await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {

@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.contracts import (
     SkippedRunNode,
     StartedNodeRun,
 )
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
@@ -91,7 +92,9 @@ BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
 @tracer.start_as_current_span("data_modeling.start_node_materialization")
-def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
+def start_node_materialization(
+    node: Node, *, trigger: MaterializationRunTrigger, resume: bool = True, triggered_by_id: int | None = None
+) -> None:
     """Start a one-off materialization workflow for a single node.
 
     Shared by node `materialize` and saved-query `run`.
@@ -103,6 +106,7 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
     `triggered_by_id` is the person who asked for this run, and only they are told if it fails.
     Callers with no person behind them leave it unset.
     """
+    requested_at = timezone.now()
     if resume:
         # An explicit run is a request to try again, so it gets a fresh failure window.
         unsuspend_nodes([node], by="manual_run")
@@ -111,6 +115,8 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
         dag_id=str(node.dag_id),
         node_id=str(node.id),
         manually_triggered_by_id=triggered_by_id,
+        trigger=trigger,
+        requested_at=requested_at.isoformat(),
     )
     temporal = sync_connect()
     asyncio.run(
@@ -322,6 +328,7 @@ def run_related_node_materializations(
     from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
 ) -> StartedNodeRun:
+    requested_at = timezone.now()
     node = _get_node(team_id, node_id)
     node_ids, skipped = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
     built_saved_query_ids = set(
@@ -342,6 +349,9 @@ def run_related_node_materializations(
         team_id=node.team_id,
         dag_id=str(node.dag_id),
         node_ids=sorted(node_ids),
+        manually_triggered_by_id=user.pk,
+        trigger=MaterializationRunTrigger.MANUAL,
+        requested_at=requested_at.isoformat(),
     )
     temporal = sync_connect()
     asyncio.run(
@@ -413,6 +423,7 @@ def run_trino_node_materializations(
     does not turn the next scheduled shadow into a full rebuild.
     The run starts a few seconds late, so the state changes commit before the workflow reads them.
     """
+    requested_at = timezone.now()
     node = _get_node(team_id, node_id)
     if not is_managed_warehouse_shadow_enabled(node.team):
         raise ManagedWarehouseUnavailableError(MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL)
@@ -432,6 +443,8 @@ def run_trino_node_materializations(
         managed_warehouse_only=True,
         shadow=True,
         manually_triggered_by_id=user.pk,
+        trigger=MaterializationRunTrigger.MANUAL,
+        requested_at=requested_at.isoformat(),
     )
     building = asyncio.run(_nodes_building_on_trino(temporal, dag_id, sorted(node_ids)))
     if building:
@@ -475,7 +488,9 @@ def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
     return saved_query.id in get_v2_saved_query_ids([saved_query.id])
 
 
-def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) -> None:
+def run_saved_query_materialization(
+    team_id: int, saved_query_id: UUID | str, *, trigger: MaterializationRunTrigger
+) -> None:
     """Materialize one saved query now, for a caller outside this product.
 
     Restricted to the v2 workflow, and raising rather than falling back, because a caller reaching
@@ -489,11 +504,15 @@ def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) ->
         raise SavedQueryNotFoundError(f"Saved query {saved_query_id} not found for team {team_id}")
     if not is_saved_query_on_v2_schedule(saved_query):
         raise SavedQueryNotOnV2ScheduleError(f"Saved query {saved_query_id} is not on the v2 schedule")
-    materialize_saved_query(saved_query)
+    materialize_saved_query(saved_query, trigger=trigger)
 
 
 def materialize_saved_query(
-    saved_query: DataWarehouseSavedQuery, *, resume: bool = True, triggered_by_id: int | None = None
+    saved_query: DataWarehouseSavedQuery,
+    *,
+    trigger: MaterializationRunTrigger,
+    resume: bool = True,
+    triggered_by_id: int | None = None,
 ) -> UUID:
     """Materialize the saved query's backing node via the v2 workflow.
 
@@ -508,5 +527,5 @@ def materialize_saved_query(
         # Raise rather than return: returning reports a materialization the caller can then find no
         # trace of, and there is no v1 schedule left to fall back to.
         raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
-    start_node_materialization(node, resume=resume, triggered_by_id=triggered_by_id)
+    start_node_materialization(node, trigger=trigger, resume=resume, triggered_by_id=triggered_by_id)
     return node.id

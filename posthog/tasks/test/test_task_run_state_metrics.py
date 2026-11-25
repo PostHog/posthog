@@ -8,6 +8,7 @@ from django.db import OperationalError, ProgrammingError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+import requests_mock
 from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 from temporalio.service import RPCError, RPCStatusCode
@@ -366,7 +367,11 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         assert run.status == TaskRun.Status.FAILED
         assert registry.get_sample_value("posthog_tasks_stale_live_runs_swept", {"profile": "user"}) == 1
 
-    @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
+    @override_settings(
+        SANDBOX_AI_GATEWAY_URL="https://gateway.example.com",
+        SANDBOX_AI_GATEWAY_WORKER_URL="http://localhost:18080",
+        SANDBOX_AI_GATEWAY_MINT_KEY="phs_test",
+    )
     def test_revokes_the_gateway_tokens_of_a_run_that_ended(self) -> None:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -393,11 +398,9 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
                 "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
                 return_value={"user": "enforce"},
             ),
-            patch(
-                "products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post",
-                return_value=MagicMock(status_code=200),
-            ),
+            requests_mock.Mocker() as gateway,
         ):
+            gateway.post("http://localhost:18080/v1/tokens/revoke", status_code=200)
             capture_task_status_shadow_metrics()
 
         run.refresh_from_db()

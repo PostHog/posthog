@@ -2,10 +2,12 @@ from typing import NotRequired, Optional, TypedDict, cast
 
 import numpy as np
 
-from posthog.schema import FunnelsQuery, IntervalType, TrendsAlertConfig, TrendsQuery
+from posthog.schema import ChartDisplayType, FunnelsQuery, IntervalType, TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.utils.result_series import has_formula_results
+from posthog.tasks.alerts.metric_definition import _formulas
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 
 
@@ -86,8 +88,35 @@ def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int
     return {"date_from": date_from}
 
 
-def _pick_series_result(config: TrendsAlertConfig, results: InsightResult) -> TrendResult:
-    series_index = config.series_index
-    result = cast(list[TrendResult], results.result)[series_index]
+def _defined_result_count(query: TrendsQuery) -> int:
+    """How many results the query defines outside a breakdown: one per formula when formulas apply, else one per series."""
+    if query.trendsFilter and query.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
+        # The heatmap runner reports one row for series 0, whatever the series and formulas are.
+        return 1
+    source = query.model_dump(mode="json")
+    return len(_formulas(source)) if has_formula_results(source) else len(query.series)
 
-    return result
+
+def _pick_series_result(series_index: int, results: InsightResult, query: TrendsQuery) -> TrendResult:
+    # A top-level import is circular: the evaluation package imports this module while it loads.
+    from products.alerts.backend.evaluation.contract import (  # noqa: PLC0415
+        AlertDataUnavailableError,
+        AlertExtractionError,
+    )
+
+    if not 0 <= series_index < _defined_result_count(query):
+        raise AlertExtractionError(
+            "This alert watches a series or formula the insight no longer has. Edit the alert and choose what to watch."
+        )
+    rows = cast(list[TrendResult], results.result)
+    position = series_index
+    if any(isinstance(row.get("order"), int) for row in rows):
+        # In compare mode the runner lists each formula's previous-period row right after its current row, but
+        # lists every series' current row before any previous row. Only `order` and `compare_label` find the row.
+        rows = [row for row in rows if row.get("order") == series_index and row.get("compare_label") != "previous"]
+        position = 0
+    if position >= len(rows):
+        raise AlertDataUnavailableError(
+            "The insight returned fewer results than it defines, so this check couldn't evaluate. The next check will try again."
+        )
+    return rows[position]

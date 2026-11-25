@@ -655,9 +655,13 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("empty_then_backslash_backtick", ["", "slash\\`key"]),
             ("empty_then_control", ["", "line\nbreak\tkey"]),
             ("former_declared_list", ["$exception_types"]),
+            ("grouped", ["value"], " GROUP BY ALL"),
+            ("grouped_nested", ["parent", "child"], " GROUP BY ALL"),
         ]
     )
-    def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
+    def test_json_function_conversions_and_defaults_match_the_blob(
+        self, _name: str, keys: list[str], grouping: str = ""
+    ) -> None:
         values = [
             "null",
             '""',
@@ -694,8 +698,9 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             f"JSONExtract(properties, {path}, 'Nullable(Float64)')",
             f"JSONLength(properties, {path})",
             f"JSONType(properties, {path})",
+            f"JSONExtractRaw(toString(properties), {path}) IN ('true', '1')",
         ]
-        query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
+        query = "SELECT distinct_id, " + ", ".join(expressions) + f" FROM events{grouping} ORDER BY distinct_id"
         results = []
         for native in (False, True):
             context = self._context(use_new_events_schema=native)

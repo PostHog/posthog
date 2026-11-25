@@ -146,16 +146,28 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertIsNotNone(response.limit)
 
-    @parameterized.expand([(100, False), (168, True)])
-    def test_default_row_limit_flags_truncated_results(self, row_count, has_more):
-        response = self._create_runner(HogQLQuery(query=f"SELECT number FROM numbers({row_count})")).calculate()
+    @parameterized.expand(
+        [
+            ("default_complete", None, 100, 100, False, 100),
+            ("default_truncated", None, 168, 100, True, 100),
+            ("requested_truncated", 500, 600, 500, True, 500),
+            ("requested_complete", 500, 300, 300, False, 500),
+            ("requested_above_cap", 60000, 50001, 49999, True, 49999),
+        ]
+    )
+    def test_default_row_limit_flags_truncated_results(
+        self, _name, requested_limit, row_count, returned, has_more, reported_limit
+    ):
+        response = self._create_runner(
+            HogQLQuery(query=f"SELECT number FROM numbers({row_count})", limit=requested_limit)
+        ).calculate()
         assert response.results is not None
-        assert len(response.results) == 100
+        assert len(response.results) == returned
         assert response.hasMore is has_more
-        assert response.limit == 100
+        assert response.limit == reported_limit
 
     def test_default_hogql_query_with_limit(self):
-        runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 5", limit=500))
         response = runner.calculate()
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
