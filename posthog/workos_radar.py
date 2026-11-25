@@ -187,7 +187,6 @@ def _radar_client_id() -> str:
 
 def radar_client_id_for_signup() -> str:
     """WorkOS client ID for the signup pages' Radar browser script, or "" while Radar is not set up."""
-    # Radar checks every signup, so the script runs whenever Radar is set up
     return _radar_client_id()
 
 

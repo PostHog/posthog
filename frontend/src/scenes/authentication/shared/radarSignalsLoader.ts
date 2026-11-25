@@ -11,7 +11,7 @@ export function startRadarSignalsFor(clientId: string | null | undefined): void 
         .catch(() => undefined)
 }
 
-export async function radarSignalsIdFor(clientId: string | null | undefined): Promise<string> {
+async function radarSignalsIdFor(clientId: string | null | undefined): Promise<string> {
     if (!clientId) {
         return ''
     }
@@ -32,4 +32,9 @@ export async function radarSignalsIdFor(clientId: string | null | undefined): Pr
     } finally {
         clearTimeout(timer)
     }
+}
+
+export async function radarSignalsFields(clientId: string | null | undefined): Promise<{ radar_signals_id?: string }> {
+    const radarSignalsId = await radarSignalsIdFor(clientId)
+    return radarSignalsId ? { radar_signals_id: radarSignalsId } : {}
 }

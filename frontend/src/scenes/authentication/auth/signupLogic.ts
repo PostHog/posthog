@@ -19,7 +19,7 @@ import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { radarSignalsIdFor, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
@@ -61,7 +61,6 @@ interface SignupEmailPrecheckResponse {
     code?: string
     detail?: string
     pending_invite?: PendingInvite | null
-    // WorkOS client ID for the Radar browser script. Present while Radar checks signups.
     radar_client_id?: string
 }
 
@@ -578,10 +577,7 @@ export const signupLogic = kea<signupLogicType>([
                         signupData.challenge_nonce = values.challengeNonce
                     }
 
-                    const radarSignalsId = await radarSignalsIdFor(values.radarClientId)
-                    if (radarSignalsId) {
-                        signupData.radar_signals_id = radarSignalsId
-                    }
+                    Object.assign(signupData, await radarSignalsFields(values.radarClientId))
 
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const res = await api.create('api/signup/', signupData)
@@ -721,7 +717,6 @@ export const signupLogic = kea<signupLogicType>([
             }
             breakpoint()
             actions.finishSignupEmailPrecheck()
-            // The script collects device signals while the person fills in the rest of the form
             startRadarSignalsFor(precheckResponse.radar_client_id)
             actions.setRadarClientId(precheckResponse.radar_client_id ?? null)
             const pendingInvite = precheckResponse.pending_invite ?? null

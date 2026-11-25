@@ -4779,7 +4779,6 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
-    // WorkOS client ID for the Radar browser script. Present while Radar checks signups.
     radar_client_id?: string
 }
 

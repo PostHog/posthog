@@ -20,7 +20,7 @@ import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
-import { radarSignalsIdFor, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -105,10 +105,9 @@ async function loginRequestBody(
     precheckResponse: PrecheckResponseType,
     solvedChallenge: SolvedLoginChallenge | null
 ): Promise<Record<string, string>> {
-    const radarSignalsId = await radarSignalsIdFor(precheckResponse.radar_client_id)
     return {
         ...login,
-        ...(radarSignalsId ? { radar_signals_id: radarSignalsId } : {}),
+        ...(await radarSignalsFields(precheckResponse.radar_client_id)),
         ...(solvedChallenge ? { turnstile_token: solvedChallenge.token, challenge_nonce: solvedChallenge.nonce } : {}),
     }
 }

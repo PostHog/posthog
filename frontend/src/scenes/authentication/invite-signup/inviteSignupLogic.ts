@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { signupGenericError } from 'scenes/authentication/auth/signupLogic'
-import { radarSignalsIdFor, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
@@ -342,10 +342,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         submitPayload.challenge_nonce = values.challengeNonce
                     }
 
-                    const radarSignalsId = await radarSignalsIdFor(values.invite.radar_client_id)
-                    if (radarSignalsId) {
-                        submitPayload.radar_signals_id = radarSignalsId
-                    }
+                    Object.assign(submitPayload, await radarSignalsFields(values.invite.radar_client_id))
 
                     const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
                     if (nextUrl) {
