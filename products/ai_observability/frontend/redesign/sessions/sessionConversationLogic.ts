@@ -389,19 +389,29 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
 
         const readSidesOf = async (rows: SessionTurnApi[], refresh: boolean): Promise<void> => {
             const projectId = String(ApiConfig.getCurrentProjectId())
-            await Promise.all(
-                turnSidesBatches(rowsToRead(rows, values.sides, refresh)).map((batch) =>
-                    readSides(
-                        'sides',
-                        batch,
-                        async (batchRows) => {
-                            const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows))
-                            return { items: turnSidesOfRows(batchRows, items) }
-                        },
-                        actions.sidesLoaded
-                    )
+            const toRead = rowsToRead(rows, values.sides, refresh)
+            if (toRead.length === 0) {
+                return
+            }
+            // Marked before the first batch goes out, so a second retry asks for no batch that still waits its turn.
+            actions.sidesRequested(toRead.map((row) => row.id))
+            // One batch at a time: a retry of every failed turn would otherwise run past the query concurrency limit.
+            for (const batch of turnSidesBatches(toRead)) {
+                await readSides(
+                    'sides',
+                    batch,
+                    async (batchRows) => {
+                        const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows), {
+                            signal: cache.sidesSignal,
+                        })
+                        return { items: turnSidesOfRows(batchRows, items) }
+                    },
+                    actions.sidesLoaded
                 )
-            )
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+            }
         }
 
         return {
@@ -414,11 +424,9 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             },
             stepTo: ({ direction }) => {
                 const firstRow = values.rows[0]
-                if (
-                    direction === 'previous' &&
-                    firstRow?.traceId === values.openTraceId &&
-                    values.olderEdge === 'more'
-                ) {
+                // A failed edge counts, or the drawer's step up would stay enabled and do nothing after a failed read.
+                const canLoadOlder = values.olderEdge === 'more' || values.olderEdge === 'failed'
+                if (direction === 'previous' && firstRow?.traceId === values.openTraceId && canLoadOlder) {
                     cache.openBeforeTraceId = firstRow.traceId
                     actions.loadOlder()
                 }
@@ -476,7 +484,11 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             },
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        const sidesRequests = new AbortController()
+        cache.sidesSignal = sidesRequests.signal
+        // Leaving a session frees the query slots of the messages still loading. A hidden tab keeps them.
+        cache.disposables.add(() => () => sidesRequests.abort(), 'sidesRequests', { pauseOnPageHidden: false })
         actions.reload()
     }),
 ])

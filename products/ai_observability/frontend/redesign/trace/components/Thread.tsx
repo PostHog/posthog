@@ -51,7 +51,10 @@ export function Thread({
     }
     const { turns, activeTurnId } = conversation
     const isEmpty = (turn: ConversationTurn): boolean =>
-        (turn.sidesStatus ?? 'ready') === 'ready' && !turnHasContent(turn) && !turn.error && !turn.missingReasons
+        (turn.sidesStatus ?? 'ready') === 'ready' &&
+        !turnHasContent(turn, conversationOnly) &&
+        !turn.error &&
+        !turn.missingReasons
     if (turns.every(isEmpty)) {
         return <p className="m-0 text-secondary">{emptyMessage}</p>
     }
