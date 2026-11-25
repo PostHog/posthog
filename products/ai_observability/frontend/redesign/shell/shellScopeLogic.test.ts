@@ -45,10 +45,13 @@ describe('shellScopeLogic', () => {
         expect(logic.values).toMatchObject({ dateFrom: '-7d', dateTo: null })
     })
 
-    it('takes the range in the url over the remembered pick', () => {
+    it.each([
+        ['a list', TRACES],
+        ['a session page', urls.aiObservabilitySession('session-a')],
+    ])('takes the range in the url of %s over the remembered pick', (_name, path) => {
         rememberPick('-30d')
 
-        mountAt(`${TRACES}?date_from=-24h&date_to=-1h`)
+        mountAt(`${path}?date_from=-24h&date_to=-1h`)
 
         expect(logic.values).toMatchObject({ dateFrom: '-24h', dateTo: '-1h' })
     })

@@ -121,43 +121,97 @@ class TestIncrementalRequests:
         assert result.response.sort_mode == ("asc" if incremental else None)
 
 
-class TestObjectsFanOut:
-    def test_lists_the_objects_of_each_object_type_and_keeps_the_type_id(self) -> None:
+class TestFanOut:
+    @parameterized.expand(
+        [
+            (
+                "objects",
+                "/api/v2/object-types",
+                "/api/v2/objects",
+                "objectTypeId",
+                ["cot_1", "cot_2"],
+                "recordKey,segments,tags,url,cf_*",
+                "id",
+            ),
+            (
+                "job_openings",
+                "/api/v2/organizations",
+                "/api/v2/job-openings",
+                "organizationId",
+                ["o_1", "o_2"],
+                "jobDescription",
+                "firstSeenAt",
+            ),
+            (
+                "news_items",
+                "/api/v2/organizations",
+                "/api/v2/news-items",
+                "organizationId",
+                ["o_1", "o_2"],
+                None,
+                "publishedAt",
+            ),
+        ]
+    )
+    def test_lists_the_children_of_each_parent_and_keeps_the_parent_id(
+        self,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        param: str,
+        parent_ids: list[str],
+        child_cols: str | None,
+        child_sort: str,
+    ) -> None:
+        first, second = parent_ids
         result = _driver().run(
-            "objects",
+            endpoint,
             [
-                ScriptedResponse(
-                    json={
-                        "success": True,
-                        "data": [{"id": "cot_1", "name": "Accounts"}, {"id": "cot_2", "name": "Deals"}],
-                    }
-                ),
-                _page([{"id": "co_1", "name": "Acme"}], "cursor-2"),
-                _page([{"id": "co_2", "name": "Initech"}], None),
-                _page([{"id": "co_1", "name": "Big deal"}], None),
+                _page([{"id": first, "name": "Acme"}, {"id": second, "name": "Initech"}]),
+                _page([{"id": "x_1", "name": "One"}], "cursor-2"),
+                _page([{"id": "x_2", "name": "Two"}], None),
+                # The same child id under a second parent stays a separate row.
+                _page([{"id": "x_1", "name": "One again"}], None),
             ],
         )
 
         assert result.raised is None
-        assert result.paths == ["/api/v2/object-types", "/api/v2/objects", "/api/v2/objects", "/api/v2/objects"]
-        assert result.params("objectTypeId") == [None, "cot_1", "cot_1", "cot_2"]
+        assert result.paths == [parent_path, child_path, child_path, child_path]
+        assert result.params(param) == [None, first, first, second]
         assert result.params("cursor") == [None, None, "cursor-2", None]
-        assert [(row["objectTypeId"], row["id"]) for row in result.rows] == [
-            ("cot_1", "co_1"),
-            ("cot_1", "co_2"),
-            ("cot_2", "co_1"),
-        ]
-        assert all("_object_types_id" not in row for row in result.rows)
+        # The fan-out reads only the parent id, so the parent listing asks for no extra columns.
+        assert result.params("cols") == [None, child_cols, child_cols, child_cols]
+        assert result.params("sort")[1:] == [child_sort] * 3
+        assert [(row[param], row["id"]) for row in result.rows] == [(first, "x_1"), (first, "x_2"), (second, "x_1")]
+        assert all(not key.startswith("_") for row in result.rows for key in row)
         assert (
-            CommonRoomResumeConfig(
+            result.saved_states[0].paginator_state["current"] == f"{child_path.removeprefix('/api/v2')}?{param}={first}"
+        )
+        assert result.saved_states[0].paginator_state["child_state"] == {"cursor": "cursor-2"}
+
+    @parameterized.expand([("job_openings", "/job-openings"), ("news_items", "/news-items")])
+    def test_organization_fan_out_resumes_at_the_saved_organization_page(self, endpoint: str, path: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"id": "o_3", "name": "Globex"}, {"id": "o_4", "name": "Hooli"}], None),
+                _page([{"id": "x_7", "name": "Late"}], None),
+                _page([{"id": "x_9", "name": "Next"}], None),
+            ],
+            resume_state=CommonRoomResumeConfig(
                 paginator_state={
                     "completed": [],
-                    "current": "/objects?objectTypeId=cot_1",
-                    "child_state": {"cursor": "cursor-2"},
+                    "current": f"{path}?organizationId=o_3",
+                    "child_state": {"cursor": "cursor-7"},
+                    "parent": {"cursor": "org-cursor-2"},
                 }
-            )
-            in result.saved_states
+            ),
         )
+
+        assert result.raised is None
+        assert result.params("cursor") == ["org-cursor-2", "cursor-7", None]
+        assert result.params("organizationId") == [None, "o_3", "o_4"]
+        assert [(row["organizationId"], row["id"]) for row in result.rows] == [("o_3", "x_7"), ("o_4", "x_9")]
 
     def test_resume_skips_finished_object_types_and_continues_the_current_one(self) -> None:
         result = _driver().run(

@@ -825,6 +825,9 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),
+            # A trigger label still starts a run in ALL mode, and a mode change must not relabel older runs.
+            ("stamped_label_beats_all_mode", ReviewMode.ALL, {"review_trigger": "label"}, "label"),
+            ("stamped_all_beats_label_mode", ReviewMode.LABEL, {"review_trigger": "all"}, "all"),
         ]
     )
     def test_trigger_is_derived_and_filterable(

@@ -1,6 +1,10 @@
 # Live
 
-Live defaults to All traffic. Open Filters beside More to choose an audience (All, Web, or Mobile), exclude likely bots, and filter by hostname, path, channel type, country, device type, or referring domain. Filters combine and apply to the entire view, including Users online, mobile metrics, events, and Visitors by country. The selection stays with the current project for the app session. Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online follows the selected audience; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
+Live defaults to All traffic. Open Filters beside More to choose an audience (All, Web, or Mobile), exclude likely bots, and filter by hostname, path, channel type, country, device type, or referring domain. Filters combine and apply to the entire view, including Users online, mobile metrics, events, and Visitors by country.
+
+Tap **Hide** on the filter banner to dismiss it while keeping filters active. The header's Filters button still shows the active count. To bring the banner back, open Live filters, turn on **Show filter banner** at the bottom, and tap **Apply filters**. The app saves your filters and banner visibility on the device for each account and project.
+
+Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online follows the selected audience; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.

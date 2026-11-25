@@ -22,7 +22,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_active_installations, has_slack_mcp_connected
 from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled, is_slack_app_forking_enabled
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
@@ -441,15 +441,21 @@ class ForkThreadTip(TipFeature):
     feature = SlackFeature.FORK_THREAD
     rank = 150
     emoji = "🍴"
-    title = "Continue in private"
-    text = 'To continue a thread in private, use "Fork to DM" in the menu on my answer.'
+    title = "Continue somewhere else"
+    text = 'To continue a thread in private or in another channel, use "Fork to DM" or "Fork to channel" in the menu on my answer.'
     choice_criteria = (
-        "Moving a channel conversation into a private direct message. Fits a message in a busy channel, "
-        "or about a topic the person wants to explore alone."
+        "Moving a channel conversation into a private direct message or into the channel where the work "
+        "belongs. Fits a message in a busy channel, or about a topic the person wants to explore alone."
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
-        return not ctx.in_direct_message and is_slack_app_forking_enabled(ctx.integration)
+        # A fork reads the thread through the person's Slack MCP, so without it the menu only refuses.
+        return (
+            not ctx.in_direct_message
+            and ctx.posthog_user_id is not None
+            and is_slack_app_forking_enabled(ctx.integration)
+            and has_slack_mcp_connected(ctx.team_id, ctx.posthog_user_id)
+        )
 
 
 class UnpromptedAnswersTip(TipFeature):

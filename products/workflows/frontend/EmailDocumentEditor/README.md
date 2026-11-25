@@ -50,6 +50,11 @@ An email that is only one HTML block holding a whole document, or html from outs
 
 `renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes.
 
+## The HTML view
+
+The HTML tab is read-only. It hands over a pending edit the way a save does, then shows `content.email.html`, so it matches what a save stores. An email nobody has edited shows its stored html, not a new render.
+When the latest edit can't be read, the tab says so instead of showing older html.
+
 ## Plain text
 
 An edit writes `text` again from the document (`renderEmailText`), with the address of every link.

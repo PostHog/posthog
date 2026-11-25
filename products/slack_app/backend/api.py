@@ -64,10 +64,14 @@ from products.slack_app.backend.logic.daily_focus import (
     DAILY_FOCUS_OFF_ACTION_ID,
     daily_focus_off_blocks,
     turn_off_daily_focus,
+    turn_on_daily_focus_on_mention,
 )
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.fork import interactivity as fork_interactivity
+from products.slack_app.backend.logic.fork.channel_picker import FORK_CHANNEL_MODAL_CALLBACK_ID
+from products.slack_app.backend.logic.fork.menu import FORK_THREAD_ACTION_ID
 from products.slack_app.backend.logic.inbox_report_actions import (
     SIGNALS_REMOVE_REVIEWER_ACTION_ID,
     SIGNALS_REPORT_STATE_ACTION_IDS,
@@ -106,6 +110,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
+from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
     ResolutionResult,
@@ -127,9 +132,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_conversations import channel_ext_shared_state, channel_is_ext_shared
-from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.slack_messages import (
-    FORK_THREAD_ACTION_ID,
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
@@ -190,13 +193,11 @@ from products.slack_app.backend.temporal import (
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
-from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
 from products.slack_app.backend.temporal.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
 from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
-from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -2340,24 +2341,7 @@ def _handle_assistant_dm_message(
     viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
     agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
 
-    # A fork parks the thread it came from and then asks what the user wants to know.
-    # This is that answer: it reads as an ordinary DM, so the pointer is the only thing
-    # that says otherwise. Consumed once — the run it starts writes a thread mapping,
-    # and every later message is a follow-up against that.
-    pending = get_pending_fork(integration.id, channel_id, thread_ts)
-    fork_kwargs: dict[str, Any] = {}
-    if pending:
-        clear_pending_fork(integration.id, channel_id, thread_ts)
-        fork_kwargs = {
-            "is_ext_shared_channel": pending.is_ext_shared,
-            "fork_source_channel": pending.source_channel,
-            "fork_source_thread_ts": pending.source_thread_ts,
-            "fork_source_message_ts": pending.source_message_ts,
-            "fork_source_task_id": pending.task_id,
-        }
-    return _start_mention_workflow(
-        agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user, **fork_kwargs
-    )
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
 
 
 def _route_assistant_event(
@@ -2659,6 +2643,9 @@ def _route_untagged_question(
     # No picker: asking which project a question nobody addressed to us belongs to is noise.
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
+        return ROUTE_HANDLED_LOCALLY
+    # The channel's mode belongs to the organization of the routed project, so it is read once the target is known.
+    if resolve_channel_untagged_question_mode(target, slack_user_id, channel) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
     # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
     if _message_tags_bot(event, target):
@@ -4185,7 +4172,8 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
     if (
         not isinstance(event, dict)
         or slack.missing_scopes(REQUIRED_SLACK_SCOPES)
-        or resolve_untagged_question_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
+        or resolve_channel_untagged_question_mode(integration, slack_user_id, event.get("channel"))
+        == UntaggedFollowupMode.NEVER
         or (posthog_user := _is_org_member(integration, slack_user_id)) is None
         or not _can_access_team(posthog_user, integration)
     ):
@@ -5172,8 +5160,9 @@ def _report_slack_mention_dropped(
 
 
 def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_result: ResolutionResult) -> None:
-    """Someone who only tags PostHog in channels may never open its DM, so their mention starts the onboarding.
-    It runs after the mention is handled, so a slow onboarding start never delays the answer. A guest from
+    """Someone who only tags PostHog in channels may never open its DM or Home tab, so their mention starts the
+    onboarding and turns the daily work focus on by default. It runs after the mention is handled, so a slow start
+    never delays the answer. A guest from
     another workspace in a shared channel gets no onboarding, because it would come from this workspace's app."""
     slack_user_id = event.get("user")
     if event.get("type") != "app_mention" or event.get("user_team", slack_team_id) != slack_team_id:
@@ -5181,6 +5170,7 @@ def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_resu
     integration = workspace_result.resolved_or_first()
     if integration is not None and isinstance(slack_user_id, str) and slack_user_id:
         request_onboarding(integration, slack_user_id, may_start=True, start_only=True)
+        turn_on_daily_focus_on_mention(integration, slack_user_id)
 
 
 def _start_mention_workflow(
@@ -5203,6 +5193,7 @@ def _start_mention_workflow(
     fork_source_thread_ts: str | None = None,
     fork_source_message_ts: str | None = None,
     fork_source_task_id: str | None = None,
+    fork_source_title: str | None = None,
 ) -> str:
     """Start the mention workflow for an explicit ``app_mention``, an untagged
     thread reply, or a forked thread.
@@ -5250,6 +5241,7 @@ def _start_mention_workflow(
         fork_source_thread_ts=fork_source_thread_ts,
         fork_source_message_ts=fork_source_message_ts,
         fork_source_task_id=fork_source_task_id,
+        fork_source_title=fork_source_title,
     )
     # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
@@ -6546,37 +6538,6 @@ def _post_insight_alert_snooze_modal_confirmation(
         logger.warning("insight_alert_snooze_modal_confirm_failed")
 
 
-def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
-    """Hand the fork to Temporal and ack immediately.
-
-    Everything the fork does — resolving the user, reading the thread, opening the DM —
-    is too slow for Slack's three-second interactivity budget, so this only dispatches.
-    The id is keyed on the thread being forked, not the reply the menu hangs off, so
-    forking twice from the same discussion reuses the running fork instead of opening a
-    second DM about it.
-    """
-    message = payload.get("message", {}) or {}
-    team_id = payload.get("team", {}).get("id", "")
-    user_id = payload.get("user", {}).get("id", "")
-    source_ts = message.get("thread_ts") or message.get("ts", "")
-    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
-    try:
-        client = sync_connect()
-        asyncio.run(
-            client.start_workflow(
-                SlackAppForkThreadWorkflow.run,
-                SlackAppForkThreadInputs(payload=payload),
-                id=workflow_id,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            )
-        )
-    except Exception as e:
-        logger.warning("slack_app_fork_submit_start_failed", workflow_id=workflow_id, error=str(e))
-    return HttpResponse(status=200)
-
-
 @csrf_exempt
 def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -6618,6 +6579,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[0]
         or _extract_action_value_hints(payload, TURN_FEEDBACK_ACTION_ID)[0]
         or turn_feedback.extract_modal_hint(payload)
+        or fork_interactivity.fork_channel_modal_integration_hint(payload)
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
@@ -6748,6 +6710,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             return _handle_insight_alert_snooze_modal_submit(payload)
         if callback_id == turn_feedback.TURN_FEEDBACK_MODAL_CALLBACK_ID:
             return turn_feedback.handle_turn_feedback_modal_submit(payload)
+        if callback_id == FORK_CHANNEL_MODAL_CALLBACK_ID:
+            return fork_interactivity.handle_fork_channel_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
@@ -6759,7 +6723,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
             if action_id == FORK_THREAD_ACTION_ID:
-                return _handle_fork_thread_submit(payload)
+                return fork_interactivity.handle_fork_menu_click(payload)
             if action_id == TURN_FEEDBACK_ACTION_ID:
                 return turn_feedback.handle_turn_feedback_click(payload)
             if feature_tip_interactivity.is_feature_tip_action(action_id):

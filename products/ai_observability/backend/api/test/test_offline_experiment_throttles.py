@@ -16,7 +16,7 @@ from posthog.models import Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.rate_limit import PersonalApiKeyRateThrottle
 
-from products.ai_observability.backend.api.offline_experiment_access import (
+from products.ai_observability.backend.presentation.throttles import (
     OfflineEvaluationIngestionBurstThrottle,
     OfflineEvaluationIngestionSustainedThrottle,
     OfflineEvaluationIngestionTeamBurstThrottle,

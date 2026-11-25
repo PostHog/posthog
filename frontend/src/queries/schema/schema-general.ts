@@ -809,6 +809,11 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: non_negative_integer
+    /**
+     * Rows to return in place of the default row limit, capped at the maximum for the query's context.
+     * Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL.
+     */
+    limit?: positive_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */
@@ -8448,6 +8453,14 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /**
+     * Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every
+     * matching event. Leave unset to return every event.
+     * @asType integer
+     * @minimum 1
+     * @maximum 10000
+     */
+    eventsLimit?: number
 }
 
 export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
@@ -9352,6 +9365,10 @@ export interface MarketingAnalyticsRecommendationCpa {
 export type MarketingAnalyticsRecommendationsDataGapKind =
     | 'conversion_action_tables_not_synced'
     | 'performance_max_search_terms_count_primary_conversions'
+    | 'posthog_conversions_not_ready'
+    | 'posthog_conversion_goals_unusable'
+    | 'posthog_campaigns_unmatched'
+    | 'posthog_conversions_failed'
 
 export interface MarketingAnalyticsRecommendationsDataGap {
     kind: MarketingAnalyticsRecommendationsDataGapKind
@@ -9552,6 +9569,12 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * Defaults to false.
      */
     counts_as_revenue?: boolean
+    /**
+     * When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the
+     * conversions Google Ads reports. Conversions from every marked goal are added together, so marking
+     * two goals the same person completes counts that person twice. Defaults to false.
+     */
+    use_in_recommendations?: boolean
 }
 
 export enum AttributionMode {
