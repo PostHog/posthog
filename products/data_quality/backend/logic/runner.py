@@ -11,16 +11,16 @@ import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.db import transaction
 
+from opentelemetry import trace
+
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
-
-if TYPE_CHECKING:
-    from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
@@ -44,6 +44,8 @@ FAILING_STATUSES = (CheckRunStatus.FAILED, CheckRunStatus.ERRORED)
 
 STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
 
+tracer = trace.get_tracer(__name__)
+
 
 class _ReferenceState(Enum):
     NOT_SUPPLIED = auto()
@@ -62,12 +64,13 @@ class CheckOutcome:
     audited_staged_refresh: bool = False
 
 
+@tracer.start_as_current_span("data_quality.run_check")
 def run_check(
     check: DataQualityCheck,
     suite_run: DataQualitySuiteRun,
     team: Team,
     staged: StagedSubjectOverride | None = None,
-    staged_database_cache: "dict[Any, Database | None] | None" = None,
+    database_cache: "dict[Any, Database | None] | None" = None,
 ) -> CheckOutcome:
     """Compile, execute, and persist one check. Updates the check's denormalized status.
 
@@ -76,11 +79,14 @@ def run_check(
     ``staged`` redirects the subject's table at unpublished files for write-audit-publish runs (see
     logic/staged_audit); the cache is shared across a batch so each ACL posture builds one database.
     """
+    span = trace.get_current_span()
+    span.set_attribute("data_quality.check_type", check.check_type)
+    span.set_attribute("data_quality.subject_type", check.subject_type)
     started_at = datetime.now(UTC)
     monotonic_start = time.monotonic()
 
     try:
-        outcome = _execute(check, suite_run, team, staged, staged_database_cache)
+        outcome = _execute(check, suite_run, team, staged, database_cache)
     except Exception as err:
         outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=str(err))
     outcome = replace(outcome, audited_staged_refresh=staged is not None)
@@ -150,26 +156,39 @@ def _needs_a_principal(check: DataQualityCheck) -> bool:
     return check_type_reads_beyond_subject(check.check_type) or check.subject_type == SubjectType.POSTHOG_TABLE
 
 
-def _staged_database(
+def _database(
     team: Team,
-    staged: StagedSubjectOverride,
+    staged: StagedSubjectOverride | None,
     authorization: _Authorization,
     cache: "dict[Any, Database | None] | None",
 ) -> "Database | None":
-    """The staged-override database for this run's ACL posture, built once per posture per batch."""
+    """The database for this run's ACL posture, built once per posture per batch."""
     key = authorization.run_as.id if authorization.run_as is not None else "__bypass__"
     if cache is not None and key in cache:
         return cache[key]
-    database = build_staged_database(
-        team,
-        staged.saved_query_id,
-        staged.queryable_folder,
-        user=authorization.run_as,
-        bypass_warehouse_access_control=authorization.bypass,
-    )
+    database = _build_database(team, staged, authorization)
     if cache is not None:
         cache[key] = database
     return database
+
+
+def _build_database(
+    team: Team, staged: StagedSubjectOverride | None, authorization: _Authorization
+) -> "Database | None":
+    if staged is not None:
+        return build_staged_database(
+            team,
+            staged.saved_query_id,
+            staged.queryable_folder,
+            user=authorization.run_as,
+            bypass_warehouse_access_control=authorization.bypass,
+        )
+    return Database.create_for(
+        team=team,
+        user=authorization.run_as,
+        modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=authorization.bypass,
+    )
 
 
 def staged_subject_is_reachable(
@@ -182,7 +201,7 @@ def staged_subject_is_reachable(
     Independent of which user a check executes as, so a batch settles it once. Shares the runner's
     cache, so the database built here is the one the service-bypass runs reuse.
     """
-    return _staged_database(team, staged, _Authorization(run_as=None, bypass=True), cache) is not None
+    return _database(team, staged, _Authorization(run_as=None, bypass=True), cache) is not None
 
 
 def _execute(
@@ -190,7 +209,7 @@ def _execute(
     suite_run: DataQualitySuiteRun,
     team: Team,
     staged: StagedSubjectOverride | None = None,
-    staged_database_cache: "dict[Any, Database | None] | None" = None,
+    database_cache: "dict[Any, Database | None] | None" = None,
 ) -> CheckOutcome:
     # A hard-deleted subject nulls the FK; there is no id left to resolve.
     if check.subject_uuid is None:
@@ -226,7 +245,7 @@ def _execute(
         compiled = _replayable_against_sources(compiled, team, staged)
     referenced_subjects = pin_referenced_subjects(team.id, check.check_type, check.config, subject=subject)
     try:
-        outcome = _execute_compiled(check, subject, compiled, team, authorization, staged, staged_database_cache)
+        outcome = _execute_compiled(check, subject, compiled, team, authorization, staged, database_cache)
     except Exception as err:
         outcome = CheckOutcome(
             status=CheckRunStatus.ERRORED,
@@ -252,10 +271,10 @@ def _execute_compiled(
     team: Team,
     authorization: _Authorization,
     staged: StagedSubjectOverride | None,
-    staged_database_cache: "dict[Any, Database | None] | None",
+    database_cache: "dict[Any, Database | None] | None",
 ) -> CheckOutcome:
-    database = _staged_database(team, staged, authorization, staged_database_cache) if staged is not None else None
-    if staged is not None and database is None:
+    database = _database(team, staged, authorization, database_cache)
+    if database is None:
         # Falling back to the unmodified database would read the live view and rule on data the
         # publish would not write, so a staged run that cannot repoint errors instead.
         return CheckOutcome(status=CheckRunStatus.ERRORED, error=STAGED_FILES_UNREADABLE)
@@ -273,19 +292,20 @@ def _execute_compiled(
         # the check's declared subject, so it can't reach a warehouse object the definition doesn't
         # already name.
         modifiers = create_default_modifiers_for_team(team)
-        if database is not None:
+        context = HogQLContext(
+            team_id=team.pk,
+            user=authorization.run_as,
+            database=database,
+            modifiers=modifiers,
+            bypass_warehouse_access_control=authorization.bypass,
+        )
+        if staged is not None:
             response = execute_hogql_query(
                 query=compiled.query,
                 team=team,
                 query_type=QUERY_TYPE,
                 modifiers=modifiers,
-                context=HogQLContext(
-                    team_id=team.pk,
-                    user=authorization.run_as,
-                    database=database,
-                    modifiers=modifiers,
-                    bypass_warehouse_access_control=authorization.bypass,
-                ),
+                context=context,
             )
         else:
             response = execute_hogql_query(
@@ -295,6 +315,7 @@ def _execute_compiled(
                 user=authorization.run_as,
                 modifiers=modifiers,
                 bypass_warehouse_access_control=authorization.bypass,
+                context=context,
             )
     return _interpret(compiled, check.config, response.results, response.columns or [])
 

@@ -41,8 +41,10 @@ def _record_unaudited_batch(
 def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     team = Team.objects.get(id=inputs.team_id)
     suite_run = DataQualitySuiteRun.objects.for_team(inputs.team_id).get(id=inputs.suite_run_id)
-    checks = DataQualityCheck.objects.for_team(inputs.team_id).filter(
-        id__in=inputs.check_ids, enabled=True, deleted=False
+    checks = (
+        DataQualityCheck.objects.for_team(inputs.team_id)
+        .filter(id__in=inputs.check_ids, enabled=True, deleted=False)
+        .select_related("created_by", "definition_author")
     )
 
     DataQualityCheckRun.objects.for_team(inputs.team_id).filter(
@@ -50,13 +52,13 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     ).delete()
 
     staged = None
-    staged_database_cache: dict = {}
+    database_cache: dict = {}
     if inputs.staged_queryable_folder and inputs.staged_saved_query_id:
         staged = StagedSubjectOverride(
             saved_query_id=inputs.staged_saved_query_id,
             queryable_folder=inputs.staged_queryable_folder,
         )
-        if not staged_subject_is_reachable(team, staged, staged_database_cache):
+        if not staged_subject_is_reachable(team, staged, database_cache):
             return _record_unaudited_batch(checks, suite_run, team)
 
     counts: Counter[str] = Counter()
@@ -64,7 +66,7 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     for check in checks:
         # run_check records a compile or query failure as an errored run rather than raising: one
         # broken check must not fail the activity and take its whole batch down with it.
-        result = run_check(check, suite_run, team, staged=staged, staged_database_cache=staged_database_cache)
+        result = run_check(check, suite_run, team, staged=staged, database_cache=database_cache)
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:
             failed_blocking += 1
