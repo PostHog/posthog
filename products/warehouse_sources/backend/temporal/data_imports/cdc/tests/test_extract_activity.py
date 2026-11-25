@@ -387,12 +387,13 @@ class TestSetupSelfCleansUnrunnableSchedules:
     @pytest.mark.parametrize(
         "tables, deleted",
         [
-            pytest.param([("users", "cdc", False)], False, id="a_paused_cdc_table_keeps_the_schedule"),
-            pytest.param([("users", "incremental", True)], True, id="a_source_with_no_cdc_table_deletes_it"),
-            pytest.param([("users", "cdc", True)], True, id="a_deleted_cdc_table_does_not_hold_it"),
+            pytest.param([("users", "cdc", False, 1)], False, id="a_table_paused_within_the_grace_keeps_it"),
+            pytest.param([("users", "cdc", False, 48)], True, id="a_table_paused_past_the_grace_does_not"),
+            pytest.param([("users", "incremental", False, 1)], True, id="a_live_non_cdc_table_does_not_hold_it"),
+            pytest.param([("users", "cdc", True, 1)], True, id="a_deleted_cdc_table_does_not_hold_it"),
         ],
     )
-    def test_no_syncing_tables_deletes_the_schedule_only_once_no_cdc_table_is_left(self, team, tables, deleted):
+    def test_no_syncing_tables_deletes_the_schedule_once_no_cdc_table_was_recently_active(self, team, tables, deleted):
         source = ExternalDataSource.objects.create(
             team_id=team.pk,
             source_id=str(uuid.uuid4()),
@@ -400,14 +401,17 @@ class TestSetupSelfCleansUnrunnableSchedules:
             status="Running",
             source_type="Postgres",
         )
-        for name, sync_type, gone in tables:
-            ExternalDataSchema.objects.create(
+        for name, sync_type, gone, hours_ago in tables:
+            schema = ExternalDataSchema.objects.create(
                 team_id=team.pk,
                 source=source,
                 name=name,
                 sync_type=sync_type,
                 should_sync=sync_type != "cdc",
                 deleted=gone,
+            )
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(
+                updated_at=datetime.now(tz=UTC) - timedelta(hours=hours_ago)
             )
 
         act = CDCExtractActivity(CDCExtractInput(team_id=team.pk, source_id=source.id))
@@ -506,7 +510,7 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch.object(CDCExtractActivity, "_has_cdc_schemas", return_value=True)
+    @patch.object(CDCExtractActivity, "_has_recently_active_cdc_schemas", return_value=True)
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_no_cdc_schemas_returns_early(

@@ -159,6 +159,8 @@ CDC_MAX_EXTRACTION_ATTEMPTS = 3
 # identical one says nothing new while burying the runs that do.
 CDC_FAILURE_VISIBILITY_COOLDOWN = dt.timedelta(hours=1)
 
+CDC_PAUSED_SCHEDULE_GRACE = dt.timedelta(days=1)
+
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
 # re-decodes from the slot start on every retry. The slot advances after each pass, so the next
@@ -373,9 +375,14 @@ class CDCExtractActivity:
             ).exclude(deleted=True)
         )
 
-    def _has_cdc_schemas(self) -> bool:
+    def _has_recently_active_cdc_schemas(self) -> bool:
+        # A syncing table's capture runs touch `updated_at`, so a paused table's value is its pause time.
         return (
-            ExternalDataSchema.objects.filter(source=self.source, sync_type=ExternalDataSchema.SyncType.CDC)
+            ExternalDataSchema.objects.filter(
+                source=self.source,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                updated_at__gte=dt.datetime.now(tz=dt.UTC) - CDC_PAUSED_SCHEDULE_GRACE,
+            )
             .exclude(deleted=True)
             .exists()
         )
@@ -596,8 +603,8 @@ class CDCExtractActivity:
     def _setup(self) -> bool:
         """Load source + schemas + adapter. Returns False if there's nothing to do.
 
-        Self-cleans the Temporal schedule if the source is deleted or has no
-        active CDC schemas — otherwise the workflow keeps firing forever.
+        Self-cleans the Temporal schedule if the source is deleted, or once no CDC table has been
+        active for `CDC_PAUSED_SCHEDULE_GRACE`. Otherwise the workflow keeps firing forever.
         """
         try:
             self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
@@ -621,8 +628,8 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            # Not every path that resumes a CDC table recreates the schedule, so a paused table keeps it.
-            if self._has_cdc_schemas():
+            # Not every path that resumes a CDC table recreates the schedule, so a recent pause keeps it.
+            if self._has_recently_active_cdc_schemas():
                 self.log.info("no_syncing_cdc_schemas_keeping_schedule")
             else:
                 self.log.info("no_cdc_schemas_syncing_schedule")

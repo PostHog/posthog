@@ -325,7 +325,7 @@ def _restore_case(
         ),
     ],
 )
-def test_lagging_source_restores_a_missing_extraction_schedule(
+def test_sweeper_restores_a_missing_extraction_schedule(
     team,
     management,
     retention_cap_mb,

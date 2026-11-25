@@ -151,6 +151,11 @@ def broken_for_another_reason(source: ExternalDataSource, reason: str) -> bool:
     )
 
 
+def _capture_paused(syncing_tables: typing.Sequence[ExternalDataSchema]) -> bool:
+    # A capture pause holds the schedule paused on purpose, and a paused schedule is never missing.
+    return any((table.sync_type_config or {}).get("cdc_extraction_paused") for table in syncing_tables)
+
+
 def _capture_is_stale(syncing_tables: typing.Sequence[ExternalDataSchema], now: dt.datetime) -> bool:
     """Whether no capture run has completed for these tables for longer than their schedule explains.
 
@@ -165,7 +170,7 @@ def _capture_is_stale(syncing_tables: typing.Sequence[ExternalDataSchema], now: 
             continue
     if not last_runs:
         return True
-    interval = data_warehouse_api.cdc_min_interval(table.sync_frequency_interval for table in syncing_tables)
+    interval = data_warehouse_api.cdc_min_interval(t.sync_frequency_interval for t in syncing_tables)
     return now - max(last_runs) > max(_STALE_CAPTURE_INTERVALS * interval, _STALE_CAPTURE_FLOOR)
 
 
@@ -208,7 +213,9 @@ def restore_missing_extraction_schedule(source: ExternalDataSource, *, lagging: 
     # against the lost slot, so Repair CDC recreates the schedule instead.
     if not syncing_tables or tables_wait_for_repair(source):
         return False
-    if not lagging and not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC)):
+    if not lagging and (
+        _capture_paused(syncing_tables) or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC))
+    ):
         return False
     if data_warehouse_api.cdc_extraction_schedule_exists(str(source.id), timeout=_SCHEDULE_LOOKUP_TIMEOUT):
         return False
