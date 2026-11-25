@@ -14,7 +14,7 @@ from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVEN
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts.backend.platform_hooks import insight_alert_creator, insight_alert_viewer
 from products.alerts.backend.platform_insight_alert import subscribers_with_insight_access
-from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import DestinationType, SourceKind
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
@@ -100,6 +100,8 @@ class TestInsightAlertEmailDestination(APIBaseTest):
             ("denied the insight", "row", False),
             ("can see the insight of an alert with no row", "native", True),
             ("denied the insight of an alert with no row", "native", False),
+            ("can see the insight of a copy whose row is deleted", "copy whose row is deleted", True),
+            ("denied the insight of a copy whose row is deleted", "copy whose row is deleted", False),
             ("no alert", None, True),
         ]
     )
@@ -118,6 +120,11 @@ class TestInsightAlertEmailDestination(APIBaseTest):
                     source_config={"insight_id": self._alert().insight.id},
                     created_by_id=self.user.id,
                 ).id
+        elif kept_as == "copy whose row is deleted":
+            row = create_insight_alert(self.team, created_by=self.user)
+            move_to_platform(row)
+            alert_id = row.id
+            AlertConfiguration.objects.filter(id=alert_id).delete()
         else:
             alert_id = uuid4()
 

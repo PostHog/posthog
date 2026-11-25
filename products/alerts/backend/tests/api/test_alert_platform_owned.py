@@ -376,9 +376,14 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
         assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
 
-    def test_simulating_an_ai_alert_insight_keeps_no_row_for_reads_its_earlier_flags_from_the_platform(self) -> None:
-        with team_scope(self.team.id):
-            platform_testing.forget_source_row(self.copy_id)
+    @parameterized.expand([("created_with_no_row", True), ("copy_whose_row_is_deleted", False)])
+    def test_simulating_an_ai_alert_insight_keeps_no_row_for_reads_its_earlier_flags_from_the_platform(
+        self, _name: str, created_with_no_row: bool
+    ) -> None:
+        if created_with_no_row:
+            with team_scope(self.team.id):
+                platform_testing.forget_source_row(self.copy_id)
+        public_id = self.copy_id if created_with_no_row else self.alert.id
         AlertConfiguration.objects.filter(id=self.alert.id).delete()
         self._record(
             -30,
@@ -389,7 +394,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        flags = _saved_alert_flags(self.team, self.copy_id)
+        flags = _saved_alert_flags(self.team, public_id)
 
         assert flags == (EarlierFlag(date="2026-10-20", rationale="Fell."),)
 
@@ -1933,7 +1938,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{kind}", reader, enabled, expected, kind == "native")
+            (f"{name}_{kind}", reader, enabled, expected, kind)
             for name, reader, enabled, expected in [
                 ("team", "team_of", True, True),
                 # A snooze from Slack resolves the team first, and a switched-off alert answers it with "disabled".
@@ -1948,18 +1953,20 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 ("insights_with_alerts", "insights_with_alerts", True, True),
                 ("insights_with_alerts_include_a_switched_off_alert", "insights_with_alerts", False, True),
             ]
-            for kind in ("native", "copy")
+            for kind in ("native", "copy", "copy_whose_row_is_deleted")
         ]
     )
     def test_the_facade_readers_read_an_alert_the_platform_owns_from_the_platform(
-        self, _name: str, reader: str, enabled: bool, expected: bool, native: bool
+        self, _name: str, reader: str, enabled: bool, expected: bool, kind: str
     ) -> None:
-        if native:
+        if kind == "native":
             self._forget_the_insight_row()
-        else:
+        elif kind == "copy":
             # A row that drifted from its copy, which the readers must not follow.
             AlertConfiguration.objects.filter(id=self.alert.id).update(enabled=not enabled, created_by=self.user)
-        public_id = self.copy_id if native else self.alert.id
+        else:
+            AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        public_id = self.copy_id if kind == "native" else self.alert.id
         with team_scope(self.team.id):
             platform_testing.set_enabled(self.copy_id, enabled)
             platform_testing.set_created_by(self.copy_id, self.user.id)

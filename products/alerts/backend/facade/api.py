@@ -73,14 +73,14 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
+    configuration_team_id,
     count_configurations,
     enabled_native_configurations,
     list_configurations,
-    native_configuration_team_id,
-    native_source_config_values,
     owned_copies_by_legacy_id,
     rows_with_counted_copies,
     runtime_by_public_id,
+    source_config_values,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -129,8 +129,7 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
     team_id = AlertConfiguration.objects.filter(id=alert_id).values_list("team_id", flat=True).first()
     if team_id is not None:
         return team_id
-    # An alert with no insight row carries its platform alert's id.
-    return native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+    return configuration_team_id(public_id=alert_id, source_kind=SourceKind.INSIGHT)
 
 
 def search_insight_alerts(
@@ -183,7 +182,7 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
         return rows
     # nosemgrep: idor-lookup-without-team
     team_ids = set(Insight.objects_including_soft_deleted.filter(id__in=rest).values_list("team_id", flat=True))
-    return rows | native_source_config_values(
+    return rows | source_config_values(
         team_ids=team_ids, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=rest
     )
 
@@ -518,7 +517,7 @@ def _snooze_native_from_slack(
     alert_id: uuid.UUID, *, user: User, duration: str | None, until: datetime | None
 ) -> SlackSnoozeOutcome:
     """`snooze_alert_from_slack` for an insight alert with no insight row, whose snooze the platform keeps."""
-    team_id = native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+    team_id = configuration_team_id(public_id=alert_id, source_kind=SourceKind.INSIGHT)
     if team_id is None:
         return "not_found"
     try:

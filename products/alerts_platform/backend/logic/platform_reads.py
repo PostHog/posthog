@@ -425,17 +425,17 @@ def enabled_native_configurations(
     )
 
 
-def native_source_config_values(
+def source_config_values(
     *, team_ids: Collection[int], source_kind: str, source_config_key: str, values: Collection[Any]
 ) -> set[Any]:
-    """Which of `values` a configuration of a kind with no source row in these teams holds as
-    `source_config[key]`, enabled or not."""
+    """Which of `values` a configuration of a kind in these teams holds as `source_config[key]`, enabled
+    or not, whether or not its source keeps a row for it."""
     if not team_ids or not values:
         return set()
     # The caller names the teams, as a source's readers of its own rows across teams do.
     configs = (
         PlatformAlertConfiguration.objects.unscoped()
-        .filter(team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .filter(team_id__in=list(team_ids), source_kind=source_kind)
         .filter(_source_config_in(source_config_key, values))
         .values_list("source_config", flat=True)
     )
@@ -450,7 +450,7 @@ def native_configuration_ids_by_source_config(
     `source_config[key]`, enabled or not. A value no configuration holds is left out."""
     if not values:
         return {}
-    # The caller names the team, as `native_source_config_values` takes its teams.
+    # The caller names the team, as `source_config_values` takes its teams.
     configs = (
         PlatformAlertConfiguration.objects.unscoped()
         .filter(team_id=team_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
@@ -470,13 +470,13 @@ def _source_config_in(key: str, values: Collection[Any]) -> Q:
     return reduce(operator.or_, (Q(source_config__contains={key: value}) for value in values))
 
 
-def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) -> int | None:
-    """The team of a configuration of a kind with no source row, or None when there is none. For a
-    caller with no team yet, such as a click on a button in a message, which then checks access
-    against the team this returns."""
+def configuration_team_id(*, public_id: UUID, source_kind: str) -> int | None:
+    """The team of the configuration of a kind whose public id is `public_id`, or None when there is
+    none. For a caller with no team yet, such as a click on a button in a message, which then checks
+    access against the team this returns."""
     unscoped = PlatformAlertConfiguration.objects.unscoped()
     # nosemgrep: idor-lookup-without-team — resolves the team only; the caller authorizes against it
-    rows = unscoped.filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+    rows = unscoped.filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]), source_kind=source_kind)
     return rows.values_list("team_id", flat=True).first()
 
 

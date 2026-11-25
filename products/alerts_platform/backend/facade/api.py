@@ -363,12 +363,12 @@ def enabled_native_configurations(
     )
 
 
-def native_source_config_values(
+def source_config_values(
     *, team_ids: Collection[int], source_kind: SourceKind, source_config_key: str, values: Collection[Any]
 ) -> set[Any]:
-    """Which of `values` an alert of a kind with no source row in these teams holds as
-    `source_config[key]`, enabled or not."""
-    return platform_reads.native_source_config_values(
+    """Which of `values` an alert of a kind in these teams holds as `source_config[key]`, enabled or
+    not, whether or not its source keeps a row for it."""
+    return platform_reads.source_config_values(
         team_ids=team_ids, source_kind=source_kind.value, source_config_key=source_config_key, values=values
     )
 
@@ -383,10 +383,10 @@ def native_configuration_ids_by_source_config(
     )
 
 
-def native_configuration_team_id(*, configuration_id: UUID, source_kind: SourceKind) -> int | None:
-    """The team of an alert of a kind with no source row, or None when there is none. The caller
-    authorizes against the team before it acts on the alert."""
-    return platform_reads.native_configuration_team_id(configuration_id=configuration_id, source_kind=source_kind.value)
+def configuration_team_id(*, public_id: UUID, source_kind: SourceKind) -> int | None:
+    """The team of the alert of a kind whose public id is `public_id`, with a source row or without, or
+    None when the platform has none. The caller authorizes against the team before it acts on the alert."""
+    return platform_reads.configuration_team_id(public_id=public_id, source_kind=source_kind.value)
 
 
 def owned_configuration_ids_without_source_rows(

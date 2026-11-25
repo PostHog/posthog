@@ -66,17 +66,17 @@ READERS: dict[str, str] = {
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/alerts/backend/platform_insight_alert.py": (
-        "loads a row by id and puts its copy's settings on it, for investigations and firing signals (G3)"
+        "loads a row by id and puts its copy's settings on it, else builds the alert from its copy (G3)"
     ),
     "products/logs/backend/alert_source_cycle.py": (
         "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
     ),
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
-    "products/alerts/backend/platform_hooks.py": "viewer by the row's insight; creator from the copy (G2)",
+    "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G3)",
     "products/logs/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
     "products/alerts/backend/evaluation/detector.py": "earlier AI flags by row id and handover time only (G3)",
     "posthog/temporal/ai/anomaly_investigation/workflow.py::_investigated_alert": (
-        "investigation loads the row with its copy's settings (G3)"
+        "investigation loads the row with its copy's settings, else the alert from its copy (G3)"
     ),
     "products/alerts/backend/platform_investigation.py": "investigation's row, with its copy's settings (G3)",
     "products/alerts/backend/activity_logging.py": "activity log of row edits (G2)",
@@ -125,8 +125,8 @@ READERS: dict[str, str] = {
     "products/alerts/backend/presentation/views/alert.py::AlertViewSet": "rows shown with their copy's settings (B2)",
     "products/logs/backend/presentation/views/alerts_api.py::LogsAlertViewSet": "logs alert API (B1)",
     "products/alerts/backend/facade/api.py::_insight_owned_rows": "rows the insight stack owns (B3)",
-    "products/alerts/backend/facade/api.py::insight_ids_with_alerts": "insights with a row or a native alert (B3)",
-    "products/alerts/backend/facade/api.py::get_alert_team_id": "team of an alert with a row (G2)",
+    "products/alerts/backend/facade/api.py::insight_ids_with_alerts": "insights with a row, else a platform alert (G3)",
+    "products/alerts/backend/facade/api.py::get_alert_team_id": "team of an alert with a row, else of its copy (G3)",
     "products/alerts/backend/presentation/views/insight_alerts.py": "embeds rows with their copy's settings (B3)",
     "products/dashboards/backend/presentation/views/dashboard.py::tile_insight_prefetches": (
         "dashboard tiles prefetch rows, shown with their copy's settings (B3)"

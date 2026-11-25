@@ -212,9 +212,11 @@ def _episode_id(request: FiringSignalRequest) -> str:
 
 def _evaluated_alert(team_id: int, configuration: PlatformAlertConfigurationView) -> AlertConfiguration | None:
     """The alert a check of `configuration` evaluates, as `evaluation_alert` reads it for a check."""
-    if configuration.legacy_configuration_id is None:
-        return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
-    return legacy_alert(team_id=team_id, alert_id=configuration.legacy_configuration_id)
+    if configuration.legacy_configuration_id is not None and (
+        alert := legacy_alert(team_id=team_id, alert_id=configuration.legacy_configuration_id)
+    ):
+        return alert
+    return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
 @frozen

@@ -1105,9 +1105,9 @@ facade-signature	products.alerts.backend.facade.evaluation	validate_evaluation_d
 facade-signature	products.alerts_platform.backend.facade.api	enabled_native_configurations	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	return	typing.Any	1
-facade-signature	products.alerts_platform.backend.facade.api	native_source_config_values	param:values	typing.Any	1
-facade-signature	products.alerts_platform.backend.facade.api	native_source_config_values	return	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	owned_configuration_ids_without_source_rows	param:values	typing.Any	1
+facade-signature	products.alerts_platform.backend.facade.api	source_config_values	param:values	typing.Any	1
+facade-signature	products.alerts_platform.backend.facade.api	source_config_values	return	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.backfill_command	PlatformBackfillCommand.add_arguments	param:parser	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.backfill_command	PlatformBackfillCommand.handle	param:args	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.backfill_command	PlatformBackfillCommand.handle	param:options	typing.Any	1
