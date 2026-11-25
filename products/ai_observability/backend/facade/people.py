@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from posthog.models import Team, User
 from posthog.paging import PageRequest
@@ -11,13 +11,18 @@ from ..logic.people.people import (
     needs_identification,
 )
 from ..logic.people.people_queries import (
+    PersonFirstSeenRow,
     PersonGroupRow,
     load_display_names,
     load_new_people_count,
+    load_people_first_seen as read_people_first_seen,
     load_people_page,
     load_person,
 )
-from ..logic.traces.lookback import LOOKBACK as LOOKBACK
+from ..logic.traces.lookback import (
+    LOOKBACK as LOOKBACK,
+    seen_before,
+)
 from ..logic.traces.trace_selection import TraceSelection
 from . import people_contracts as contracts
 from .contracts import TracePerson
@@ -74,3 +79,22 @@ def load_people_new_count(
             team, user, selection, include_anonymous=include_anonymous, person_search=person_search
         )
     )
+
+
+def load_people_first_seen(
+    team: Team, user: User | None, selection: TraceSelection, person_ids: Sequence[str]
+) -> contracts.PersonFirstSeenList:
+    """When each requested person was first seen, from the lookback bound to the end of the selection's window. Items
+    come back once per id, in the order first requested."""
+    first_seen = read_people_first_seen(team, user, selection, person_ids)
+    return contracts.PersonFirstSeenList(
+        items=[_first_seen_item(person_id, first_seen.get(person_id)) for person_id in dict.fromkeys(person_ids)],
+        checked_from=seen_before(selection.window).date(),
+    )
+
+
+def _first_seen_item(person_id: str, row: PersonFirstSeenRow | None) -> contracts.PersonFirstSeen:
+    # A person with no AI event from the lookback bound on has none in the lookback either, so they are new.
+    if row is None:
+        return contracts.PersonFirstSeen(person_id=person_id, first_seen=None, is_new=True)
+    return contracts.PersonFirstSeen(person_id=person_id, first_seen=row.first_seen, is_new=row.is_new)

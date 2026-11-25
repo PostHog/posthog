@@ -1,4 +1,4 @@
-import { RenderResult, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { RenderResult, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -10,7 +10,14 @@ import { initKeaTests } from '~/test/init'
 import type { PersonListApi } from '../../generated/api.schemas'
 import { PeopleListHost } from './PeopleListHost'
 import { peopleListLogic } from './peopleListLogic'
-import { PEOPLE_NEW_COUNT_URL, PEOPLE_URL, makePersonListItem, makePersonListPage } from './testFixtures'
+import {
+    PEOPLE_FIRST_SEEN_URL,
+    PEOPLE_NEW_COUNT_URL,
+    PEOPLE_URL,
+    makeFirstSeenAnswer,
+    makePersonListItem,
+    makePersonListPage,
+} from './testFixtures'
 
 const PAGE = makePersonListPage([], {
     count: 2,
@@ -42,7 +49,16 @@ describe('PeopleListHost', () => {
     beforeEach(() => {
         answer = PAGE
         useMocks({
-            get: { [PEOPLE_URL]: () => [200, answer], [PEOPLE_NEW_COUNT_URL]: () => [200, { count: 1 }] },
+            get: {
+                [PEOPLE_URL]: () => [200, answer],
+                [PEOPLE_NEW_COUNT_URL]: () => [200, { count: 1 }],
+            },
+            post: {
+                [PEOPLE_FIRST_SEEN_URL]: async ({ request }: { request: Request }) => [
+                    200,
+                    makeFirstSeenAnswer((await request.json()).person_ids, ['person-a']),
+                ],
+            },
         })
         initKeaTests()
         localStorage.clear()
@@ -57,10 +73,13 @@ describe('PeopleListHost', () => {
         return render(<PeopleListHost />)
     }
 
-    it('shows each person with the new count on its chip', async () => {
+    it('tags the people their first seen read calls new, and shows the new count on its chip', async () => {
         const view = renderHost()
 
         await view.findByText('Ana Example')
+        await waitFor(() =>
+            expect(within(attr(view, 'ai-observability-people-list')).getAllByText('New')).toHaveLength(1)
+        )
         await waitFor(() =>
             expect(attr(view, 'ai-observability-people-list-quick-filter-new').textContent).toBe('New1')
         )

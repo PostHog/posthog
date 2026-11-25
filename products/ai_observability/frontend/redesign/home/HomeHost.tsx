@@ -6,7 +6,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { instrumentationChecklistLogic } from '../../instrumentationChecklist/instrumentationChecklistLogic'
 import { ListErrorState } from '../lists/components/ListErrorState'
+import { shellDocsUrl } from '../shell/shellNavigation'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
+import { ExpensivePeopleSection } from './components/ExpensivePeopleSection'
 import { HomeLayout } from './components/HomeLayout'
 import { HomeRangeTooLong } from './components/HomeRangeTooLong'
 import { InstrumentationRow } from './components/InstrumentationRow'
@@ -14,6 +16,8 @@ import { KpiTileChartPanel } from './components/KpiTileChartPanel'
 import { KpiTileRow } from './components/KpiTileRow'
 import { OpenDashboardLink } from './components/OpenDashboardLink'
 import { homeLogic } from './homeLogic'
+
+const FALLBACK_PEOPLE_DOCS_URL = shellDocsUrl({ tab: 'people', scope: null })
 
 export function HomeHost(): JSX.Element {
     const logic = homeLogic()
@@ -26,8 +30,15 @@ export function HomeHost(): JSX.Element {
         openChartKey,
         openChart,
         openChartInsightUrl,
+        expensivePeople,
+        expensivePeopleFailed,
+        expensivePeoplePageLoading,
+        usersSetupDocsUrl,
+        usersNotSetUp,
+        expensivePersonHref,
+        expensivePeopleViewAllHref,
     } = useValues(logic)
-    const { loadMetrics, toggleChart, closeChart } = useActions(logic)
+    const { loadMetrics, loadExpensivePeoplePage, toggleChart, closeChart } = useActions(logic)
     const { timezone } = useValues(teamLogic)
     const { checklist, checklistBusy, checklistLoading, pendingCheckKey, refreshFailed } =
         useValues(instrumentationChecklistLogic)
@@ -84,6 +95,18 @@ export function HomeHost(): JSX.Element {
             dashboardLink={<OpenDashboardLink dashboardId={dashboardId} />}
             tiles={tiles}
             showComparison={metrics !== null && !metricsLoading}
+            expensivePeople={
+                <ExpensivePeopleSection
+                    people={expensivePeople}
+                    loading={expensivePeoplePageLoading}
+                    failed={expensivePeopleFailed}
+                    needsIdentification={usersNotSetUp}
+                    docsUrl={usersSetupDocsUrl ?? FALLBACK_PEOPLE_DOCS_URL}
+                    onRetry={loadExpensivePeoplePage}
+                    personHref={expensivePersonHref}
+                    viewAllHref={expensivePeopleViewAllHref}
+                />
+            }
             instrumentation={
                 <InstrumentationRow
                     checklist={checklist}

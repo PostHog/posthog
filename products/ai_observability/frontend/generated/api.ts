@@ -169,7 +169,9 @@ import type {
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
     PatchedTraceReviewUpdateApi,
+    PeopleFirstSeenRequestApi,
     PeopleNewCountApi,
+    PersonFirstSeenListApi,
     PersonListApi,
     PersonListItemApi,
     PersonalSpendAnalysisResponseApi,
@@ -1026,6 +1028,27 @@ export const aiObservabilityPeopleRetrieve = async (
     return apiMutator<PersonListItemApi>(getAiObservabilityPeopleRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityPeopleFirstSeenCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/people/first_seen/`
+}
+
+/**
+ * When each person on a page was first seen, from the lookback bound to the end of the date range. A read,
+ * sent as a POST because a page of ids may not fit in a query string.
+ */
+export const aiObservabilityPeopleFirstSeenCreate = async (
+    projectId: string,
+    peopleFirstSeenRequestApi: PeopleFirstSeenRequestApi,
+    options?: RequestInit
+): Promise<PersonFirstSeenListApi> => {
+    return apiMutator<PersonFirstSeenListApi>(getAiObservabilityPeopleFirstSeenCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(peopleFirstSeenRequestApi),
     })
 }
 

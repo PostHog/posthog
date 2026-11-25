@@ -25,6 +25,10 @@ def lookback_selection(selection: TraceSelection) -> TraceSelection:
     return unscoped_selection(selection, lookback_window(selection.window))
 
 
+def first_seen_selection(selection: TraceSelection) -> TraceSelection:
+    return unscoped_selection(selection, TraceWindow(start=seen_before(selection.window), end=selection.window.end))
+
+
 def seen_before(window: TraceWindow) -> datetime:
     return lookback_window(window).start
 

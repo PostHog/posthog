@@ -101798,6 +101798,24 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface PeopleFirstSeenRequest {
+      /** Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago. */
+      date_from?: string;
+      /** End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now. */
+      date_to?: string;
+      /**
+         * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+         * @nullable
+         */
+      filter_test_accounts?: boolean | null;
+      /**
+         * The UUIDs of the people on a page of the list, from 1 to 100. Items come back in this order, once per person.
+         * @minItems 1
+         * @maxItems 100
+         */
+      person_ids: string[];
+    }
+
     export interface PeopleImport {
       /** The static cohort that fills with the imported people. */
       cohort_id: number;
@@ -101873,6 +101891,22 @@ export namespace Schemas {
     export interface PersonDeletePropertyRequest {
       /** A property key, or a list of property keys, to remove from this person. */
       $unset: string | string[];
+    }
+
+    export interface PersonFirstSeen {
+      /** The person's UUID. */
+      personId: string;
+      /** The time of the person's earliest AI event from the checked date to the end of the range, whatever day it falls on. Null when they have none there. */
+      firstSeen: string | null;
+      /** Whether the person has no AI activity in the 30 days before the range starts, under the test-account filter only. */
+      isNew: boolean;
+    }
+
+    export interface PersonFirstSeenList {
+      /** One item per requested person, once each, in the order first requested. */
+      items: PersonFirstSeen[];
+      /** The lookback bound: the date 30 days before the range starts. Nothing before it was read, so a person first seen on it may have been active earlier. */
+      checkedFrom: string;
     }
 
     export interface TracePerson {

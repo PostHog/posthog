@@ -8,6 +8,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { clearCachedChecklistVerdict } from '../../instrumentationChecklist/instrumentationChecklistLogic'
+import { makePersonListPage, PEOPLE_URL } from '../people/testFixtures'
+import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { CHECKLIST_ALL_OK, CHECKLIST_WARNING, METRICS } from './homeFixtures'
 import { HomeHost } from './HomeHost'
 
@@ -15,6 +17,8 @@ type Answer = [number, unknown]
 
 describe('HomeHost', () => {
     let metricsAnswer: Answer
+    let peopleAnswer: Answer
+    let peopleGate: Promise<void>
     let dashboards: { id: number }[]
     let dashboardsCreated: number
     let dismissBodies: unknown[]
@@ -25,11 +29,17 @@ describe('HomeHost', () => {
         dismissBodies = []
         checklistRefreshes = []
         metricsAnswer = [200, METRICS]
+        peopleAnswer = [200, makePersonListPage(['p1', 'p2'])]
+        peopleGate = Promise.resolve()
         dashboards = [{ id: 42 }]
         dashboardsCreated = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/ai_observability/traces/metrics/': () => metricsAnswer,
+                [PEOPLE_URL]: async () => {
+                    await peopleGate
+                    return peopleAnswer
+                },
                 '/api/projects/:team_id/ai_observability/instrumentation_checklist/': ({ request }) => {
                     const refresh = new URL(request.url).searchParams.get('refresh')
                     checklistRefreshes.push(refresh)
@@ -57,13 +67,17 @@ describe('HomeHost', () => {
         resumeKeaLoadersErrors()
     })
 
-    it('renders tiles, the four placeholders and the old dashboard link', async () => {
+    it('renders tiles, the three placeholders, the expensive users and the old dashboard link', async () => {
         const { container } = render(<HomeHost />)
 
         await waitFor(() => expect(container.textContent).toContain('52,118'))
         await waitFor(() => expect(container.querySelector('[data-attr="home-open-dashboard"]')).not.toBeNull())
         expect(container.querySelectorAll('[data-attr^="home-tile-"]')).toHaveLength(6)
         expect(container.querySelectorAll('[data-attr^="home-section-"]')).toHaveLength(4)
+        await waitFor(() => expect(container.querySelectorAll('[data-attr="home-expensive-person"]')).toHaveLength(2))
+        expect(container.querySelector('[data-attr="home-expensive-people-view-all"]')?.getAttribute('href')).toContain(
+            '/ai-observability/users?'
+        )
         expect(container.textContent).toContain('Compared with the previous period')
         await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).not.toBeNull())
     })
@@ -125,6 +139,46 @@ describe('HomeHost', () => {
         expect(await view.findByText('Could not load the metrics')).toBeTruthy()
         expect(view.container.querySelector('[data-attr="home-metrics-retry"]')).not.toBeNull()
         expect(view.queryByText('Compared with the previous period')).toBeNull()
+    })
+
+    it('shows the people skeleton, not the old rows, while a new range loads', async () => {
+        const view = render(<HomeHost />)
+        await waitFor(() =>
+            expect(view.container.querySelectorAll('[data-attr="home-expensive-person"]')).toHaveLength(2)
+        )
+
+        let release = (): void => {}
+        peopleGate = new Promise((resolve) => (release = resolve))
+        peopleAnswer = [200, makePersonListPage(['p1'])]
+        shellScopeLogic.actions.setDateRange('-7d', null)
+
+        await waitFor(() =>
+            expect(view.container.querySelectorAll('[data-attr="home-expensive-person"]')).toHaveLength(0)
+        )
+        release()
+        await waitFor(() =>
+            expect(view.container.querySelectorAll('[data-attr="home-expensive-person"]')).toHaveLength(1)
+        )
+        shellScopeLogic.actions.setDateRange('-24h', null)
+    })
+
+    it('retries a failed people read without touching the tiles', async () => {
+        silenceKeaLoadersErrors()
+        peopleAnswer = [500, { detail: 'boom' }]
+        const view = render(<HomeHost />)
+        const retry = await waitFor(() => {
+            const button = view.container.querySelector('[data-attr="home-expensive-people-retry"]')
+            expect(button).not.toBeNull()
+            return button as HTMLElement
+        })
+        expect(view.container.textContent).toContain('52,118')
+
+        peopleAnswer = [200, makePersonListPage(['p1'])]
+        fireEvent.click(retry)
+
+        await waitFor(() =>
+            expect(view.container.querySelectorAll('[data-attr="home-expensive-person"]')).toHaveLength(1)
+        )
     })
 
     it.each([

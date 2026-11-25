@@ -452,6 +452,40 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * When each person on a page was first seen, from the lookback bound to the end of the date range. A read,
+ * sent as a POST because a page of ids may not fit in a query string.
+ */
+export const aiObservabilityPeopleFirstSeenCreateBodyPersonIdsMax = 100
+
+export const AiObservabilityPeopleFirstSeenCreateBody = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            'Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.'
+        ),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.'
+        ),
+    filter_test_accounts: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts."
+        ),
+    person_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(aiObservabilityPeopleFirstSeenCreateBodyPersonIdsMax)
+        .describe(
+            'The UUIDs of the people on a page of the list, from 1 to 100. Items come back in this order, once per person.'
+        ),
+})
+
+/**
  * The person each session on a page ran for, which is its first trace's person, labeled by the project's
  * display name properties. A read, sent as a POST because a page of session ids may not fit in a query string.
  */

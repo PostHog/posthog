@@ -10,7 +10,12 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.paging import PageRequest
 
-from products.ai_observability.backend.logic.traces.lookback import lookback_selection, seen_before, unscoped_selection
+from products.ai_observability.backend.logic.traces.lookback import (
+    first_seen_selection,
+    lookback_selection,
+    seen_before,
+    unscoped_selection,
+)
 from products.ai_observability.backend.logic.traces.trace_expression_queries import (
     EVENTS_COLUMNS,
     event_anonymous,
@@ -36,6 +41,7 @@ PEOPLE_SELECTION_QUERY_NAME = "ai_people_selection"
 PEOPLE_NAMES_QUERY_NAME = "ai_people_names"
 PEOPLE_PERSON_QUERY_NAME = "ai_people_person"
 PEOPLE_NEW_COUNT_QUERY_NAME = "ai_people_new_count"
+PEOPLE_FIRST_SEEN_QUERY_NAME = "ai_people_first_seen"
 
 
 @frozen
@@ -356,3 +362,54 @@ def load_display_names(
     in_window = unscoped_selection(selection, selection.window)
     rows = execute_selection(team, user, in_window, _display_names_query(team, person_ids), PEOPLE_NAMES_QUERY_NAME)
     return {str(person_id): name for person_id, display_name in rows if (name := read_text(display_name))}
+
+
+@frozen
+class PersonFirstSeenRow:
+    first_seen: datetime
+    is_new: bool
+
+
+def _first_seen_query(
+    team: Team, selection: TraceSelection, checked: TraceSelection, person_ids: Sequence[str]
+) -> ast.SelectQuery:
+    query = parse_select(
+        """
+        SELECT person_id, min(timestamp), countIf({in_lookback}) = 0
+        FROM events
+        WHERE {person_events} AND timestamp >= {checked_from} AND timestamp <= {range_end} AND person_id IN {person_ids}
+        GROUP BY person_id
+        """,
+        placeholders={
+            "in_lookback": _in_lookback(selection.window),
+            "person_events": _person_events(team, checked),
+            "checked_from": ast.Constant(value=checked.window.start),
+            "range_end": ast.Constant(value=checked.window.end),
+            "person_ids": ast.Constant(value=list(person_ids)),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def load_people_first_seen(
+    team: Team, user: User | None, selection: TraceSelection, person_ids: Sequence[str]
+) -> dict[str, PersonFirstSeenRow]:
+    """The earliest AI event of each person from the lookback bound to the end of the selection's window, whatever
+    day it falls on, and whether they are new. A person with no event there is absent. Reads under the selection's
+    test-account switch and support rule only, so a filter or scope never hides an earlier event."""
+    if not person_ids:
+        return {}
+    checked = first_seen_selection(selection)
+    rows = execute_selection(
+        team,
+        user,
+        checked,
+        _first_seen_query(team, selection, checked, person_ids),
+        PEOPLE_FIRST_SEEN_QUERY_NAME,
+        list_time_limit=False,
+    )
+    return {
+        str(person_id): PersonFirstSeenRow(first_seen=first_seen, is_new=bool(is_new))
+        for person_id, first_seen, is_new in rows
+    }

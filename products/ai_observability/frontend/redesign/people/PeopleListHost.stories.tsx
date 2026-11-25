@@ -4,8 +4,16 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import type { PeopleFirstSeenRequestApi } from '../../generated/api.schemas'
 import { PeopleListHost } from './PeopleListHost'
-import { PEOPLE_NEW_COUNT_URL, PEOPLE_URL, makePersonListItem, makePersonListPage } from './testFixtures'
+import {
+    PEOPLE_FIRST_SEEN_URL,
+    PEOPLE_NEW_COUNT_URL,
+    PEOPLE_URL,
+    makeFirstSeenAnswer,
+    makePersonListItem,
+    makePersonListPage,
+} from './testFixtures'
 
 const PAGE = makePersonListPage([], {
     count: 132,
@@ -35,6 +43,13 @@ const PAGE = makePersonListPage([], {
     ],
 })
 
+const FIRST_SEEN_MOCK = {
+    [PEOPLE_FIRST_SEEN_URL]: async ({ request }: { request: Request }) => {
+        const body: PeopleFirstSeenRequestApi = await request.json()
+        return [200, makeFirstSeenAnswer(body.person_ids, ['person-1'])]
+    },
+}
+
 const meta: Meta<typeof PeopleListHost> = {
     title: 'Scenes-App/AI observability/People/People list',
     component: PeopleListHost,
@@ -47,7 +62,7 @@ const meta: Meta<typeof PeopleListHost> = {
         ),
     ],
     parameters: {
-        msw: { mocks: { get: { [PEOPLE_URL]: PAGE, [PEOPLE_NEW_COUNT_URL]: { count: 7 } } } },
+        msw: { mocks: { get: { [PEOPLE_URL]: PAGE, [PEOPLE_NEW_COUNT_URL]: { count: 7 } }, post: FIRST_SEEN_MOCK } },
         mockDate: '2026-11-25',
         pageUrl: urls.aiObservabilityUsers(),
         testOptions: { snapshotBrowsers: [], waitForSelector: 'text=Ana Example' },

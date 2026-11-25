@@ -163,6 +163,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadMetrics: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home shows the error, or the range banner
     loadDashboardId: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home hides the dashboard link
+    loadExpensivePeoplePage: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home's most expensive users section shows the error with a retry
     loadSessionsPage: 'products.ai_observability.frontend.redesign.sessions.sessionsListLogic', // The sessions list shows the error, or toasts its own when rows stay on screen
     loadPeoplePage: 'products.ai_observability.frontend.redesign.people.peopleListLogic', // The people list shows the error, or toasts its own when rows stay on screen
     loadNewCount: 'products.ai_observability.frontend.redesign.people.peopleListLogic', // The people list's New chip shows no number

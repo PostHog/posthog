@@ -34,6 +34,7 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.presentation.views.people import PeopleViewSet
+from products.ai_observability.backend.presentation.views.people_first_seen import PeopleFirstSeenViewSet
 from products.ai_observability.backend.presentation.views.people_new_count import PeopleNewCountViewSet
 from products.ai_observability.backend.presentation.views.session_people import SessionPeopleViewSet
 from products.ai_observability.backend.presentation.views.session_previews import SessionPreviewsViewSet
@@ -78,6 +79,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"ai_observability/instrumentation_checklist",
         AIObservabilityInstrumentationChecklistViewSet,
         "project_ai_observability_instrumentation_checklist",
+        ["team_id"],
+    )
+    # Registered before the people, so that the people route does not read "first_seen" as an id.
+    routers.projects.register(
+        r"ai_observability/people/first_seen",
+        PeopleFirstSeenViewSet,
+        "project_ai_observability_people_first_seen",
         ["team_id"],
     )
     # Registered before the people, so that the people route does not read "new_count" as an id.

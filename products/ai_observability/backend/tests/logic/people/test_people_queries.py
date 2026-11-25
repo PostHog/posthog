@@ -17,7 +17,9 @@ from posthog.test.persons import create_person
 from products.ai_observability.backend.logic.people.people import PeopleCounts, PeopleOrder, PeopleQuery
 from products.ai_observability.backend.logic.people.people_queries import (
     PeoplePageRows,
+    PersonFirstSeenRow,
     load_new_people_count,
+    load_people_first_seen,
     load_people_page,
 )
 
@@ -304,6 +306,7 @@ class TestPeopleQueries(ClickhouseTestMixin, BaseTest):
 
         assert self._time_limits(self._page) == [30]
         assert self._time_limits(self._new_people) == [general, general]
+        assert self._time_limits(lambda: self._first_seen([CAROL])) == [general]
 
     def test_new_ignores_property_filters_for_the_lookback(self) -> None:
         self._person(CAROL, "user-carol")
@@ -413,3 +416,89 @@ class TestPeopleQueries(ClickhouseTestMixin, BaseTest):
         page = self._page(include_anonymous=True)
 
         assert page == PeoplePageRows(rows=(), counts=PeopleCounts(total=0, anonymous=0))
+
+    def _first_seen(self, person_ids: list[str], **selection: Any) -> dict[str, PersonFirstSeenRow]:
+        return load_people_first_seen(
+            self.team, self.user, to_selection(self.team, {**WINDOW, "date_from": 0, **selection}), person_ids
+        )
+
+    def test_first_seen_is_the_earliest_event_in_the_lookback(self) -> None:
+        self._person(CAROL, "user-carol")
+        seed(
+            self.team,
+            [generation("t-in-range", 5, "user-carol"), generation("t-before", -10 * DAYS, "user-carol")],
+        )
+
+        assert self._first_seen([CAROL]) == {CAROL: PersonFirstSeenRow(first_seen=at(-10 * DAYS), is_new=False)}
+
+    def test_first_seen_never_looks_past_the_bound(self) -> None:
+        self._person(CAROL, "user-carol")
+        seed(
+            self.team,
+            [generation("t-old", -40 * DAYS, "user-carol"), generation("t-recent", -20 * DAYS, "user-carol")],
+        )
+
+        assert self._first_seen([CAROL]) == {CAROL: PersonFirstSeenRow(first_seen=at(-20 * DAYS), is_new=False)}
+
+    def test_first_seen_ignores_the_capture_buffer_around_its_bounds(self) -> None:
+        self._person(CAROL, "user-carol")
+        self._person(DAVE, "user-dave")
+        seed(
+            self.team,
+            [
+                generation("t-before-bound", -30 * DAYS - 5, "user-carol"),
+                generation("t-bound", -30 * DAYS + 5, "user-carol"),
+                generation("t-after-range", 60 + 5, "user-dave"),
+            ],
+        )
+
+        assert self._first_seen([CAROL, DAVE]) == {
+            CAROL: PersonFirstSeenRow(first_seen=at(-30 * DAYS + 5), is_new=False)
+        }
+
+    def test_first_seen_honours_test_accounts_but_not_filters(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        self._person(CAROL, "user-carol")
+        seed(
+            self.team,
+            [
+                generation("t-staging", -5 * DAYS, "user-carol", deployment="staging"),
+                generation("t-prod", -2 * DAYS, "user-carol", model="gpt-test"),
+            ],
+        )
+        other_model = EventPropertyFilter(key="model", value="other", operator=PropertyOperator.EXACT).model_dump()
+
+        assert self._first_seen([CAROL], filter_test_accounts=False, properties=[other_model]) == {
+            CAROL: PersonFirstSeenRow(first_seen=at(-5 * DAYS), is_new=False)
+        }
+        assert self._first_seen([CAROL], filter_test_accounts=True, properties=[other_model]) == {
+            CAROL: PersonFirstSeenRow(first_seen=at(-2 * DAYS), is_new=False)
+        }
+
+    def test_a_person_with_no_event_in_the_window_is_absent(self) -> None:
+        self._person(CAROL, "user-carol")
+        self._person(DAVE, "user-dave")
+        seed(self.team, [generation("t-carol", 5, "user-carol"), generation("t-dave", -40 * DAYS, "user-dave")])
+
+        assert self._first_seen([CAROL, DAVE, ERIN]) == {CAROL: PersonFirstSeenRow(first_seen=at(5), is_new=True)}
+        assert self._first_seen([]) == {}
+
+    def test_first_seen_calls_new_a_person_first_seen_as_the_range_starts(self) -> None:
+        self._person(CAROL, "user-carol")
+        self._person(DAVE, "user-dave")
+        seed(
+            self.team,
+            [
+                generation("t-carol-at-the-start", 0, "user-carol"),
+                generation("t-dave-just-before", -1, "user-dave"),
+                generation("t-dave-in-range", 5, "user-dave"),
+            ],
+        )
+
+        assert {person_id: row.is_new for person_id, row in self._first_seen([CAROL, DAVE]).items()} == {
+            CAROL: True,
+            DAVE: False,
+        }

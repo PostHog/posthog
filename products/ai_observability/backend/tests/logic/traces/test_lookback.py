@@ -9,6 +9,7 @@ from posthog.schema import EventPropertyFilter, PropertyOperator
 
 from products.ai_observability.backend.logic.traces.lookback import (
     LOOKBACK,
+    first_seen_selection,
     has_no_lookback,
     lookback_selection,
     lookback_window,
@@ -31,6 +32,11 @@ def test_lookback_window_ends_at_the_range_start_and_spans_thirty_days():
     "build, window",
     [
         pytest.param(lookback_selection, lookback_window(WINDOW), id="lookback"),
+        pytest.param(
+            first_seen_selection,
+            TraceWindow(start=datetime(2026, 10, 19, tzinfo=UTC), end=WINDOW.end),
+            id="first seen, from the lookback start to the range end",
+        ),
         pytest.param(lambda selection: unscoped_selection(selection, WINDOW), WINDOW, id="the range itself"),
     ],
 )

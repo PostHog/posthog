@@ -12,14 +12,18 @@ from posthog.test.persons import create_person
 
 from products.ai_observability.backend.facade.contracts import TracePerson
 from products.ai_observability.backend.facade.people import (
+    LOOKBACK,
     PeopleOrder,
     PeopleQuery,
     get_person,
+    load_people_first_seen,
     load_people_list,
     load_people_new_count,
 )
 from products.ai_observability.backend.facade.people_contracts import (
     PeopleNewCount,
+    PersonFirstSeen,
+    PersonFirstSeenList,
     PersonListCounts,
     PersonListItem,
     PersonPage,
@@ -192,3 +196,25 @@ class TestPeopleNewCount(ClickhouseTestMixin, BaseTest):
         assert load_people_new_count(
             self.team, self.user, selection, include_anonymous=False, person_search=None
         ) == PeopleNewCount(count=1)
+
+
+class TestPeopleFirstSeen(ClickhouseTestMixin, BaseTest):
+    def test_lists_each_requested_id_once_in_request_order_with_the_bound(self) -> None:
+        create_person(team=self.team, uuid=CAROL, distinct_ids=["user-carol"])
+        create_person(team=self.team, uuid=DAVE, distinct_ids=["user-dave"])
+        seed(
+            self.team,
+            [generation("t-dave", -10 * 24 * 60, "user-dave"), generation("t-carol", 5, "user-carol")],
+        )
+        selection = to_selection(self.team, {"date_from": 0, "date_to": 60})
+
+        built = load_people_first_seen(self.team, self.user, selection, [DAVE, ERIN, CAROL, DAVE])
+
+        assert built == PersonFirstSeenList(
+            items=[
+                PersonFirstSeen(person_id=DAVE, first_seen=at(-10 * 24 * 60), is_new=False),
+                PersonFirstSeen(person_id=ERIN, first_seen=None, is_new=True),
+                PersonFirstSeen(person_id=CAROL, first_seen=at(5), is_new=True),
+            ],
+            checked_from=(at(0) - LOOKBACK).astimezone(self.team.timezone_info).date(),
+        )

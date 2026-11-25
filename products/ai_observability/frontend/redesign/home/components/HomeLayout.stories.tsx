@@ -5,6 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { METRICS, METRICS_NOT_SET_UP, RANGE_TOO_LONG_DETAIL, TILE_LINKS } from '../homeFixtures'
 import { HomeLayout } from './HomeLayout'
 import { HomeRangeTooLong } from './HomeRangeTooLong'
+import { HomeSectionPlaceholder } from './HomeSectionPlaceholder'
 import { KpiTileRow } from './KpiTileRow'
 import { OpenDashboardLink } from './OpenDashboardLink'
 
@@ -26,6 +27,7 @@ const meta: Meta<typeof HomeLayout> = {
         ),
         showComparison: true,
         instrumentation: <LemonBanner type="info">Instrumentation slot</LemonBanner>,
+        expensivePeople: <HomeSectionPlaceholder section="expensive-users" title="Most expensive users" />,
     },
 }
 export default meta

@@ -29,6 +29,7 @@ import { TRACE_DRAWER_OPEN_ROW_CLASS, hasOwnClickHandler } from '../trace/traceD
 import { PeopleSetupCard } from './components/PeopleSetupCard'
 import { peopleTableColumns } from './components/PeopleTableColumns'
 import { PEOPLE_LIST_FILTERS, peopleListLogic } from './peopleListLogic'
+import { personCellsLogic } from './personCellsLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
 const DATA_ATTR = 'ai-observability-people-list'
@@ -59,12 +60,13 @@ export function PeopleListHost(): JSX.Element {
         useActions(peopleListLogic)
     const { filters } = useValues(listFiltersLogic(PEOPLE_LIST_FILTERS))
     const { setPropertyFilters, toggleQuickFilter, clearFilters } = useActions(listFiltersLogic(PEOPLE_LIST_FILTERS))
+    const { firstSeen } = useValues(personCellsLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { searchParams } = useValues(router)
 
-    const columns = useMemo(() => peopleTableColumns(), [])
+    const columns = useMemo(() => peopleTableColumns({ firstSeen }), [firstSeen])
     const onRow = useCallback(
         (item: PersonListItemApi) => ({
             className: item.id === openPersonId ? `cursor-pointer ${TRACE_DRAWER_OPEN_ROW_CLASS}` : 'cursor-pointer',

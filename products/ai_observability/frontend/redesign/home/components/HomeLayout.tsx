@@ -8,6 +8,7 @@ export interface HomeLayoutProps {
     tiles: ReactNode
     showComparison: boolean
     instrumentation: ReactNode
+    expensivePeople: ReactNode
 }
 
 export function HomeLayout({
@@ -16,6 +17,7 @@ export function HomeLayout({
     tiles,
     showComparison,
     instrumentation,
+    expensivePeople,
 }: HomeLayoutProps): JSX.Element {
     return (
         <div className="@container flex min-w-0 flex-col gap-4">
@@ -34,7 +36,7 @@ export function HomeLayout({
             <HomeSectionPlaceholder section="evals" title="Evals to inspect" />
             <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2">
                 <HomeSectionPlaceholder section="topics" title="Top topics" />
-                <HomeSectionPlaceholder section="expensive-users" title="Most expensive users" />
+                {expensivePeople}
             </div>
         </div>
     )

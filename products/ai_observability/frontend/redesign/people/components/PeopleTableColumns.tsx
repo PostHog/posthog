@@ -2,16 +2,23 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { PersonListItemApi } from '../../../generated/api.schemas'
+import type { CellLoads } from '../../shared/cellLoads'
 import { formatCostUsd } from '../../shared/formatCost'
 import { ShortTimestamp } from '../../trace/components/ShortTimestamp'
 import { TraceCellValue } from '../../traces/components/TraceCellValue'
 import { TracePersonCell } from '../../traces/components/TracePersonCell'
+import type { PersonFirstSeen } from '../types'
+import { PersonFirstSeenCell } from './PersonFirstSeenCell'
+
+export interface PeopleTableColumnsOptions {
+    firstSeen: CellLoads<PersonFirstSeen>
+}
 
 function CountValue({ count }: { count: number }): JSX.Element {
     return <TraceCellValue>{count > 0 ? humanFriendlyNumber(count) : null}</TraceCellValue>
 }
 
-export function peopleTableColumns(): LemonTableColumns<PersonListItemApi> {
+export function peopleTableColumns({ firstSeen }: PeopleTableColumnsOptions): LemonTableColumns<PersonListItemApi> {
     return [
         {
             title: 'Person',
@@ -39,6 +46,20 @@ export function peopleTableColumns(): LemonTableColumns<PersonListItemApi> {
             tooltip:
                 "The cost of this person's own events. In a trace with several people, each counts only their own events.",
             render: (_, { cost }) => <TraceCellValue>{cost !== null ? formatCostUsd(cost) : null}</TraceCellValue>,
+        },
+        {
+            title: 'First seen',
+            key: 'first_seen',
+            render: (_, { id }) => {
+                const load = firstSeen.get(id)
+                return (
+                    <PersonFirstSeenCell
+                        firstSeen={load?.status === 'ready' ? load.value : null}
+                        // The cells are read right after the row lands, so a row with no entry yet is about to load.
+                        status={load?.status ?? 'loading'}
+                    />
+                )
+            },
         },
         {
             title: 'Last seen',

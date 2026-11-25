@@ -1,7 +1,8 @@
-import type { PersonListApi, PersonListItemApi } from '../../generated/api.schemas'
+import type { PersonFirstSeenListApi, PersonListApi, PersonListItemApi } from '../../generated/api.schemas'
 
 export const PEOPLE_URL = '/api/projects/:team_id/ai_observability/people/'
 export const PEOPLE_NEW_COUNT_URL = '/api/projects/:team_id/ai_observability/people/new_count/'
+export const PEOPLE_FIRST_SEEN_URL = '/api/projects/:team_id/ai_observability/people/first_seen/'
 
 export function makePersonListItem(overrides: Partial<PersonListItemApi> = {}): PersonListItemApi {
     const id = overrides.id ?? '0192f3c9-0000-7000-8000-000000000001'
@@ -31,5 +32,16 @@ export function makePersonListPage(ids: string[], overrides: Partial<PersonListA
         next: null,
         previous: null,
         ...overrides,
+    }
+}
+
+export function makeFirstSeenAnswer(personIds: string[], newIds: string[] = []): PersonFirstSeenListApi {
+    return {
+        items: personIds.map((personId) => ({
+            personId,
+            firstSeen: '2026-11-02T10:00:00Z',
+            isNew: newIds.includes(personId),
+        })),
+        checkedFrom: '2026-10-18',
     }
 }

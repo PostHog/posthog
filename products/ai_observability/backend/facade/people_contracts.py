@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import Field
 
@@ -63,3 +63,25 @@ class PeopleNewCount(Contract):
 class PersonList(PersonPage):
     next: str | None = Field(description="URL of the next page, or null on the last page.")
     previous: str | None = Field(description="URL of the previous page, or null on the first page.")
+
+
+class PersonFirstSeen(Contract):
+    person_id: str = Field(description="The person's UUID.")
+    first_seen: datetime | None = Field(
+        description="The time of the person's earliest AI event from the checked date to the end of the range, "
+        "whatever day it falls on. Null when they have none there."
+    )
+    is_new: bool = Field(
+        description=f"Whether the person has no AI activity in the {LOOKBACK.days} days before the range starts, under "
+        "the test-account filter only."
+    )
+
+
+class PersonFirstSeenList(Contract):
+    items: list[PersonFirstSeen] = Field(
+        description="One item per requested person, once each, in the order first requested."
+    )
+    checked_from: date = Field(
+        description=f"The lookback bound: the date {LOOKBACK.days} days before the range starts. Nothing before it was "
+        "read, so a person first seen on it may have been active earlier."
+    )
