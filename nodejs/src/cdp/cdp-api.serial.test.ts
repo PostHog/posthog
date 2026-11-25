@@ -1,6 +1,11 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { kafkaRecordsOn, mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
+import {
+    kafkaRecordsOn,
+    mockKafkaClient,
+    mockProducer,
+    mockProducerObserver,
+} from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -71,7 +76,6 @@ import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT } from './outputs/outputs'
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { requestFingerprint } from './services/hogflows/idempotency-keys'
@@ -5884,37 +5888,43 @@ describe('CDP API', () => {
                         CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
                         CDP_INTAKE_KAFKA_ASYNC_TEAMS: `${team.id},${otherTeamId}`,
                     })
-                    const outputs = served[served.length - 1].cdpApi['outputs']
-                    const produce = Object.getPrototypeOf(outputs).produce as typeof outputs.produce
-                    let reachedAck!: () => void
-                    const reached = new Promise<void>((resolve) => (reachedAck = resolve))
-                    let ack!: () => void
-                    const acked = new Promise<void>((resolve) => (ack = resolve))
-                    let holding = true
-                    jest.spyOn(outputs, 'produce').mockImplementation(((...args: Parameters<typeof produce>) => {
-                        if (!holding || args[0] !== CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT) {
-                            return produce.apply(outputs, args)
+                    const intakeTopic = api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC
+                    const deliver = mockKafkaClient.produce.getMockImplementation()!
+                    let reachedBroker!: () => void
+                    const reached = new Promise<void>((resolve) => (reachedBroker = resolve))
+                    let deliverHeld: (() => void) | undefined
+                    mockKafkaClient.produce.mockImplementation(((...args: Parameters<typeof deliver>) => {
+                        if (deliverHeld || args[0] !== intakeTopic) {
+                            return deliver(...args)
                         }
-                        holding = false
-                        reachedAck()
-                        return acked.then(() => produce.apply(outputs, args))
-                    }) as typeof outputs.produce)
+                        deliverHeld = () => deliver(...args)
+                        reachedBroker()
+                    }) as typeof deliver)
 
                     const ada = recipient('ada@example.com')
-                    const first = sendBatchTo(two, TEMPLATE, batchOf(ada)).then((answer) => answer)
-                    await Promise.race([
-                        reached,
-                        first.then(() => Promise.reject(new Error('the first batch answered before its broker ack'))),
-                    ])
-                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
-                    const otherTeam = await supertest(two)
-                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
-                        .set({
-                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
-                        })
-                        .send(batchOf(recipient('cy@example.com')))
-                    ack()
-                    const held = await first
+                    let sameTeam: supertest.Response
+                    let otherTeam: supertest.Response
+                    let held: supertest.Response
+                    try {
+                        const first = sendBatchTo(two, TEMPLATE, batchOf(ada)).then((answer) => answer)
+                        await Promise.race([
+                            reached,
+                            first.then(() =>
+                                Promise.reject(new Error('the first batch answered before the broker acked it'))
+                            ),
+                        ])
+                        sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
+                        otherTeam = await supertest(two)
+                            .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
+                            .set({
+                                Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                            })
+                            .send(batchOf(recipient('cy@example.com')))
+                        deliverHeld!()
+                        held = await first
+                    } finally {
+                        mockKafkaClient.produce.mockImplementation(deliver)
+                    }
 
                     expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([otherTeam.status, otherTeam.body.results]).toEqual([
