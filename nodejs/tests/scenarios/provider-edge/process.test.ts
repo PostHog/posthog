@@ -1,6 +1,8 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { execFile, spawn } from 'child_process'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import net from 'net'
+import { tmpdir } from 'os'
 import path from 'path'
 import { createInterface } from 'readline'
 import { pathToFileURL } from 'url'
@@ -89,7 +91,64 @@ describe('provider edge process', () => {
 
         await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
         await expect(edge.clearFaults()).rejects.toThrow('the provider edge process did not answer add within 500 ms')
+        expect(() => process.kill(edge.pid!, 0)).toThrow('ESRCH')
     }, 10_000)
+
+    it('keeps answering after a call it could not send', async () => {
+        const unsendable = Object.assign({}, REJECT, { unsendable: 1n })
+        jest.useFakeTimers({
+            doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'hrtime', 'performance', 'Date'],
+        })
+        try {
+            await expect(edge.hold(unsendable)).rejects.toThrow('BigInt')
+            jest.advanceTimersByTime(30_000)
+
+            await expect(edge.clearFaults()).resolves.toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('gives up on an edge process that does not start, and kills what it started', async () => {
+        const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
+        const pidFile = path.join(bin, 'openssl.pid')
+        writeFileSync(path.join(bin, 'openssl'), '#!/bin/sh\necho $$ > "$EDGE_OPENSSL_PID"\nexec sleep 600\n')
+        chmodSync(path.join(bin, 'openssl'), 0o755)
+        const runner = `require(${EDGE_PROCESS})
+            .startEdgeProcess({ port: 0, caDir: ${JSON.stringify(path.join(bin, 'ca'))} }, { startsWithinMs: 5000 })
+            .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
+            .then((outcome) => process.stdout.write(outcome))`
+        const stillRuns = (pid: string): boolean => {
+            try {
+                return !readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].startsWith('Z')
+            } catch {
+                return false
+            }
+        }
+        try {
+            const outcome = await new Promise<string>((resolve) =>
+                execFile(
+                    process.execPath,
+                    ['--import', TSX, '-e', runner],
+                    {
+                        cwd: NODEJS_DIR,
+                        env: { ...WITHOUT_LOG_THREAD, PATH: `${bin}:${process.env.PATH}`, EDGE_OPENSSL_PID: pidFile },
+                        timeout: 20_000,
+                    },
+                    (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
+                )
+            )
+
+            expect({ outcome, opensslRuns: stillRuns(readFileSync(pidFile, 'utf8').trim()) }).toEqual({
+                outcome: 'the provider edge process did not start within 5000 ms',
+                opensslRuns: false,
+            })
+        } finally {
+            spawn('bash', ['-c', 'kill -9 "$(cat "$0")" 2>/dev/null', pidFile]).once('exit', () =>
+                rmSync(bin, { recursive: true, force: true })
+            )
+        }
+    }, 30_000)
 
     it('rejects startup on a port another listener holds', async () => {
         await expect(startEdgeProcess({ port: Number(new URL(edge.url).port) })).rejects.toThrow('EADDRINUSE')

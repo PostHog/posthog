@@ -675,7 +675,7 @@ export function startProviderEdge(options: {
 // nodejs/tests/scenarios/provider-edge/process.ts
 export function startEdgeProcess(
   options: EdgeProcessOptions, // port, trackingKeys, caDir and feedbackUrl
-  deadlines?: { startsWithinMs?: number; answersWithinMs?: number } // 60 and 30 seconds; past one, the edge process is killed and every call rejects
+  deadlines?: { startsWithinMs?: number; answersWithinMs?: number } // 60 and 30 seconds; past one, the edge process group is killed and every call rejects once it has exited
 ): Promise<EdgeProcess>
 export type EdgeProcess = {
   url: string

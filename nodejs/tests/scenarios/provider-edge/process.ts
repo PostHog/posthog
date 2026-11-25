@@ -73,10 +73,17 @@ export async function startEdgeProcess(
     let next = 0
 
     const end = (error: Error): void => {
-        ended ??= error
-        starting?.reject(error)
-        pending.forEach(({ reject }) => reject(error))
+        const reason = (ended ??= error)
+        starting?.reject(reason)
+        pending.forEach(({ reject }) => reject(reason))
         pending.clear()
+    }
+    const kill = (): void => {
+        try {
+            process.kill(-child.pid!, 'SIGKILL')
+        } catch {
+            child.kill('SIGKILL')
+        }
     }
     const exited = new Promise<void>((resolve) => {
         child.once('exit', (code, signal) => {
@@ -93,8 +100,8 @@ export async function startEdgeProcess(
 
     const giveUp = (what: string, withinMs: number): NodeJS.Timeout =>
         setTimeout(() => {
-            end(new Error(`the provider edge process did not ${what} within ${withinMs} ms`))
-            child.kill('SIGKILL')
+            ended ??= new Error(`the provider edge process did not ${what} within ${withinMs} ms`)
+            kill()
         }, withinMs)
     const started = new Promise<Started>((resolve, reject) => {
         const deadline = giveUp('start', startsWithinMs)
@@ -145,12 +152,17 @@ export async function startEdgeProcess(
                     reject(error)
                 },
             })
-            child.send({ ...request, id } satisfies Request)
+            try {
+                child.send({ ...request, id } satisfies Request)
+            } catch (error) {
+                pending.get(id)?.reject(error as Error)
+                pending.delete(id)
+            }
         })
     }
 
     const close = async (): Promise<void> => {
-        child.kill('SIGKILL')
+        kill()
         await exited
     }
 
