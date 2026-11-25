@@ -32,7 +32,9 @@ from posthog.models.github_integration_base import (
 )
 from posthog.models.integration import GitHubIntegration
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.signals.backend.artefact_schemas import (
     CheckAuthoringStatus,
     ReviewerProposal,
@@ -45,7 +47,6 @@ from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
-from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_assignments import MAX_PR_NUMBER, PullRequestDetails, create_claim
 from products.signals.backend.report_check_authoring import create_checks_from_specs
 from products.signals.backend.report_checks import (
@@ -417,11 +418,23 @@ def _collect_authored_prs(
     return results
 
 
+def _has_pr_resource_access(team_id: int, user_id: int, action: Action) -> bool:
+    subject = Subject(user_id=user_id)
+    return all(
+        authorization.check(
+            [
+                CheckRequest(resource=Resource(type=slug, project_id=team_id), action=action, subject=subject)
+                for slug in (ResourceType.INBOX, ResourceType.TASK)
+            ]
+        )
+    )
+
+
 def list_authored_prs(*, team: Team, user: User) -> PRPage:
     team = team.parent_team or team
     if not team_pr_monitoring_enabled(team.id):
         raise PermissionError("PR monitoring is not enabled for this project.")
-    if not may_read_reports(team=team, user=user):
+    if not _has_pr_resource_access(team.id, user.id, Action.VIEW):
         raise PermissionError("You need permission to view tasks in this project.")
     login = user.get_github_login(include_team_fallback=False)
     integrations = _registered_installations(team.id, source="signals_pr_browser")
@@ -458,9 +471,7 @@ def _ensure_pr_monitoring_permitted(team: Team, user: User) -> None:
         raise PermissionError("PR monitoring is not enabled for this project.")
     if not team.organization.is_ai_data_processing_approved:
         raise PermissionError("Enable AI data processing for this organization to monitor a PR.")
-    if not UserAccessControl(
-        user=user, team=team, organization_id=str(team.organization_id)
-    ).check_access_level_for_resource("task", "editor"):
+    if not _has_pr_resource_access(team.id, user.id, Action.EDIT):
         raise PermissionError("You need permission to start tasks in this project.")
 
 
@@ -501,16 +512,14 @@ def report_has_active_pr_monitoring_pass(report: SignalReport) -> bool:
 
 def require_pr_monitoring_initiator(team: Team, user_id: int) -> User:
     initiator = User.objects.get(
-        id=user_id,
-        is_active=True,
-        organization_membership__organization_id=team.organization_id,
+        id=user_id, is_active=True, organization_membership__organization_id=team.organization_id
     )
-    access = UserAccessControl(user=initiator, team=team, organization_id=str(team.organization_id))
     if (
-        not access.has_project_access
-        or not team.organization.is_ai_data_processing_approved
-        or not access.check_access_level_for_resource("inbox", "editor")
-        or not access.check_access_level_for_resource("task", "editor")
+        not team.organization.is_ai_data_processing_approved
+        or not authorization.check(
+            resource=Resource.project(team.id), action=Action.VIEW, subject=Subject(user_id=initiator.id)
+        )
+        or not _has_pr_resource_access(team.id, initiator.id, Action.EDIT)
     ):
         raise ValueError("The initiating user can no longer start PR research in this project")
     return initiator
@@ -888,12 +897,7 @@ def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest)
 def _assert_initiator_may_read_metric(
     report: SignalReport, initiator: User, inputs: MonitorPRInput, metric_payload: dict[str, Any]
 ) -> None:
-    policy = ReportMetricAccessPolicy(
-        request=None,
-        team=report.team,
-        user=initiator,
-        token_scopes=inputs.token_scopes,
-    )
+    policy = ReportMetricAccessPolicy(request=None, team=report.team, user=initiator, token_scopes=inputs.token_scopes)
     if not policy.may_read_query(metric_payload):
         raise ValueError("The initiating user cannot access the selected metric query")
 
@@ -940,10 +944,7 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
         SignalReportArtefact.append_status(
             team_id=report.team_id,
             report_id=str(report.id),
-            content=CheckAuthoringStatus(
-                status="succeeded",
-                reason="PR monitoring measurement created.",
-            ),
+            content=CheckAuthoringStatus(status="succeeded", reason="PR monitoring measurement created."),
             attribution=actor,
         )
         _reconcile_researched_pr(report, pr, actor)

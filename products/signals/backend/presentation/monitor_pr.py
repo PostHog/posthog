@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
@@ -18,7 +17,6 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.monitor_pr import (
     REPORT_STATUS_CHOICES,
     InvalidPullRequest,
@@ -106,13 +104,7 @@ class _BasePRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "inbox"
-    requires_resource_level_access = True
     pagination_class = None
-
-    @cached_property
-    def user_access_control(self) -> UserAccessControl:
-        team = self.team.parent_team or self.team
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
