@@ -1493,6 +1493,8 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1517,6 +1519,8 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -3030,6 +3034,9 @@ class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
+    REPEATED_CTE_EXPANSION = "repeated_cte_expansion"
+    CROSS_JOIN_EQUALITY = "cross_join_equality"
+    DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT = "date_arrays_before_breakdown_limit"
 
 
 class QueryScanFixLocation(StrEnum):

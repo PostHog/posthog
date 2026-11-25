@@ -1,23 +1,31 @@
 import uuid
 import typing as t
+import asyncio
 from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import connection
+from django.utils import timezone
 
 import grpc.aio
 import posthoganalytics
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
+from posthog.models.proxy_record import CLOUDFLARE_RECOVERY_STATES
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.schedule import a_schedule_exists
+from posthog.temporal.common.utils import close_stale_db_connections, on_asyncify_pool
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)
+PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS = 15
 
 
 async def get_grpc_client():
@@ -73,8 +81,7 @@ class RecordDeletedException(NonRetriableException):
 @sync_to_async
 def get_record(proxy_record_id: uuid.UUID) -> t.Optional[ProxyRecord]:
     connection.connect()
-    pr = ProxyRecord.objects.filter(id=proxy_record_id)
-    return pr.first()
+    return ProxyRecord.objects.select_related("organization").filter(pk=proxy_record_id).first()
 
 
 @sync_to_async
@@ -84,18 +91,31 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
     return len(pr) > 0
 
 
-@sync_to_async
-def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
-    connection.connect()
-    prs = ProxyRecord.objects.filter(id=proxy_record_id)
-    if len(prs) == 0:
-        raise RecordDeletedException("proxy record was deleted before workflow completed")
-    pr = prs[0]
+@on_asyncify_pool
+def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, status: str | None = None) -> None:
+    records = ProxyRecord.objects.filter(id=proxy_record_id).exclude(status=ProxyRecord.Status.DELETING)
+    updates: dict[str, t.Any] = {"updated_at": timezone.now()}
     if message is not None:
-        pr.message = message
+        updates["message"] = message
     if status is not None:
-        pr.status = status
-    pr.save()
+        updates["status"] = status
+    # A failed deletion and late provisioning updates must not erase deletion intent.
+    # Keep this conditional in SQL so an API deletion cannot race a stale record save.
+    if not records.update(**updates):
+        raise RecordDeletedException("proxy record was deleted or marked for deletion before workflow completed")
+
+    if status == ProxyRecord.Status.VALID:
+        organization_id = (
+            records.filter(cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES)
+            .exclude(organization__is_active=False)
+            .exclude(organization__is_pending_deletion=True)
+            .values_list("organization_id", flat=True)
+            .first()
+        )
+        if organization_id is not None:
+            from posthog.tasks.proxy import enqueue_proxy_reconciliation  # noqa: PLC0415
+
+            enqueue_proxy_reconciliation(str(organization_id), str(proxy_record_id))
 
 
 @dataclass
@@ -202,26 +222,38 @@ class SendProxyCreatedEmailInputs:
         }
 
 
+@async_to_sync
+async def _proxy_monitor_schedule_exists(proxy_record_id: uuid.UUID) -> bool:
+    async with asyncio.timeout(PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS):
+        temporal = await async_connect()
+        return await a_schedule_exists(temporal, f"monitor-proxy-{proxy_record_id}")
+
+
 @activity.defn
 def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
     """Send an email notification when a reverse proxy has been successfully provisioned."""
     from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 
+    if not is_email_available():
+        return
+
+    close_stale_db_connections()
+    record = ProxyRecord.objects.select_related("created_by", "organization").filter(id=inputs.proxy_record_id).first()
+    if record is None or record.created_by is None or not record.created_by.email:
+        return
+
+    campaign_key = f"proxy_provisioned_{inputs.proxy_record_id}"
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        return
+
+    # A monitor schedule is created after the first successful provisioning, even if email was unavailable.
+    if _proxy_monitor_schedule_exists(inputs.proxy_record_id):
+        return
+
     try:
-        connection.connect()
-
-        if not is_email_available():
-            return
-
-        record = (
-            ProxyRecord.objects.select_related("created_by", "organization").filter(id=inputs.proxy_record_id).first()
-        )
-        if record is None or record.created_by is None or not record.created_by.email:
-            return
-
         user = record.created_by
         message = EmailMessage(
-            campaign_key=f"proxy_provisioned_{inputs.proxy_record_id}",
+            campaign_key=campaign_key,
             subject="Your PostHog reverse proxy is ready",
             template_name="proxy_provisioned",
             template_context={
