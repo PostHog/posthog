@@ -27,11 +27,12 @@ const runs = (pid: number | undefined): boolean => {
     }
 }
 const blockRunnerFor = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-const blockRunnerUntil = (done: () => boolean, withinMs: number): void => {
+const blockRunnerUntil = (done: () => boolean, withinMs: number): boolean => {
     const deadline = Date.now() + withinMs
     while (!done() && Date.now() < deadline) {
         blockRunnerFor(10)
     }
+    return done()
 }
 const bytesWrittenBy = (pid: number): number =>
     Number(/^wchar: (\d+)$/m.exec(readFileSync(`/proc/${pid}/io`, 'utf8'))![1])
@@ -182,11 +183,12 @@ describe('provider edge process', () => {
                 const holding = outcomeOf(edge.hold(REJECT))
                 const writtenBefore = bytesWrittenBy(edge.pid!)
                 process.kill(edge.pid!, 'SIGCONT')
-                blockRunnerUntil(() => bytesWrittenBy(edge.pid!) > writtenBefore, 5000)
+                const replyWritten = blockRunnerUntil(() => bytesWrittenBy(edge.pid!) > writtenBefore, 5000)
                 jest.advanceTimersByTime(500)
                 jest.advanceTimersByTime(1)
 
-                expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
+                expect({ replyWritten, outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
+                    replyWritten: true,
                     outcome: 'the provider edge process did not answer add within 500 ms',
                     edgeRuns: false,
                 })
@@ -218,7 +220,7 @@ describe('provider edge process', () => {
     })
 
     it.each([
-        ['and kills the edge', '', 'Do not know how to serialize a BigInt'],
+        ['and kills the edge', '', '', 'Do not know how to serialize a BigInt'],
         [
             'when it cannot kill the edge',
             `const signal = process.kill.bind(process)
@@ -226,16 +228,17 @@ describe('provider edge process', () => {
                 if (pid < 0) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
                 return signal(pid, name)
             }`,
+            'process.exit()',
             'kill EPERM',
         ],
     ])(
         'rejects a start whose options it could not send, and leaves nothing to reject later, %s',
-        async (_, signalBoundary, expected) => {
+        async (_, signalBoundary, afterOutcome, expected) => {
             const runner = `${signalBoundary}
             require(${EDGE_PROCESS})
             .startEdgeProcess(Object.assign({ port: 0 }, { unsendable: 1n }), { startsWithinMs: 300 })
             .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
-            .then((outcome) => setTimeout(() => process.stdout.write(outcome, () => process.exit()), 1000))`
+            .then((outcome) => setTimeout(() => process.stdout.write(outcome, () => { ${afterOutcome} }), 1000))`
             const outcome = await new Promise<string>((resolve) =>
                 execFile(
                     process.execPath,

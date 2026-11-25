@@ -521,14 +521,19 @@ describe('provider edge', () => {
         }
     )
 
-    it.each<[string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>]>([
-        ['observed', (hold, holdEnds) => hold.observed(holdEnds)],
-        ['accepted', (hold, holdEnds) => hold.accepted!(holdEnds)],
+    const observedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.observed(holdEnds)
+    const acceptedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.accepted!(holdEnds)
+
+    it.each<[string, string, string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>, number, boolean]>([
+        ['keeps', 'observed', 'before', observedUntil, 0, true],
+        ['keeps', 'accepted', 'before', acceptedUntil, 0, true],
+        ['does not count', 'observed', 'after', observedUntil, 60_000, false],
+        ['does not count', 'accepted', 'after', acceptedUntil, 60_000, false],
     ])(
-        'keeps a fault %s that applied while a read was on its way, when the hold ended before that read came back',
-        async (_, waitOn) => {
+        '%s a fault %s that applied %s the hold ended, while a read was on its way back',
+        async (_, __, ___, waitOn, appliedFromEndMs, expected) => {
             let answerFirstRead: (() => void) | undefined
-            const appliedAt = Date.now()
+            const appliedAt = Date.now() + appliedFromEndMs
             const held = holdOf({
                 firstAppliedAt: () =>
                     answerFirstRead === undefined
@@ -541,7 +546,7 @@ describe('provider edge', () => {
             holdEnds.abort()
             answerFirstRead!()
 
-            expect(await waiting).toBe(true)
+            expect(await waiting).toBe(expected)
         }
     )
 
