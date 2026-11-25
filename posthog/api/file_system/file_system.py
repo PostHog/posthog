@@ -965,8 +965,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return queryset
         queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
         if self.action in FOLDER_WRITE_ACTIONS:
-            # Reads show an Unfiled folder that holds only workflow files, empty. Writing it would carry a teammate's
-            # star away from those files or leave them without a parent folder, so writes still cannot reach it.
+            # A write to such a folder would carry stars away from its hidden files or orphan them.
             queryset = queryset.exclude(self._only_workflow_files_folders())
         return queryset
 
