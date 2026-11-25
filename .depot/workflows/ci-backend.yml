@@ -490,9 +490,11 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_quarantine.json
-                        # No product package owns this file, so Turbo marks no product affected and
-                        # discovery would test nothing. Listing it here sends it down the same path
-                        # as a posthog/ edit.
+                        # Every product's tests load these, but no product package owns them, so Turbo
+                        # marks no product affected and discovery would test nothing. Listing them
+                        # here sends them down the same path as a posthog/ edit.
+                        - products/__init__.py
+                        - products/conftest.py
                         - products/db_routing.yaml
                         # Python reads only the generated products.json, and ci-frontend fails a
                         # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
