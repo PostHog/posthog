@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -470,6 +472,7 @@ describe('commentsLogic linked Slack threads', () => {
                 },
                 '/api/organizations/@current/members/': { results: [] },
             },
+            patch: { '/api/projects/:team_id/comments/:id': [200, {}] },
         })
         logic = commentsLogic({ scope: ActivityScope.INSIGHT, item_id: '1' })
         logic.mount()
@@ -478,6 +481,7 @@ describe('commentsLogic linked Slack threads', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
         logic.unmount()
     })
 
@@ -491,6 +495,23 @@ describe('commentsLogic linked Slack threads', () => {
         // A deleted opening comment isn't asked for again on the next refresh.
         await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
         expect(rootRequests.sort()).toEqual(['deleted-root', 'linked-root', 'linked-root'])
+    })
+
+    it('fetches an opening comment again once its deletion is undone', async () => {
+        const infoSpy = jest.spyOn(lemonToast, 'info')
+        results = [makeComment('reply', 'linked-root')]
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        const root = logic.values.comments!.find((c) => c.id === 'linked-root')!
+
+        await expectLogic(logic, () => logic.actions.deleteComment(root)).toDispatchActions(['deleteCommentSuccess'])
+        // A refresh while it's deleted remembers it as gone.
+        rootStatus = 404
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+
+        rootStatus = 200
+        await infoSpy.mock.calls[0][1]?.button?.action()
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'reply'])
     })
 
     it('fails the refresh when an opening comment it needs fails to load, which stops the import refreshes', async () => {

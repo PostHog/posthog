@@ -829,6 +829,8 @@ export const commentsLogic = kea<commentsLogicType>([
                         object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {
+                                // A refresh while it was deleted remembered it as gone. It's back, so fetch it again.
+                                cache.deletedRootIds?.delete(comment.id)
                                 actions.loadCommentsSuccess([
                                     ...(values.comments?.filter((c) => c.id !== comment.id) ?? []),
                                     comment,
