@@ -4749,8 +4749,8 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or "
-            "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
-            "is refused and the error lists them, so confirm with the user before setting it."
+            "name, several senders, replyTo, cc, bcc, turned-off tracking, turned-off run_link_tag_enabled, UTM tags). "
+            "Without it, the switch is refused and the error lists them, so confirm with the user before setting it."
         ),
     )
 
