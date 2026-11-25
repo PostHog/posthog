@@ -211,6 +211,12 @@ const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmpt
                 { connected: false, integration_id: null, integration_name: '', repos: [] },
             ],
         },
+        post: {
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const body = JSON.stringify(await request.json())
+                return [200, { results: body.includes('$host') ? [['hedgebox.net', 120]] : [] }]
+            },
+        },
     },
 })
 // With the flag on, the setup card also shows the step that connects a customer's own agent.
@@ -219,6 +225,11 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = {
     parameters: {
         ...businessKnowledgeNeedsSetup.parameters,
         featureFlags: [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MCP],
+        testOptions: {
+            ...businessKnowledgeNeedsSetup.parameters?.testOptions,
+            // The suggested address comes from a mocked query after the first render.
+            waitForSelector: 'input[data-attr="business-knowledge-setup-website-url"][value="https://hedgebox.net"]',
+        },
     },
 }
 

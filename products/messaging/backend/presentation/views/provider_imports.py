@@ -20,6 +20,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
+    CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
     PROVIDER_IMPORT_STATUS_CHOICES,
@@ -40,6 +41,28 @@ class ImportStepOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    needs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty.",
+    )
+    counts_as_events = serializers.BooleanField(
+        help_text="Whether the step creates or updates people. Each of those counts as one event on the bill."
+    )
+
+
+class ImportSettingChoiceSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="Value to send for this setting when starting an import.")
+    label = serializers.CharField(help_text="Display name of the choice.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
+
+
+class ImportSettingOptionSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Setting key to use in `settings` when starting an import, such as `region`.")
+    label = serializers.CharField(help_text="Display name of the setting.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
+    help = serializers.CharField(help_text="What the setting changes, and how to choose.")
+    choices = ImportSettingChoiceSerializer(many=True, help_text="The values the setting accepts.")
+    default = serializers.CharField(
+        allow_null=True, help_text="The value used when the request leaves this setting out. Null means it's required."
+    )
 
 
 class ImportProviderOptionSerializer(serializers.Serializer):
@@ -61,6 +84,9 @@ class ImportProviderOptionSerializer(serializers.Serializer):
     )
     next_steps = serializers.ListField(
         child=serializers.CharField(), help_text="What the person does once the import has finished, in order."
+    )
+    settings = ImportSettingOptionSerializer(
+        many=True, help_text="Choices to make before starting an import, such as Mailgun's region. Often empty."
     )
 
 
@@ -110,9 +136,14 @@ class ImportStepProgressSerializer(serializers.Serializer):
     counts = ImportStepCountSerializer(
         many=True, help_text="A breakdown of what the step did. Only counts above zero appear."
     )
-    items = ImportStepItemSerializer(many=True, help_text="The objects the step handled, with anything to review.")
+    items = ImportStepItemSerializer(
+        many=True,
+        help_text="The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them.",
+    )
     warnings_omitted = serializers.IntegerField(help_text="How many more warnings there were than `warnings` holds.")
-    items_omitted = serializers.IntegerField(help_text="How many more objects there were than `items` holds.")
+    items_omitted = serializers.IntegerField(
+        help_text="How many more objects there were than `items` holds. In the list of runs, this counts every object."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):
@@ -126,6 +157,9 @@ class ProviderImportRunSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the run was requested.")
     started_at = serializers.DateTimeField(allow_null=True, help_text="When the first step started.")
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When the last step ended.")
+    settings = serializers.DictField(
+        child=serializers.CharField(), help_text="The settings the run started with, by setting key."
+    )
 
 
 class StartProviderImportSerializer(serializers.Serializer):
@@ -139,7 +173,12 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.",
+    )
+    settings = serializers.DictField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        help_text="Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`.",
     )
 
 
@@ -150,13 +189,23 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+    Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+    suppressions and unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
 
     scope_object = "hog_flow"
     serializer_class = _FallbackSerializer
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # A run's counts say whether an address was already suppressed or opted out, which the suppression list
+        # guards with person:read, so starting a run and reading one need it too.
+        if self.action in ("list", "retrieve"):
+            return ["hog_flow:read", "person:read"]
+        if self.action == "create":
+            return ["hog_flow:write", "person:read"]
+        return None
 
     @extend_schema(
         responses={200: ProviderImportRunSerializer(many=True)}, summary="List the most recent provider imports"
@@ -204,11 +253,29 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Importing automations can create cohorts, so this key needs the cohort:write scope. "
                 "Leave out Automations, or use a key that has it."
             )
+        if CONTACT_STEPS & set(data["steps"]):
+            # Contacts create people and fill cohorts, like the people upload, so they need the same rights.
+            if (
+                scopes is not None
+                and "*" not in scopes
+                and scopes_not_covered(scopes, ["cohort:write", "person:write"])
+            ):
+                raise PermissionDenied(
+                    "Importing contacts writes people and cohorts, so this key needs the person:write and "
+                    "cohort:write scopes. Leave out Contacts, or use a key that has them."
+                )
+            if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+                raise PermissionDenied("You need edit access to persons to import contacts.")
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
             run = start_provider_import(
-                self.team_id, data["provider"], data["steps"], data.get("api_key"), request.user.id
+                self.team_id,
+                data["provider"],
+                data["steps"],
+                data.get("api_key"),
+                request.user.id,
+                data.get("settings"),
             )
         except ProviderImportRejected as e:
             report_user_action(
@@ -224,13 +291,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ProviderImportUnavailable as e:
             raise ProviderUnavailable(str(e)) from e
 
-        report_user_action(
-            request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
         report_user_action(
             request.user,
             "workflows import run",

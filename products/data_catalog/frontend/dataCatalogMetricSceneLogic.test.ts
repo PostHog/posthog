@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,6 +19,8 @@ import {
     dataCatalogMetricSceneLogic,
     LINEAGE_RETRY_MS,
     MARKDOWN_DEFINITION_TEMPLATE,
+    METRIC_TAB_VIEWED_EVENT,
+    MetricSceneTab,
     referencedTablePreviewQuery,
 } from './dataCatalogMetricSceneLogic'
 import {
@@ -270,6 +273,26 @@ describe('dataCatalogMetricSceneLogic', () => {
     })
 
     it.each([
+        [404, false],
+        [500, true],
+    ])('reports a %s from loading the metric only when it is unexpected', async (status, reported) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const loadError = new ApiError('Not found.', status)
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockRejectedValue(loadError)
+        const missingMetricLogic = dataCatalogMetricSceneLogic({ name: 'no_such_metric' })
+        try {
+            await expectLogic(missingMetricLogic, () => {
+                missingMetricLogic.mount()
+            }).toDispatchActions(['loadMetricFailure'])
+
+            expect(captureException.mock.calls.some(([error]) => error === loadError)).toBe(reported)
+        } finally {
+            missingMetricLogic.unmount()
+            captureException.mockRestore()
+        }
+    })
+
+    it.each([
         ['opens the data quality tab for its own metric', 'metric-1', 'data-quality'],
         ['stays put for another metric', 'metric-2', 'definition'],
     ])('when a toast asks to show run results, %s', (_, subjectId, expectedTab) => {
@@ -317,6 +340,51 @@ describe('dataCatalogMetricSceneLogic', () => {
             laterFlags.forEach(setUsageFlag)
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
+
+    const RESTRUCTURE = [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]
+
+    it.each([
+        [
+            'a landing on the default tab, then tab clicks',
+            [],
+            undefined,
+            ['lineage', 'definition'],
+            null,
+            [
+                ['definition', 'classic'],
+                ['lineage', 'classic'],
+                ['definition', 'classic'],
+            ],
+        ],
+        ['a tab link', RESTRUCTURE, 'lineage', [], null, [['lineage', 'restructured']]],
+        ['flags that arrive after the URL', null, 'data-quality', [], RESTRUCTURE, [['data-quality', 'restructured']]],
+    ])(
+        'reports each metric tab view once, with its layout (%s)',
+        async (_, flagsBefore, tabParam, clicks, flagsAfter, expected) => {
+            lineageRequest().mockResolvedValue({ nodes: [], edges: [] })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            const setFlags = (flags: string[]): void =>
+                featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            if (flagsBefore) {
+                setFlags(flagsBefore)
+            }
+            router.actions.push(urls.dataCatalogMetric('weekly_active_users'), tabParam ? { tab: tabParam } : {})
+            await expectLogic(logic).toFinishAllListeners()
+            for (const tab of clicks as MetricSceneTab[]) {
+                logic.actions.setActiveTab(tab)
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            if (flagsAfter) {
+                setFlags(flagsAfter)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            const views = capture.mock.calls
+                .filter(([event]) => event === METRIC_TAB_VIEWED_EVENT)
+                .map(([, properties]) => [properties?.tab, properties?.layout])
+            expect(views).toEqual(expected)
         }
     )
 

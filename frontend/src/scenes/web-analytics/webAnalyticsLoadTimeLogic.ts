@@ -20,6 +20,7 @@ import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import type { CollectionNodeLoadMeta } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 
 import { webAnalyticsAchievementsRecordVisit } from 'products/web_analytics/frontend/generated/api'
 
@@ -52,10 +53,10 @@ export interface webAnalyticsLoadTimeLogicActions {
     } // dataNodeCollectionLogic
     collectionNodeLoadDataSuccess: (
         id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta?: CollectionNodeLoadMeta | undefined
     ) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta: CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     endPageVisit: () => {
         value: true

@@ -374,9 +374,13 @@ const projectLimits: ProjectLimitsApi = {
     max_iterations_per_run: 10,
     max_live_pipelines: 3,
     live_pipelines: 2,
+    max_training_spend_usd_per_month: 100,
+    training_spend_usd: 18.4,
+    training_spend_resets_at: '2026-02-01T00:00:00Z',
     max_training_runs_per_day_source: 'code',
     max_iterations_per_run_source: 'code',
     max_live_pipelines_source: 'code',
+    max_training_spend_usd_per_month_source: 'code',
 }
 
 const meta: Meta = {

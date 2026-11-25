@@ -2,8 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -114,13 +112,6 @@ describe('tracingViewerLogic', () => {
     })
 
     describe('identity resolution', () => {
-        // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
-        // it wants, otherwise a flag one test enables leaks into the next.
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         // A partial prefetch batch is the trace's complete span set, so no fetch runs and the
         // identity resolves from it.
         function openCompleteTrace(attributes: Record<string, string>): void {
@@ -160,12 +151,8 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
 
-        // The Errors tab needs the session without the person, so it follows the error badge flag.
-        it('resolves traceSessionId under the error badge flag', () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            })
-
+        // The Errors tab needs the session without the person.
+        it('resolves traceSessionId for the open trace', () => {
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
             expect(logic.values.traceSessionId).toBe('session-1')
@@ -180,9 +167,6 @@ describe('tracingViewerLogic', () => {
             ['the prefetched list', false],
             ['the list when the fetched trace page omits it', true],
         ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            })
             const spanA = makeSpan({
                 uuid: 'span-0',
                 span_id: 'span-0',

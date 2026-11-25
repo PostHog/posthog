@@ -130,7 +130,7 @@ type MatchByOption = {
     learnMoreUrl?: string
 }
 
-function summarizeProperties(
+export function summarizeProperties(
     properties: AnyPropertyFilter[],
     aggregationTargetName: string,
     getDistinctIdName: (distinctId: string) => string,
@@ -660,6 +660,7 @@ const ConditionContent = ({
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                             showCohortFlagTargeting
+                                            allowNonCapturedPersonProperties
                                         />
                                         <CohortFlagTargetingNotice
                                             properties={group.properties ?? []}

@@ -79,6 +79,9 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
     # Only a successful publish or no-findings turn suppresses automatic retries.
     automatic_reviewed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Whether the PR was a draft when that head was reviewed. Null when unknown, as for heads reviewed before
+    # the column existed.
+    automatic_reviewed_draft = models.BooleanField(null=True, blank=True)
     # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
     # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
     # so the detail view buckets published vs held-back findings truthfully even when the acting
@@ -601,9 +604,13 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     `selected` includes the repository into this project, also when another project takes all
     repositories of the installation. `flash_for` is the repository exception: null follows the
     project rule (`ReviewProjectSettings.flash_for`). `review_drafts` lets draft pull requests get
-    their automatic review when they open. A row that is not selected, has no exception and does not
-    review drafts has no meaning and is deleted. A repository has at most one row across all projects, so it
-    belongs to one project only.
+    their automatic review when they open, and one more when they are marked ready. `review_pushes`
+    lets later pushes get an automatic review too, as the push gate allows. `deep_review_gated_prs` makes
+    the automatic review a Deep review when stamphog's size, restricted-path or tier gates send the pull
+    request to a person, and queues one Deep review after an automatic Standard review that finds a must-fix
+    issue. A row that is not selected, has no exception and turns no switch on has no
+    meaning and is deleted. A repository has at most one row across all projects, so it belongs to one
+    project only.
     """
 
     activity_logging_on_delete = True
@@ -622,6 +629,8 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     selected = models.BooleanField(default=False, db_default=False)
     flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
     review_drafts = models.BooleanField(default=False, db_default=False)
+    deep_review_gated_prs = models.BooleanField(default=False, db_default=False)
+    review_pushes = models.BooleanField(default=False, db_default=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

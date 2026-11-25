@@ -205,6 +205,10 @@
     &.icon-only {
         width: var(--button-height-xxs);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-xxs);
+    }
 }
 
 .button-primitive--height-xs {
@@ -212,6 +216,10 @@
 
     &.icon-only {
         width: var(--button-height-xs);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-xs);
     }
 }
 
@@ -261,6 +269,12 @@
     &.button-primitive--height-auto {
         min-height: var(--button-height-lg);
     }
+}
+
+// Menu rows keep their fixed rhythm: only a wrapped label grows them, not a taller trailing element such as a badge
+.button-primitive--menu-item.button-primitive--height-auto {
+    padding-top: 2px;
+    padding-bottom: 2px;
 }
 
 .button-primitive--size-xxs {

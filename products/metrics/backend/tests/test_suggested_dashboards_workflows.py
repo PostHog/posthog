@@ -9,9 +9,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.schedule import schedules
-
-from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
+from products.metrics.backend.facade.temporal import TEMPORAL, create_suggested_dashboards_discovery_schedule
 from products.metrics.backend.temporal.inputs import FinishInputs, GenerateInputs, GenerationRequestInputs, RoundInputs
 from products.metrics.backend.temporal.workflows import MetricsDashboardGenerateWorkflow
 
@@ -121,4 +119,4 @@ async def test_generation_skips_metrics_that_the_bank_already_holds() -> None:
 
 
 def test_discovery_schedule_is_registered() -> None:
-    assert create_suggested_dashboards_discovery_schedule in schedules
+    assert create_suggested_dashboards_discovery_schedule in TEMPORAL.schedules

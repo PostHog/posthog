@@ -1,13 +1,28 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
+import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 
-import { HERMES_BUNDLE_EXTENSIONS, isComposedMap } from './kinds/hermes'
-import { isJsBundle, JS_EXTENSIONS } from './kinds/js'
-import { isValidProguardMapping } from './kinds/proguard'
-import { nativeFormat } from './native/package'
+import { commandWorker, type Detected } from './worker'
+
+const JS_EXTENSIONS = ['.js', '.mjs', '.cjs'] as const
+
+// React Native with Hermes: Metro writes `.bundle` or `.jsbundle` files that get chunk IDs like
+// JavaScript bundles. The Hermes compiler then composes a second map for the bytecode, and that
+// composed map is what PostHog symbolicates with.
+const HERMES_BUNDLE_EXTENSIONS = ['.bundle', '.jsbundle'] as const
+
+export function isHermesBundlePath(path: string): boolean {
+    return HERMES_BUNDLE_EXTENSIONS.some((extension) => path.endsWith(extension))
+}
+
+// Rust's `Path::extension` gives no extension for a file named `.js`.
+function hasBundleName(path: string, extensions: readonly string[]): boolean {
+    const name = basename(path)
+    return name.lastIndexOf('.') !== 0 && extensions.some((extension) => name.endsWith(extension))
+}
 
 export interface Root {
     path: string
@@ -36,43 +51,43 @@ interface Detector {
     kind: ArtifactKind
     // While scanning a folder, only files with these extensions are opened. Null opens every file.
     extensions: readonly string[] | null
-    matches(path: string, options: DiscoverOptions): boolean
+    matches(path: string, answers: Detected): boolean
 }
 
 const DETECTORS: readonly Detector[] = [
     {
         kind: 'proguard',
         extensions: ['.txt'],
-        matches: (path) => isValidProguardMapping(readFileSync(path)),
+        matches: (path, answers) => answers.mapping.has(path),
     },
     {
         // A bundle counts only when its sourcemap exists, as in posthog-cli. Bundles without one are
         // skipped without a message, because most build folders hold some.
         kind: 'js',
         extensions: JS_EXTENSIONS,
-        matches: (path, options) => isJsBundle(path, options.publicPathPrefix),
+        matches: (path, answers) => hasBundleName(path, JS_EXTENSIONS) && answers.sourcemap.has(path),
     },
     {
         kind: 'hermes',
         extensions: HERMES_BUNDLE_EXTENSIONS,
-        matches: (path, options) => isJsBundle(path, options.publicPathPrefix, HERMES_BUNDLE_EXTENSIONS),
+        matches: (path, answers) => hasBundleName(path, HERMES_BUNDLE_EXTENSIONS) && answers.sourcemap.has(path),
     },
     {
         kind: 'hermes',
         extensions: ['.map'],
-        matches: isComposedMap,
+        matches: (path, answers) => answers.composed.has(path),
     },
     {
         // Native binaries have any name, so their first 4 bytes decide. Upload reports the ones it
         // can't send, such as files without debug info, as posthog-cli does.
         kind: 'elf',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'elf',
+        matches: (path, answers) => answers.elf.has(path),
     },
     {
         kind: 'dsym',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'macho',
+        matches: (path, answers) => answers.macho.has(path),
     },
 ]
 
@@ -82,7 +97,7 @@ function detect(
     path: string,
     fromFolder: boolean,
     kind: ArtifactKind | undefined,
-    options: DiscoverOptions
+    answers: Detected
 ): ArtifactKind | undefined {
     const candidates = DETECTORS.filter(
         (detector) =>
@@ -92,7 +107,7 @@ function detect(
                 detector.extensions.some((extension) => path.endsWith(extension)))
     )
     const matched = [
-        ...new Set(candidates.filter((detector) => detector.matches(path, options)).map((detector) => detector.kind)),
+        ...new Set(candidates.filter((detector) => detector.matches(path, answers)).map((detector) => detector.kind)),
     ]
     if (matched.length > 1) {
         throw new HogError(
@@ -169,7 +184,36 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
     return roots.flatMap((root) => rootFiles(root, cwd).files)
 }
 
-export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
+const MAP_EXTENSION = '.map'
+const MAPPING_EXTENSION = '.txt'
+
+export async function discover(
+    ctx: Context,
+    roots: readonly Root[],
+    cwd: string,
+    options: DiscoverOptions = {}
+): Promise<Artifact[]> {
+    const worker = commandWorker(ctx)
+    const listed = roots.map((root) => rootFiles(root, cwd))
+    // One request for every file, so the worker reads them in parallel. A root with a kind asks only
+    // the checks of that kind, as `detect` runs only its detectors.
+    const answers = await worker.detect(
+        listed.flatMap(({ isFile, files }, index) => {
+            const wants = (kind: ArtifactKind): boolean =>
+                roots[index]!.kind === undefined || roots[index]!.kind === kind
+            return files.map((path) => ({
+                path,
+                bundle:
+                    (wants('js') && hasBundleName(path, JS_EXTENSIONS)) ||
+                    (wants('hermes') && hasBundleName(path, HERMES_BUNDLE_EXTENSIONS)),
+                map: wants('hermes') && (isFile || path.endsWith(MAP_EXTENSION)),
+                mapping: wants('proguard') && (isFile || path.endsWith(MAPPING_EXTENSION)),
+                native: wants('elf') || wants('dsym'),
+            }))
+        }),
+        options.publicPathPrefix
+    )
+
     const artifacts: Artifact[] = []
     // Overlapping paths, like `build build/hbc`, reach the same file twice.
     const seen = new Set<string>()
@@ -180,10 +224,10 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
             artifacts.push(artifact)
         }
     }
-    for (const root of roots) {
-        const { path, isFile, files, bundles } = rootFiles(root, cwd)
+    for (const [index, root] of roots.entries()) {
+        const { path, isFile, files, bundles } = listed[index]!
         if (isFile) {
-            const kind = detect(path, false, root.kind, options)
+            const kind = detect(path, false, root.kind, answers)
             if (!kind) {
                 throw new HogError(
                     'unknown_artifact',
@@ -202,7 +246,7 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
             }
         }
         for (const file of files) {
-            const kind = detect(file, true, root.kind, options)
+            const kind = detect(file, true, root.kind, answers)
             if (kind) {
                 add({ kind, path: file, display: relative(cwd, file), root })
             }

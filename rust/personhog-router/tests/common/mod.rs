@@ -742,8 +742,6 @@ pub fn create_test_person() -> Person {
         team_id: 1,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         properties: b"{}".to_vec(),
-        properties_last_updated_at: vec![],
-        properties_last_operation: vec![],
         created_at: 0,
         version: 1,
         is_identified: true,

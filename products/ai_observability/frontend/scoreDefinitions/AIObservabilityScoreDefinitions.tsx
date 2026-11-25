@@ -15,9 +15,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,10 +53,7 @@ const ARCHIVED_OPTIONS: { label: string; value: '' | 'false' | 'true' }[] = [
 export function AIObservabilityScoreDefinitions(): JSX.Element {
     const logic = useMountedLogic(aiObservabilityScoreDefinitionsLogic())
     const { setFilters, toggleArchive, loadScoreDefinitions } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showHistory =
-        !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] &&
-        !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
+    const showHistory = !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
     const {
         scoreDefinitions,
         scoreDefinitionsLoading,

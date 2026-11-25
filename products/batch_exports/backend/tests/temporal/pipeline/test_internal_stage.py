@@ -19,7 +19,10 @@ from aioresponses import aioresponses
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import EVENTS_TABLE_ROLLOUT_FLAG
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -69,6 +72,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 if t.TYPE_CHECKING:
     from pytest_django.fixtures import Settings
@@ -169,12 +173,18 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     )
 
 
-@pytest.mark.parametrize("use_native_schema", [False, True])
+@pytest.mark.parametrize(
+    "use_native_schema,rollout_flag_on,expected_table",
+    [(False, False, "events"), (True, False, "events_json"), (False, True, "events")],
+    ids=["legacy", "native", "rollout-flag-on"],
+)
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
     activity_environment,
     ateam,
     use_native_schema: bool,
+    rollout_flag_on: bool,
+    expected_table: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=ateam.pk,
@@ -190,13 +200,18 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         destination_default_fields=None,
     )
 
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+    with (
+        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=rollout_flag_on),
+        patch(
+            "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
+        ),
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
 
-    if use_native_schema:
-        mock_clickhouse_client.expect_select_from_table("events_json")
-    else:
-        mock_clickhouse_client.expect_select_from_table("events")
+    mock_clickhouse_client.expect_select_from_table(expected_table)
+    if expected_table == "events":
         assert "events_json" not in mock_clickhouse_client.calls[0].query
 
 
@@ -219,9 +234,13 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     expected_table: str,
     reads_native_table: bool,
 ):
-    schema = await database_sync_to_async(build_events_query_schema)(
-        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
-    )
+    with patch(
+        "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+        return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+    ):
+        schema = await database_sync_to_async(build_events_query_schema)(
+            ateam.pk, None, "SELECT properties.$browser AS browser, properties.secret AS secret FROM events"
+        )
     model = BatchExportEventsCustomModel(
         schema=schema,
         filters=[{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}],
@@ -250,6 +269,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     query = mock_clickhouse_client.calls[0].query
     browser_field = re.search(r"SELECT\s+(.*?) AS browser,", query, re.DOTALL)
     assert browser_field is not None, query
+    assert re.search(r"\bNULL AS secret,", query), query
     if reads_native_table:
         assert "events.properties.`$browser`" in browser_field.group(1)
         assert "events.properties.`$feature_flags`" in query
@@ -271,7 +291,7 @@ async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema
     data_interval_end,
     ateam,
 ):
-    """A schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
+    """An older schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
     schema = await database_sync_to_async(build_events_query_schema)(
         ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
     )
@@ -1567,6 +1587,63 @@ async def test_exports_route_compiled_queries_to_their_workload(
         assert b"'exported'" in request.kwargs["data"]
         if model is not None:
             assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
+
+
+@pytest.mark.parametrize("interval_minutes", [5, 60])
+@pytest.mark.parametrize(
+    "batch_exports_url,reads_recent_events,expected_host",
+    [
+        ("http://batch-exports.example.com:8123/", True, "batch-exports"),
+        ("http://batch-exports.example.com:8123/", False, None),
+        (None, True, None),
+    ],
+    ids=["recent-events", "other-table", "no-batch-exports-host"],
+)
+async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
+    settings: "Settings",
+    ateam: Team,
+    interval_minutes: int,
+    batch_exports_url: str | None,
+    reads_recent_events: bool,
+    expected_host: str | None,
+) -> None:
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    expected_host = expected_host or ("five-minute" if interval_minutes == 5 else "offline")
+    expected_url = f"http://{expected_host}.example.com:8123/"
+    s3_client = AsyncMock()
+    s3_client.__aenter__.return_value = s3_client
+    s3_client.list_objects_v2.return_value = {}
+
+    with (
+        aioresponses() as responses,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client", return_value=s3_client),
+    ):
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.post(
+            re.compile(r"^" + re.escape(expected_url) + r"\?"),
+            headers={"X-ClickHouse-Summary": '{"written_rows":"1"}'},
+        )
+
+        written_rows = await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model="INSERT INTO FUNCTION s3('https://stage.example.com/export.arrow', 'ArrowStream') SELECT 1",
+            full_range=(start, end),
+            query_parameters={},
+            team_id=ateam.pk,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+            s3_staging_folder_url="https://stage.example.com/",
+            reads_recent_events=reads_recent_events,
+        )
+
+    assert written_rows == 1
 
 
 class TestHogQLModel:

@@ -93,6 +93,14 @@ connection.close()
 print("Both services ready; relay mTLS request reached proxy and was denied without a capability")
 PY
 
+for check in live ready; do
+    docker exec "$proxy" /usr/local/bin/egress-proxy -config /run/egress/proxy.json -healthcheck "$check"
+    docker exec "$relay" /usr/local/bin/egress-relay -config /run/egress/relay.json -healthcheck "$check"
+done
+if docker exec "$proxy" /usr/local/bin/egress-proxy -config /run/egress/proxy.json -healthcheck metrics; then
+    exit 1
+fi
+
 docker stop -t 10 "$relay" "$proxy" >/dev/null
 for container in "${containers[@]}"; do
     test "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 0

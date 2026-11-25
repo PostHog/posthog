@@ -36,3 +36,13 @@ export function searchableText(value: unknown): string {
     }
     return parts.join('\n')
 }
+
+export function containsQuery(value: unknown, query: string | null): boolean {
+    return !!query && searchableText(value).toLowerCase().includes(query.toLowerCase())
+}
+
+export type JsonContainer = Record<string, unknown> | unknown[]
+
+export function isFilledContainer(value: unknown): value is JsonContainer {
+    return Array.isArray(value) ? value.length > 0 : isPlainObject(value) && Object.keys(value).length > 0
+}

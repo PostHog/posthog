@@ -1,22 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import {
-    IconDatabase,
-    IconExternal,
-    IconLeave,
-    IconPeople,
-    IconServer,
-    IconShieldLock,
-    IconToggle,
-} from '@posthog/icons'
+import { IconExternal, IconGear, IconLeave } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
@@ -28,16 +18,26 @@ import { userLogic } from 'scenes/userLogic'
 
 import { newEventsTableLogic } from '~/layout/navigation/newEventsTableLogic'
 
+import { TodayHelpMenuItems } from './TodayHelpMenuItems'
+import { todayHelpMenuRedirectLogic } from './todayHelpMenuRedirectLogic'
 import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { SEVERITY_INDICATOR } from './todayRailSeverity'
+import { todayRailStatusLogic } from './todayRailStatusLogic'
+import { todayShellLogic } from './todayShellLogic'
+import { TodayStaffSubMenu } from './TodayStaffSubMenu'
 
 /** The account menu, on the rail or in the phone layout's sidebar footer. */
 export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 'phone-footer' }): JSX.Element {
+    useMountedLogic(todayHelpMenuRedirectLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { newEventsTableAvailable, newEventsTableEnabled } = useValues(newEventsTableLogic)
     const { setNewEventsTable, openEventsTableTab } = useActions(newEventsTableLogic)
+    const { helpSeverity, helpLabel } = useValues(todayRailStatusLogic)
+    const { activePane } = useValues(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -45,8 +45,9 @@ export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 
                 render={
                     <Button
                         size="icon"
-                        aria-label="Account menu"
-                        className="size-10 rounded-md data-[popup-open]:bg-[var(--fill-selected)]"
+                        aria-label={helpLabel('Account menu')}
+                        indicator={SEVERITY_INDICATOR[helpSeverity]}
+                        className="size-10 rounded-md [--quill-button-indicator-ring:var(--chrome)] data-[popup-open]:bg-[var(--fill-selected)]"
                         data-attr="new-account-menu-button"
                     >
                         <ProfilePicture user={user} size="md" />
@@ -56,60 +57,31 @@ export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 
             <DropdownMenuContent side={placement === 'phone-footer' ? 'top' : 'right'} align="end" className="w-64">
                 <DropdownMenuItem
                     render={todayMenuLinkItem(urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone'))}
-                    className="h-auto"
+                    description={user?.email}
                     data-attr="today-rail-user-settings"
                 >
                     <ProfilePicture user={user} size="xs" />
-                    <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-semibold">{user?.first_name}</span>
-                        <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
-                    </span>
+                    <span className="truncate font-semibold">{user?.first_name}</span>
                 </DropdownMenuItem>
-                {user?.is_staff && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuGroup>
-                            <DropdownMenuLabel>Staff</DropdownMenuLabel>
-                            <DropdownMenuItem
-                                render={todayMenuLinkItem('/admin/', { disableClientSideRouting: true })}
-                                data-attr="today-rail-django-admin"
-                            >
-                                <IconShieldLock />
-                                Django admin
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                render={todayMenuLinkItem(urls.instanceStatus())}
-                                data-attr="today-rail-instance-panel"
-                            >
-                                <IconServer />
-                                Instance panel
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                render={todayMenuLinkItem(urls.featureFlagsStaffTools())}
-                                data-attr="today-rail-flags-staff-tools"
-                            >
-                                <IconToggle />
-                                Flags staff tools
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                render={todayMenuLinkItem(urls.cohortsStaffTools())}
-                                data-attr="today-rail-cohorts-staff-tools"
-                            >
-                                <IconPeople />
-                                Cohorts staff tools
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                render={todayMenuLinkItem(urls.experimentsStaffTools())}
-                                data-attr="today-rail-experiments-staff-tools"
-                            >
-                                <IconDatabase />
-                                Experiments staff tools
-                            </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                    </>
-                )}
+                <DropdownMenuItem
+                    render={todayMenuLinkItem(urls.settings('project'))}
+                    onClick={(event) => {
+                        event.preventDefault()
+                        clickRailPane('settings')
+                    }}
+                    aria-current={activePane === 'settings' ? 'page' : undefined}
+                    // pinned: autocapture `data-attr` kept from the Settings rail tile this item replaced.
+                    data-attr="today-settings"
+                >
+                    <IconGear />
+                    Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <TodayHelpMenuItems />
+                {user?.is_staff && <TodayStaffSubMenu />}
                 {newEventsTableAvailable && (
                     <>
+                        <DropdownMenuSeparator />
                         <DropdownMenuCheckboxItem
                             checked={newEventsTableEnabled}
                             onCheckedChange={setNewEventsTable}

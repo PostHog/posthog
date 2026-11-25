@@ -117,4 +117,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "roles": "Roles assigned to the staff user.",
         },
     },
+    "labels": {
+        "description": "Labels that group publication members into internal segments.",
+        "docs_url": "https://docs.ghost.org/admin-api/labels/overview",
+        "columns": {
+            "id": "Unique label identifier in Ghost.",
+            "name": "Human-readable label name.",
+            "slug": "URL-safe identifier generated from the label name.",
+            "created_at": "Time when Ghost created the label.",
+            "updated_at": "Time when Ghost last updated the label.",
+            "count": "Related resource counts, including the number of members with the label.",
+        },
+    },
+    "member_custom_fields": {
+        "description": "Definitions of the custom fields whose values Ghost stores on members.",
+        "docs_url": "https://docs.ghost.org/admin-api/custom-fields/overview",
+        "columns": {
+            "namespace": "Metafield namespace, always custom for custom fields.",
+            "key": "Stable key of the field in a member's metafields.custom object.",
+            "name": "Name of the field, as shown in Ghost Admin.",
+            "type": "Kind of value the field holds: short_text, long_text, list, address, or phone.",
+            "settings": "For list fields, the options in display order and whether a member can pick more than one.",
+            "status": "Field status: active or archived.",
+            "access": "What members can do with the field in their account: none, read, or write.",
+            "created_at": "Time when Ghost created the field.",
+            "updated_at": "Time when Ghost last updated the field, or null.",
+        },
+    },
+    "roles": {
+        "description": "Roles that Ghost assigns to staff users.",
+        "docs_url": "https://docs.ghost.org/admin-api/users/roles",
+        "columns": {
+            "id": "Unique role identifier in Ghost.",
+            "name": "Role name, such as Administrator or Editor.",
+            "description": "Description of the role.",
+            "created_at": "Time when Ghost created the role.",
+            "updated_at": "Time when Ghost last updated the role.",
+        },
+    },
 }

@@ -137,12 +137,8 @@ describe('projectTreeDataLogic', () => {
     it.each<[string, string[], string[]]>([
         ['its flag is off', [], ['Models', 'SQL editor']],
         ['its flag is on', [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION], ['ELT', 'Models', 'SQL editor']],
-        [
-            'both catalog flags hide Models',
-            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
-            ['SQL editor'],
-        ],
-        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['Models', 'SQL editor']],
+        ['the catalog restructure hides Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['SQL editor']],
+        ['the rail nav alone keeps Models', [FEATURE_FLAGS.TODAY_RAIL_NAV], ['Models', 'SQL editor']],
     ])('shows starred products by their flags when %s', (_case, enabledFlags, expectedNames) => {
         featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
         logic.actions.loadShortcutsSuccess([

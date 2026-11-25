@@ -250,7 +250,7 @@ export interface EndpointHealthApi {
     /** The raw entry span name the row counts, for tracing filters. */
     span_name: string
     /**
-     * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+     * The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.
      * @nullable
      */
     route_attribute: string | null

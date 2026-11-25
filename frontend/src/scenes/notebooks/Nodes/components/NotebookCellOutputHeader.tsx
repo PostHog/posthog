@@ -1,5 +1,7 @@
 import { ReactNode } from 'react'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
+
 // Marks where a V2 cell's code stops and its output starts. A bare divider does not read as that
 // boundary, because the node's title and its settings block already end on the same 1px line. The
 // tint is what separates the two. `min-h-9` is a small LemonTabs bar plus this strip's padding, so
@@ -10,7 +12,11 @@ type NotebookCellOutputHeaderProps = {
     children: ReactNode
 }
 
-export function NotebookCellOutputHeader({ children }: NotebookCellOutputHeaderProps): JSX.Element {
+export function NotebookCellOutputHeader({ children }: NotebookCellOutputHeaderProps): JSX.Element | null {
+    const outputOnly = useComponentPanelState()?.outputOnly
+    if (outputOnly) {
+        return null
+    }
     return (
         <div
             className="flex min-h-9 shrink-0 items-center gap-2 border-b border-primary bg-fill-highlight-50 px-2 py-1 text-xs text-muted"

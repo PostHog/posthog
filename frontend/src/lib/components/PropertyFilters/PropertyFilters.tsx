@@ -18,7 +18,6 @@ import {
     isPropertyFilterAwaitingValue,
     isPropertyGroupFilterLike,
 } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -29,6 +28,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -76,6 +76,7 @@ export interface PropertyFiltersProps {
     hideBehavioralCohorts?: boolean
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting?: boolean
+    allowNonCapturedPersonProperties?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
@@ -136,6 +137,7 @@ export function PropertyFilters({
     selectingKeyOnly,
     hideBehavioralCohorts,
     showCohortFlagTargeting,
+    allowNonCapturedPersonProperties,
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
@@ -252,6 +254,7 @@ export function PropertyFilters({
                                 selectingKeyOnly={selectingKeyOnly}
                                 hideBehavioralCohorts={hideBehavioralCohorts}
                                 showCohortFlagTargeting={showCohortFlagTargeting}
+                                allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
                                 size={buttonSize}
                                 addFilterDocLink={addFilterDocLink}
                                 editable={editable}

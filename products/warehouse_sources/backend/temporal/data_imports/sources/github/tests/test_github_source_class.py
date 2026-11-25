@@ -390,6 +390,16 @@ class TestGithubSource:
         assert schema.webhook_only is False
         assert schema.should_sync_default is False
 
+    def test_collaborator_only_schemas_are_off_by_default(self):
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
+
+        assert schemas["stargazers"].should_sync_default is False
+        assert schemas["subscribers"].should_sync_default is False
+
     def test_existing_workflow_schemas_stay_webhook_capable(self):
         # Guard that adding the org endpoints didn't disturb the webhook-capable schemas.
         config = GithubSourceConfig(
@@ -410,7 +420,6 @@ class TestGithubSource:
                 "pull_requests",
                 "reviews",
                 "commits",
-                "stargazers",
                 "releases",
                 "workflow_runs",
                 "workflow_jobs",

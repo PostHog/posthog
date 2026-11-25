@@ -140,10 +140,9 @@ async fn insert_persons(
     let sql = format!(
         r#"
         INSERT INTO {person_table}
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version, last_seen_at)
-        SELECT u.created_at, '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb,
-               u.team_id, u.is_identified, u.uuid, 0, date_trunc('hour', u.created_at)
+            (created_at, properties, team_id, is_identified, uuid, version, last_seen_at)
+        SELECT u.created_at, '{{}}'::jsonb, u.team_id, u.is_identified, u.uuid, 0,
+               date_trunc('hour', u.created_at)
         FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
             AS u(created_at, team_id, is_identified, uuid)
         ON CONFLICT (team_id, uuid) DO NOTHING
@@ -258,8 +257,6 @@ async fn lock_conflicting_persons(
             is_deleted = false,
             version = COALESCE(p.version, 0) + 1,
             properties = '{{}}'::jsonb,
-            properties_last_updated_at = '{{}}'::jsonb,
-            properties_last_operation = '{{}}'::jsonb,
             created_at = u.created_at,
             is_identified = u.is_identified,
             last_seen_at = date_trunc('hour', u.created_at)

@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ModelCostChip } from 'products/posthog_ai/frontend/components/ModelCostChip'
 import { ModelCostFooter } from 'products/posthog_ai/frontend/components/ModelCostFooter'
+import { QuillModelCostChip } from 'products/posthog_ai/frontend/components/QuillModelCostChip'
+import { QuillModelCostFooter } from 'products/posthog_ai/frontend/components/QuillModelCostFooter'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import {
     filterEffortForModel,
@@ -23,6 +27,7 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { QuillPreferenceEditor } from './QuillPreferenceEditor'
 import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
 const PI_HARNESS_LABEL = getHarnessLabel(TaskRuntimeEnumApi.Pi)
@@ -50,6 +55,7 @@ function PreferenceEditor({
     restrictionReason?: string | null
 }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Grouped by harness off the same list the composer offers, so a model you can pick for a run is
     // always settable as a default and vice versa — including the Codex models that only Slack and
@@ -66,7 +72,11 @@ function PreferenceEditor({
                 labelInMenu: (
                     <span className="flex w-full items-center justify-between gap-2">
                         {choice.display_name}
-                        <ModelCostChip model={choice.model} />
+                        {todayRailNav ? (
+                            <QuillModelCostChip model={choice.model} />
+                        ) : (
+                            <ModelCostChip model={choice.model} />
+                        )}
                     </span>
                 ),
             })),
@@ -75,12 +85,44 @@ function PreferenceEditor({
         const last = groups.at(-1)
         const anyCost = groups.some((group) => group.options.some((option) => getModelCost(option.value)))
         if (last && anyCost) {
-            return [...groups.slice(0, -1), { ...last, footer: <ModelCostFooter /> }]
+            return [
+                ...groups.slice(0, -1),
+                { ...last, footer: todayRailNav ? <QuillModelCostFooter /> : <ModelCostFooter /> },
+            ]
         }
         return groups
-    }, [offeredModels])
+    }, [offeredModels, todayRailNav])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
     const editingDisabled = restrictionReason ?? (saving ? 'Saving…' : undefined)
+
+    const handleModelChange = (model: string | null): void =>
+        onChange({
+            model,
+            // A model switch may invalidate the picked effort; drop it rather than store one
+            // the model can't run, and let the server-side default apply instead.
+            reasoning_effort:
+                draft.reasoning_effort && model ? filterEffortForModel(catalogue, draft.reasoning_effort, model) : null,
+        })
+
+    if (todayRailNav) {
+        return (
+            <QuillPreferenceEditor
+                draft={draft}
+                dirty={dirty}
+                saving={saving}
+                inheritLabel={inheritLabel}
+                modelOptions={modelOptions}
+                effortOptions={effortOptions}
+                editingDisabled={editingDisabled}
+                onModelChange={handleModelChange}
+                onEffortChange={(reasoning_effort) => onChange({ reasoning_effort })}
+                onSave={onSave}
+                onReset={onReset}
+                canReset={canReset}
+                restrictionReason={restrictionReason}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-wrap items-end gap-2">
@@ -88,17 +130,7 @@ function PreferenceEditor({
                 <LemonSelect
                     fullWidth
                     value={draft.model}
-                    onChange={(model) =>
-                        onChange({
-                            model,
-                            // A model switch may invalidate the picked effort; drop it rather than store one
-                            // the model can't run, and let the server-side default apply instead.
-                            reasoning_effort:
-                                draft.reasoning_effort && model
-                                    ? filterEffortForModel(catalogue, draft.reasoning_effort, model)
-                                    : null,
-                        })
-                    }
+                    onChange={handleModelChange}
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
                     disabledReason={editingDisabled}
@@ -143,6 +175,7 @@ function PreferenceEditor({
 export function TaskAgentProjectDefaultSettings(): JSX.Element {
     const { teamDraft, teamDraftDirty, teamPreferencesLoading } = useValues(taskAgentDefaultsLogic)
     const { setTeamDraft, submitTeamDraft } = useActions(taskAgentDefaultsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // This one default applies to everyone on the project, so it's admin-only — unlike the personal
     // preference below, which each person owns.
     const restrictionReason = useRestrictedArea({
@@ -162,9 +195,15 @@ export function TaskAgentProjectDefaultSettings(): JSX.Element {
                 restrictionReason={restrictionReason}
             />
             {restrictionReason ? (
-                <p className="text-secondary mb-0">
-                    Only project admins can change this. You can still set your own default below.
-                </p>
+                todayRailNav ? (
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        Only project admins can change this. You can still set your own default below.
+                    </Text>
+                ) : (
+                    <p className="text-secondary mb-0">
+                        Only project admins can change this. You can still set your own default below.
+                    </p>
+                )
             ) : null}
         </div>
     )
@@ -176,6 +215,27 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
     const { setMyDraft, submitMyDraft, resetMyPreference } = useActions(taskAgentDefaultsLogic)
     const isPiDefault = resolvedDefaults?.runtime === TaskRuntimeEnumApi.Pi
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const resolvedDefaultsSummary = resolvedDefaults?.model ? (
+        <>
+            {isPiDefault ? 'Runs you start in PostHog Desktop' : 'Runs you start'} without picking a model will use{' '}
+            <strong>
+                {isPiDefault ? `${PI_HARNESS_LABEL} · ` : ''}
+                {getModelLabel(catalogue, resolvedDefaults.model)}
+            </strong>
+            {resolvedDefaults.reasoning_effort ? (
+                <>
+                    {' '}
+                    ({getEffortLabel(resolvedDefaults.reasoning_effort)} {isPiDefault ? 'thinking' : 'effort'})
+                </>
+            ) : null}{' '}
+            from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
+            {isPiDefault ? ' Runs you start elsewhere use their built-in model.' : ''}
+        </>
+    ) : (
+        <>No default is set. Runs use each surface's built-in model.</>
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -189,29 +249,13 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
                 onReset={resetMyPreference}
                 canReset={canResetMyPreference}
             />
-            <p className="text-secondary mb-0">
-                {resolvedDefaults?.model ? (
-                    <>
-                        {isPiDefault ? 'Runs you start in PostHog Desktop' : 'Runs you start'} without picking a model
-                        will use{' '}
-                        <strong>
-                            {isPiDefault ? `${PI_HARNESS_LABEL} · ` : ''}
-                            {getModelLabel(catalogue, resolvedDefaults.model)}
-                        </strong>
-                        {resolvedDefaults.reasoning_effort ? (
-                            <>
-                                {' '}
-                                ({getEffortLabel(resolvedDefaults.reasoning_effort)}{' '}
-                                {isPiDefault ? 'thinking' : 'effort'})
-                            </>
-                        ) : null}{' '}
-                        from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
-                        {isPiDefault ? ' Runs you start elsewhere use their built-in model.' : ''}
-                    </>
-                ) : (
-                    <>No default is set. Runs use each surface's built-in model.</>
-                )}
-            </p>
+            {todayRailNav ? (
+                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                    {resolvedDefaultsSummary}
+                </Text>
+            ) : (
+                <p className="text-secondary mb-0">{resolvedDefaultsSummary}</p>
+            )}
         </div>
     )
 }

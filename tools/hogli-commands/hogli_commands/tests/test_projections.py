@@ -15,6 +15,8 @@ from hogli_commands.projections import (
     OutputFormatter,
     Projection,
     ProjectionRunner,
+    Tier,
+    _select,
     formatter_for,
 )
 
@@ -93,6 +95,14 @@ class TestProjectionRunner:
         runner.write(PROJECTION)
         assert (tmp_path / "out/first.generated.ts").read_text() == "// formatted\nfirst\n"
 
+    def test_a_renderer_that_refuses_reports_its_reason_without_writing(self, tmp_path: Path) -> None:
+        refusing = 'def render():\n    raise ValueError("Stripe: stripe -> stripe-test")\n'
+        runner = _runner(tmp_path, renderer=refusing)
+
+        with pytest.raises(click.ClickException, match="fake: Stripe: stripe -> stripe-test"):
+            runner.write(PROJECTION)
+        assert not (tmp_path / "out").exists()
+
     def test_renderer_outputs_must_match_the_registry(self, tmp_path: Path) -> None:
         undeclared = RENDERER.replace('"out/second.json": "{}"', '"out/other.json": "{}"')
         runner = _runner(tmp_path, renderer=undeclared)
@@ -113,9 +123,10 @@ class TestRuffFormatter:
             ("products/desktop/scripts/tool.py", RUFF),
             ("frontend/src/lib/oauthScopes.generated.ts", OXFMT),
             ("products/desktop/packages/core/src/a.generated.ts", BIOME),
+            ("products/warehouse_sources/backend/field_classification.csv", None),
         ],
     )
-    def test_formatter_for_picks_ruff_for_python(self, path: str, expected: Formatter) -> None:
+    def test_formatter_for_picks_ruff_for_python(self, path: str, expected: Formatter | None) -> None:
         assert formatter_for(path) == expected
 
     @pytest.mark.parametrize(
@@ -134,3 +145,20 @@ class TestRuffFormatter:
         _uv_lock(tmp_path, importlib.metadata.version("ruff"))
 
         assert OutputFormatter(tmp_path).format("out/kinds.py", "x={ 'a':1 }") == 'x = {"a": 1}\n'
+
+    def test_output_without_a_formatter_is_written_as_rendered(self, tmp_path: Path) -> None:
+        assert OutputFormatter(tmp_path).format("out/table.csv", "a,b\n1,2\n") == "a,b\n1,2\n"
+
+
+class TestTiers:
+    def test_a_projection_that_sets_django_up_cannot_join_the_preflight_tier(self) -> None:
+        with pytest.raises(ValueError, match="must use Tier.CI"):
+            Projection(name="heavy", renderer="heavy.py", inputs=(), outputs=("out/heavy.json",), django=True)
+
+    def test_the_preflight_tier_leaves_out_the_django_projections(self) -> None:
+        preflight = {projection.name for projection in _select((), Tier.PREFLIGHT)}
+        everything = {projection.name for projection in _select(())}
+
+        assert "warehouse-source-fields" in everything
+        assert "warehouse-source-fields" not in preflight
+        assert "taxonomy" in preflight

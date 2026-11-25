@@ -13,6 +13,10 @@ class TestMonteCarloSource:
     @parameterized.expand(
         [
             ("alerts", True),
+            ("authorization_group_members", False),
+            ("authorization_groups", False),
+            ("billing_monitor_usage", True),
+            ("data_products", False),
             ("dbt_runs", False),
             ("dbt_test_results", True),
             ("domains", False),
@@ -20,7 +24,9 @@ class TestMonteCarloSource:
             ("fh_events", True),
             ("job_executions", True),
             ("job_schedules", False),
+            ("monitor_audit_logs", False),
             ("monitors", False),
+            ("roles", False),
             ("tables", False),
             ("users", False),
             ("warehouses", False),

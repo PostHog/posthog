@@ -30,6 +30,9 @@ from posthog.models.organization_notification_lock import GovernedSetting, effec
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
+
 from .organization import Organization, OrganizationMembership
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
@@ -424,6 +427,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         self._withheld_is_staff = self.is_staff
         self.is_staff = False
 
+    @property
+    def staff_rights_withheld(self) -> bool:
+        """Whether this instance holds back staff rights that the stored user has."""
+        return bool(self._withheld_is_staff)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self._withheld_is_staff is None:
             super().save(*args, **kwargs)
@@ -618,8 +626,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:
+        # The facade imports `posthog.models`, which imports this module.
+        from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if membership.level == OrganizationMembership.Level.OWNER:
+        if authorization.check(
+            resource=Resource.organization(organization.id),
+            action=Action.MANAGE_OWNERS,
+            subject=Subject(user_id=self.pk),
+        ):
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
             membership.delete()

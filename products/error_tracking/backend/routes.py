@@ -8,10 +8,12 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueTagRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSentryMigrationViewSet,
     ErrorTrackingSettingsViewSet,
     ErrorTrackingSeverityRuleViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
@@ -43,6 +45,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/severity_rules",
         ErrorTrackingSeverityRuleViewSet,
         "project_error_tracking_severity_rule",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/tag_rules",
+        ErrorTrackingIssueTagRuleViewSet,
+        "project_error_tracking_tag_rule",
         ["team_id"],
     )
     routers.projects.register(
@@ -107,6 +115,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"error_tracking/settings", ErrorTrackingSettingsViewSet, "project_error_tracking_settings", ["team_id"]
+    )
+    routers.projects.register(
+        r"error_tracking/sentry_migration",
+        ErrorTrackingSentryMigrationViewSet,
+        "project_error_tracking_sentry_migration",
+        ["team_id"],
     )
     routers.projects.register(
         r"error_tracking/spike_events",

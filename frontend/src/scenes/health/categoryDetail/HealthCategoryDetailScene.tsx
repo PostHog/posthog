@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HealthIssueCard } from '../components/HealthIssueCard'
+import { HealthShowMoreFooter } from '../components/HealthShowMoreFooter'
 import { severityColor, severityToTagType } from '../healthUtils'
 import type { HealthIssueSeverity } from '../types'
 import type { CategoryDetailConfig } from './categoryDetailConfig'
@@ -32,8 +33,10 @@ function HealthCategoryDetailScene(): JSX.Element {
         healthIssues,
         showDismissed,
         isValidCategory,
+        loadingMoreKind,
+        nextKindWithMore,
     } = useValues(healthCategoryDetailLogic)
-    const { refreshHealthData, setShowDismissed, snoozeIssue, dismissIssue, undismissIssue } =
+    const { refreshHealthData, setShowDismissed, snoozeIssue, dismissIssue, undismissIssue, loadMoreIssues } =
         useActions(healthCategoryDetailLogic)
 
     if (!isValidCategory) {
@@ -63,6 +66,9 @@ function HealthCategoryDetailScene(): JSX.Element {
                     onRefresh={refreshHealthData}
                     showDismissed={showDismissed}
                     onSetShowDismissed={setShowDismissed}
+                    onLoadMore={nextKindWithMore ? () => loadMoreIssues(nextKindWithMore) : undefined}
+                    isLoadingMore={loadingMoreKind !== null}
+                    remainingCount={issuesByKind.find((group) => group.kind === nextKindWithMore)?.remaining ?? 0}
                 />
             ) : (
                 <GenericCategoryContent
@@ -77,6 +83,8 @@ function HealthCategoryDetailScene(): JSX.Element {
                     onSnooze={snoozeIssue}
                     onDismiss={dismissIssue}
                     onUndismiss={undismissIssue}
+                    loadingMoreKind={loadingMoreKind}
+                    onLoadMore={loadMoreIssues}
                 />
             )}
         </SceneContent>
@@ -105,6 +113,8 @@ function GenericCategoryContent({
     onSnooze,
     onDismiss,
     onUndismiss,
+    loadingMoreKind,
+    onLoadMore,
 }: {
     statusSummary: { count: number; worstSeverity: HealthIssueSeverity | null; isHealthy: boolean }
     issuesByKind: KindGroup[]
@@ -117,6 +127,8 @@ function GenericCategoryContent({
     onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
+    loadingMoreKind: string | null
+    onLoadMore: (kind: string) => void
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -185,6 +197,8 @@ function GenericCategoryContent({
                             onSnooze={onSnooze}
                             onDismiss={onDismiss}
                             onUndismiss={onUndismiss}
+                            loadingMore={loadingMoreKind === group.kind}
+                            onLoadMore={() => onLoadMore(group.kind)}
                         />
                     ))}
                 </div>
@@ -228,11 +242,15 @@ function KindSection({
     onSnooze,
     onDismiss,
     onUndismiss,
+    loadingMore,
+    onLoadMore,
 }: {
     group: KindGroup
     onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
+    loadingMore: boolean
+    onLoadMore: () => void
 }): JSX.Element {
     return (
         <LemonCollapse
@@ -244,7 +262,9 @@ function KindSection({
                         <div className="flex items-center justify-between w-full pr-2">
                             <div className="flex items-center gap-2">
                                 <span className="font-medium">{group.label}</span>
-                                <span className="text-xs text-muted">({group.issues.length})</span>
+                                <span className="text-xs text-muted" translate="no">
+                                    ({group.count})
+                                </span>
                             </div>
                             <LemonTag type={severityToTagType(group.worstSeverity)} size="small">
                                 {group.worstSeverity}
@@ -262,6 +282,17 @@ function KindSection({
                                     onUndismiss={onUndismiss}
                                 />
                             ))}
+                            {group.remaining > 0 && (
+                                <div className="px-4 py-2">
+                                    <HealthShowMoreFooter
+                                        shown={group.issues.length}
+                                        total={group.count}
+                                        remaining={group.remaining}
+                                        loading={loadingMore}
+                                        onShowMore={onLoadMore}
+                                    />
+                                </div>
+                            )}
                         </div>
                     ),
                 },

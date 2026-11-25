@@ -207,6 +207,7 @@ const workflowsMakeEmailTemplateTransactionalExecute = (): ToolBase<
         if (params.from_integration_id !== undefined) {
             body['from_integration_id'] = params.from_integration_id
         }
+        body['expected_type'] = 'email'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,
@@ -247,6 +248,7 @@ const WorkflowsSendEmailSchema = () => {
         cc: true,
         bcc: true,
         attachments: true,
+        scheduled_at: true,
     }).extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
@@ -367,6 +369,7 @@ const WorkflowsSendEmailTemplateSchema = () => {
         attachments: true,
         capture_engagement: true,
         tracking: true,
+        scheduled_at: true,
         sensitive: true,
         from: true,
     }).extend({

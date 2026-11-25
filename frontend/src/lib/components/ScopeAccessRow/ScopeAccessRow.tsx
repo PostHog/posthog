@@ -4,6 +4,9 @@ import { IconInfo, IconLock, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import type { ScopeAccessLevel, ScopePickerRow } from 'lib/scopes'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillScopeAccessRow } from './QuillScopeAccessRow'
 
 interface ScopeAccessRowProps {
     row: ScopePickerRow
@@ -14,6 +17,12 @@ interface ScopeAccessRowProps {
 /** One scope object in a picker: its label and a No access / Read / Write control. */
 export function ScopeAccessRow({ row, onChange }: ScopeAccessRowProps): JSX.Element {
     const { key, label, info, value, muted, warning, disabledReasons } = row
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return <QuillScopeAccessRow row={row} onChange={onChange} />
+    }
+
     return (
         <>
             <div className="flex items-center justify-between gap-2 min-h-8 group">

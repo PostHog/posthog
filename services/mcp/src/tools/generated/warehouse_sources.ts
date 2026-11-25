@@ -63,6 +63,7 @@ const dataWarehouseSourceSetup = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
@@ -232,7 +233,7 @@ const ExternalDataSchemasListSchema = () => {
             .default(true)
             .optional()
             .describe(
-                'Return one short health row per table (id, name, source_id, should_sync, live_query_enabled, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
+                'Return one short health row per table (id, name, source_id, should_sync, live_query_enabled, sync_type, status, last_synced_at, last_checked_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.'
             ),
     })
 }

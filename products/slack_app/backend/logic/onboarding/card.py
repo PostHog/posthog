@@ -234,7 +234,9 @@ def post_onboarding_message(
             planned=message.planned,
             root_status=message.root_status,
         )
-        capture_slack_event(integration, SETUP_STARTED_EVENT, slack_user_id=slack_user_id)
+        capture_slack_event(
+            integration, SETUP_STARTED_EVENT, slack_user_id=slack_user_id, planned_steps=message.planned or []
+        )
         return
 
     state = resolve_onboarding(slack_workspace_id, slack_user_id)

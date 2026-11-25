@@ -808,7 +808,7 @@ class NewDeletionRequestTool(ConsoleTool):
     key = "new-deletion-request"
     title = "New deletion request"
     owner = CLICKHOUSE
-    group = "Data"
+    group = "Data deletion"
     description = "Creates a draft request to delete events, or properties from events, of one team."
 
     def page(self, request: HttpRequest) -> Page:

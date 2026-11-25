@@ -186,6 +186,58 @@ class TestCursorPagination:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [3]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "method", "body"),
+        [
+            (
+                "CustomRules",
+                "/api/v1/custom-rules/fetch",
+                "POST",
+                {"customRules": [{"id": 3}], "paginationInfo": {"nextCursor": ""}},
+            ),
+            ("Users", "/api/v1/users", "GET", {"users": [{"id": 3}]}),
+            ("Groups", "/api/v1/groups", "GET", {"groups": [{"id": 3}]}),
+        ],
+    )
+    def test_reads_rows_from_response_key(self, endpoint: str, path: str, method: str, body: dict[str, Any]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert [request.method for request in result.requests] == [method]
+        assert [row["id"] for row in result.rows] == [3]
+
+    @pytest.mark.parametrize(
+        ("row", "expected"),
+        [
+            (
+                {
+                    "column": {"id": 11, "name": "email"},
+                    "table": {"id": 4, "name": "users", "columns": [{"id": 11}, {"id": 12}]},
+                },
+                {"id": 11, "name": "email", "table_id": 4, "table": {"id": 4, "name": "users"}},
+            ),
+            (
+                {"column": {"id": 11, "name": "email"}},
+                {"id": 11, "name": "email", "table_id": None, "table": None},
+            ),
+            (
+                {"column": {"id": 11, "name": "email"}, "table": None},
+                {"id": 11, "name": "email", "table_id": None, "table": None},
+            ),
+        ],
+    )
+    def test_columns_lift_the_column_and_drop_the_table_column_list(
+        self, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = _driver().run(
+            "Columns", [ScriptedResponse(json={"columns": [row], "paginationInfo": {"nextCursor": ""}})]
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/columns/fetch"]
+        assert result.rows == [expected]
+
     def test_saves_cursor_after_non_terminal_page(self) -> None:
         result = _driver().run(
             "Tables",

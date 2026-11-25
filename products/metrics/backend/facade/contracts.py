@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .enums import (
+    AgentActivityKind,
     AttributeScope,
     DashboardImportPhase,
     DashboardImportSource,
@@ -32,6 +33,7 @@ from .enums import (
     DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
     PanelImportOutcome,
@@ -230,6 +232,33 @@ class MetricSeries:
     # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
     # with different buckets were combined. None for other aggregations.
     histogram_layout_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryProvenance:
+    """Where a query's buckets came from. `precomputed_until` is the earliest time a precomputed clause switched
+    to raw samples, None when no clause read precomputed metrics. `reasons` says why clauses ran raw."""
+
+    mode: MetricQueryProvenanceMode
+    precomputed_until: dt.datetime | None = None
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryShadowCheck:
+    """A precomputed answer compared with the same query run raw. `max_relative_difference` is over the points
+    both answers have, and `mismatched_points` counts the points only one has. Both are None when the raw run
+    failed."""
+
+    max_relative_difference: float | None
+    mismatched_points: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryResult:
+    series: list[MetricSeries]
+    provenance: MetricQueryProvenance
+    shadow: MetricQueryShadowCheck | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -486,6 +515,10 @@ class DashboardImportInProgress(DashboardImportError):
     """The user already has a dashboard import that has not finished."""
 
 
+class DashboardImportStorageError(DashboardImportError):
+    """Object storage refused an operation on the import's stored input."""
+
+
 class DashboardImportNotAllowed(DashboardImportError):
     """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
 
@@ -514,6 +547,17 @@ class DashboardImportPanelProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardImportAgentActivity:
+    """The agent's latest action. `seconds` counts from its start, `idle_seconds` from the agent's last log entry."""
+
+    kind: AgentActivityKind
+    seconds: int
+    idle_seconds: int
+    subject: str | None = None
+    panel_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardImportSummary:
     total: int
     imported: int
@@ -532,6 +576,7 @@ class DashboardImportStatus:
     dashboard_name: str
     phase: DashboardImportPhase | None = None
     panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    agent_activity: DashboardImportAgentActivity | None = None
     # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
     layout_rounds: int | None = None
     layout_round: int | None = None
@@ -539,6 +584,17 @@ class DashboardImportStatus:
     error: str | None = None
     summary: DashboardImportSummary | None = None
     panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportInput:
+    """What a failed import read, so the user can retry it. `name` is None when the user gave no name."""
+
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image_base64: str | None = None
+    image_content_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
