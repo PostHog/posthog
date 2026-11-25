@@ -127,6 +127,9 @@ enabled `Completed` schema, compare `last_checked_at` with `sync_frequency`. `la
 successful sync, including syncs that found no new rows. A schema on `1hour` frequency with a `last_checked_at` from 3
 days ago is effectively broken, even if status says `Completed`.
 
+A null `sync_frequency` means the frequency is `never`. The schema has no schedule and syncs only when someone starts
+a sync, so an old `last_checked_at` is expected. Do not report it as stale.
+
 Do not judge staleness by `last_synced_at`. It moves only when a sync loads new rows. A quiet source, such as a table
 with few writes, can have an old `last_synced_at` while every sync succeeds. Report that as "no new data", not as a
 broken sync.

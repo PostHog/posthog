@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.system import source_sync_jobs
 from posthog.hogql.parser import parse_select
@@ -23,8 +25,15 @@ def _section() -> str:
     return _STALENESS_SECTION.group(1)
 
 
-def test_staleness_compares_last_checked_at_with_sync_frequency() -> None:
-    assert "compare `last_checked_at` with `sync_frequency`" in _section()
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "compare `last_checked_at` with `sync_frequency`",
+        "A null `sync_frequency` means the frequency is `never`",
+    ],
+)
+def test_staleness_section_gives_the_instruction(instruction: str) -> None:
+    assert instruction in _section()
 
 
 def test_staleness_fields_need_the_full_schema_rows() -> None:
@@ -39,6 +48,8 @@ def test_job_history_query_reads_real_columns_without_the_raw_error() -> None:
     assert isinstance(query, ast.SelectQuery)
     assert query.select_from is not None and isinstance(query.select_from.table, ast.Field)
     assert query.select_from.table.chain == ["system", "source_sync_jobs"]
+    assert isinstance(query.where, ast.CompareOperation)
+    assert isinstance(query.where.left, ast.Field) and query.where.left.chain == ["schema_id"]
 
     selected = [field.chain[-1] for field in query.select if isinstance(field, ast.Field)]
     assert len(selected) == len(query.select)
