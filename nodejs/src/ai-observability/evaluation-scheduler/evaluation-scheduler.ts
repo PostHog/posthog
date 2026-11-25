@@ -182,8 +182,7 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         })
     }
 
-    // Trigger conditions can filter on event metadata (timestamp, person_id, person_mode and $group_N).
-    // Their bytecode reads these as globals, and HogVM throws when a global is missing.
+    // Event metadata filters compile to top-level globals, and HogVM throws when a global is missing
     const filterGlobals = {
         event: event.event,
         uuid: event.uuid,

@@ -239,7 +239,6 @@ describe('Evaluation Scheduler', () => {
             mockExecHog.mockReset()
         })
 
-        // Bytecode compiled by compile_filters_bytecode for each event metadata filter the trigger UI offers
         it.each([
             [
                 'timestamp is after 2026-01-01',
