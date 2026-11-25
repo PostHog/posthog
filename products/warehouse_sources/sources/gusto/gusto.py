@@ -62,7 +62,7 @@ class GustoSystemAccessError(Exception):
 
 # Must not contain the `<status> Client Error ... for url: https://api.gusto` text: that maps to the
 # refresh-token advice in the source's non-retryable errors, and the refresh token is fine here.
-SYSTEM_ACCESS_REFUSED = "Gusto refused a system access token for this app"
+SYSTEM_ACCESS_REFUSED = "Gusto refused system-level access for this app"
 
 
 class GustoClient:
@@ -156,6 +156,8 @@ class GustoClient:
         if not response.ok:
             if self._logger is not None:
                 self._logger.error(f"Gusto API error: status={response.status_code}, body={response.text}, url={url}")
+            if system_access and response.status_code in (401, 403):
+                raise GustoSystemAccessError(f"{SYSTEM_ACCESS_REFUSED} (HTTP {response.status_code})")
             response.raise_for_status()
 
         return response
