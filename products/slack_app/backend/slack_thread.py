@@ -19,6 +19,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.fork.menu import fork_menu_actions_block, fork_menu_element
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.message_sentiment import (
     UNHAPPY_SENTIMENTS,
@@ -38,8 +39,6 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_menu_actions_block,
-    fork_menu_element,
     leading_mention_prefix,
     load_run_footer,
     normalize_labeled_mentions_to_bare,

@@ -3,8 +3,8 @@ import { LemonTagType } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { TraceSentimentApi, TraceSentimentLabelEnumApi } from '../../../generated/api.schemas'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { ChipTag } from '../../trace/components/ChipTag'
-import type { TraceCellStatus } from '../types'
 import { TraceCellValue } from './TraceCellValue'
 
 const TAG_TYPE: Record<TraceSentimentLabelEnumApi, LemonTagType> = {

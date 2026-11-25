@@ -15,6 +15,8 @@ MIN_RECALCULATION_GAP_HOURS = 6
 MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
 MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
@@ -24,7 +26,8 @@ class ExposuresPath(StrEnum):
     DIRECT_SCAN = "direct_scan"
 
 
-# Replaces $feature_flag_called as the default exposure event for a team that has the `experiment-exposure-event` flag.
+# Replaces $feature_flag_called as the default exposure event for experiments that start at or after
+# settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.
 EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 
 RunningTimeMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
@@ -62,6 +65,17 @@ class ExperimentResultConfigurationStatus(LabeledStrEnum):
     CURRENT = "current", "Current settings"
     PREVIOUS = "previous", "Earlier settings"
     UNKNOWN = "unknown", "Settings not recorded"
+
+
+class SharedMetricType(LabeledStrEnum):
+    """The type a shared metric shows in the list. `funnel` and `trend` also cover the legacy query kinds."""
+
+    MEAN = "mean", "Mean"
+    FUNNEL = "funnel", "Funnel"
+    RATIO = "ratio", "Ratio"
+    RETENTION = "retention", "Retention"
+    QUANTILE = "quantile", "Percentile"
+    TREND = "trend", "Trend"
 
 
 class RecalculationStartOutcome(StrEnum):

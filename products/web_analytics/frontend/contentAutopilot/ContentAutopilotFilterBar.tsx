@@ -21,9 +21,9 @@ export const ContentAutopilotFilterBar = ({
     tab: AiVisibilityFilterTab
     filters: readonly AiVisibilityFilter[]
 }): JSX.Element => {
-    const { dateFrom, dateTo, engine, topic } = useValues(contentAutopilotFiltersLogic)
+    const { dateFrom, dateTo, engine } = useValues(contentAutopilotFiltersLogic)
     const { pickDates, setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
-    const { engineOptions, topicOptions, promptTopicsError, promptTopicsLoading } =
+    const { engineOptions, topicOptions, topicValue, promptTopicsError, promptTopicsLoading } =
         useValues(contentAutopilotFilterBarLogic)
     const { loadPromptTopics } = useActions(contentAutopilotFilterBarLogic)
 
@@ -66,7 +66,7 @@ export const ContentAutopilotFilterBar = ({
                     <LemonSelect
                         size="small"
                         aria-label="Topic"
-                        value={topic}
+                        value={topicValue}
                         onChange={(value) => setTopic(value, tab)}
                         options={topicOptions}
                         data-attr={`content-autopilot-${tab}-topic-filter`}
