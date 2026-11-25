@@ -22,7 +22,6 @@ from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PAT
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, metadata_constant_type, plan_property_access
-from posthog.hogql.resolver import unify_select_set_columns
 from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import least_common_supertype, normalized_runtime_type, parse_sql_runtime_type
@@ -304,6 +303,9 @@ class PropertySwapper(CloningVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
         result = super().visit_select_set_query(node)
         if isinstance(result.type, ast.SelectSetQueryType) and self._has_retyped_projection(result.type):
+            # The resolver imports this module through grouped_clauses during startup.
+            from posthog.hogql.resolver import unify_select_set_columns  # noqa: PLC0415
+
             # Set operations infer their common type before aliases can adopt the converted property types.
             columns = unify_select_set_columns(result.type.types, "clickhouse", self.context)
             if columns != result.type.columns:
