@@ -667,6 +667,18 @@ describe('scenario environment', () => {
                     KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
                 }),
                 passwordWithSlash: withSetting({ DATABASE_URL: 'postgres://posthog:o/ne@cluster-b:5432/posthog' }),
+                passwordInQuery: withSetting({
+                    DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?password=one',
+                }),
+                caFileElsewhere: withSetting({
+                    DATABASE_URL:
+                        'postgres://posthog:one@cluster-a:5432/posthog?sslmode=verify-full&sslrootcert=/srv/b/ca.pem',
+                }),
+                optionAfterAt: withSetting({
+                    DATABASE_URL: 'postgres://cluster-a:5432/posthog?application_name=runner@box&connect_timeout=5',
+                }),
+                kafkaPrefix: hashOf({ ...MACHINE, KAFKA_PREFIX: 'b_' }, STATE_DIR),
+                kafkaTuning: hashOf({ ...MACHINE, KAFKA_CONSUMER_FETCH_WAIT_MAX_MS: '500' }, STATE_DIR),
                 otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
                 otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
             }).toEqual({
@@ -682,7 +694,21 @@ describe('scenario environment', () => {
                 certificateCheckOff: expect.not.stringMatching(
                     withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
                 ),
-                passwordWithSlash: database,
+                passwordWithSlash: withSetting({ DATABASE_URL: 'postgres://posthog:t/wo@cluster-c:5432/posthog' }),
+                passwordInQuery: withSetting({
+                    DATABASE_URL: 'postgres://posthog@cluster-b:5432/posthog?password=two',
+                }),
+                caFileElsewhere: withSetting({
+                    DATABASE_URL:
+                        'postgres://posthog:two@cluster-b:5432/posthog?sslmode=verify-full&sslrootcert=/srv/a/ca.pem',
+                }),
+                optionAfterAt: expect.not.stringMatching(
+                    withSetting({
+                        DATABASE_URL: 'postgres://cluster-a:5432/posthog?application_name=runner@box&connect_timeout=9',
+                    })
+                ),
+                kafkaPrefix: expect.not.stringMatching(here),
+                kafkaTuning: expect.not.stringMatching(here),
                 otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
                 otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
             })

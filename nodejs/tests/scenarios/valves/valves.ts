@@ -21,7 +21,6 @@ export type ValveContext = {
     seed?: number
 }
 
-// Each entry draws from its own pick, so two share doses of one card hit units independently.
 type EntryContext = ValveContext & { pick?: string }
 
 export type ValveDefinition = Definition & {
@@ -328,9 +327,15 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
                 }
-                const hits = await actuation.hits?.().catch(() => undefined)
-                if (hits) {
-                    unitIds.set(record, hits)
+                try {
+                    const hits = await actuation.hits?.()
+                    if (hits) {
+                        unitIds.set(record, hits)
+                    }
+                } catch (error) {
+                    record.error = [record.error, `unit ids unreadable: ${(error as Error).message}`]
+                        .filter(Boolean)
+                        .join('; ')
                 }
             }
         }
@@ -359,7 +364,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
 
         fired: () =>
             entries
-                .filter(({ appliedAt }) => appliedAt !== undefined)
+                .filter(({ intentAt, appliedAt }) => intentAt !== undefined || appliedAt !== undefined)
                 .map((entry) => {
                     const { valve, target, ...record } = entry
                     const hits = unitIds.get(entry)

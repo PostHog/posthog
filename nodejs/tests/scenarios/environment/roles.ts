@@ -66,23 +66,40 @@ export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_OR_PLACE_SETTING =
     /SECRET|PASSWORD|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_DIR$|_LOCATION$/
-const URL_HOST_AND_PASSWORD = /\/\/(?:([^:/?#@\s]*)(?::[^@\s]*)?@)?[^/?#\s]*/g
+const SECRET_OR_PLACE_PARAM = /^(password|sslpassword|sslrootcert|sslcert|sslkey)$/i
+const RDKAFKA_SETTING_PREFIX = 'KAFKA_'
 
-// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config.
-// A run cluster's own secrets, hosts, passwords and paths do not split runs on it either, but an emptied secret does,
-// and a key list of bare commas is empty to the server that splits it.
+const presenceOf = (list: string): string => (list.split(',').some((part) => part.trim()) ? 'set' : '')
+
+function withoutHostOrCredentials(part: string): string {
+    if (!part.includes('//')) {
+        return part
+    }
+    let url: URL
+    try {
+        url = new URL(part)
+    } catch {
+        return 'unparsed url'
+    }
+    for (const param of [...url.searchParams.keys()].filter((key) => SECRET_OR_PLACE_PARAM.test(key))) {
+        url.searchParams.set(param, 'set')
+    }
+    return `${url.protocol}//${url.username}@${url.pathname}${url.search}`
+}
+
 const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
-    SECRET_OR_PLACE_SETTING.test(key)
-        ? value && (value.split(',').some((part) => part.trim()) ? 'set' : '')
-        : value?.replace(URL_HOST_AND_PASSWORD, (_, user?: string) => (user ? `//${user}@` : '//'))
+    value === undefined || SECRET_OR_PLACE_SETTING.test(key)
+        ? value && presenceOf(value)
+        : value.split(',').map(withoutHostOrCredentials).join(',')
 
 export function configHashOf(specs: RoleSpec[]): string {
     const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])
+    const isServerSetting = (key: string): boolean => settings.has(key) || key.startsWith(RDKAFKA_SETTING_PREFIX)
     const configs = specs.map(({ role, replica, env }) => [
         role,
         replica,
         Object.entries(env)
-            .filter(([key]) => settings.has(key))
+            .filter(([key]) => isServerSetting(key))
             .map(([key, value]) => [key, fingerprintOf(key, value)])
             .sort(([a], [b]) => a!.localeCompare(b!)),
     ])

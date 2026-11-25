@@ -665,7 +665,7 @@ describe('valves', () => {
         })
 
         it('lists a unit the fault hits while the valve releases it', async () => {
-            let late: Promise<string> | undefined
+            let late: string | undefined
             const valves = createValves({ pollMs: 5 })
             await valves.start(
                 [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
@@ -678,8 +678,7 @@ describe('valves', () => {
                             return {
                                 ...hold,
                                 release: async () => {
-                                    late = send(undefined, 'run-1-2@www.example.com')
-                                    await waitForExpect(() => expect(truth.records).toHaveLength(2), 2000, 5)
+                                    late = await send(undefined, 'run-1-2@www.example.com')
                                     await hold.release()
                                 },
                             }
@@ -691,11 +690,61 @@ describe('valves', () => {
             const first = await send()
             await valves.releaseAll()
 
-            expect({ first, late: await late, unitIds: valves.fired()[0].unitIds }).toEqual({
+            expect({ first, late, unitIds: valves.fired()[0].unitIds }).toEqual({
                 first: 'MessageRejected',
                 late: 'MessageRejected',
                 unitIds: ['run-1-1', 'run-1-2'],
             })
+        })
+
+        it('records why a fault lists no units when the edge cannot say which it hit', async () => {
+            const valves = createValves({ pollMs: 5 })
+            await valves.start(
+                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
+                {
+                    ...onEdge(),
+                    environment: {
+                        actuate: async (action) => ({
+                            ...(await onEdge().environment.actuate(action)),
+                            hits: () => Promise.reject(new Error('the edge process exited')),
+                        }),
+                    },
+                }
+            )
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            await send()
+            await valves.releaseAll()
+
+            expect(valves.fired()).toEqual([
+                expect.objectContaining({
+                    error: 'unit ids unreadable: the edge process exited',
+                    releasedAt: expect.any(String),
+                }),
+            ])
+            expect(valves.fired()[0].unitIds).toBeUndefined()
+        })
+
+        it('lists a fault whose apply failed after it began, with its error', async () => {
+            const valves = createValves({ pollMs: 5 })
+            await valves.start(
+                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
+                {
+                    ...onEdge(),
+                    environment: {
+                        actuate: () => Promise.reject(new Error('the read replica refused the connection')),
+                    },
+                }
+            )
+            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(valves.fired()).toEqual([
+                expect.objectContaining({
+                    valve: 'ses.reject',
+                    intentAt: expect.any(String),
+                    error: 'the read replica refused the connection',
+                }),
+            ])
         })
 
         it.each([

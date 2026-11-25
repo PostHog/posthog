@@ -138,9 +138,12 @@ type ActiveFault = {
 const SHARE_TOLERANCE = 1e-9
 const SCORE_BYTES = 6
 
-// A unit id is `<run id>-<ordinal>`, so the ordinal names the same unit in every run of a card.
+const ORDINAL_AT_END_OF_UNIT_ID = /-(\d+)$/
+
 export function hitOf(unitId: string | undefined, fallback: string): Hit {
-    return unitId === undefined ? { pickKey: fallback } : { unitId, pickKey: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
+    return unitId === undefined
+        ? { pickKey: fallback }
+        : { unitId, pickKey: ORDINAL_AT_END_OF_UNIT_ID.exec(unitId)?.[1] ?? unitId }
 }
 
 function picked(pick: string, key: string, attempt: number, share: number): boolean {
@@ -161,7 +164,7 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     return !isWebhookAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
-function doseTakes(fault: ActiveFault, now: number, { pickKey }: Hit): boolean {
+function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): boolean {
     const {
         rule: { dose, pick },
         matched,
@@ -175,8 +178,8 @@ function doseTakes(fault: ActiveFault, now: number, { pickKey }: Hit): boolean {
         return applied < dose.count
     }
     if (pick !== undefined) {
-        const attempt = fault.attempts.get(pickKey) ?? 0
-        fault.attempts.set(pickKey, attempt + 1)
+        const attempt = fault.attempts.get(unitId ?? pickKey) ?? 0
+        fault.attempts.set(unitId ?? pickKey, attempt + 1)
         return picked(pick, pickKey, attempt, dose.share)
     }
     const crossings = (sends: number): number => Math.floor(sends * dose.share + SHARE_TOLERANCE)

@@ -82,7 +82,6 @@ export interface Environment {
     down(): Promise<void>
 }
 
-// null when the run cannot read it, such as a target whose roles run elsewhere.
 export type RunConfig = { configHash: string | null; services: string[] | null }
 
 export type RoleHandle = { name: Role; replica: number; url: string; metricsUrl: string }
