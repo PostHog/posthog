@@ -618,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
@@ -4779,6 +4781,7 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
+    radar_client_id?: string
 }
 
 interface InstancePreferencesInterface {

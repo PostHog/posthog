@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from django.db import DatabaseError
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -13,6 +15,8 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION
 from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressRunConfig
+from products.tasks.backend.logic.services.agent_egress_git import GitGrantUnavailable
+from products.tasks.backend.logic.services.agent_egress_git_worker import publish_agent_egress_git_grant
 from products.tasks.backend.logic.services.agent_egress_lifecycle import (
     AgentEgressLifecycle,
     AgentEgressOwnershipConflict,
@@ -43,6 +47,7 @@ class AgentEgressPrepared:
     sandbox_id: str
     duration_seconds: int
     enrollment_expires_at: float | None = None
+    publish_git_read_grant: bool = False
 
 
 @frozen
@@ -90,7 +95,28 @@ def _prepare(input: AgentEgressExecutionInput) -> AgentEgressPrepared:
             sandbox_id=sandbox_id,
             duration_seconds=session.config.duration_seconds,
             enrollment_expires_at=session.enrollment_expires_at,
+            publish_git_read_grant=isinstance(session.config, AgentEgressRunConfig)
+            and session.config.publish_git_read_grant,
         )
+
+
+@activity.defn
+@asyncify
+def initialize_agent_egress_git_grant(input: AgentEgressExecutionInput) -> None:
+    with lifecycle(input) as session:
+        if isinstance(session.config, AgentEgressRunConfig) and session.config.publish_git_read_grant:
+            if input.probe.sandbox_id is None:
+                raise ValueError("Git grant publication requires a provisioned sandbox")
+            try:
+                publish_agent_egress_git_grant(
+                    team_id=session.config.team_id,
+                    run_id=session.config.run_id,
+                    execution_id=session.execution_id,
+                    sandbox_id=input.probe.sandbox_id,
+                    initialize=True,
+                )
+            except DatabaseError:
+                raise GitGrantUnavailable("Git grant storage unavailable") from None
 
 
 @activity.defn

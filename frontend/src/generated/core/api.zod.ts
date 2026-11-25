@@ -725,7 +725,11 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
  * Submit a one-column HogQL query for event deletion.
  */
 export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),
@@ -745,7 +749,11 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
  * Validate a one-column HogQL query and count the selected event UUIDs.
  */
 export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),

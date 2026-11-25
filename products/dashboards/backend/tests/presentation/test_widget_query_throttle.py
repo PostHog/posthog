@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
+from products.dashboards.backend.presentation.widget_query_throttle import get_dashboard_widget_query_throttle_error
 
 
 class TestDashboardWidgetQueryThrottle(BaseTest):
@@ -11,19 +11,19 @@ class TestDashboardWidgetQueryThrottle(BaseTest):
         view.team_id = self.team.id
 
         with patch(
-            "products.dashboards.backend.widget_query_throttle.is_rate_limit_enabled",
+            "products.dashboards.backend.presentation.widget_query_throttle.is_rate_limit_enabled",
             return_value=True,
         ):
             with patch(
-                "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
+                "products.dashboards.backend.presentation.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
                 return_value=False,
             ):
                 with patch(
-                    "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.wait",
+                    "products.dashboards.backend.presentation.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.wait",
                     return_value=12,
                 ):
                     with patch(
-                        "products.dashboards.backend.widget_query_throttle.DashboardWidgetQuerySustainedRateThrottle.allow_request",
+                        "products.dashboards.backend.presentation.widget_query_throttle.DashboardWidgetQuerySustainedRateThrottle.allow_request",
                         return_value=True,
                     ):
                         error = get_dashboard_widget_query_throttle_error(request, view)
@@ -36,15 +36,15 @@ class TestDashboardWidgetQueryThrottle(BaseTest):
         view.team_id = self.team.id
 
         with patch(
-            "products.dashboards.backend.widget_query_throttle.is_rate_limit_enabled",
+            "products.dashboards.backend.presentation.widget_query_throttle.is_rate_limit_enabled",
             return_value=True,
         ):
             with patch(
-                "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
+                "products.dashboards.backend.presentation.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
                 return_value=True,
             ):
                 with patch(
-                    "products.dashboards.backend.widget_query_throttle.DashboardWidgetQuerySustainedRateThrottle.allow_request",
+                    "products.dashboards.backend.presentation.widget_query_throttle.DashboardWidgetQuerySustainedRateThrottle.allow_request",
                     return_value=True,
                 ):
                     error = get_dashboard_widget_query_throttle_error(request, view)

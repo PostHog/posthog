@@ -1,7 +1,7 @@
 {
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "7.0.0",
+    "version": "10.1.0",
     "config_version": 2
   },
   "artifacts": [
