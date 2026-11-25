@@ -17,6 +17,7 @@ from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
     BatchExportEventsModel,
     BatchExportField,
+    BatchExportHogQLModel,
     BatchExportPersonsModel,
     BatchExportSchema,
     BatchExportSessionsModel,
@@ -154,6 +155,41 @@ async def _run_activity(
     )
 
     return result
+
+
+async def test_insert_into_postgres_activity_preserves_hogql_uuid(
+    activity_environment,
+    clickhouse_client,
+    postgres_connection,
+    postgres_config,
+    table_name,
+    ateam,
+    auser,
+    data_interval_start,
+    data_interval_end,
+) -> None:
+    events = generate_test_events(
+        count=1, team_id=ateam.pk, possible_datetimes=[data_interval_start], event_name="uuid"
+    )
+    await insert_event_values_in_clickhouse(clickhouse_client, events)
+
+    result = await _export_to_postgres(
+        activity_environment=activity_environment,
+        postgres_config=postgres_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=BatchExportHogQLModel(
+            query="SELECT uuid AS event_id FROM events", user_id=auser.pk, modifiers={}
+        ),
+    )
+    assert result.error is None
+
+    async with postgres_connection.cursor() as cursor:
+        table = sql.Identifier(postgres_config["schema"], table_name)
+        await cursor.execute(sql.SQL("SELECT event_id, pg_typeof(event_id)::text FROM {}").format(table))
+        assert await cursor.fetchall() == [(uuid.UUID(events[0]["uuid"]), "uuid")]
 
 
 @pytest.mark.parametrize("model", [None, BatchExportEventsModel()])

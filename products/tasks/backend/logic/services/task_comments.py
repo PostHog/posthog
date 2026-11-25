@@ -414,6 +414,7 @@ def _entry(comment: Comment, *, content_budget: int, content_offset: int = 0) ->
         id=comment.id,
         content=content,
         content_truncated=content_next_offset is not None,
+        content_offset=content_offset,
         content_next_offset=content_next_offset,
         author=author,
         created_at=comment.created_at,
