@@ -5,6 +5,7 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -366,17 +367,15 @@ def _has_settled_conversions(
         # A slow read raises, and the pre-check runs the scout on any error.
         settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
     )
-    for source_id, settled in settled_by_source.items():
-        runs_by_day = [
-            (day, count)
-            for source, day, count in rows
-            if source == source_id and settled.start.date() <= day < settled.end.date() and count > 0
-        ]
-        if sum(count for _, count in runs_by_day) >= MIN_EVIDENCE_SAMPLE and any(
-            day >= settled.new_from.date() for day, _ in runs_by_day
-        ):
-            return True
-    return False
+    runs_by_source: dict[str, int] = defaultdict(int)
+    sources_with_new_runs: set[str] = set()
+    for source_id, day, count in rows:
+        settled = settled_by_source[source_id]
+        if settled.start.date() <= day < settled.end.date():
+            runs_by_source[source_id] += count
+            if count > 0 and day >= settled.new_from.date():
+                sources_with_new_runs.add(source_id)
+    return any(runs_by_source[source_id] >= MIN_EVIDENCE_SAMPLE for source_id in sources_with_new_runs)
 
 
 def _clickhouse_time(moment: datetime) -> str:
