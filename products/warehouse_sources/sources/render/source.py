@@ -98,9 +98,10 @@ An API key grants access to every workspace your user belongs to. To sync a sing
 
     def get_retryable_errors(self) -> set[str]:
         # The source retries dropped connections and read timeouts in-process. When that budget runs out,
-        # urllib3 raises "... Max retries exceeded with url: ...". Temporal retries the activity, so the
-        # failure is transient and must not be reported as an exception.
-        return {"Max retries exceeded with url"}
+        # Temporal retries the activity, so the failure is transient and must not be reported as an
+        # exception. A failed connect ends in "Max retries exceeded with url". The adapter does not retry
+        # a failed read, so a read timeout, a dropped connection or a cut-off body keeps urllib3's own message.
+        return {"Max retries exceeded with url", "Read timed out", "Connection aborted", "Connection broken"}
 
     def get_schemas(
         self,
