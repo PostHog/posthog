@@ -51,6 +51,11 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+if [[ -n $DEBUG && -z $PLUGIN_SERVER_MODE ]]; then
+  # An unreadable intake record parks on the dead-letter topic instead of restarting every CDP service.
+  export CDP_DLQ_ENABLED=${CDP_DLQ_ENABLED-true}
+fi
+
 if [[ -n $DEBUG ]]; then
   if [[ -n $NO_WATCH ]]; then
     cmd="pnpm start:devNoWatch"

@@ -13,7 +13,6 @@ class KafkaClusterProfile(StrEnum):
     WAREHOUSE_SOURCES = "warehouse_sources"
     CYCLOTRON = "cyclotron"
     INGESTION = "ingestion"
-    CALCULATED_EVENTS = "calculated_events"
     SHARED = "shared"
     REPLAY = "replay"
     TRACES = "traces"

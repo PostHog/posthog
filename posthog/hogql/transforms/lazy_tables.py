@@ -431,11 +431,28 @@ class LazyTableResolver(TraversingVisitor):
                         continue
                     collector = WrappedTableReferenceCollector(table_type, self.context)
                     collector.visit(join_ptr.constraint)
-                    if collector.reads_lazy_join:
+                    if collector.reads_lazy_join or self._is_bounded_inner_join_side(join_ptr, table_type):
                         tables_to_wrap.append(table_alias)
                     break
             join_ptr = join_ptr.next_join
         return tables_to_wrap
+
+    def _is_bounded_inner_join_side(self, join: ast.JoinExpr, table_type: ast.TableOrSelectType) -> bool:
+        # The printer puts the team guard of an inner-joined table in the outer WHERE, which ClickHouse does not
+        # apply before it builds the hash table, so a bare table on this side is read for every team.
+        # The wrapper reads the table in its own subquery, with its team guard and its local predicates.
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        return (
+            bool(self.context.modifiers.optimizeCrossJoins)
+            and join.join_type == "ALL INNER JOIN"
+            # A later outer join can preserve rows that the outer team guard would have filtered.
+            and join.next_join is None
+            and not join.table_final
+            and not join.table_args
+            and not join.column_aliases
+            and isinstance(table_type, ast.TableType)
+        )
 
     def _wrap_table_for_lazy_resolution(
         self, node: ast.SelectQuery, table_alias: str, select_type: ast.SelectQueryType
