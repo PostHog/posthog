@@ -1,11 +1,12 @@
 import time
-from collections.abc import Callable
+import hashlib
+import threading
+import dataclasses
 from typing import Any, Optional
 
 from requests import PreparedRequest, Response
 
 from products.warehouse_sources.sources.sdk import (
-    DEFAULT_RETRY,
     AuthConfigBase,
     OffsetPaginator,
     RESTAPIConfig,
@@ -13,13 +14,16 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     frozen,
     make_tracked_session,
+    raise_for_retryable_status,
     rest_api_resource,
+    vendor_retry,
 )
 from products.warehouse_sources.sources.zoho_desk._config import ZohoDeskSourceConfig
 from products.warehouse_sources.sources.zoho_desk.settings import ZOHO_DESK_ENDPOINTS, ZohoDeskEndpointConfig
 
 API_PATH = "/api/v1"
 TOKEN_PATH = "/oauth/v2/token"
+AUTH_SCHEME = "Zoho-oauthtoken"
 TOKEN_TIMEOUT_SECONDS = 30
 DEFAULT_TOKEN_LIFETIME_SECONDS = 60 * 60
 TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
@@ -65,11 +69,6 @@ TOKEN_ERROR_MESSAGES = {
 }
 TOKEN_REFRESH_FAILED_PREFIX = "Zoho Desk token refresh failed"
 
-# `DEFAULT_RETRY` retries only GET, HEAD, and OPTIONS. The token exchange is a POST, so a 5xx from
-# the accounts host would otherwise fail the run on the first attempt. Repeating a refresh-token
-# exchange is safe, because each exchange only mints a new access token.
-TOKEN_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
-
 
 class ZohoDeskAuthError(Exception):
     """Zoho rejected the client or the refresh token, so a retry with the same credentials fails too."""
@@ -86,14 +85,54 @@ class ZohoDeskAuthError(Exception):
 class ZohoDeskTokenUnavailableError(Exception):
     """The token exchange returned no access token, and not because of a known credential error.
 
-    Zoho limits how many access tokens one refresh token can mint in a short period, and each table
-    sync mints its own. This error stays retryable so that a later attempt can mint one.
+    Zoho limits how many access tokens one refresh token can mint in a short period. This error
+    stays retryable so that a later attempt can mint one.
     """
 
 
 @frozen
 class ZohoDeskResumeConfig:
     next_index: int
+    # Last record ID of the page before `next_index`, for the endpoints that drop a repeated record.
+    last_id: Optional[str] = None
+
+
+@frozen
+class _AccessToken:
+    value: str = dataclasses.field(repr=False)
+    deadline: float
+
+
+class _AccessTokenCache:
+    """Access tokens that the syncs in one worker process share, one for each set of credentials.
+
+    Zoho limits how many access tokens one refresh token can mint in a short period. Each table of
+    a source syncs on its own, so without sharing, a source with many tables asks for more tokens
+    than Zoho gives. The lock for a set of credentials makes concurrent syncs wait for one exchange.
+    """
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._locks: dict[str, threading.Lock] = {}
+        self._tokens: dict[str, _AccessToken] = {}
+
+    def lock(self, key: str) -> threading.Lock:
+        with self._guard:
+            return self._locks.setdefault(key, threading.Lock())
+
+    def get(self, key: str) -> Optional[_AccessToken]:
+        return self._tokens.get(key)
+
+    def put(self, key: str, token: _AccessToken) -> None:
+        self._tokens[key] = token
+
+    def clear(self) -> None:
+        with self._guard:
+            self._tokens.clear()
+            self._locks.clear()
+
+
+ACCESS_TOKENS = _AccessTokenCache()
 
 
 def resolve_hosts(region: str) -> RegionHosts:
@@ -110,7 +149,7 @@ def _token_lifetime_seconds(expires_in: Any) -> float:
 
 
 class ZohoDeskAuth(AuthConfigBase):
-    """Exchanges the refresh token for an access token and keeps it until shortly before it expires.
+    """Exchanges the refresh token for an access token that lasts until shortly before it expires.
 
     The framework `oauth2` auth treats every 4xx from the token endpoint as a permanent credential
     error. Zoho answers a wrong credential with HTTP 200 and an `error` key, and it also throttles
@@ -123,8 +162,8 @@ class ZohoDeskAuth(AuthConfigBase):
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token
-        self._token: Optional[str] = None
-        self._deadline: float = 0.0
+        # A digest, so that the cache does not hold the refresh token as a dictionary key.
+        self._cache_key = hashlib.sha256("\0".join((self._token_url, client_id, refresh_token)).encode()).hexdigest()
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
         request.headers["Authorization"] = self._authorization()
@@ -132,41 +171,53 @@ class ZohoDeskAuth(AuthConfigBase):
         return request
 
     def secret_values(self) -> tuple[str, ...]:
-        return tuple(value for value in (self._client_secret, self._refresh_token, self._token) if value)
+        cached = ACCESS_TOKENS.get(self._cache_key)
+        token = cached.value if cached else None
+        return tuple(value for value in (self._client_secret, self._refresh_token, token) if value)
 
-    def access_token(self) -> str:
-        if self._token is None or time.monotonic() >= self._deadline - TOKEN_REFRESH_MARGIN_SECONDS:
-            self._token = self._mint()
-        return self._token
+    def access_token(self, rejected: Optional[str] = None) -> str:
+        """The shared access token. `rejected` is a token that Zoho answered with a 401: it is
+        replaced unless another sync replaced it first."""
+        with ACCESS_TOKENS.lock(self._cache_key):
+            cached = ACCESS_TOKENS.get(self._cache_key)
+            if (
+                cached is None
+                or cached.value == rejected
+                or time.monotonic() >= cached.deadline - TOKEN_REFRESH_MARGIN_SECONDS
+            ):
+                cached = self._mint()
+                ACCESS_TOKENS.put(self._cache_key, cached)
+            return cached.value
 
-    def _authorization(self) -> str:
-        return f"Zoho-oauthtoken {self.access_token()}"
+    def _authorization(self, rejected: Optional[str] = None) -> str:
+        return f"{AUTH_SCHEME} {self.access_token(rejected)}"
 
     def _resend_with_new_token(self, response: Response, **send_kwargs: Any) -> Response:
         """Send a request that got a 401 once more, with a newly minted token.
 
-        Zoho keeps a limited number of access tokens alive for each refresh token, and each table
-        sync mints its own. A token can therefore stop working before it expires, when other syncs
-        of the same source mint theirs. The adapter sends the copy directly and does not run this
-        hook again, so a second 401 goes back to the caller as a real credential failure.
+        Zoho keeps a limited number of access tokens alive for each refresh token, so a token can
+        stop working before it expires, when other workers mint theirs. The adapter sends the copy
+        directly and does not run this hook again, so a second 401 goes back to the caller as a
+        real credential failure. The client does not follow redirects, so the request that reaches
+        this hook always went to the Desk host.
         """
         if response.status_code != 401:
             return response
         # Read the body so that the connection goes back to the pool before the second request.
         _ = response.content
-        self._token = None
+        rejected = str(response.request.headers.get("Authorization", "")).removeprefix(f"{AUTH_SCHEME} ")
         resent = response.request.copy()
-        resent.headers["Authorization"] = self._authorization()
+        resent.headers["Authorization"] = self._authorization(rejected)
         second_response: Response = response.connection.send(resent, **send_kwargs)  # type: ignore[attr-defined]
         second_response.history.append(response)
         return second_response
 
-    def _mint(self) -> str:
+    @vendor_retry()
+    def _request_token(self) -> Response:
         # `capture=False` keeps the exchange out of HTTP sample capture: the response carries the
         # access token in a bare `access_token` field. The client secret travels in the body, so a
         # redirect must not replay it to another host.
         session = make_tracked_session(
-            retry=TOKEN_RETRY,
             redact_values=(self._client_secret, self._refresh_token),
             capture=False,
             allow_redirects=False,
@@ -181,6 +232,13 @@ class ZohoDeskAuth(AuthConfigBase):
             },
             timeout=TOKEN_TIMEOUT_SECONDS,
         )
+        # The retries live here, not in the adapter: the 401 hook runs while the REST client has
+        # the adapter retries turned off.
+        raise_for_retryable_status(response, vendor="Zoho Desk", url=self._token_url)
+        return response
+
+    def _mint(self) -> _AccessToken:
+        response = self._request_token()
         try:
             body = response.json()
         except ValueError:
@@ -190,8 +248,9 @@ class ZohoDeskAuth(AuthConfigBase):
 
         access_token = body.get("access_token")
         if isinstance(access_token, str) and access_token:
-            self._deadline = time.monotonic() + _token_lifetime_seconds(body.get("expires_in"))
-            return access_token
+            return _AccessToken(
+                value=access_token, deadline=time.monotonic() + _token_lifetime_seconds(body.get("expires_in"))
+            )
 
         error = body.get("error")
         if isinstance(error, str) and error in TOKEN_ERROR_MESSAGES:
@@ -227,20 +286,51 @@ def _list_params(endpoint: ZohoDeskEndpointConfig) -> dict[str, Any]:
     return params
 
 
-def _first_occurrence_filter() -> Callable[[dict[str, Any]], bool]:
-    seen: set[str] = set()
+def _record_id(row: Any) -> Optional[str]:
+    record_id = row.get("id") if isinstance(row, dict) else None
+    return None if record_id is None else str(record_id)
 
-    def keep(row: dict[str, Any]) -> bool:
-        record_id = row.get("id")
-        if record_id is None:
-            return True
-        key = str(record_id)
-        if key in seen:
-            return False
-        seen.add(key)
-        return True
 
-    return keep
+class ZohoDeskPaginator(OffsetPaginator):
+    """Offset paging that drops a record which a page repeats from the page before it.
+
+    For an endpoint with `drop_repeated_ids`, the first record of a page can be the last record of
+    the page before it. The REST client pages with a copy of this object, so the paginator removes
+    the record from the page itself. The last record ID travels in the resume state, so a resumed
+    run still knows the last record of the page that the earlier attempt read.
+    """
+
+    def __init__(self, endpoint: ZohoDeskEndpointConfig) -> None:
+        super().__init__(
+            limit=endpoint.page_size,
+            offset=endpoint.first_index,
+            offset_param="from",
+            limit_param="limit",
+            total_path=None,
+        )
+        self._drop_repeated_ids = endpoint.drop_repeated_ids
+        self.last_id: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # The parent decides whether a next page exists from the full page, before a record goes.
+        super().update_state(response, data)
+        if not self._drop_repeated_ids or not data:
+            return
+        previous_last_id = self.last_id
+        self.last_id = _record_id(data[-1])
+        if previous_last_id is not None and _record_id(data[0]) == previous_last_id:
+            del data[0]
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        state = super().get_resume_state()
+        if state is not None and self._drop_repeated_ids:
+            state["last_id"] = self.last_id
+        return state
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        last_id = state.get("last_id")
+        self.last_id = None if last_id is None else str(last_id)
 
 
 def zoho_desk_source(
@@ -260,6 +350,8 @@ def zoho_desk_source(
             "base_url": f"{hosts.desk_host}{API_PATH}",
             "headers": _headers(config.organization_id),
             "auth": _auth(config, hosts),
+            # A redirect must not carry the request, or the 401 hook, to another host.
+            "allow_redirects": False,
         },
         "resource_defaults": {"write_disposition": "replace"},
         "resources": [
@@ -270,13 +362,7 @@ def zoho_desk_source(
                     "path": endpoint.path,
                     "params": _list_params(endpoint),
                     "data_selector": endpoint.data_selector,
-                    "paginator": OffsetPaginator(
-                        limit=endpoint.page_size,
-                        offset=endpoint.first_index,
-                        offset_param="from",
-                        limit_param="limit",
-                        total_path=None,
-                    ),
+                    "paginator": ZohoDeskPaginator(endpoint),
                 },
             }
         ],
@@ -286,11 +372,13 @@ def zoho_desk_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"offset": resume.next_index}
+            initial_paginator_state = {"offset": resume.next_index, "last_id": resume.last_id}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("offset") is not None:
-            resumable_source_manager.save_state(ZohoDeskResumeConfig(next_index=int(state["offset"])))
+            resumable_source_manager.save_state(
+                ZohoDeskResumeConfig(next_index=int(state["offset"]), last_id=state.get("last_id"))
+            )
 
     resource = rest_api_resource(
         rest_config,
@@ -300,8 +388,6 @@ def zoho_desk_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    if endpoint.drop_repeated_ids:
-        resource.add_filter(_first_occurrence_filter())
 
     return SourceResponse(
         name=endpoint.name,
