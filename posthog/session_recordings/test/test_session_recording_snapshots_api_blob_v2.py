@@ -10,7 +10,7 @@ from rest_framework import status
 from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, SharingConfiguration, Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -1066,6 +1066,18 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert client.get(url).status_code == expected_status_over_quota
             if id_jag:
                 assert self.client.get(url).status_code == status.HTTP_200_OK
+
+                other_organization = Organization.objects.create(name="Other organization")
+                other_team = Team.objects.create(organization=other_organization, name="Other team")
+                self.user.join(organization=other_organization)
+                other_client = self.client_class()
+                other_token = id_jag_access_token(self.user, other_organization, "session_recording:read")
+                other_client.credentials(HTTP_AUTHORIZATION=f"Bearer {other_token}")
+                other_url = url.replace(f"/projects/{self.team.pk}/", f"/projects/{other_team.pk}/")
+                mock_get_session_recording.return_value = SessionRecording(
+                    session_id=session_id, team=other_team, deleted=False
+                )
+                assert other_client.get(other_url).status_code == status.HTTP_200_OK
         cache.clear()
 
     @patch(

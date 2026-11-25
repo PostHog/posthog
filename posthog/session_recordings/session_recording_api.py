@@ -956,7 +956,8 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
 class _SnapshotUserRateThrottle(SimpleRateThrottle):
     """Per-user cap on blob fetches from a browser session, an OAuth token or an ID-JAG token.
 
-    An ID-JAG token gets its own bucket, so an agent does not use up its user's quota in the browser.
+    An ID-JAG token gets its own bucket per organization, so an agent does not use up its user's quota in the
+    browser, or the quota of the same person's agent in another organization.
 
     The view checks it only for blob fetches, not through throttle_classes, so listing sources never uses quota.
     It does not reuse the shared user-bucket throttle, because that one counts every refusal in the global
@@ -974,9 +975,10 @@ class _SnapshotUserRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view) -> str | None:
         if not request.user or not request.user.is_authenticated:
             return None
-        ident = request.user.pk
-        if isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            ident = f"id_jag_{request.user.pk}"
+        ident = str(request.user.pk)
+        authenticator = request.successful_authenticator
+        if isinstance(authenticator, IDJagAccessTokenAuthentication):
+            ident = f"id_jag_{authenticator.organization_id}_{request.user.pk}"
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
     def allow_request(self, request, view) -> bool:
