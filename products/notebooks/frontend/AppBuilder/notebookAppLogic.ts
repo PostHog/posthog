@@ -685,7 +685,10 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
             notebookLogic({ shortId: props.shortId }).actions.setVariables(
                 values.variables.map((variable) => (variable.name === name ? { ...variable, value } : variable))
             )
-            posthog.capture('notebook app input changed', { short_id: props.shortId })
+            posthog.capture('notebook app input changed', {
+                short_id: props.shortId,
+                variable_type: values.variables.find((variable) => variable.name === name)?.type,
+            })
         },
         openSource: ({ nodeId }) => {
             posthog.capture('notebook app source opened', { short_id: props.shortId })

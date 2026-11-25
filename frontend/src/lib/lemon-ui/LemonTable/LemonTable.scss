@@ -419,6 +419,14 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
             overflow-clip-margin: 1px;
         }
 
+        // A flex item that clips is not a scroll container, so its automatic minimum width is its content's.
+        // Without this, the viewport grows with a table that gets wider (e.g. more date columns after a
+        // re-query), the fits check keeps comparing the table with itself, and the table stays clipped
+        // with no way to scroll. Keeping the viewport at its container's width lets the check see the overflow.
+        > .ScrollableShadows > .ScrollableShadows__inner {
+            min-width: 0;
+        }
+
         .LemonTable__content > table > thead {
             position: sticky;
 
