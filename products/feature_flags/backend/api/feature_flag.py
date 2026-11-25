@@ -162,7 +162,11 @@ from products.feature_flags.backend.facade.config import (
     detect_config_format,
     require_v1_config,
 )
-from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.config_validation import (
+    ConfigValidationError,
+    ValidationLimits,
+    canonical_value,
+)
 from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
@@ -779,8 +783,9 @@ def _group_filter_type_index(
     # aggregation, else the flag's.
     group_type_index = prop.get("group_type_index")
     if group_type_index is None:
-        return flag_filters.condition_aggregation(condition, flag_aggregation)
-    return group_type_index
+        group_type_index = flag_filters.condition_aggregation(condition, flag_aggregation)
+    # A malformed index reaches here before structural validation rejects it. None stands for any group type.
+    return group_type_index if isinstance(group_type_index, int) and not isinstance(group_type_index, bool) else None
 
 
 def _group_type_indexes_for_condition_property(
@@ -831,6 +836,8 @@ def _redact_restricted_actual_values(
 
 
 _TARGETING_CONDITION_KEYS = ("groups", "super_groups", "holdout_groups")
+
+_BUCKETING_FIELDS = ("key", "bucketing_identifier", "ensure_experience_continuity")
 
 
 def _targeting_conditions(filters: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -903,6 +910,10 @@ _NON_TARGETING_FILTER_KEYS = frozenset(
 )
 
 
+# The flags service compares or returns the JSON value under these keys as a whole. _targeting_part keeps it exactly.
+_EVALUATED_VALUE_KEYS = frozenset({"value", "default_value"})
+
+
 def _targeting_part(value: Any) -> Any:
     """``value`` without the keys in ``_NON_TARGETING_FILTER_KEYS`` and without null values, at every depth.
 
@@ -910,13 +921,18 @@ def _targeting_part(value: Any) -> Any:
     """
     if isinstance(value, Mapping):
         return {
-            key: _targeting_part(item)
+            key: item if key in _EVALUATED_VALUE_KEYS else _targeting_part(item)
             for key, item in value.items()
             if key not in _NON_TARGETING_FILTER_KEYS and item is not None
         }
     if isinstance(value, list):
         return [_targeting_part(item) for item in value]
     return value
+
+
+def _same_targeting(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    # Python equality treats true as 1. canonical_value keeps them apart, as the flags service does.
+    return canonical_value(_targeting_part(left)) == canonical_value(_targeting_part(right))
 
 
 def check_flag_limits_for_team(
@@ -1928,6 +1944,7 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_reactivated_references(attrs)
+        self._reject_unreadable_bucketing_change(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -2746,31 +2763,22 @@ class FeatureFlagSerializer(
         because changing the conditions around a stored restricted condition can make the flag's
         answer for one person depend on that property alone.
         """
-        if self.context.get("approval_apply"):
-            # The requester's write ran this check before the gate turned it into a change request.
-            return
-        request = self.context.get("request")
-        if getattr(request, "is_system", False):
+        if not self._property_restrictions_apply():
             return
         if detect_config_format(filters).kind == "v2" or detect_config_format(stored).kind == "v2":
             candidate = filters or stored
+            try:
+                candidate = config_writes.resolve_identity(candidate, stored=stored)
+            except ConfigValidationError:
+                pass
         else:
             candidate = {**stored, **filters}
-        if not any(_targeting_property_filters(candidate)) or _targeting_part(candidate) == _targeting_part(stored):
+        if not any(_targeting_property_filters(candidate)) or _same_targeting(candidate, stored):
             return
 
-        team_id = self.instance.team_id if self.instance is not None else self.context.get("team_id")
-        if team_id is None:
-            # Only a serializer built for validation alone lacks a team. That serializer can't save a flag.
+        restricted = self._restricted_property_names()
+        if restricted is None:
             return
-        request_user = getattr(request, "user", None)
-        user = cast(User, request_user) if request_user is not None and request_user.is_authenticated else None
-        try:
-            restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
-        except UserNotOrganizationMemberError:
-            # A scheduled change fires as its creator, who may have left the organization since.
-            restrictions = get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
-        restricted = split_restricted_property_names(restrictions)
         candidate_keys = _unreadable_targeting_keys(candidate, restricted)
         if not candidate_keys:
             return
@@ -2786,6 +2794,56 @@ class FeatureFlagSerializer(
             "Remove them, or ask someone with access to add them.",
             code="restricted_property",
         )
+
+    def _reject_unreadable_bucketing_change(self, attrs: Mapping[str, Any]) -> None:
+        """Refuse a change to how the flag buckets users while its conditions use a property the member cannot read.
+
+        The flag key and the bucketing settings decide which users a rollout percentage includes, so a
+        member could change them to make the flag's answer for one person depend on that property.
+        """
+        if self.instance is None or not self._property_restrictions_apply():
+            return
+        assert isinstance(self.instance, FeatureFlag)
+        # `or None` reads a stored null and an echoed false or empty string as the same value.
+        if not any(
+            field in attrs and (attrs[field] or None) != (getattr(self.instance, field) or None)
+            for field in _BUCKETING_FIELDS
+        ):
+            return
+        filters = attrs.get("get_filters", self.instance.filters) or {}
+        if not any(_targeting_property_filters(filters)):
+            return
+        restricted = self._restricted_property_names()
+        if restricted is None:
+            return
+        keys = _unreadable_targeting_keys(filters, restricted)
+        if keys:
+            raise serializers.ValidationError(
+                f"This flag's release conditions use properties you don't have access to ({', '.join(sorted(keys))}). "
+                "Ask someone with access to change its key or bucketing settings.",
+                code="restricted_property",
+            )
+
+    def _property_restrictions_apply(self) -> bool:
+        if self.context.get("approval_apply"):
+            # The requester's write ran these checks before the gate turned it into a change request.
+            return False
+        return not getattr(self.context.get("request"), "is_system", False)
+
+    def _restricted_property_names(self) -> RestrictedPropertyNames | None:
+        """The property names the requesting member cannot read, or None when the serializer has no team."""
+        team_id = self.instance.team_id if self.instance is not None else self.context.get("team_id")
+        if team_id is None:
+            # Only a serializer built for validation alone lacks a team. That serializer can't save a flag.
+            return None
+        request_user = getattr(self.context.get("request"), "user", None)
+        user = cast(User, request_user) if request_user is not None and request_user.is_authenticated else None
+        try:
+            restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        except UserNotOrganizationMemberError:
+            # A scheduled change fires as its creator, who may have left the organization since.
+            restrictions = get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+        return split_restricted_property_names(restrictions)
 
     def _reject_oversized_filters(self, filters: Any) -> None:
         filter_size = calculate_filter_size_bytes(filters)

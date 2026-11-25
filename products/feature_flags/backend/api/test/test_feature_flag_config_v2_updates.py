@@ -445,6 +445,15 @@ class TestV2PropertyAccessControl(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (stored, 3)
 
+    def test_echo_without_server_owned_seeds_saves(self) -> None:
+        stored = config(targeted(targeting={"properties": [SALARY_CONDITION]}), rollout())
+        flag = self.flag(stored)
+        echo = config(targeted(targeting={"properties": [SALARY_CONDITION]}), rollout(seed=None))
+        response = self.patch_flag(flag, {"version": 3, "name": "Renamed", "filters": echo})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.name, flag.filters) == ("Renamed", stored)
+
     def test_echo_of_a_flag_holding_a_restricted_property_saves(self) -> None:
         stored = config(targeted(targeting={"properties": [SALARY_CONDITION]}))
         flag = self.flag(stored)

@@ -9065,6 +9065,87 @@ class TestFeatureFlagPropertyAccessControl(APIBaseTest):
         flag.refresh_from_db()
         self.assertEqual(flag.filters["groups"][0]["properties"], [])
 
+    @parameterized.expand(
+        [
+            ("property", {"group_type_index": []}, {}, None),
+            ("condition", {}, {"aggregation_group_type_index": []}, None),
+            ("flag", {}, {}, {"bad": "index"}),
+        ]
+    )
+    def test_malformed_group_type_index_is_a_validation_error(self, _name, prop_extra, condition_extra, aggregation):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "new-flag",
+                "filters": {
+                    "aggregation_group_type_index": aggregation,
+                    "groups": [
+                        {
+                            "properties": [{"key": "industry", "type": "group", "value": "retail", **prop_extra}],
+                            "rollout_percentage": 100,
+                            **condition_extra,
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("unchanged", "a", "a", 200),
+            ("true_to_one", True, 1, 400),
+            ("display_key_inside_value", ["first", {"name": "x"}], ["first", {"name": "y"}], 400),
+        ]
+    )
+    def test_member_edits_a_value_next_to_a_restricted_condition(self, _name, stored_value, new_value, expected_status):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [{"key": "plan", "type": "person", "value": stored_value}], "rollout_percentage": 100},
+            ]
+        )
+        groups = [
+            flag.filters["groups"][0],
+            {"properties": [{"key": "plan", "type": "person", "value": new_value}], "rollout_percentage": 100},
+        ]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {"groups": groups}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
+
+    @parameterized.expand(
+        [
+            ("key", "renamed-flag", 400),
+            ("bucketing_identifier", "device_id", 400),
+            ("ensure_experience_continuity", True, 400),
+            ("ensure_experience_continuity", False, 200),
+        ]
+    )
+    def test_member_changes_bucketing_of_a_flag_using_a_restricted_property(self, field, value, expected_status):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [], "rollout_percentage": 50},
+            ]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {field: value}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
+
     def test_system_write_changes_targeting_of_a_flag_using_a_restricted_property(self):
         restrict_properties(self, [SALARY])
         flag = self._create_flag(
