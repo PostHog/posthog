@@ -67,11 +67,19 @@ class TestTranslateAPI(APIBaseTest):
         with patch.object(AIObservabilityTranslationBurstThrottle, "rate", "1/minute"):
             first = self.client.post(url, {"text": "Hello world"}, format="json")
             second = self.client.post(url, {"text": "Hello world"}, format="json")
+            self.client.logout()
+            own_key = self.client.post(
+                url,
+                {"text": "Hello world"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['*'])}",
+            )
             self.client.force_login(teammate)
             teammate_first = self.client.post(url, {"text": "Hello world"}, format="json")
 
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert own_key.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert teammate_first.status_code == status.HTTP_200_OK
 
     @patch(MOCK_PATH)

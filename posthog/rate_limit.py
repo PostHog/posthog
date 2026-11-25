@@ -1248,19 +1248,30 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-# Per credential, so one member translating a lot cannot lock the rest of the team out. A team-wide
-# bucket would also count the requests these refuse, so one member could still drain it in seconds.
-class AIObservabilityTranslationBurstThrottle(_UserBucketRateThrottle):
+class _TranslationMemberRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per member, so one member translating a lot cannot lock the rest of the team out.
+
+    Keyed on the user rather than the credential, because rolling a personal API key would otherwise
+    start a fresh budget. A team-wide bucket would also count the requests these refuse, so one member
+    could still drain it in seconds.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        ident = request.user.pk if request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class AIObservabilityTranslationBurstThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class AIObservabilityTranslationSustainedThrottle(_UserBucketRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class AIObservabilityTranslationDailyThrottle(_UserBucketRateThrottle):
+class AIObservabilityTranslationDailyThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
 
