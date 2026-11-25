@@ -2,15 +2,17 @@ import { IconRedo, IconUndo } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { AddTileMenu } from '../tiles/AddTileMenu'
+import { AutoRefreshButton } from './AutoRefreshButton'
 import { DashboardMenu } from './DashboardMenu'
 import { useDashboardV2 } from './dashboardV2Context'
 
 export function DashboardV2Actions(): JSX.Element {
-    const { history, can, activeTab } = useDashboardV2()
+    const { history, refresh, can, activeTab } = useDashboardV2()
 
     return (
         <div className="DashboardV2Actions flex flex-wrap items-center gap-1">
             {can('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
+            {refresh && <AutoRefreshButton {...refresh} />}
             {history && can('undo') && (
                 <>
                     <Button
