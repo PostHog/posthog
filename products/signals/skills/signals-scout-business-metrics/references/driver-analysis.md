@@ -1,23 +1,38 @@
 # Detection and key driver analysis
 
 The recipes below use placeholders: `<table>`, `<ts>` (the time column), `<measure>` (a sum or count expression), `<num>` / `<den>` (a ratio's numerator and denominator), and `<dim>` (one dimension column).
-Run every query with `execute-sql`, one at a time, and count each call against the run's budget of 40.
+Run every query with `execute-sql`, one at a time, and count each call, and each `data-catalog-metric-run`, against the run's budget of 40.
 Every query here reads a bounded, absolute window and only the columns it names.
-Never widen a window past 63 days, and never drop the time predicate.
+Never widen a window past the grain's cap, and never drop the time predicate.
 
 ## Contents
 
+- [Windows per grain](#windows-per-grain)
 - [Choosing dimensions](#choosing-dimensions)
 - [Detection](#detection)
 - [Decomposition](#decomposition)
 - [Reading the result](#reading-the-result)
 
+## Windows per grain
+
+| Grain     | Series window        | Current (`cur`)        | Base (`base`)                                          | Widen check              |
+| --------- | -------------------- | ---------------------- | ------------------------------------------------------ | ------------------------ |
+| Daily     | 35 complete days     | The latest complete day, or the last 7 days for the drift lens | The 4 same weekdays before it, or the 4 prior weeks | 8 weeks, 63 days in total |
+| Weekly    | 13 closed weeks      | The latest closed week | The 8 prior closed weeks                               | None                     |
+| Monthly   | 13 closed months     | The latest closed month | The 6 prior closed months, plus the same month a year earlier when it exists | None   |
+| Quarterly | 9 closed quarters    | The latest closed quarter | The 4 prior closed quarters                         | None                     |
+
+A period is closed when its end is before today, and for a monthly or quarterly measure also when at least 5 (or 10) days have passed since, so late rows have posted.
+Pin `cur` and `base` to absolute dates in every query, so a `pending:` candidate decomposed later reads the same periods.
+
 ## Choosing dimensions
 
-Pick candidate columns by name first, from the table's schema (`read-data-schema`), so the profile query stays small: plan, tier, country, region, currency, channel, product, payment method, customer type, status.
+A metric with its own dimension column (a `GROUP BY month, product`) needs no profile: that column is the dimension, and the decomposition reads the metric's own rows.
+
+For a metric without one, pick candidate columns by name first, from the referenced table's schema (`read-data-schema`), so the profile query stays small: plan, tier, country, region, currency, channel, product, payment method, customer type, status.
 Leave out identifiers (ids, emails, URLs, free text), time columns and amounts.
 
-Profile every candidate in **one query** over the last 28 days:
+Profile every candidate in **one query** over the base window:
 
 ```sql
 SELECT count() AS rows,
@@ -25,7 +40,7 @@ SELECT count() AS rows,
        uniq(<dim2>) AS dim2_values, countIf(<dim2> IS NULL OR toString(<dim2>) = '') AS dim2_nulls,
        uniq(<dim3>) AS dim3_values, countIf(<dim3> IS NULL OR toString(<dim3>) = '') AS dim3_nulls
 FROM <table>
-WHERE <ts> >= today() - 28 AND <ts> < today()
+WHERE <ts> >= '<base start>' AND <ts> < '<cur end>'
 ```
 
 Keep a dimension when it has 2 to 50 distinct values and its null share (`dimN_nulls / rows`) is under 20%.
@@ -37,7 +52,10 @@ Never build a multi-table join on a scheduled run.
 
 ## Detection
 
-### Daily series
+### The series
+
+Prefer the canonical run (`data-catalog-metric-run`) when the budget rules allow it; read each row against `columns`.
+Otherwise, the daily shape, with `< today()` dropping the current partial day:
 
 ```sql
 SELECT toDate(<ts>) AS day, <measure> AS value
@@ -48,12 +66,12 @@ ORDER BY day
 LIMIT 40
 ```
 
-`< today()` drops the current partial day.
-A missing day in the result is a zero only when the source is fresh.
+For a monthly measure, `toStartOfMonth(<ts>)` over 13 closed months, `LIMIT 14`; weekly and quarterly follow the same pattern.
+A missing period in the result is a zero only when the source is fresh.
 Otherwise it is missing data.
-Both lenses read this one result; do not run a second series query.
+Both daily lenses read this one result; do not run a second series query.
 
-### Step lens
+### Step lens (daily)
 
 For the latest complete day `d`:
 
@@ -63,7 +81,7 @@ For the latest complete day `d`:
 Pass when `abs(value - median_28d) >= 0.3 * median_28d`, `abs(value - median_same_weekday) >= 0.3 * median_same_weekday`, and `greatest(value, median_28d) >= 20`.
 For a money measure, apply the 20 floor to the count of rows behind it, not to the amount.
 
-### Drift lens
+### Drift lens (daily)
 
 Compare the sum (or the ratio) over the last 7 complete days with the average of the 4 prior 7-day windows.
 Pass at 15% or more.
@@ -71,25 +89,32 @@ Then check the 4 prior week-over-week changes.
 When at least 3 of them already went the same direction, this is a long trend that is already visible, not a new move.
 Remember it, do not report it.
 
+### Period lens (weekly, monthly, quarterly)
+
+Compare the latest closed period with the median of the prior periods in the base.
+Pass at 20% or more off that median, with the same 20-unit floor.
+For a monthly measure with 13 closed months, also compare with the same month a year earlier: a move that the year-earlier month shows too is seasonal, so remember it and do not report it.
+A measure that moved by 20% or more in the same direction in each of the 3 prior periods is a long trend, not a new move.
+
 ## Decomposition
 
-Use the same two windows as the lens that passed:
+Use the `cur` and `base` windows of the lens that passed.
 
-- step lens: `cur` = day `d`, `base` = the average of the 4 same weekdays before `d`,
-- drift lens: `cur` = the last 7 days, `base` = the average of the 4 prior 7-day windows.
+### From the metric's own rows
 
-Pin both windows to absolute dates in the query, so a `pending:` candidate decomposed a day later reads the same days.
-One query per dimension, within the tier the table size allows.
+When the series carries a dimension column, group its rows: `cur` per segment, the average of the base periods per segment, and the delta.
+No query runs.
+Segments past the 20th by `abs(delta)` go into one "other" row.
 
-### Sum or count
+### Sum or count, from the table
 
 ```sql
 SELECT <dim> AS segment,
        sumIf(<measure_column>, <ts> >= '<cur start>' AND <ts> < '<cur end>') AS cur,
-       sumIf(<measure_column>, <base condition>) / 4 AS base,
+       sumIf(<measure_column>, <base condition>) / <number of base periods> AS base,
        cur - base AS delta
 FROM <table>
-WHERE <ts> >= '<earliest base start>' AND <ts> < '<cur end>'
+WHERE <ts> >= '<base start>' AND <ts> < '<cur end>'
 GROUP BY segment
 ORDER BY abs(delta) DESC
 LIMIT 20
@@ -99,7 +124,7 @@ Use `countIf` instead of `sumIf` for a count measure.
 Each segment's share of the move is `delta / sum(delta)`.
 Segments past the 20th go into one "other" row, computed as the total delta from the series minus the listed segments.
 
-### Ratio
+### Ratio, from the table
 
 For each segment `s`, with `w` = the segment's share of the total denominator and `r` = the segment's own ratio:
 
@@ -112,10 +137,10 @@ The mix and rate effects over all segments add up to the change in the overall r
 SELECT <dim> AS segment,
        sumIf(<num>, <cur condition>) AS num_cur,
        sumIf(<den>, <cur condition>) AS den_cur,
-       sumIf(<num>, <base condition>) / 4 AS num_base,
-       sumIf(<den>, <base condition>) / 4 AS den_base
+       sumIf(<num>, <base condition>) / <number of base periods> AS num_base,
+       sumIf(<den>, <base condition>) / <number of base periods> AS den_base
 FROM <table>
-WHERE <ts> >= '<earliest base start>' AND <ts> < '<cur end>'
+WHERE <ts> >= '<base start>' AND <ts> < '<cur end>'
 GROUP BY segment
 ORDER BY den_cur DESC
 LIMIT 20
@@ -124,11 +149,11 @@ LIMIT 20
 Compute `w`, `r`, and both effects from these rows locally (`python3` in Bash), so the arithmetic stays exact and costs no query.
 Skip a segment with a zero denominator in either window, and note it.
 
-### The widen check
+### The widen check (daily, full-method tier only)
 
-Before you trust a driver, run its dimension query once more with the base window set to the 8 prior weeks (`/ 8`), a 63-day window in total.
+Before you trust a driver, run its dimension query once more with the base set to the 8 prior weeks (`/ 8`), 63 days in total.
 A driver that holds against both bases is real.
-Skip this in the 20M-to-200M tier and say so in the evidence.
+Skip it in the 20M-to-200M tier and say so in the evidence.
 
 ## Reading the result
 
@@ -142,4 +167,4 @@ Skip this in the 20M-to-200M tier and say so in the evidence.
 | No dimension passes                                             | Remember the move. Check it again next run.                                                                                             |
 
 With 5 dimensions and up to 20 segments each, some segments move by chance.
-Trust a driver only when its segment has at least 20 units in the base window and the widen check holds.
+Trust a driver only when its segment has at least 20 units in the base window and, at daily grain, the widen check holds.

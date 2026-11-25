@@ -4,9 +4,9 @@ disable-model-invocation: true
 scout-display-name: Business metrics
 description: >
   Signals scout for the business data in the data warehouse. Watches the project's approved
-  data catalog metrics for steps and slow drifts against a seasonality-matched baseline, then
-  runs a key driver analysis to name the segments that explain each move, under a fixed query
-  budget per run.
+  data catalog metrics, each at its own grain (daily, weekly, monthly, quarterly), for steps
+  and drifts against a seasonality-matched baseline, then runs a key driver analysis to name
+  the segments that explain each move, under a fixed query budget per run.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus data_catalog:read, signal_scout_internal:write (scratchpad),
@@ -46,40 +46,62 @@ A warehouse table with no approved metric on it is not a measure: without an agr
 
 ## Quick close-out: is there a governed metric to watch?
 
-1. Call `metric-list` with no search and page through it.
-   Keep metrics with `status: approved`, `is_drifted: false` and `definition_kind` sql or insight.
+1. Read the catalog **in full at most once a week**: `metric-list` with `status: approved` and `limit: 100`, paged.
+   Each entry costs context, so write `catalog:business_metrics` ("read {date}, {n} approved, {m} series") and, until 7 days pass, trust the `watchlist:` entries instead of reading the list again.
+   Keep metrics with `is_drifted: false` and `definition_kind` sql or insight.
    A markdown metric is calculated by hand from its steps, so skip it.
 2. No such metric: write `not-in-use:business_metrics` ("checked at {timestamp}, no approved executable catalog metric") and close out empty.
    Say in the close-out that the scout starts to watch as soon as the team approves a metric in the data catalog.
+
+## What counts as a measure
+
+A metric qualifies only when its result is a **series**: one time column, one or more numeric measures, and at most one dimension column.
+Read the shape off `metric-describe` (the SQL's `GROUP BY` and `ORDER BY`) and confirm it on the first run's `columns`.
+These are not measures, so note `shape=not-a-series` on the `watchlist:` entry and never run them again: a cohort grid (`q0`, `q1`, ... columns), a top-N list, a single number, a sub-daily series (hourly health is the APM and logs scouts' territory).
+
+The grain of the time column sets the lens and the cadence:
+
+| Grain     | Lens                                                                                                               | When you judge it                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Daily     | Step: latest complete day vs the 28-day median and the same-weekday median. Drift: last 7 days vs the 4 prior weeks | Every run                                                          |
+| Weekly    | Latest closed week vs the median of the 8 prior closed weeks                                                         | Once a week, after the week closes                                 |
+| Monthly   | Latest closed month vs the median of the 6 prior closed months, and the same month a year earlier when 13 months exist | Once a month, from the 5th day after the month closes, so late invoices have posted |
+| Quarterly | Latest closed quarter vs the 4 prior closed quarters                                                                 | Once a quarter, from the 10th day after the quarter closes         |
+
+Never score the in-progress period.
+The bars and the windows are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
 ## Query budget
 
 Read this before any SQL.
 A warehouse table sits in object storage, so every scan costs read bytes, and a scout that runs daily pays that cost every day.
 
-- **At most 40 `execute-sql` calls per run.** Count them.
+- **At most 40 `execute-sql` and `data-catalog-metric-run` calls per run.** Count them.
   When the budget is spent, stop, write a `pending:` entry for each candidate you did not finish, and close out.
   The next run continues from there.
-- **Every query on a warehouse table carries an absolute time window of at most 63 days that ends before today.**
+- **Every query you write on a warehouse table carries an absolute time window of at most 63 days (daily grain) or 13 periods (weekly and up), and ends before the current period.**
   No query without a time predicate, no `SELECT *`, no `uniqExact`, no `ORDER BY` without `LIMIT`.
   Read only the columns the question needs: a series query reads two, a decomposition query reads three.
-- **Steady state is cheap.** Two system-table reads for the whole run (freshness, below) and one 35-day series query per measure.
+- **Run the canonical metric itself** (`data-catalog-metric-run`) when its `referenced_table_names` are materialized views or tables of at most 20M rows, whatever its window, or `events` with a window of at most 63 days.
+  The run cannot narrow a HogQL metric's window, so for a metric on `events` or a larger table with a longer window, copy its SQL from `metric-describe`, narrow **only the time predicate** to the window the lens needs, change nothing else, and mark the result non-canonical in the evidence.
+- **Steady state is cheap.** Two system-table reads for the whole run (freshness, below), then one series per measure due this run: daily measures every run, the others only in their judging window.
   Nothing else runs on a measure unless gate 2 passes.
-- **Profile dimensions once.** One query per table covers every candidate column at once (recipe in [`references/driver-analysis.md`](references/driver-analysis.md#choosing-dimensions)).
+- **A metric that carries its own dimension column decomposes from its own rows.** No extra scan: the series by segment is already in the result.
+- **Profile dimensions once** for a metric without one: one query per table covers every candidate column at once (recipe in [`references/driver-analysis.md`](references/driver-analysis.md#choosing-dimensions)).
   Keep the result in the watchlist for 30 days.
 - **Decompose at most 2 candidates per run**, strongest first.
-  A third candidate is a `pending:` entry for the next run, with its windows pinned, so it is judged on the same days.
-- **Size the table before you scan it.** `row_count` on `system.data_warehouse_tables` (the pre-check rows carry it) picks the tier:
+  A third candidate is a `pending:` entry for the next run, with its windows pinned, so it is judged on the same periods.
+- **Size the table before you scan it.** The largest table in `referenced_table_names`, by `row_count` on `system.data_warehouse_tables` (the pre-check rows carry the biggest ones), picks the tier; a materialized view counts as small, a plain view counts as its largest underlying table:
 
   | Rows in the table | What runs                                                                                                                                                                                                                  |
   | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | Up to 20M         | The full method.                                                                                                                                                                                                           |
-  | 20M to 200M       | The 2 dimensions with the fewest distinct values, the 4-week base only, no second-level drill-down.                                                                                                                        |
-  | Over 200M         | No raw scan. Watch the measure only when a materialized view or an insight-backed metric already holds it at daily grain. Else write `pattern:business_metrics:<measure>:too-large` and say in the close-out that a daily materialized view by the candidate dimensions would make it watchable. |
+  | 20M to 200M       | The 2 dimensions with the fewest distinct values, the short base only, no second-level drill-down.                                                                                                                         |
+  | Over 200M         | No raw scan. Watch the measure through its own rows only (the canonical run, or its own dimension column). Else write `pattern:business_metrics:<measure>:too-large` and say in the close-out that a materialized view at the metric's grain by the candidate dimensions would make it watchable. |
 
-- **Run a governed metric's own query only when it is already bounded.** `data-catalog-metric-run` is right for an insight-backed metric (a daily series over a relative date range).
-  A SQL metric that aggregates a whole table never runs on a schedule: read its definition with `metric-describe` and write the bounded daily series yourself from the tables it references.
-  Prefer a metric over a materialized view (`system.data_modeling_views`, `is_materialized = 1`), because that scan is already small.
+- **`events` is partitioned by time, so its cost follows the window, not the row count.** The tiers above are for warehouse tables.
+  On `events`, every query copies the metric's own event filter verbatim, reads only the periods in `cur` and `base` (never the full series window), uses event properties only (no person or group joins), and profiles at most 3 dimensions.
+  A metric over 180 days of `events` costs hundreds of gigabytes per run; the same metric narrowed to 35 days costs a fifth of that, and a decomposition over 5 days costs a fortieth.
 - **A query that times out or fails on memory demotes the measure one tier** and writes `pattern:business_metrics:<measure>:slow`, so no later run repeats the scan.
 - **One query at a time.** Do not fan out.
 
@@ -87,19 +109,19 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=business_metrics`): the `watchlist:`, `baseline:`, `pending:`, `noise:` and `addressed:` entries from past runs.
-  The watchlist holds each measure's table, time column, measure expression, dimension profile and last-checked date.
+- `scout-scratchpad-search` (`text=business_metrics`): the `catalog:`, `watchlist:`, `baseline:`, `pending:`, `noise:` and `addressed:` entries from past runs.
+  The watchlist holds each measure's grain, shape, referenced tables, measure expression, dimension profile and last-judged period.
 - `scout-runs-list` (last 7 days): what prior runs found and ruled out.
 - `inbox-reports-list`: the open reports from this scout, the anomaly-detection scout and the data-warehouse scout.
   A move they already cover is an edit or a skip, never a second report.
 
 ### Pick at most 8 measures
 
-Take `pending:` candidates first, then measures with no `watchlist:` entry, then the oldest `last_checked`.
-Prefer measures backed by an insight or a materialized view over measures on a raw table, because they cost less.
+Take `pending:` candidates first, then every daily measure, then the weekly, monthly and quarterly measures that are inside their judging window and not yet judged for the latest closed period, oldest `last_judged` first.
+Prefer measures on materialized views and small tables over measures on `events` or raw tables, because they cost less.
 Do not try to cover every metric in one run.
 
-For a measure that enters the watchlist, call `metric-describe` once and record: the referenced tables, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), and the dimension profile.
+For a measure that enters the watchlist, call `metric-describe` once and record: the grain, the shape, the referenced tables and their sizes, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), the metric's own dimension column when it has one, and otherwise the dimension profile.
 Describe it again only when `metric-list` shows a status or drift change, or after 30 days.
 A `definition_kind: insight` metric over `events` alone is the anomaly-detection scout's territory: skip it.
 
@@ -118,29 +140,29 @@ FROM system.source_schemas
 WHERE deleted = 0 AND should_sync AND table_id IN (<the ids from the first read>)
 ```
 
+For a measure on a materialized view, read `status` and `last_run_at` from `system.data_modeling_views` in the same read instead.
+For a measure on `events`, the series itself is the check: the latest complete period has rows.
 Judge freshness by `last_checked_at`, never `last_synced_at`.
 A table with a failed status, or behind its cadence, is **stale: stop for that measure**.
-The series query in gate 2 doubles as the presence check: when the latest complete day has no rows while the schema reads fresh, the data is late, not zero.
+When the latest complete period has no rows while the schema reads fresh, the data is late, not zero.
 A stale sync looks exactly like a revenue drop.
 Do not report it: the data-warehouse scout owns import health.
-Write `noise:business_metrics:<measure>:stale-<date>` so the next run does not repeat the work.
+Write `noise:business_metrics:<measure>:stale-<period>` so the next run does not repeat the work.
 
 ### Gate 2: did the measure move?
 
-Score the measure with two lenses from one 35-day series query (recipes in [`references/driver-analysis.md`](references/driver-analysis.md#detection)).
-Use complete days only.
+Score the measure with the lens of its grain, from one series result (the canonical run, or your narrowed copy), with complete periods only.
+The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily), or at least 20% off the median of the prior periods with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
+The exact rules are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
-| Lens  | Compares                                                                                      | Bar                                                                                                                                                    |
-| ----- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Step  | The latest complete day vs the 28-day median and the same-weekday median of the 4 prior weeks | At least 30% off both medians, and the larger of the value and the 28-day median is at least 20 units of the measure's count basis                     |
-| Drift | The last 7 complete days vs the average of the 4 prior 7-day windows                          | At least 15% off, and fewer than 3 of the 4 prior week-over-week changes went the same direction (a new move, not a long trend that is already visible) |
-
-No lens passes: refresh the `baseline:` entry and move on.
+No lens passes: refresh the `baseline:` entry, stamp `last_judged`, and move on.
 
 ### Gate 3: what drives the move?
 
-Run the decomposition in [`references/driver-analysis.md`](references/driver-analysis.md#decomposition) for each profiled dimension, over the same windows the lens used, within the tier the table size allows:
+Run the decomposition in [`references/driver-analysis.md`](references/driver-analysis.md#decomposition) over the same windows the lens used, within the tier the table size allows:
 
+- A metric with its own dimension column decomposes from its own rows first.
+- Otherwise, one query per profiled dimension on the referenced table or view.
 - For a sum or a count, each segment's contribution is its own delta, divided by the total delta.
 - For a ratio (conversion rate, average order value, revenue per account), split each segment's contribution into a **mix effect** (the segment's share of the denominator changed) and a **rate effect** (the segment's own ratio changed).
   A mix effect is "more traffic from a low-converting country", not "the country converts worse".
@@ -152,8 +174,11 @@ Stop at two levels.
 ### Save memory as you go
 
 ```text
+key:     catalog:business_metrics
+content: "read 2026-11-24, 78 approved, 31 series (6 daily, 25 monthly), 47 not-a-series"
+
 key:     watchlist:business_metrics:<measure>
-content: "table=stripe_charges, rows=4.1M, time=created, measure=sum(amount)/100, dims=[plan, country, currency], profiled=2026-11-24, last_checked=2026-11-24"
+content: "grain=monthly, shape=series+dim(product), tables=[iwa_summary_customer_month (view, materialized)], measure=sum(mrr), last_judged=2026-10"
 
 key:     baseline:business_metrics:<measure>
 content: "daily median 28d=41.2k, same-weekday medians Mon..Sun=[...], checked 2026-11-24"
@@ -171,7 +196,8 @@ Classify each finding against the inbox and the scratchpad: net new, material up
 Then:
 
 - **Author** with `scout-emit-report` when all three gates pass and a dimension explains the move.
-  Before you author, build a notebook (`notebooks-create-markdown`, then `notebooks-add-cell`) with: the measure and its definition, the supporting charts below, the driver table (segment, baseline, current, delta, share of the total delta, mix and rate split for ratios), and the SQL, so a human can rerun it.
+  Build the three supporting charts first (below): a call without them is incomplete, so do not make it.
+  Before you author, build a notebook (`notebooks-create-markdown`, then `notebooks-add-cell`) with: the measure and its definition, the same charts, the driver table (segment, baseline, current, delta, share of the total delta, mix and rate split for ratios), and the SQL, so a human can rerun it.
   Link the notebook from the report `summary` and an `evidence` entry.
 - **Edit** with `scout-edit-report` when an open report covers this measure and the move continues, grows, or a new driver appears.
   Use `append_evidence`, and re-send every chart with its window moved forward, because `charts` on an edit replaces the set.
@@ -188,14 +214,14 @@ Otherwise write "the drop is concentrated in X; the cause is not visible in this
 #### Supporting charts
 
 A reader must see the move and its driver without reproducing a number.
-Every authored report carries these charts in `charts`, placed from the summary with a `chart:` link, and the notebook carries the same three as cells:
+Every authored report carries these three charts in `charts`, placed from the summary with a `chart:` link, and the notebook carries the same three as cells:
 
-1. **The measure per day with its baseline**: the 35-day series and the 28-day median as a second line.
+1. **The measure per period with its baseline**: the series the lens read (35 days, or 13 periods) and the baseline median as a second line.
    The reader sees the break.
 2. **The change by the driver dimension**: one bar pair per segment, base window vs current window (for a ratio: the mix effect and the rate effect per segment).
    The reader sees which segment moved.
-3. **The measure per day by the driver dimension**: the top segments as separate lines over the same 35 days.
-   The reader sees whether the segment broke on the same day as the total.
+3. **The measure per period by the driver dimension**: the top segments as separate lines over the same window.
+   The reader sees whether the segment broke in the same period as the total.
 
 Build each from a query you ran this run, pinned to absolute dates, with its axes named.
 The exact node shapes and the notebook cells are in [`references/report-charts.md`](references/report-charts.md).
@@ -204,8 +230,8 @@ Prose must stand alone: write "net revenue fell 22%" in the summary, not "the ch
 
 ## Disqualifiers (skip these)
 
-- **Stale or partial data.** A failed sync, a source behind its cadence, the current partial day, a backfill that rewrote history.
-- **Calendar effects** the 4-week baselines do not cover: month end, quarter end, billing-cycle days, public holidays in the dominant country.
+- **Stale or partial data.** A failed sync, a source behind its cadence, the current partial period, a backfill that rewrote history.
+- **Calendar effects** the baselines do not cover: month end, quarter end, billing-cycle days, public holidays in the dominant country.
 - **Small bases.** A segment with fewer than 20 units in the baseline window. A large relative move on a tiny segment is noise.
 - **Even moves.** Every segment moves by about the same share: report it only through the data-warehouse or anomaly-detection scout if it is a data problem, never as a business finding.
 - **Test and internal rows.** Test-mode payments, internal accounts, sandbox currencies. Check for a test or livemode column before you score.
@@ -219,7 +245,7 @@ One report a week that a human acts on is worth more than ten that they dismiss.
 
 Direct (read-only):
 
-- `metric-list` / `metric-describe` / `data-catalog-metric-run`: the governed metrics, their definitions and their canonical results.
+- `metric-list` / `metric-describe` / `data-catalog-metric-run`: the governed metrics, their definitions, their referenced tables and their canonical results.
 - `execute-sql`: the series, freshness and decomposition queries over warehouse tables, `system.data_warehouse_tables`, `system.source_schemas` and `system.data_modeling_views`.
 - `read-data-schema`: confirm columns and types before you write SQL against a table.
 - `inbox-reports-list` / `inbox-reports-retrieve`: dedupe before you author, and read the report (and its current `charts`) you edit.
@@ -238,10 +264,10 @@ Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-sc
 The run history shows the summary collapsed to its first two lines, so the verdict comes first: one or two sentences with the outcome and its key number ("Net revenue down 22% on 2026-11-21, 80% from the EU Pro plan; reported", or "6 measures checked in 14 queries, all within baseline").
 Then a blank line, then short bullets, so a reader knows what happened without opening the transcript:
 
-- One bullet per measure you checked: the value against both medians, and the gate it stopped at ("Orders: 1,240 vs 28-day median 1,190 and same-weekday median 1,250; within baseline").
+- One bullet per measure you checked: the value against its baseline, and the gate it stopped at ("Orders: 1,240 vs 28-day median 1,190 and same-weekday median 1,250; within baseline").
 - One bullet per report you authored or edited: the report link and the notebook link from the tool results, the driver and its share ("[Net revenue down 22%](<report url>): the EU Pro plan carries 80% of the drop; charts and SQL in [the notebook](<notebook url>)").
 - One bullet for what you remembered (`pending:`, `noise:`, `baseline:`) and what you ruled out, with the reason: a stale source, a calendar effect, an even move.
-- One bullet with the `execute-sql` calls used, out of 40.
+- One bullet with the query calls used, out of 40, and whether the catalog was read in full or from the watchlist.
 
 In a dry run nothing is published, so the report bullet carries the title you would have used, the driver numbers and the dates of the three chart windows.
 A person who wants to see that report with its charts runs the scout as a private trial, which captures the report.

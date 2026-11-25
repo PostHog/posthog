@@ -15,6 +15,10 @@ Rules that apply to all three:
 - Place each chart from the summary once: `[Net revenue per day](chart:series)`.
   A reference inside a table cell or a heading has no room to draw.
 
+The examples below are daily.
+For a weekly, monthly or quarterly measure, the series window is the 13 (or 9) closed periods the lens read, the x axis is the period start (`toStartOfMonth(...)`), and chart 2 compares the latest closed period with the average of the base periods.
+Reuse the canonical run's SQL from `metric-describe` when the metric carries its own dimension column, so the chart draws the same rows the decomposition read.
+
 ## 1. The measure per day with its baseline
 
 The 35-day series from the detection step, with the 28-day median you computed as a literal second column, so the chart draws the break and the baseline as two lines.
