@@ -53,7 +53,8 @@ function engagementStep(
 ): DeliveryStep {
     const event = firstOf(email.timeline, kind)
     const engagement = step(kind, label, event, previousAt, repeated(countOf(email.timeline, kind), label))
-    return email.tracked !== false || event ? engagement : { ...engagement, state: 'untracked' }
+    const tracked = email.tracking?.[kind === 'opened' ? 'opens' : 'clicks'] !== false
+    return tracked || event ? engagement : { ...engagement, state: 'untracked' }
 }
 
 /** The steps an email went through, ending where it stopped. */

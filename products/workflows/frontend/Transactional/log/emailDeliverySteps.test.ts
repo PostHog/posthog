@@ -6,7 +6,7 @@ import type {
 import { buildDeliverySteps } from './emailDeliverySteps'
 
 function fromOlderApi(detail: TransactionalEmailLogDetailApi): TransactionalEmailLogDetailApi {
-    const { tracked: _tracked, ...older } = detail
+    const { tracking: _tracking, ...older } = detail
     return older as TransactionalEmailLogDetailApi
 }
 
@@ -14,7 +14,7 @@ function email(
     status: TransactionalEmailLogDetailApi['status'],
     kinds: TransactionalEmailLogEventApi['kind'][],
     sensitive = false,
-    tracked = true
+    tracking = { opens: true, clicks: true }
 ): TransactionalEmailLogDetailApi {
     return {
         message_id: '01977a3c-9a00-7000-8000-000000000001',
@@ -39,7 +39,7 @@ function email(
         distinct_id: 'user_1',
         action_id: 'action_1',
         sensitive,
-        tracked,
+        tracking,
     }
 }
 
@@ -75,11 +75,16 @@ describe('buildDeliverySteps', () => {
         ],
         [
             'tracking off, so it can never record an open or a click',
-            email('delivered', ['queued', 'sent', 'delivered'], false, false),
+            email('delivered', ['queued', 'sent', 'delivered'], false, { opens: false, clicks: false }),
             ['sent:done', 'delivered:done', 'opened:untracked', 'clicked:untracked'],
         ],
         [
-            'response from an API without the tracked field',
+            'click tracking off, so it can never record a click',
+            email('delivered', ['queued', 'sent', 'delivered', 'opened'], true, { opens: true, clicks: false }),
+            ['sent:done', 'delivered:done', 'opened:done', 'clicked:untracked'],
+        ],
+        [
+            'response from an API without the tracking field',
             fromOlderApi(email('delivered', ['queued', 'sent', 'delivered'])),
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
         ],

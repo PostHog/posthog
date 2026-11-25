@@ -24,6 +24,7 @@ const IMPACT: TransactionalEmailImpactApi = {
     clicked: 2,
     not_clicked: 7,
     untracked: 0,
+    clicks_untracked: 0,
     window_days: 7,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },

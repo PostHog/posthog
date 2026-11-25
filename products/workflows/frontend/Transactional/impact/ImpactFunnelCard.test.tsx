@@ -20,6 +20,7 @@ const IMPACT: TransactionalEmailImpactApi = {
     clicked: 2,
     not_clicked: 7,
     untracked: 0,
+    clicks_untracked: 0,
     window_days: 7,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
@@ -106,7 +107,13 @@ describe('ImpactFunnelCard', () => {
         [
             'every send went untracked but an open was recorded',
             { opened: 1, clicked: 0, untracked: 10 },
-            'No clicks were recorded in this period.',
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+            '',
+        ],
+        [
+            'every send went out with click tracking off',
+            { clicked: 0, clicks_untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
             '',
         ],
         [

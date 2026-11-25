@@ -37,7 +37,7 @@ function email(
         distinct_id: 'user_1',
         action_id: 'action_1',
         sensitive: false,
-        tracked: true,
+        tracking: { opens: true, clicks: true },
     }
 }
 
@@ -67,7 +67,7 @@ TrackingOff.args = {
             { kind: 'sent', at: '2026-06-15T09:00:01Z', reason: null },
             { kind: 'delivered', at: '2026-06-15T09:00:03Z', reason: null },
         ]),
-        tracked: false,
+        tracking: { opens: false, clicks: false },
     },
 }
 

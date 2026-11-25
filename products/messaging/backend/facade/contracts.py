@@ -430,6 +430,14 @@ class TransactionalEmailLogEvent:
     reason: str | None
 
 
+# What a sent email went out with. Both read true until its sent status arrives, and for an email sent before PostHog
+# recorded them.
+@frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
 @frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
@@ -441,7 +449,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
-    tracked: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -514,6 +522,7 @@ class TransactionalEmailImpact:
     clicked: int
     not_clicked: int
     untracked: int
+    clicks_untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
