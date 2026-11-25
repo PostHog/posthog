@@ -6592,8 +6592,8 @@ const api = {
      * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
      * request does not reach ClickHouse, which keeps working on the query until it finishes.
      */
-    async cancelQuery(clientQueryId: string): Promise<void> {
-        await new ApiRequest().queryCancel(clientQueryId).delete()
+    async cancelQuery(clientQueryId: string, teamId?: TeamType['id']): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId, teamId).delete()
     },
 
     async query<T extends Record<string, any> = QuerySchema>(

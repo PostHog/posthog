@@ -267,6 +267,7 @@ from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    read_run_log_tail,
 )
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
@@ -396,6 +397,7 @@ __all__ = [
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
+    "origin_run_ids_since",
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
@@ -491,6 +493,7 @@ __all__ = [
     "get_task_run_logs",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_log_tail",
     "read_task_run_conversation_logs",
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
@@ -2405,6 +2408,21 @@ def owner_origin_recent_run_ids(
         )
         .order_by("-created_at")
         .values_list("id", flat=True)[:limit]
+    )
+
+
+def origin_run_ids_since(*, team_id: int, origin_product: str, since: datetime) -> list[UUID]:
+    """Ids of every run started since ``since`` on the team's tasks of this origin, deleted tasks included.
+
+    Reads only Tasks rows, so a product that deletes its own records of a run still finds it here.
+    """
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        ).values_list("id", flat=True)
     )
 
 
@@ -6052,6 +6070,17 @@ def read_task_run_conversation_log_slice(
         turns_before=sliced.turns_before,
         origin=str(chain[0].id),
     )
+
+
+def read_task_run_log_tail(run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int) -> str | None:
+    """The newest whole JSONL entries of the run's own log, at most `max_bytes`. None when the run is not visible.
+
+    Reads a byte range from storage, so a caller that polls pays for `max_bytes`, not for the whole log.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return read_run_log_tail(run.log, max_bytes)
 
 
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:

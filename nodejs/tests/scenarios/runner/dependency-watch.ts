@@ -1,17 +1,19 @@
 import { performance } from 'perf_hooks'
 import { setTimeout as sleep } from 'timers/promises'
 
-import type { ProbeFailure } from '../environment/stack'
+import { ProbeFailure, hostLimitOf } from '../environment/stack'
 
 export type DependencyLoss = {
     name: string
     at: number
     reason: string
     runnerBusy: number
-    kind: 'gone' | 'unheard' | 'recovered'
+    kind: 'gone' | 'unheard' | 'host-limit' | 'recovered'
+    hostLimit?: string
+    sockets?: Record<string, number>
 }
 
-type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
+type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number; unchecked: boolean }
 
 type StepWindow = { scale: number; startedAt: number; endedAt: number }
 
@@ -21,29 +23,78 @@ const CONFIRMATIONS_PER_POLL = 2
 async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     const at = Date.now()
     const before = performance.eventLoopUtilization()
-    const failures = await check().catch((error: unknown) => [
-        { name: 'health check', reason: error instanceof Error ? error.message : String(error), unanswered: false },
-    ])
-    return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
+    let unchecked = false
+    const failures = await check().catch((error: unknown): ProbeFailure[] => {
+        unchecked = true
+        const hostLimit = hostLimitOf(error)
+        const reason = error instanceof Error ? error.message : String(error)
+        return [{ name: 'health check', reason, unanswered: false, ...(hostLimit ? { hostLimit } : {}) }]
+    })
+    return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization, unchecked }
 }
 
-// The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
-// out against healthy services.
+// The probes run in their own process, but a host busy enough to saturate the runner's loop can still starve that
+// process, and the provider edge answers on the runner's own loop. So a probe that ran out its budget without an answer
+// while the runner was busy is a harness limit.
 const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
 
+const limited = (failure: ProbeFailure, attempt: Attempt): boolean =>
+    failure.hostLimit !== undefined || excused(failure, attempt)
+
+function kindOf(
+    failure: ProbeFailure,
+    again: ProbeFailure | undefined,
+    first: Attempt,
+    second: Attempt
+): DependencyLoss['kind'] {
+    if (again === undefined) {
+        return 'recovered'
+    }
+    if (!limited(failure, first) || !limited(again, second)) {
+        return 'gone'
+    }
+    return (failure.hostLimit ?? again.hostLimit) ? 'host-limit' : 'unheard'
+}
+
+// The reason quotes the check that supports the verdict: the error of the check that no limit explains for a dependency
+// that went away, and the error that showed the host limit, even when the other check only timed out.
+function evidenceOf(
+    kind: DependencyLoss['kind'],
+    failure: ProbeFailure,
+    again: ProbeFailure | undefined,
+    second: Attempt
+): ProbeFailure {
+    if (again === undefined) {
+        return failure
+    }
+    if (kind === 'gone') {
+        return limited(again, second) ? failure : again
+    }
+    if (kind === 'host-limit') {
+        return again.hostLimit ? again : failure
+    }
+    return again
+}
+
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
+    // A confirming check that failed as a whole heard nothing, so the first check decides each verdict alone. It can
+    // show neither that a dependency recovered nor that a busy check's timeout was a loss.
+    const confirming = second.unchecked ? first : second
     return first.failures.map((failure) => {
-        const again = second.failures.find(({ name }) => name === failure.name)
-        const kind =
-            again === undefined ? 'recovered' : excused(failure, first) && excused(again, second) ? 'unheard' : 'gone'
-        const last = again ?? failure
+        const again = second.unchecked ? failure : second.failures.find(({ name }) => name === failure.name)
+        const kind = kindOf(failure, again, first, confirming)
+        const evidence = evidenceOf(kind, failure, again, confirming)
+        const { reason, hostLimit } = evidence
+        const sockets = evidence.sockets ?? again?.sockets ?? failure.sockets
         return {
             name: failure.name,
             at: first.at,
-            reason: last.reason,
+            reason,
             runnerBusy: Math.max(first.runnerBusy, second.runnerBusy),
             kind,
+            ...(hostLimit ? { hostLimit } : {}),
+            ...(sockets ? { sockets } : {}),
         }
     })
 }
@@ -111,12 +162,23 @@ function unheardReasonOf(unheard: readonly DependencyLoss[], steps: readonly Ste
     return `the runner's event loop was too busy to check ${each} (busy ${busy}% of the check), a harness limit: the run cannot tell whether they stayed up`
 }
 
+function hostLimitReasonOf(limited: readonly DependencyLoss[], steps: readonly StepWindow[]): string {
+    return limited
+        .map(
+            ({ name, at, reason, hostLimit }) =>
+                `the run host ran out of ${hostLimit} to check ${name} ${whenOf(at, steps)} (${reason}), a harness limit: the run cannot tell whether it stayed up`
+        )
+        .join('; ')
+}
+
 export function dependencyReasonOf(down: readonly DependencyLoss[], steps: readonly StepWindow[]): string | undefined {
     const gone = firstOfEach(down.filter(({ kind }) => kind === 'gone'))
     const unheard = firstOfEach(down.filter(({ kind }) => kind === 'unheard'))
+    const hostLimited = firstOfEach(down.filter(({ kind }) => kind === 'host-limit'))
     const reasons = [
         ...(gone.length > 0 ? [goneReasonOf(gone, steps)] : []),
         ...(unheard.length > 0 ? [unheardReasonOf(unheard, steps)] : []),
+        ...(hostLimited.length > 0 ? [hostLimitReasonOf(hostLimited, steps)] : []),
     ]
     return reasons.length > 0 ? reasons.join('; ') : undefined
 }

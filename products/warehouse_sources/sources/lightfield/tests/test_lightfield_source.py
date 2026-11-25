@@ -47,6 +47,31 @@ class TestLightfieldSource:
                 "Your Lightfield API key is missing the `accounts:read` scope required to sync accounts.",
             ),
             ("schema_with_unknown_scopes", 200, {"active": True}, "accounts", True, None),
+            (
+                "list_members_with_both_scopes",
+                200,
+                {"active": True, "scopes": ["lists:read", "contacts:read"]},
+                "list_contacts",
+                True,
+                None,
+            ),
+            (
+                "list_members_missing_record_scope",
+                200,
+                {"active": True, "scopes": ["lists:read"]},
+                "list_contacts",
+                False,
+                "Your Lightfield API key is missing the `contacts:read` scope required to sync list_contacts.",
+            ),
+            (
+                "list_members_missing_both_scopes",
+                200,
+                {"active": True, "scopes": ["accounts:read"]},
+                "list_opportunities",
+                False,
+                "Your Lightfield API key is missing the `lists:read` and `opportunities:read` scopes required to sync list_opportunities.",
+            ),
+            ("schema_without_scope", 200, {"active": True, "scopes": []}, "custom_objects", True, None),
         ]
     )
     def test_validate_credentials(
@@ -69,15 +94,22 @@ class TestLightfieldSource:
         )
 
     def test_get_endpoint_permissions_flags_missing_scopes(self) -> None:
-        with scripted_network([ScriptedResponse(json={"active": True, "scopes": ["accounts:read", "tasks:read"]})]):
+        with scripted_network(
+            [ScriptedResponse(json={"active": True, "scopes": ["accounts:read", "tasks:read", "lists:read"]})]
+        ):
             permissions = self.source.get_endpoint_permissions(
-                self.config, self.team_id, ["accounts", "contacts", "tasks"]
+                self.config,
+                self.team_id,
+                ["accounts", "contacts", "tasks", "list_accounts", "list_contacts", "sequence_enrollments"],
             )
 
         assert permissions == {
             "accounts": None,
             "contacts": "API key is missing the `contacts:read` scope",
             "tasks": None,
+            "list_accounts": None,
+            "list_contacts": "API key is missing the `contacts:read` scope",
+            "sequence_enrollments": "API key is missing the `sequences:read` scope",
         }
 
     @parameterized.expand(

@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.g2._config import G2SourceConfig
@@ -16,7 +17,13 @@ from products.warehouse_sources.sources.g2.g2 import (
 )
 from products.warehouse_sources.sources.g2.settings import G2_ENDPOINTS
 from products.warehouse_sources.sources.g2.source import G2Source
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _driver(product_id: str = "prod-1") -> SourceDriver:
@@ -97,6 +104,37 @@ class TestGetRowsPagination:
 
         assert isinstance(result.raised, MissingProductIdError)
         assert result.requests == []
+
+
+class TestSyncErrorClassification:
+    @parameterized.expand(
+        [
+            ("internal_server_error", 500, True, False),
+            ("bad_gateway", 502, True, False),
+            ("service_unavailable", 503, True, False),
+            ("gateway_timeout", 504, True, False),
+            ("unauthorized", 401, False, True),
+            ("forbidden", 403, False, True),
+            ("not_found", 404, False, False),
+        ]
+    )
+    def test_sync_error_after_retries_is_classified(
+        self, _name: str, status: int, expected_retryable: bool, expected_non_retryable: bool
+    ) -> None:
+        def always_fail(_request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(status=status, json={"errors": [{"title": "Something went wrong"}]})
+
+        result = _driver().run("categories", always_fail)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        error_msg = str(result.raised)
+        source = G2Source()
+        assert error_message_matches(error_msg, source.get_retryable_errors()) is expected_retryable
+        assert error_message_matches(error_msg, source.get_non_retryable_errors()) is expected_non_retryable
+
+    def test_retryable_errors_do_not_match_another_vendor(self) -> None:
+        other_vendor_error = "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/customers"
+        assert not error_message_matches(other_vendor_error, G2Source().get_retryable_errors())
 
 
 class TestResumeStateSaving:

@@ -29,7 +29,7 @@ from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
-from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
+from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
@@ -196,6 +196,34 @@ class UpsertAlertToolArgs(BaseModel):
     )
 
 
+def _config_refusal(
+    insight: Insight,
+    *,
+    condition: dict | None,
+    config: dict | None,
+    threshold: dict | None,
+    calculation_interval: str | None,
+    detector_config: dict | None,
+    require_threshold_bounds: bool,
+) -> _SaveRefusal | None:
+    """The insight API's check of an alert's settings against its insight's current query, so the
+    tool never saves an alert whose every check would error."""
+    try:
+        with upgrade_insight(insight):
+            validate_alert_config(
+                insight.query or {},
+                condition,
+                config,
+                threshold,
+                calculation_interval,
+                detector_config=detector_config,
+                require_threshold_bounds=require_threshold_bounds,
+            )
+    except ValueError as error:
+        return _SaveRefusal(message=str(error), error_code="validation_failed")
+    return None
+
+
 def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
     """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
     from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
@@ -343,6 +371,19 @@ class UpsertAlertTool(MaxTool):
             except ValidationError as e:
                 return str(e), {"error": "validation_failed"}
 
+            condition = {"type": action.condition_type}
+            config = {"type": "TrendsAlertConfig", "series_index": action.series_index}
+            if refusal := await sync_to_async(_config_refusal)(
+                insight,
+                condition=condition,
+                config=config,
+                threshold=unsaved_threshold.configuration,
+                calculation_interval=action.calculation_interval,
+                detector_config=None,
+                require_threshold_bounds=True,
+            ):
+                return refusal.message, {"error": refusal.error_code}
+
             from products.alerts.backend.platform_ownership import creates_native_alert  # noqa: PLC0415
 
             alert = await self._persist_alert(
@@ -352,8 +393,8 @@ class UpsertAlertTool(MaxTool):
                 insight=insight,
                 name=truncated_name,
                 threshold_to_persist=unsaved_threshold,
-                condition={"type": action.condition_type},
-                config={"type": "TrendsAlertConfig", "series_index": action.series_index},
+                condition=condition,
+                config=config,
                 calculation_interval=action.calculation_interval,
                 enabled=action.enabled,
                 skip_weekend=action.skip_weekend,
@@ -528,23 +569,19 @@ class UpsertAlertTool(MaxTool):
             existing=alert,
         ):
             return _SaveRefusal(message=error, error_code="plan_limit_reached")
-        if is_llm_detector_config(alert.detector_config) and new_enabled:
-            # The API validates the insight configuration on every write; this tool only
-            # touches it for an enabled AI alert, whose checks would otherwise auto-disable.
-            try:
-                with upgrade_insight(alert.insight):
-                    validate_alert_config(
-                        alert.insight.query or {},
-                        {"type": action.condition_type} if action.condition_type is not None else alert.condition,
-                        {**(alert.config or {}), "series_index": action.series_index}
-                        if action.series_index is not None
-                        else alert.config,
-                        self._proposed_threshold_configuration(alert, action),
-                        new_interval,
-                        detector_config=alert.detector_config,
-                    )
-            except ValueError as validation_error:
-                return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
+        if config_refusal := _config_refusal(
+            alert.insight,
+            condition={"type": action.condition_type} if action.condition_type is not None else alert.condition,
+            config={**(alert.config or {}), "series_index": action.series_index}
+            if action.series_index is not None
+            else alert.config,
+            threshold=self._proposed_threshold_configuration(alert, action),
+            calculation_interval=new_interval,
+            detector_config=alert.detector_config,
+            # As the API: an edit that leaves the threshold alone keeps an alert saved without bounds.
+            require_threshold_bounds=self._has_threshold_changes(action),
+        ):
+            return config_refusal
         if refusal := admit_llm_alert_write(
             LLMAlertWrite(
                 team_id=alert.team_id,
