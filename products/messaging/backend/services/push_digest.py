@@ -16,7 +16,9 @@ def push_digest(template: MessageTemplate) -> str:
     push = (template.content or {}).get("push")
     push = push if isinstance(push, Mapping) else {}
     data = push.get("data")
-    entries = [[str(key), None if value is None else str(value)] for key, value in (data or {}).items()]
+    entries: list[tuple[str, str | None]] = [
+        (str(key), None if value is None else str(value)) for key, value in (data or {}).items()
+    ]
     confirmed = [
         "push-1",
         str(template.id),
