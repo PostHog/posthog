@@ -84,6 +84,7 @@ export function TaxonomicPropertyFilter({
     selectingKeyOnly,
     hideBehavioralCohorts,
     showCohortFlagTargeting,
+    allowNonCapturedPersonProperties,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -190,6 +191,7 @@ export function TaxonomicPropertyFilter({
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
             showCohortFlagTargeting={showCohortFlagTargeting}
+            allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}

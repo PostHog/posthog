@@ -144,7 +144,7 @@ class TestRealtimeReadiness(BaseTest):
     @parameterized.expand(
         [
             # The keys are set with `nx=True` and each kind has its own handler, so a cohort
-            # created with one leaf kind and edited to add the other inside the five-minute
+            # created with one leaf kind and edited to add the other inside the debounce
             # countdown carries a different trigger per kind. The edit is the one that decides.
             (
                 "created",
@@ -169,8 +169,8 @@ class TestRealtimeReadiness(BaseTest):
     def test_debounced_save_reads_as_a_build_before_its_run_exists(
         self, _name: str, triggers: dict[str, str], expected: str
     ) -> None:
-        # The run-creation task waits five minutes. Without the debounce key, every cohort would
-        # read as needs_attention for those five minutes, right after the save that asked for it.
+        # The run-creation task waits out a countdown. Without the debounce key, every cohort would
+        # read as needs_attention during the countdown, right after the save that asked for it.
         leaves = [BEHAVIORAL_LEAF] + ([PERSON_LEAF] if len(triggers) > 1 else [])
         cohort = self._cohort(filters=filters(*leaves))
         for kind, trigger in triggers.items():
@@ -491,6 +491,51 @@ class TestRealtimeReadiness(BaseTest):
                     "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
                 },
                 (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
+            ),
+            # The save refuses unsupported criteria before it checks history, so shortening the window would not help.
+            (
+                "unsupported_criteria_and_history_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "filters": filters(
+                        {**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year", "bytecode_error": "Unsupported"}
+                    ),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA, None),
+            ),
+            (
+                "members_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": filters({**BEHAVIORAL_LEAF, "bytecode": ["_H", 1]}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.MEMBERS_OVER_LIMIT, None),
+            ),
+            # The save refuses a criterion with both, and what is stored can't say which of the two is stale, so
+            # naming a later check would send a person to fix something that leaves the cohort daily.
+            (
+                "criterion_with_bytecode_and_an_error",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": {
+                        **filters(
+                            {
+                                **BEHAVIORAL_LEAF,
+                                "time_value": 2,
+                                "time_interval": "year",
+                                "bytecode": ["_H", 1],
+                                "bytecode_error": "Unsupported",
+                            }
+                        ),
+                        "filterTestAccounts": True,
+                    },
+                },
+                (CohortRealtimeState.DAILY, None, None),
             ),
             # Past the plan but within the pipeline's cap, so the history is not what keeps it daily.
             (

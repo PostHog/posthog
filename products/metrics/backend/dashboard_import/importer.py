@@ -62,6 +62,7 @@ from products.metrics.backend.dashboard_import.layout import (
     MIN_INSIGHT_HEIGHT,
     MIN_INSIGHT_WIDTH,
     RequestedBox,
+    close_dropped_gaps,
     place_screenshot_boxes,
 )
 from products.metrics.backend.dashboard_import.prompt import (
@@ -677,6 +678,8 @@ class DashboardImporter:
 
     def _build(self, state: ImportState, verdicts: list[PanelVerdict], *, idempotency_key: str) -> ImportResult:
         """Create the dashboard from the verdicts. A dashboard without an insight tile is not created."""
+        if state.spec is not None:
+            verdicts = _close_dropped_gaps(state.spec, verdicts)
         summary = ImportSummary.from_verdicts(verdicts)
         tiles = [verdict.tile for verdict in verdicts if verdict.tile is not None]
         if not any(tile.kind == "insight" for tile in tiles):
@@ -955,6 +958,20 @@ def _requested_box(key: str, layout: GridLayout | None, *, is_text: bool) -> Req
         min_w=1 if is_text else MIN_INSIGHT_WIDTH,
         min_h=1 if is_text else MIN_INSIGHT_HEIGHT,
     )
+
+
+def _close_dropped_gaps(spec: DashboardSpec, verdicts: list[PanelVerdict]) -> list[PanelVerdict]:
+    tiles = {verdict.key: verdict.tile for verdict in verdicts if verdict.tile is not None}
+    placed = close_dropped_gaps(
+        [_requested_box(key, tile.layout, is_text=tile.kind == "text") for key, tile in tiles.items()],
+        [panel.layout for panel in spec.panels if panel.key not in tiles],
+    )
+    return [
+        verdict.model_copy(update={"tile": verdict.tile.model_copy(update={"layout": placed[verdict.key]})})
+        if verdict.tile is not None
+        else verdict
+        for verdict in verdicts
+    ]
 
 
 def screenshot_panel_layouts(answers: Iterable[AgentPanel]) -> dict[str, GridLayout]:

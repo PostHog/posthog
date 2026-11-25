@@ -8,6 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
+import { dailyReasonSentence } from './realtimeReadiness'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -117,9 +118,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        {realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null
-                            ? `Feature flags can't target this cohort. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
-                            : "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read."}
+                        {`Feature flags can't target this cohort. ${dailyReasonSentence(realtime) ?? "Its criteria are matched in the once-a-day calculation, which feature flags can't read."}`}
                     </div>
                 ),
             }

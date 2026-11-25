@@ -33,6 +33,9 @@
     },
     "property_matching_version": {
       "type": "integer"
+    },
+    "null_counts_as_not_set": {
+      "type": "boolean"
     }
   }
 }

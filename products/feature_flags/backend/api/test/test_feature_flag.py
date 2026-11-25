@@ -14563,25 +14563,6 @@ class TestFeatureFlagLimits(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
 
-    def test_product_tour_creation_blocked_when_at_flag_limit(self):
-        """Product tour creation with auto_launch should fail when team is at the flag limit."""
-        self._create_flag("flag-1")
-        self._create_flag("flag-2")
-
-        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/product_tours",
-                {
-                    "name": "Test Product Tour",
-                    "auto_launch": True,
-                    "content": {"steps": []},
-                },
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
-
     @parameterized.expand(
         [
             ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),

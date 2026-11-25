@@ -1,10 +1,10 @@
 """Scheduled entrypoints for the AEO citation runner.
 
-The dispatcher is double-gated: a team must be in the AEO_CITATION_TEAM_IDS env
-allowlist AND have the `aeo-citation-tracking` feature flag enabled. Both are
-empty/off by default, so this is a no-op everywhere until deliberately turned
-on. Each eligible team gets its own long-running task so one slow team can't
-block another and a worker restart only loses one team's in-flight run.
+The dispatcher covers the teams with active prompts whose organization is active,
+approved AI data processing, and is in the `aeo-citation-tracking` flag. Only people
+with the early-access flag can add or turn on prompts. Each eligible team gets its own
+long-running task so one slow team can't block another and a worker restart only
+loses one team's in-flight run.
 
 A run takes hours and a worker rollout kills it part way, so beat dispatches
 several times a day and the runner skips the prompts a killed run already
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import threading
 
-from django.conf import settings
 from django.db import InterfaceError, OperationalError
 
 import structlog
@@ -39,7 +38,7 @@ from products.aeo.backend.facade.contracts import (
     SetupRequest,
 )
 from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -76,11 +75,11 @@ ENRICH_LOCK_SECONDS = ENRICH_TIME_LIMIT_SECONDS + 60
 
 
 def citation_tracking_enabled(team: Team) -> bool:
-    """The double gate: a team runs only when it is in the env allowlist AND has
-    the flag on. Both default off, so this is fail-closed. Shared by the dispatcher
-    and the per-team task so a task queued directly cannot skip the gate."""
-    allowlist = {str(raw).strip() for raw in settings.AEO_CITATION_TEAM_IDS}
-    if str(team.id) not in allowlist:
+    """Shared by the dispatcher and the per-team task so a task queued directly cannot skip the gate."""
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion:
+        return False
+    if not organization.is_ai_data_processing_approved:
         return False
     # No person is behind this scheduled run; the team UUID keeps the flag call
     # well-formed and the organization group lets the flag target teams.
@@ -92,16 +91,16 @@ def citation_tracking_enabled(team: Team) -> bool:
     )
 
 
+def _teams_with_active_prompts() -> list[Team]:
+    active = AEOPrompt.objects.unscoped().filter(active=True, archived_at__isnull=True).values("team_id")
+    return list(Team.objects.filter(id__in=active).select_related("organization").order_by("id"))
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
 def run_aeo_citation_checks_task() -> None:
-    """Beat entrypoint: fan out one runner task per allowlisted, flag-enabled team."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
-            continue
+    """Beat entrypoint: fan out one runner task per team with active prompts that passes the gate."""
+    for team in _teams_with_active_prompts():
         if not citation_tracking_enabled(team):
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
@@ -113,12 +112,7 @@ def run_aeo_citation_checks_task() -> None:
 def score_aeo_sentiment_backlog_task() -> None:
     """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
     covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            logger.warning("aeo_sentiment_backlog_unknown_team", team_id=raw_team_id)
-            continue
+    for team in _teams_with_active_prompts():
         if not citation_tracking_enabled(team):
             continue
         try:
@@ -132,11 +126,7 @@ def score_aeo_sentiment_backlog_task() -> None:
 def refresh_aeo_stored_results_task() -> None:
     """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
     bounds how long a write that forgot to bump the version can leave an old result in use."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            continue
+    for team in _teams_with_active_prompts():
         if citation_tracking_enabled(team):
             refresh_aeo_stored_results_for_team_task.delay(team.id)
 
@@ -175,7 +165,7 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
 @skip_team_scope_audit  # Team is the tenant, not tenant data; prompts are read via AEOPrompt.objects.for_team
 def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     try:
-        team = Team.objects.get(id=team_id)
+        team = Team.objects.select_related("organization").get(id=team_id)
     except Team.DoesNotExist:
         logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
         return
