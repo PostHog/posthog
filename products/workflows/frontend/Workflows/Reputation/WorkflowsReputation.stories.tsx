@@ -234,6 +234,7 @@ export const InfrastructureHealthWithoutTeamSends: StoryFn = () => {
             sending_allowance: {
                 ...baseResponse.sending_allowance!,
                 enforced: false,
+                rate_limited_max_batch_audience: null,
                 emails_sent_last_day: 0,
                 next_tier: { ...baseResponse.sending_allowance!.next_tier!, days_reached: 0 },
                 recent_rates: {
