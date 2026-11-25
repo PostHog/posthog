@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -365,8 +366,9 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
 
     urlToAction(({ actions, values }) => ({
         '/ai-observability/sessions/:id': ({ id }) => {
-            if (id && id !== values.selectedSessionId) {
-                actions.selectSession(id)
+            const sessionId = tryDecodeURIComponent(id ?? '')
+            if (sessionId && sessionId !== values.selectedSessionId) {
+                actions.selectSession(sessionId)
             }
         },
         '/ai-observability/sessions': () => {
