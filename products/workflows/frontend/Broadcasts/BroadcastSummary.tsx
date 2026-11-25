@@ -25,7 +25,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import type { IntegrationType } from '~/types'
 
 import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -45,13 +44,14 @@ import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastRunNotSent } from './BroadcastRunNotSent'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
+import { BroadcastSender } from './BroadcastSender'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { BroadcastStillToSend } from './BroadcastStillToSend'
 import { broadcastPath } from './broadcastUsage'
-import { type BroadcastEmailValue, broadcastWizardLogic, getSenderIds } from './broadcastWizardLogic'
+import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
 import { QuillBroadcastActionsMenu } from './QuillBroadcastActionsMenu'
 
@@ -432,7 +432,6 @@ export function BroadcastSummary(): JSX.Element {
         conversion,
         channel,
         push,
-        integrations,
     } = useValues(broadcastWizardLogic)
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
@@ -466,8 +465,6 @@ export function BroadcastSummary(): JSX.Element {
         onMoveToDraft: confirmMoveToDraft,
         onSendAgain: duplicateBroadcast,
     })
-
-    const emailSenders = (integrations ?? []).filter((integration) => integration.kind === 'email')
 
     const latestBatchJob = batchJobs[0]
     const latestBatchJobId = latestBatchJob?.id
@@ -640,10 +637,9 @@ export function BroadcastSummary(): JSX.Element {
                                                 {email.subject || <span className="text-muted">No subject</span>}
                                             </SummaryRow>
                                         )}
-                                        {/* With one sender there is no choice to check, so the row only adds noise. */}
-                                        {channel === 'email' && emailSenders.length > 1 ? (
+                                        {channel === 'email' ? (
                                             <SummaryRow label="From">
-                                                <SenderSummary from={email.from} senders={emailSenders} />
+                                                <BroadcastSender />
                                             </SummaryRow>
                                         ) : null}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
@@ -733,40 +729,6 @@ export function BroadcastSummary(): JSX.Element {
                 />
             </div>
         </SceneContent>
-    )
-}
-
-function SenderSummary({
-    from,
-    senders,
-}: {
-    // A broadcast saved through the API or the workflow editor can set its own name and address.
-    from: BroadcastEmailValue['from'] & { name?: string; email?: string }
-    senders: IntegrationType[]
-}): JSX.Element {
-    const senderIds = getSenderIds(from)
-    if (senderIds.length === 0) {
-        return <span className="text-muted">No sender</span>
-    }
-    return (
-        <div className="flex flex-col gap-0.5">
-            {senderIds.map((id) => {
-                const sender = senders.find((candidate) => candidate.id === id)
-                const name = from.name || sender?.config?.name
-                const address = from.email || sender?.config?.email
-                return (
-                    <span key={id} className="wrap-anywhere">
-                        {!sender ? (
-                            <span className="text-muted">Deleted sender</span>
-                        ) : name ? (
-                            `${name} <${address}>`
-                        ) : (
-                            address
-                        )}
-                    </span>
-                )
-            })}
-        </div>
     )
 }
 

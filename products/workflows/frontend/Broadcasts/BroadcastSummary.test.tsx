@@ -216,40 +216,26 @@ describe('BroadcastSummary', () => {
 
     it.each([
         {
-            project: 'one email sender',
-            senders: [emailSender(2, 'Product updates', 'updates@example.com')],
+            set: 'the default name and address',
             from: { integrationId: 2 },
             expected: 'Product updates <updates@example.com>',
-            shown: false,
         },
         {
-            project: 'two email senders',
-            senders: [
-                emailSender(1, 'Support', 'support@example.com'),
-                emailSender(2, 'Product updates', 'updates@example.com'),
-            ],
-            from: { integrationId: 2 },
-            expected: 'Product updates <updates@example.com>',
-            shown: true,
-        },
-        {
-            project: 'two email senders and a name and address set on the email',
-            senders: [
-                emailSender(1, 'Support', 'support@example.com'),
-                emailSender(2, 'Product updates', 'updates@example.com'),
-            ],
+            set: 'a name and address set on the email',
             from: { integrationId: 2, name: 'Ada at Example', email: 'ada@example.com' },
             expected: 'Ada at Example <ada@example.com>',
-            shown: true,
         },
-    ])('shows the sender only when it can differ, with $project', async ({ senders, from, expected, shown }) => {
+    ])('shows the sender with $set, even with one sender in the project', async ({ from, expected }) => {
         const broadcast = sentBroadcast(AccessControlLevel.Editor, []) as any
         broadcast.actions[1].config.inputs.email.value.from = from
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/:id/': broadcast,
                 '/api/projects/:team_id/hog_flows/:id/batch_jobs/': [],
-                '/api/projects/:team_id/integrations/': { results: senders, count: senders.length },
+                '/api/projects/:team_id/integrations/': {
+                    results: [emailSender(2, 'Product updates', 'updates@example.com')],
+                    count: 1,
+                },
             },
         })
         initKeaTests()
@@ -267,9 +253,7 @@ describe('BroadcastSummary', () => {
             </Provider>
         )
 
-        expect(await screen.findByText('October news')).toBeInTheDocument()
-        await waitFor(() => expect(broadcastWizardLogic(props).values.integrations).toHaveLength(senders.length))
-        expect(!!screen.queryByText(expected)).toBe(shown)
+        expect(await screen.findByText(expected)).toBeInTheDocument()
     })
 
     it.each([

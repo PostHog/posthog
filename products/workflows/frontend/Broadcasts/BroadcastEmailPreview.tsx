@@ -6,6 +6,7 @@ import { LemonButton, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
 import { createDisabledReason } from './broadcastLifecycle'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { BroadcastSender } from './BroadcastSender'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { SendTestBroadcastModal } from './SendTestBroadcastModal'
@@ -69,6 +70,9 @@ export function BroadcastEmailPreview({
             <SendTestBroadcastModal />
 
             <div className="flex flex-col gap-2 rounded border border-border bg-surface-secondary p-3">
+                <PreviewRow label="From">
+                    <BroadcastSender />
+                </PreviewRow>
                 <PreviewRow label="To">
                     {personsLoading ? (
                         <Spinner />
