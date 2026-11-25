@@ -6,7 +6,8 @@ from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
-from django.db import DEFAULT_DB_ALIAS, close_old_connections, connection, router, transaction
+from django.db import DEFAULT_DB_ALIAS, DatabaseError, close_old_connections, connection, router, transaction
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -24,8 +25,11 @@ from posthog.tag_management import (
 )
 from posthog.test.waiting import wait_until
 
+from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.notebooks.backend.logic import set_notebook_tags
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -51,7 +55,8 @@ class TestTagManagement(BaseTest):
         self.assertEqual(
             (preview.source_count, preview.target_count, preview.overlap_count, preview.result_count), (4, 2, 2, 4)
         )
-        result = merge_tags(self.team.id, self.source.id, self.target.id, self.user)
+        with patch("posthog.tag_management.MAX_SYNC_TAG_ASSIGNMENTS", 4):
+            result = merge_tags(self.team.id, self.source.id, self.target.id, self.user)
 
         self.assertEqual((result.moved_count, result.overlap_count, result.usage_count), (2, 2, 4))
         self.assertEqual(result.tag.id, self.target.id)
@@ -130,10 +135,68 @@ class TestTagManagement(BaseTest):
 
     def test_rename_normalizes_and_preserves_assignments(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        dashboard.tagged_items.create(tag=self.source)
-        renamed = rename_tag(self.team.id, self.source.id, "  New name  ", self.user)
+        item = dashboard.tagged_items.create(tag=self.source)
+        with patch("posthog.tag_management.MAX_SYNC_TAG_ASSIGNMENTS", 1):
+            renamed = rename_tag(self.team.id, self.source.id, "  New name  ", self.user)
         self.assertEqual(renamed.name, "new name")
         self.assertTrue(dashboard.tagged_items.filter(tag_id=self.source.id).exists())
+        log = ActivityLog.objects.get(scope="TaggedItem", activity="updated", item_id=str(item.id))
+        assert log.detail is not None
+        self.assertEqual(log.detail["changes"][0]["before"], "customers")
+        self.assertEqual(log.detail["changes"][0]["after"], "new name")
+        self.assertEqual(log.detail["context"]["related_object_type"], "dashboard")
+        self.assertEqual(log.detail["context"]["related_object_id"], str(dashboard.id))
+
+    @parameterized.expand(["rename", "merge"])
+    def test_assignment_limit_rejects_before_acquiring_project_lock(self, operation: str) -> None:
+        for name in ["first", "second"]:
+            dashboard = Dashboard.objects.create(team=self.team, name=name)
+            dashboard.tagged_items.create(tag=self.source)
+        with patch("posthog.tag_management.MAX_SYNC_TAG_ASSIGNMENTS", 1), CaptureQueriesContext(connection) as queries:
+            with self.assertRaisesMessage(ValidationError, "assignment limit"):
+                if operation == "rename":
+                    rename_tag(self.team.id, self.source.id, "after", self.user)
+                else:
+                    merge_tags(self.team.id, self.source.id, self.target.id, self.user)
+        self.assertFalse(any("pg_advisory_xact_lock" in query["sql"] for query in queries))
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.name, "customers")
+        self.assertEqual(TaggedItem.objects.filter(tag=self.source).count(), 2)
+
+    def test_noop_rename_succeeds_above_assignment_limit(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        dashboard.tagged_items.create(tag=self.source)
+        with patch("posthog.tag_management.MAX_SYNC_TAG_ASSIGNMENTS", 0):
+            tag = rename_tag(self.team.id, self.source.id, "  Customers  ", self.user)
+        self.assertEqual(tag.id, self.source.id)
+        self.assertEqual(tag.name, "customers")
+
+    @parameterized.expand(["rename", "merge"])
+    @override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True, TEST=False)
+    def test_relationship_audit_failure_rolls_back_management_write(self, operation: str) -> None:
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example account")
+        account.tagged_items.create(tag=self.source)
+        initial_logs = list(ActivityLog.objects.values_list("id", flat=True))
+
+        def fail_audit_insert(execute, sql, params, many, context):
+            if sql.startswith('INSERT INTO "posthog_activitylog"'):
+                raise DatabaseError("audit insert failed")
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(fail_audit_insert),
+            self.assertRaisesMessage(DatabaseError, "audit insert failed"),
+        ):
+            if operation == "rename":
+                rename_tag(self.team.id, self.source.id, "after", self.user)
+            else:
+                merge_tags(self.team.id, self.source.id, self.target.id, self.user)
+
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.name, "customers")
+        self.assertTrue(account.tagged_items.filter(tag=self.source).exists())
+        self.assertFalse(account.tagged_items.filter(tag=self.target).exists())
+        self.assertCountEqual(ActivityLog.objects.values_list("id", flat=True), initial_logs)
 
     def test_cleanup_rechecks_usage_and_preserves_other_team(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -165,6 +228,74 @@ class TestTagManagementTransactions(NonAtomicBaseTest):
                 return bool(row and row[0])
 
         wait_until(blocked, timeout=10, message="tag writer did not wait for the tag lock")
+
+    @parameterized.expand(["rename", "merge"])
+    def test_assignment_limit_rechecks_growth_while_waiting_for_project_lock(self, operation: str) -> None:
+        source = Tag.objects.create(team=self.team, name="source")
+        target = Tag.objects.create(team=self.team, name="target")
+        first = Dashboard.objects.create(team=self.team, name="first")
+        second = Dashboard.objects.create(team=self.team, name="second")
+        first.tagged_items.create(tag=source)
+        ready = Event()
+        pids: list[int] = []
+
+        def mutate() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pids.append(cursor.fetchone()[0])
+                ready.set()
+                if operation == "rename":
+                    rename_tag(self.team.id, source.id, "after", self.user)
+                else:
+                    merge_tags(self.team.id, source.id, target.id, self.user)
+            finally:
+                connection.close()
+
+        with (
+            patch("posthog.tag_management.MAX_SYNC_TAG_ASSIGNMENTS", 1),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            with tag_assignment_transaction([self.team.id]):
+                future = executor.submit(mutate)
+                self.assertTrue(ready.wait(10))
+                self._wait_for_blocked_writer(pids[0])
+                second.tagged_items.create(tag=source)
+            with self.assertRaisesMessage(ValidationError, "assignment limit"):
+                future.result(timeout=10)
+        source.refresh_from_db()
+        self.assertEqual(source.name, "source")
+        self.assertEqual(TaggedItem.objects.filter(tag=source).count(), 2)
+        self.assertFalse(TaggedItem.objects.filter(tag=target).exists())
+
+    def test_notebook_clear_waits_for_merge_before_reading_assignments(self) -> None:
+        source = Tag.objects.create(team=self.team, name="source")
+        target = Tag.objects.create(team=self.team, name="target")
+        notebook = Notebook.objects.create(team=self.team, title="Example notebook")
+        notebook.tagged_items.create(tag=source)
+        ready = Event()
+        pids: list[int] = []
+
+        def clear_tags() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pids.append(cursor.fetchone()[0])
+                ready.set()
+                set_notebook_tags(notebook, [])
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with tag_assignment_transaction([self.team.id]):
+                future = executor.submit(clear_tags)
+                self.assertTrue(ready.wait(10))
+                self._wait_for_blocked_writer(pids[0])
+                merge_tags(self.team.id, source.id, target.id, self.user)
+            future.result(timeout=10)
+        self.assertFalse(notebook.tagged_items.exists())
 
     def test_name_creation_takes_advisory_lock_before_rename_can_wait_on_unique_index(self) -> None:
         source = Tag.objects.create(team=self.team, name="before")
@@ -227,22 +358,25 @@ class TestTagManagementTransactions(NonAtomicBaseTest):
         source = Tag.objects.create(team=self.team, name="source")
         target = Tag.objects.create(team=self.team, name="target")
 
-        with patch("products.cdp.backend.internal_events.produce_internal_event") as publisher:
+        events: list[tuple[str, str]] = []
+        with patch(
+            "products.cdp.backend.internal_events.produce_internal_event",
+            side_effect=lambda **kwargs: events.append(
+                (kwargs["event"].properties["scope"], kwargs["event"].properties["activity"])
+            ),
+        ):
             with transaction.atomic():
                 merge_tags(self.team.id, source.id, target.id, self.user)
                 self.assertTrue(ActivityLog.objects.filter(scope="Tag", activity="merged", item_id=source.id).exists())
-                publisher.assert_not_called()
+                self.assertEqual(events, [])
                 transaction.set_rollback(True)
-            publisher.assert_not_called()
+            self.assertEqual(events, [])
             self.assertFalse(ActivityLog.objects.filter(scope="Tag", activity="merged", item_id=source.id).exists())
 
             with transaction.atomic():
                 merge_tags(self.team.id, source.id, target.id, self.user)
-                publisher.assert_not_called()
-            events = [call.kwargs["event"] for call in publisher.call_args_list]
-            self.assertEqual(
-                [(event.properties["scope"], event.properties["activity"]) for event in events], [("Tag", "merged")]
-            )
+                self.assertEqual(events, [])
+            self.assertEqual(events, [("Tag", "merged")])
 
     def test_cleanup_waiting_for_merge_rechecks_destination(self) -> None:
         source = Tag.objects.create(team=self.team, name="source")

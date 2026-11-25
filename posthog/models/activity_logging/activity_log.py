@@ -1230,7 +1230,12 @@ def log_activity_with_soft_delete(
 
 
 def bulk_log_activity(
-    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
+    log_entries: list[LogActivityEntry],
+    batch_size: int = 500,
+    *,
+    notify: bool = True,
+    using: str | None = None,
+    strict: bool = False,
 ) -> list[ActivityLog]:
     """Write activity log rows in bulk.
 
@@ -1247,7 +1252,7 @@ def bulk_log_activity(
     activity_logs = []
     dropped_count = 0
     for entry in log_entries:
-        log = log_activity(**entry, instance_only=True)
+        log = log_activity(**entry, instance_only=True, strict=strict)
 
         if log:
             activity_logs.append(log)
@@ -1279,7 +1284,8 @@ def bulk_log_activity(
                 if log.user_id in deleted_user_ids:
                     log.user = None
 
-        created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+        manager = ActivityLog.objects.db_manager(using) if strict else ActivityLog.objects
+        created_logs = manager.bulk_create(activity_logs, batch_size=batch_size)
 
         if notify:
             for log in created_logs:
@@ -1297,6 +1303,7 @@ def bulk_log_activity(
                 "log_entries": log_entries,
             },
             using=using,
+            strict=strict,
         )
         or []
     )
