@@ -114,7 +114,10 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 and error.cause.details[0] in ("completed", "cancelled", "failed")
             ):
                 reason = error.cause.details[0]
-                if reason == "cancelled":
+                if reason == "cancelled" and (
+                    not workflow.patched("agent-egress-observed-stop-completes")
+                    or workflow.cancellation_reason() is not None
+                ):
                     raise asyncio.CancelledError from error
                 return dict(self._counts)
             if is_cancelled_exception(error):
