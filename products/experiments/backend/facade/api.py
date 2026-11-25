@@ -577,7 +577,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
 def request_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:
-    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
@@ -589,7 +589,7 @@ def request_metrics_recalculation(
 
 def get_latest_recalculation(*, team_id: int, experiment_id: int) -> LatestRecalculation | None:
     """None when the experiment has no run and no timeseries data to show."""
-    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
@@ -620,7 +620,7 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int) -> LatestRecal
 
 
 def get_recalculation_run(*, team_id: int, experiment_id: int, recalculation_id: str) -> RecalculationRun | None:
-    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
@@ -630,7 +630,7 @@ def get_recalculation_run(*, team_id: int, experiment_id: int, recalculation_id:
 
 
 def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:
-    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
