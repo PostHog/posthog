@@ -13,8 +13,8 @@ Everything that writes runs inside the caller's transaction; each function says 
 matters. Refusals are raised as the error types defined here — the caller decides which HTTP
 response they become.
 
-The sharing publish gate and the template helper are imported at call time. They load the
-subscriptions facade, which loads the exports facade, and the exports facade imports this module.
+The sharing publish gate is imported at call time. It loads the subscriptions facade, which loads
+the exports facade, and the exports facade imports this module.
 """
 
 import re
@@ -69,6 +69,7 @@ from products.dashboards.backend.logic import (
     frames as frames_logic,
     search as search_logic,
     team_settings as team_settings_logic,
+    template_instantiation as template_instantiation_logic,
     template_library as template_library_logic,
     templates as templates_logic,
     tiles as tiles_logic,
@@ -189,9 +190,9 @@ def create_dashboard_from_tiles(
         created_by=user,
         creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
-    from posthog.helpers.dashboard_templates import create_from_template
-
-    create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
+    template_instantiation_logic.create_from_template(
+        dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team)
+    )
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 

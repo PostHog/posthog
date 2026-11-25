@@ -25,7 +25,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_from_template
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -53,6 +52,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.dashboard_creation import apply_dashboard_template_json
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -3913,11 +3913,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_from_template_rejects_oversized_agent_context(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        template = DashboardTemplate(
-            template_name="Oversized agent context",
-            dashboard_description="",
-            dashboard_filters={},
-            tiles=[
+        template: dict[str, Any] = {
+            "template_name": "Oversized agent context",
+            "dashboard_description": "",
+            "dashboard_filters": {},
+            "tiles": [
                 {
                     "type": "TEXT",
                     "body": "Dashboard summary",
@@ -3925,11 +3925,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "layouts": {},
                 }
             ],
-        )
+        }
         text_count = Text.objects.count()
 
         with self.assertRaisesRegex(ValueError, "Agent context cannot exceed 10000 characters"):
-            create_from_template(dashboard, template, self.user)
+            apply_dashboard_template_json(
+                team_id=self.team.id, dashboard_id=dashboard.id, template=template, user_id=self.user.id
+            )
 
         assert Text.objects.count() == text_count
 
