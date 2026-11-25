@@ -61,7 +61,7 @@ const missingDatabase = (): string => {
 }
 
 describe('dependency watch', () => {
-    const caDir = mkdtempSync(path.join(tmpdir(), 'dependency-watch-edge-'))
+    let caDir: string
     let edge: EdgeProcess
     let silentPort: number
     let unavailableUrl: string
@@ -70,6 +70,7 @@ describe('dependency watch', () => {
     const unavailable = http.createServer((_request, response) => response.writeHead(503).end())
 
     beforeAll(async () => {
+        caDir = mkdtempSync(path.join(tmpdir(), 'dependency-watch-edge-'))
         edge = await startEdgeProcess({
             port: 0,
             trackingKeys: 'scenario-tracking-key',

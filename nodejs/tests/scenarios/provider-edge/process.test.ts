@@ -51,11 +51,18 @@ describe('provider edge process', () => {
 
     it('answers a send with a held fault, observes that answer, and lifts the fault on release', async () => {
         const held = await edge.hold(REJECT)
+        const unsent = await held.observed(AbortSignal.abort())
+        const observing = held.observed()
         const answer = await send()
-        const seen = await held.observed()
+        const seen = await observing
         await held.release()
 
-        expect({ answer, seen, after: await send() }).toEqual({ answer: 'MessageRejected', seen: true, after: 'sent' })
+        expect({ unsent, answer, seen, after: await send() }).toEqual({
+            unsent: false,
+            answer: 'MessageRejected',
+            seen: true,
+            after: 'sent',
+        })
     })
 
     it('lifts every held fault when the faults are cleared', async () => {
@@ -128,12 +135,12 @@ describe('provider edge process', () => {
             ${exhaust}
             const starting = startEdgeProcess({ port: 0 })
             held.forEach(closeSync)
-            starting.then(() => 'started', (error) => error.message).then((outcome) => process.stdout.write(outcome))`
+            starting.then((edge) => edge.close().then(() => 'started'), (error) => error.message).then((outcome) => process.stdout.write(outcome))`
             const outcome = await new Promise<string>((resolve) =>
                 execFile(
                     'bash',
                     ['-c', 'ulimit -n 1024 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, runner],
-                    { cwd: NODEJS_DIR },
+                    { cwd: NODEJS_DIR, timeout: 20_000 },
                     (_error, stdout, stderr) => resolve(stdout || stderr)
                 )
             )

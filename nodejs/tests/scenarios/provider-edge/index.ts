@@ -109,6 +109,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const truth = options.truth ?? new Truth()
     const sent: SesMessage[] = []
     const faults = new FaultList()
+    const removeFault = (faultId: string): boolean => faults.remove(faultId)
+    const clearFaults = (): void => faults.clear()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
     const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
@@ -220,10 +222,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case 'POST /_faults':
                 return addCardFault(body)
             case 'DELETE /_faults':
-                faults.clear()
+                clearFaults()
                 return { status: 204 }
             case 'DELETE /_faults/:id':
-                return { status: faults.remove(faultId!) ? 204 : 404 }
+                return { status: removeFault(faultId!) ? 204 : 404 }
             default:
                 return sesError({
                     status: 404,
@@ -320,15 +322,15 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         sent,
         addFault: (rule) => faults.add(rule),
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
-        removeFault: (faultId) => void faults.remove(faultId),
+        removeFault: (faultId) => void removeFault(faultId),
         hold: (rule) => {
             const id = faults.add(rule)
             return holdOf({
                 firstAppliedAt: () => Promise.resolve(faults.firstAppliedAt(id)),
-                remove: () => Promise.resolve(void faults.remove(id)),
+                remove: () => Promise.resolve(void removeFault(id)),
             })
         },
-        clearFaults: () => faults.clear(),
+        clearFaults,
         close: async () => {
             proxy?.close()
             server.closeAllConnections()
