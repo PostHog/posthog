@@ -106,6 +106,7 @@ class FakeBigQueryClient:
     def __init__(self) -> None:
         self.tables: dict[str, FakeTable] = {}
         self.datasets: set[str] = set()
+        self.uploaded_bytes: list[int] = []
 
     # --- what the writer calls -----------------------------------------------------------
 
@@ -136,6 +137,7 @@ class FakeBigQueryClient:
         self.tables.pop(name, None)
 
     def load_table_from_file(self, buffer, ref: str, job_config: bigquery.LoadJobConfig) -> _Job:
+        self.uploaded_bytes.append(len(buffer.getvalue()))
         data = pq.read_table(buffer)
         rows = data.to_pylist()
         decimal_target_types = job_config.decimal_target_types or frozenset({"NUMERIC"})

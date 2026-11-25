@@ -63,13 +63,14 @@ class TestDirectClickHouseTable(SimpleTestCase):
 
 
 class TestDirectClickHouseTeamIdGuard(BaseTest):
-    def _print(self, *, is_direct_query: bool) -> str:
+    def _print(self, *, is_direct_query: bool, column_restricted: bool = False, query: str | None = None) -> str:
         table = DirectClickHouseTable(
             name="external_events",
             fields={"col1": StringDatabaseField(name="col1")},
             clickhouse_database="mydb",
             clickhouse_table_name="events",
             external_data_source_id="src",
+            column_restricted=column_restricted,
         )
         database = Database()
         root = TableNode()
@@ -81,12 +82,22 @@ class TestDirectClickHouseTeamIdGuard(BaseTest):
             database=database,
             is_direct_query=is_direct_query,
         )
-        return prepare_and_print_ast(parse_select("SELECT col1 FROM external_events"), context, "clickhouse")[0]
+        return prepare_and_print_ast(parse_select(query or "SELECT col1 FROM external_events"), context, "clickhouse")[
+            0
+        ]
 
     def test_direct_query_prints_external_table_without_team_id(self):
         printed = self._print(is_direct_query=True)
         self.assertIn("mydb.events", printed)
         self.assertNotIn("team_id", printed)
+
+    def test_column_restricted_table_reads_only_its_allowed_columns(self):
+        printed = self._print(
+            is_direct_query=True,
+            column_restricted=True,
+            query="SELECT external_events.col1, e.col1 FROM external_events JOIN external_events AS e ON true",
+        )
+        self.assertIn("(SELECT col1 FROM mydb.events)", printed)
 
     def test_refuses_external_table_outside_a_direct_query(self):
         # Our own cluster would happily resolve `mydb.events` — printing it there must fail, not read it.

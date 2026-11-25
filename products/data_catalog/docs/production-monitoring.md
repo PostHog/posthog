@@ -96,7 +96,7 @@ The instruments ship in this repo: the run and probe counters in `products/data_
 | `metrics`                | `_catalog_metrics`                | `information_schema.metrics` returns no rows.                                                 |
 | `tables`                 | `_catalog_certifications`         | The `certification` column on `information_schema.tables` reads as null.                      |
 | `certifications`         | `_catalog_certification_rows`     | `information_schema.certifications` returns no rows.                                          |
-| `relationships`          | `_catalog_accepted_relationships` | Accepted joins lose their confidence and reasoning.                                           |
+| `relationships`          | `_catalog_accepted_relationships` | Accepted joins lose their reasoning.                                                          |
 | `relationship_proposals` | `_catalog_relationship_proposals` | The review queue reads as empty.                                                              |
 | `table_visibility`       | `_catalog_table_visible`          | Individual relationship and certification rows vanish while their own loader reports success. |
 | `schema_serialization`   | `_settled_catalog_certifications` | Trust marks vanish from the serialized database schema.                                       |

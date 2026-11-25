@@ -515,6 +515,51 @@ describe('runStreamLogic', () => {
             expect(logic.values.currentMode).toEqual('plan')
         })
 
+        it.each([
+            [
+                'both values',
+                [
+                    { id: 'model', currentValue: 'claude-opus-4-8' },
+                    { id: 'effort', currentValue: 'high' },
+                ],
+                ['claude-opus-4-8', 'high'],
+            ],
+            [
+                'a model alone keeps the last effort',
+                [{ id: 'model', currentValue: 'claude-opus-4-8' }],
+                ['claude-opus-4-8', 'low'],
+            ],
+        ])(
+            'reads the confirmed model and effort off a config_option_update frame: %s',
+            async (_name, configOptions, expected) => {
+                logic.actions.setSessionConfig(null, 'low')
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'config_option_update', configOptions })
+                    )
+                }).toFinishAllListeners()
+
+                expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual(expected)
+            }
+        )
+
+        it('forgets the confirmed model and effort at the next run boundary', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'config_option_update',
+                        configOptions: [
+                            { id: 'model', currentValue: 'claude-opus-4-8' },
+                            { id: 'effort', currentValue: 'high' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toFinishAllListeners()
+
+            expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual([null, null])
+        })
+
         it('replaces availableCommands on each available_commands_update frame', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(

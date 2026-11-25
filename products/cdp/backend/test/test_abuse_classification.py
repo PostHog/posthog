@@ -23,8 +23,10 @@ from products.cdp.backend.test.abuse_support import (
 )
 
 LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
-SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
+SSRF_SCORES = {**SCORES, "internal_network": 0.6, "runtime_escape": 0.1, "normal_integration": 0.6}
 NO_CALL_HOG = "print(event.properties.$ip)"
+NO_REQUEST = {"internal_network": "no_outbound_call"}
+ONE_PUBLIC_REQUEST = {"internal_network": "literal_public_urls"}
 REQUEST_CATCHER_HOG = "fetch('https://webhook.site/0000')"
 METADATA_HOG = "fetch('http://169.254.169.254/latest')"
 ESTABLISHED = {
@@ -59,7 +61,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("low_control_keeps_a_moderate_model_alert", LOW_CONTROL_SCORES, None, RULE_FREE_HOG, [], True, False),
             (
                 "high_control_still_alerts_and_blocks_at_the_block_threshold",
-                {**SCORES, "resource_exhaustion": 0.9},
+                {**SCORES, "runtime_escape": 0.9},
                 None,
                 RULE_FREE_HOG,
                 [],
@@ -110,6 +112,19 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["request_catcher"],
                 True,
                 False,
+                True,
+                ONE_PUBLIC_REQUEST,
+            ),
+            (
+                "security_callback_alerts_without_blocking",
+                SCORES,
+                {"alert_threshold": 0.9, "block_threshold": 0.95},
+                "fetch('https://probe.oast.fun/')",
+                ["security_callback"],
+                True,
+                False,
+                True,
+                ONE_PUBLIC_REQUEST,
             ),
             (
                 "rule_alerts_when_high_control_skips_the_model_alert",
@@ -119,9 +134,21 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["request_catcher"],
                 True,
                 False,
+                True,
+                ONE_PUBLIC_REQUEST,
             ),
             ("ssrf_score_alerts_with_an_outbound_call", SSRF_SCORES, None, RULE_FREE_HOG, [], True, False),
-            ("ssrf_score_is_ignored_without_an_outbound_call", SSRF_SCORES, None, NO_CALL_HOG, [], False, False, False),
+            (
+                "ssrf_score_is_ignored_without_an_outbound_call",
+                SSRF_SCORES,
+                None,
+                NO_CALL_HOG,
+                [],
+                False,
+                False,
+                False,
+                NO_REQUEST,
+            ),
             (
                 "ssrf_score_at_the_block_threshold_is_ignored_without_an_outbound_call",
                 {**SSRF_SCORES, "internal_network": 0.95},
@@ -131,6 +158,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
                 False,
                 False,
+                NO_REQUEST,
             ),
             (
                 "other_risk_alerts_without_an_outbound_call",
@@ -141,6 +169,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 False,
                 False,
+                NO_REQUEST,
             ),
             (
                 "rule_alerts_without_an_outbound_call",
@@ -151,6 +180,29 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 False,
                 False,
+                NO_REQUEST,
+            ),
+            (
+                "malformed_score_is_ignored_for_a_chat_message_post",
+                {**LOW_CONTROL_SCORES, "malformed_payload": 0.85, "runtime_escape": 0.1},
+                None,
+                "fetch('https://slack.com/api/chat.postMessage', {'method': 'POST', 'body': {'text': inputs.text}})",
+                [],
+                False,
+                False,
+                True,
+                {"malformed_payload": "chat_messages_only", **ONE_PUBLIC_REQUEST},
+            ),
+            (
+                "ssrf_score_is_ignored_for_a_literal_public_url",
+                SSRF_SCORES,
+                None,
+                "fetch('https://staging.example.com/internal/callback', {'body': event})",
+                [],
+                False,
+                False,
+                True,
+                ONE_PUBLIC_REQUEST,
             ),
         ]
     )
@@ -164,6 +216,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         would_alert: bool,
         would_block: bool,
         outbound_call: bool = True,
+        set_aside_scores: dict[str, str] | None = None,
     ) -> None:
         self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
@@ -195,6 +248,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "risk_score": max(scores[question] for question in MALICIOUS_QUESTIONS),
             "rule_hits": rule_hits,
             "outbound_call": outbound_call,
+            "set_aside_scores": set_aside_scores or {},
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -229,6 +283,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["normal_integration", "established_account"],
             ),
             (
+                "established_with_only_a_set_aside_score",
+                ESTABLISHED,
+                None,
+                {**LOW_CONTROL_SCORES, "malformed_payload": 0.85, "runtime_escape": 0.1},
+                "fetch('https://slack.com/api/chat.postMessage', {'body': {'text': inputs.text}})",
+                "established",
+                False,
+                False,
+                [],
+            ),
+            (
                 "established_still_alerts_on_a_rule",
                 ESTABLISHED,
                 None,
@@ -254,7 +319,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 "established_alerts_and_blocks_at_the_block_threshold",
                 ESTABLISHED,
                 None,
-                {**LOW_CONTROL_SCORES, "resource_exhaustion": 0.95},
+                {**LOW_CONTROL_SCORES, "runtime_escape": 0.95},
                 RULE_FREE_HOG,
                 "established",
                 True,
@@ -519,12 +584,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                     "inputs_schema": [{"key": "padding", "type": "string"}],
                     "inputs": {"padding": {"value": "B" * 300_000}},
                 },
-                {
-                    "error": "invalid_answer",
-                    "rule_hits": ["oversized_input"],
-                    "would_alert": True,
-                    "would_block": False,
-                },
+                {"error": "invalid_answer", "rule_hits": [], "would_alert": None, "would_block": None},
             ),
             (
                 "secret_input_runs_a_huge_range",
@@ -612,6 +672,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         [
             ("name_only", {"name": "Renamed"}, 1),
             ("code", {"hog": "print('changed')"}, 2),
+            ("disabling_a_scored_function", {"enabled": False}, 1),
             (
                 "secret_rotated_to_a_benign_value",
                 {
@@ -646,6 +707,18 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 2,
                 {"hog": "print(event)"},
             ),
+            (
+                "secret_input_that_adds_a_call_beside_a_chat_post",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{inputs.sender(1)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {"hog": "fetch('https://slack.com/api/chat.postMessage', {'body': event})"},
+            ),
         ]
     )
     def test_a_resave_is_scored_again_only_when_its_content_changes(
@@ -659,6 +732,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.save()
 
         assert len(self.gateway.requests) == expected_requests
+        assert len(self.captured_events()) == expected_requests
 
     @parameterized.expand(
         [
@@ -712,7 +786,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("site_destination", True, None, {"type": "site_destination"}),
             ("internal_destination", True, None, {"type": "internal_destination"}),
             ("deleted", True, None, {"deleted": True}),
-            ("disabled", True, None, {"enabled": False}),
         ]
     )
     def test_nothing_is_classified(
@@ -746,6 +819,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == expected_requests
 
+    def test_a_queued_task_with_an_enabled_content_hash_still_scores_due_work(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(hog="print(event.event)")
+        events_before = len(self.captured_events())
+
+        classify_hog_function_for_abuse.delay(
+            team_id=self.team.id, hog_function_id=str(hog_function.id), enabled_content_hash="a" * 64
+        )
+
+        assert len(self.gateway.requests) == 2
+        [verdict] = self.captured_events()[events_before:]
+        assert verdict["properties"]["hog_function_id"] == str(hog_function.id)
+        assert "risk_score" in verdict["properties"]
+
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
         HogFunction.objects.filter(pk=hog_function.pk).update(
@@ -757,14 +844,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         assert len(self.gateway.requests) == 2
         assert "risk_score" in self.captured_events()[-1]["properties"]
 
-    def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
+    def test_a_disabled_save_is_scored_and_enabling_it_reports_again(self) -> None:
         hog_function = self.create_destination(enabled=False)
 
         hog_function.enabled = True
         with self.committed():
             hog_function.save()
 
-        assert len(self.gateway.requests) == 1
+        assert len(self.gateway.requests) == 2
+        assert [event["properties"]["enabled"] for event in self.captured_events()] == [False, True]
 
     @parameterized.expand(
         [

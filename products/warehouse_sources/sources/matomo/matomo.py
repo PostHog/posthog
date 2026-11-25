@@ -78,6 +78,10 @@ def _to_date(value: Any) -> Optional[date]:
     return None
 
 
+def _row_key(row: dict[str, Any], fields: tuple[str, ...]) -> str:
+    return "|".join("" if row.get(f) is None else str(row.get(f)) for f in fields)
+
+
 def validate_credentials(host: str, site_id: str, api_token: str) -> bool:
     """Confirm the instance is reachable and the token can read the site."""
     try:
@@ -282,6 +286,9 @@ def get_rows(
         body = call(config.method, {"period": "day", "date": day.isoformat(), "filter_limit": -1, **config.params})
         rows = body if isinstance(body, list) else ([body] if isinstance(body, dict) and body else [])
         rows = [{**row, "_date": day.isoformat()} for row in rows if isinstance(row, dict)]
+        if config.row_key_fields:
+            # The "Others" summary row has no codes, so its key is all empty; a day has at most one.
+            rows = [{**row, "_row_key": _row_key(row, config.row_key_fields)} for row in rows]
         if rows:
             yield rows
 

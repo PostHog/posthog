@@ -29,9 +29,8 @@
 # ---
 # name: test_grouping_does_not_replace_different_or_nested_expressions[SELECT user_id AS id FROM users GROUP BY concat(id, 'suffix')]
   tuple(
-    'SELECT "users"."user_id" AS "id" FROM "ducklake"."analytics"."users" AS "users" GROUP BY concat(CAST("users"."user_id" AS VARCHAR), CAST(%(hogql_val_0)s AS VARCHAR))',
+    'SELECT "users"."user_id" AS "id" FROM "ducklake"."analytics"."users" AS "users" GROUP BY concat(CAST("users"."user_id" AS VARCHAR), CAST(\'suffix\' AS VARCHAR))',
     dict({
-      'hogql_val_0': 'suffix',
     }),
   )
 # ---
@@ -44,9 +43,8 @@
 # ---
 # name: test_grouping_reuses_projected_expression[concat(user_id, 'suffix')-None]
   tuple(
-    'SELECT concat(CAST("users"."user_id" AS VARCHAR), CAST(%(hogql_val_0)s AS VARCHAR)) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
+    'SELECT concat(CAST("users"."user_id" AS VARCHAR), CAST(\'suffix\' AS VARCHAR)) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
-      'hogql_val_0': 'suffix',
     }),
   )
 # ---
@@ -73,9 +71,8 @@
 # ---
 # name: test_grouping_reuses_projected_expression[toStartOfMonth(toTimeZone(created_at, 'UTC'))-None]
   tuple(
-    'SELECT CAST(date_trunc(\'month\', at_timezone(with_timezone(CAST("users"."created_at" AS TIMESTAMP), \'UTC\'), %(hogql_val_0)s)) AS DATE) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
+    'SELECT CAST(date_trunc(\'month\', at_timezone(with_timezone(CAST("users"."created_at" AS TIMESTAMP), \'UTC\'), \'UTC\')) AS DATE) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
-      'hogql_val_0': 'UTC',
     }),
   )
 # ---
@@ -109,18 +106,15 @@
 # ---
 # name: test_prepared_trino_transpiler_does_not_rebuild_the_schema_database[SELECT user_id FROM users WHERE user_id = 'person-1']
   tuple(
-    'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = %(hogql_val_0)s)',
+    'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = \'person-1\')',
     dict({
-      'hogql_val_0': 'person-1',
     }),
   )
 # ---
 # name: test_prepared_trino_transpiler_does_not_rebuild_the_schema_database[SELECT user_id FROM users WHERE user_id IN ['violet', 'amber']]
   tuple(
-    'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s))',
+    'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" IN (\'violet\', \'amber\'))',
     dict({
-      'hogql_val_0': 'violet',
-      'hogql_val_1': 'amber',
     }),
   )
 # ---
@@ -134,8 +128,6 @@
 # name: test_tracks_every_registered_function_without_a_trino_mapping
   dict({
     'aggregate': list([
-      'anyHeavy',
-      'anyHeavyIf',
       'anyLastIf',
       'argMaxMerge',
       'argMaxState',
@@ -441,7 +433,6 @@
       'multiFuzzyMatchAnyIndex',
       'multiMatchAllIndices',
       'multiMatchAny',
-      'multiMatchAnyIndex',
       'ngramDistanceCaseInsensitiveUTF8',
       'ngramSearchCaseInsensitiveUTF8',
       'nowInBlock',

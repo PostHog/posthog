@@ -36,7 +36,7 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
@@ -458,6 +458,44 @@ class TestImageExporter(APIBaseTest):
         assert exported_cache_keys == {
             str(insight.id): f"cache_key_for_insight_{insight.id}{cache_key_suffix}" for insight in insights
         }
+
+    @parameterized.expand(
+        [
+            ("no_tiles", None, False),
+            ("only_deleted_insight", "deleted_insight", False),
+            ("only_text", "text", True),
+        ]
+    )
+    def test_dashboard_export_renders_only_when_a_tile_is_shown(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        tile_kind: str | None,
+        renders: bool,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        if tile_kind == "deleted_insight":
+            insight = Insight.objects.create(team=self.team, deleted=True, query={"kind": "TrendsQuery", "series": []})
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        elif tile_kind == "text":
+            DashboardTile.objects.create(dashboard=dashboard, text=Text.objects.create(team=self.team, body="Notes"))
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, dashboard=dashboard
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            if renders:
+                image_exporter.export_image(dashboard_asset)
+            else:
+                with self.assertRaisesRegex(InvalidExportContext, "no insights or text cards"):
+                    image_exporter.export_image(dashboard_asset)
+
+        if renders:
+            assert mock_screenshot_asset.call_args[0][3] == ".DashboardTileCard"
+        else:
+            mock_screenshot_asset.assert_not_called()
 
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")

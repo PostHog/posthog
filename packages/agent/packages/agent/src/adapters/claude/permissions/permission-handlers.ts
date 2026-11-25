@@ -40,7 +40,7 @@ import {
   type QuestionItem,
 } from "../questions/utils";
 import { isToolAllowedForMode, WRITE_TOOLS } from "../tools";
-import type { Session } from "../types";
+import type { Session, ToolUpdateMeta } from "../types";
 import {
   buildExitPlanModePermissionOptions,
   buildPermissionOptions,
@@ -167,6 +167,12 @@ async function emitToolDenial(
       toolCallId: context.toolUseID,
       status: "failed",
       content: [{ type: "content", content: text(message) }],
+      _meta: {
+        claudeCode: {
+          toolName: context.toolName,
+          failureReason: "permission_denied",
+        },
+      } satisfies ToolUpdateMeta,
     },
   });
 }

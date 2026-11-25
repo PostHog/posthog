@@ -77,7 +77,7 @@ const INBOX_REPORT = {
 
 async function openProduct(
   server: AgentServer,
-  originProduct?: string,
+  interactionOrigin?: string,
   launchOptions: Record<string, unknown> = {},
   source?: TaskSource,
 ): Promise<void> {
@@ -88,7 +88,7 @@ async function openProduct(
   ).openProductSession({
     taskId: "test-task-id",
     runId: "test-run-id",
-    originProduct,
+    interactionOrigin,
     launchOptions,
     source,
   });
@@ -741,10 +741,26 @@ describe("AgentServer HTTP Mode", () => {
     try {
       await runningServer?.stop();
     } finally {
+      vi.unstubAllEnvs();
       mswServer.resetHandlers();
       await repo?.cleanup();
     }
   });
+
+  const stubRunPolicy = (overrides: Record<string, unknown> = {}) =>
+    vi.stubEnv(
+      "POSTHOG_TASK_RUN_POLICY",
+      JSON.stringify({
+        run_id: "test-run-id",
+        finish_tool: false,
+        finish_report_required: false,
+        report_activity_tool: false,
+        expects_system_prompt: false,
+        thread_link: false,
+        default_client_provenance: null,
+        ...overrides,
+      }),
+    );
 
   const createServer = (
     overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
@@ -1190,6 +1206,68 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.start();
 
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
+    }, 30000);
+
+    it.each<[string, Record<string, true>, Record<string, true>]>([
+      [
+        "a run that reports its activity",
+        { finish_tool: true, report_activity_tool: true },
+        { finishTool: true, reportActivityTool: true },
+      ],
+      [
+        "a run that must finish with a report",
+        { finish_tool: true, finish_report_required: true },
+        { finishTool: true, finishReportRequired: true },
+      ],
+    ])(
+      "passes the launch policy to the session for %s",
+      async (_, policy, expected) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        stubRunPolicy(policy);
+
+        const testServer = createServer() as unknown as {
+          start(): Promise<void>;
+          session: { sessionMeta: Record<string, unknown> } | null;
+        };
+        await testServer.start();
+
+        const { finishTool, finishReportRequired, reportActivityTool } =
+          testServer.session?.sessionMeta ?? {};
+        expect({
+          finishTool,
+          finishReportRequired,
+          reportActivityTool,
+        }).toEqual(expected);
+      },
+      30000,
+    );
+
+    it("routes the session to the gateway product the server names", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      vi.stubEnv("LLM_GATEWAY_URL", "https://gateway.example.com");
+      stubRunPolicy({ billing_product: "workflows" });
+      mockedClaudeSdk.query.mockClear();
+      await createServer({ runtimeAdapter: "claude" }).start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { env?: Record<string, string> };
+      };
+      expect(request?.options?.env?.ANTHROPIC_BASE_URL).toBe(
+        "https://gateway.example.com/workflows",
+      );
+    }, 30000);
+
+    it("reports where the run policy came from with gateway requests", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mockedClaudeSdk.query.mockClear();
+      await createServer({ runtimeAdapter: "claude" }).start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { env?: Record<string, string> };
+      };
+      expect(request?.options?.env?.ANTHROPIC_CUSTOM_HEADERS).toContain(
+        "x-posthog-property-task_run_policy_source: missing_server",
+      );
     }, 30000);
 
     it("links native agent state before initializing the session", async () => {

@@ -538,6 +538,12 @@ describe("canUseTool MCP approval enforcement", () => {
           sessionUpdate: "tool_call_update",
           toolCallId: "test-tool-use-id",
           status: "failed",
+          _meta: {
+            claudeCode: {
+              toolName: "mcp__server__denied_tool",
+              failureReason: "permission_denied",
+            },
+          },
         }),
       }),
     );

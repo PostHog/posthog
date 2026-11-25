@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EndpointPlanClampApi {
+    /**
+     * The data freshness, in seconds, the endpoint had before the rewrite. Null when it had none.
+     * @nullable
+     */
+    previous_data_freshness_seconds: number | null
+    /** The data freshness, in seconds, the endpoint was set to: the fastest the organization's plan allowed. */
+    plan_floor_seconds: number
+    /** When the data freshness was rewritten. */
+    at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -137,6 +149,8 @@ export interface EndpointResponseApi {
      * @nullable
      */
     plan_refresh_floor_seconds: number | null
+    /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+    plan_clamp: EndpointPlanClampApi | null
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -299,6 +313,8 @@ export interface EndpointVersionResponseApi {
      * @nullable
      */
     plan_refresh_floor_seconds: number | null
+    /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+    plan_clamp: EndpointPlanClampApi | null
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**

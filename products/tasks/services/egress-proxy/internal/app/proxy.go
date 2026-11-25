@@ -167,9 +167,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		w.Header().Set("Retry-After", "1")
-		w.Header().Set("Connection", "close")
-		if http.NewResponseController(w).SetReadDeadline(time.Now()) != nil {
-			panic(http.ErrAbortHandler)
+		if r.ProtoMajor == 1 && (r.ContentLength != 0 || len(r.TransferEncoding) != 0 || len(r.Trailer) != 0) {
+			w.Header().Set("Connection", "close")
+			if http.NewResponseController(w).SetReadDeadline(time.Now()) != nil {
+				panic(http.ErrAbortHandler)
+			}
 		}
 		http.Error(w, "request limit exceeded", http.StatusTooManyRequests)
 		return

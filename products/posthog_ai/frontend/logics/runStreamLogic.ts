@@ -2681,6 +2681,8 @@ export interface runStreamLogicValues {
     runStarted: boolean
     sdkSession: SdkSession | null
     seenPermissionRequestIds: Set<string>
+    sessionEffort: string | null
+    sessionModel: string | null
     showThinkingIndicator: boolean
     sseStatus: RunSseStatus
     streamHasEnded: boolean
@@ -2972,6 +2974,13 @@ export interface runStreamLogicActions {
     }
     setSdkSession: (session: SdkSession) => {
         session: SdkSession
+    }
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        effort: string | null
+        model: string | null
     }
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean
@@ -3276,6 +3285,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
+        // The model and effort the agent confirmed, from its `config_option_update` frames.
+        setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
         setCurrentProgress: (progress: string | null) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
@@ -3648,6 +3659,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentMode: (_, { mode }) => mode,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
+        // A resumed run replays its ancestors' logs. Each run starts with `run_started`, and Claude reports no
+        // config at boot, so an earlier run's confirmed model must not outlive its run.
+        sessionModel: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
+        sessionEffort: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
                 prepareResumeRun: () => null,
                 reset: () => null,
             },
@@ -4804,6 +4835,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (update.sessionUpdate === 'current_mode_update') {
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
+            }
+            if (update.sessionUpdate === 'config_option_update') {
+                const currentValue = (id: string): string | null => {
+                    const value = update.configOptions?.find((option) => option?.id === id)?.currentValue
+                    return typeof value === 'string' && value ? value : null
+                }
+                actions.setSessionConfig(currentValue('model'), currentValue('effort'))
                 return
             }
             if (update.sessionUpdate === 'tool_call') {

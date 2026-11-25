@@ -9,13 +9,15 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.integration.common import IntegrationError
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
@@ -28,6 +30,7 @@ from products.replay.backend.temporal.export_recordings.activities import (
     ByteBudget,
     CustomerBucket,
     SessionRow,
+    check_destination,
     destination_error,
     export_session,
     export_shard,
@@ -47,6 +50,7 @@ from products.replay.backend.temporal.export_recordings.quote import (
     select_sessions,
 )
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -59,6 +63,8 @@ def _list(input: ExportShardInput) -> list[SessionRow]:
 
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
+ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
+OUR_ROLE_ARN = "arn:aws:iam::210987654321:role/posthog-external-recording-exports"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
 BUCKET_OWNER = "123456789012"
 
@@ -130,7 +136,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         )
         create_person(team=self.team, distinct_ids=["d-s1"], properties={"email": "person@example.com"})
         flush_persons_and_events()
-        self.destination = ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports")
+        self.destination = ExportDestination(role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports")
         self.s3 = FakeS3()
         self.quote = self._quote(None)
         self.file_key = f"customer/exports/{self.team.pk}/run-1/{self.day.date().isoformat()}/s1.phrec"
@@ -190,6 +196,92 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             if "/manifests/" in key
             for line in body.decode().splitlines()
         ]
+
+    def _check_destination(
+        self, s3: FakeS3, validation_error: Exception | None = None, assume: AsyncMock | None = None
+    ) -> MagicMock:
+        validate = MagicMock(side_effect=validation_error)
+
+        @contextlib.asynccontextmanager
+        async def s3_client(*_: Any, **__: Any) -> AsyncIterator[FakeS3]:
+            yield s3
+
+        async def run_check() -> None:
+            check = CheckDestinationInput(team_id=self.team.pk, destination=self.destination, run_id="run-1")
+            await ActivityEnvironment().run(check_destination, check)
+
+        with (
+            self.settings(RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN=OUR_ROLE_ARN),
+            patch(f"{ACTIVITIES}.validate_aws_role_arn", validate),
+            patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume or AsyncMock()),
+            patch(f"{ACTIVITIES}.s3_client", s3_client),
+        ):
+            async_to_sync(run_check)()
+        return validate
+
+    def test_a_role_that_fails_validation_is_never_assumed_and_is_retried(self) -> None:
+        assume = AsyncMock()
+
+        with pytest.raises(ApplicationError) as raised:
+            self._check_destination(FakeS3(), IntegrationError("no external id condition"), assume)
+
+        # validate_aws_role_arn raises the same error for STS outages, so Temporal retries it a few times.
+        assert not raised.value.non_retryable
+        assume.assert_not_called()
+
+    def test_the_write_check_leaves_nothing_in_the_bucket(self) -> None:
+        s3 = FakeS3()
+
+        validate = self._check_destination(s3)
+
+        validate.assert_called_once_with(ROLE_ARN, OUR_ROLE_ARN, f"posthog-{self.organization.id}")
+        assert (s3.objects, s3.uploads) == ({}, {})
+        assert list(s3.request_args) == [f"customer/exports/{self.team.pk}/run-1/preflight"]
+
+    @parameterized.expand(
+        [
+            ("create_denied", "create_multipart_upload", None, 403, "AccessDenied", "s3:PutObject on s3://customer/"),
+            (
+                "part_denied_by_kms",
+                "upload_part",
+                "key-1",
+                403,
+                "AccessDenied",
+                "kms:Decrypt on arn:aws:kms:us-east-1:",
+            ),
+            ("no_bucket", "create_multipart_upload", None, 404, "NoSuchBucket", "The bucket refused a test upload"),
+            ("unavailable", "create_multipart_upload", None, 503, "ServiceUnavailable", None),
+            ("request_timeout", "create_multipart_upload", None, 400, "RequestTimeout", None),
+        ]
+    )
+    def test_a_failed_write_check_names_the_missing_permission_and_retries_only_transient_errors(
+        self, _: str, call: str, kms_key_id: str | None, status: int, code: str, missing: str | None
+    ) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id=kms_key_id)
+        s3 = FakeS3()
+        response: Any = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+
+        with patch.object(s3, call, side_effect=ClientError(response, call)), pytest.raises(Exception) as raised:
+            self._check_destination(s3)
+
+        if missing is None:
+            assert isinstance(raised.value, ClientError)
+        else:
+            assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
+            assert missing in str(raised.value)
+        assert s3.uploads == {}
+
+    def test_a_failed_abort_keeps_the_part_error(self) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id="key-1")
+        s3 = FakeS3()
+        denied: Any = {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}}
+
+        with (
+            patch.object(s3, "upload_part", side_effect=ClientError(denied, "UploadPart")),
+            patch.object(s3, "abort_multipart_upload", side_effect=ClientError(denied, "AbortMultipartUpload")),
+            pytest.raises(ApplicationError, match="kms:Decrypt"),
+        ):
+            self._check_destination(s3)
 
     def test_exports_listed_sessions_with_a_manifest(self) -> None:
         totals = self._run()
@@ -494,9 +586,6 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
 
 
-ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
-
-
 @pytest.mark.parametrize(
     "kms_key_id,expected_kms_resource",
     [
@@ -509,31 +598,32 @@ def test_policy_allows_the_kms_key_only_when_one_is_set(
     kms_key_id: str | None, expected_kms_resource: str | None
 ) -> None:
     destination = ExportDestination(
-        integration_id=1, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
+        role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
     )
 
-    statements = policy_statements(destination, 7, "run-1", ROLE_ARN)
+    statements = policy_statements(destination, 7, "run-1")
 
     assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/run-1/*"
     assert [s["Resource"] for s in statements[1:]] == ([expected_kms_resource] if expected_kms_resource else [])
 
 
 @pytest.mark.parametrize(
-    "bucket,prefix,kms_key_id,error",
+    "role_arn,bucket,prefix,kms_key_id,error",
     [
-        ("customer", "exports", None, None),
-        ("customer", "exports", "arn:aws:kms:us-east-1:123456789012:key/abc-123", None),
-        ("*", "exports", None, "bucket name"),
-        ("customer", "ex*", None, "prefix"),
-        ("customer", "exports", "*", "KMS key"),
-        ("customer", "exports", "alias/replay", "KMS key"),
+        (ROLE_ARN, "customer", "exports", None, None),
+        (ROLE_ARN, "customer", "exports", "arn:aws:kms:us-east-1:123456789012:key/abc-123", None),
+        ("replay-export", "customer", "exports", None, "role ARN"),
+        (ROLE_ARN, "*", "exports", None, "bucket name"),
+        (ROLE_ARN, "customer", "ex*", None, "prefix"),
+        (ROLE_ARN, "customer", "exports", "*", "KMS key"),
+        (ROLE_ARN, "customer", "exports", "alias/replay", "KMS key"),
     ],
 )
 def test_destination_rejects_values_that_widen_the_session_policy(
-    bucket: str, prefix: str, kms_key_id: str | None, error: str | None
+    role_arn: str, bucket: str, prefix: str, kms_key_id: str | None, error: str | None
 ) -> None:
     destination = ExportDestination(
-        integration_id=1, bucket=bucket, region="us-east-1", prefix=prefix, kms_key_id=kms_key_id
+        role_arn=role_arn, bucket=bucket, region="us-east-1", prefix=prefix, kms_key_id=kms_key_id
     )
 
     message = destination_error(destination)
@@ -554,7 +644,7 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
     )
     input = ExportShardInput(
         team_id=1,
-        destination=ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports"),
+        destination=ExportDestination(role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports"),
         run_id="run-1",
         day="2026-01-01",
         shard=0,
