@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 import math
 from copy import deepcopy
 from dataclasses import asdict
+from functools import cached_property
 from typing import Annotated, Any, Literal, TypeGuard
 
 from django.db import models
@@ -628,6 +629,8 @@ class _ObjectAccessLevelField(serializers.SerializerMethodField):
         return ObjectAccessRef(
             resource=self.resource,
             id=str(instance.id),
+            # Not `instance.team_id`: a project's list holds the experiments of all its environments, and the access
+            # control of the request refuses a reference to a team other than its own.
             team_id=self.context["get_team"]().id,
             created_by_id=instance.created_by.id if instance.created_by else None,
         )
@@ -773,11 +776,6 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
         fields = super().get_fields()
         return {name: fields[name] for name in self.Meta.fields}
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # The mixin's field-level access check reads the model class of `self.instance`. No field of the experiment
-        # model declares a field-level access rule, so the check has nothing to enforce.
-        return attrs
-
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
     def get_status(self, experiment: ExperimentBasic) -> str:
         return experiment.status
@@ -787,11 +785,16 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
         flag = experiment.feature_flag
         return {**asdict(flag), "evaluation_contexts": list(flag.evaluation_contexts)}
 
+    # One holdout serializer renders every row of a list, because a new model serializer per row builds its fields again.
+    @cached_property
+    def _holdout_serializer(self) -> _ExperimentHoldoutViewSerializer:
+        return _ExperimentHoldoutViewSerializer(context=self.context)
+
     @extend_schema_field(ExperimentHoldoutSerializer)
     def get_holdout(self, experiment: ExperimentBasic) -> dict[str, Any] | None:
         if experiment.holdout is None:
             return None
-        return _ExperimentHoldoutViewSerializer(experiment.holdout, context=self.context).data
+        return self._holdout_serializer.to_representation(experiment.holdout)
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_legacy(self, experiment: ExperimentBasic) -> bool:

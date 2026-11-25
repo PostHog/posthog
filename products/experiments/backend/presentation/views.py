@@ -206,9 +206,7 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# Heavy JSON columns the list view never renders. Deferred for the list action so large
-# pages don't pay to read/decode detail-only data; the full serializer still loads them
-# for retrieve/update. None of these are touched by the list filters or status derivation.
+# Heavy JSON columns that bulk_update_tags defers, because it does not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
@@ -459,7 +457,8 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
     retrieve=extend_schema(
         description="Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
     ),
-    # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
+    # GET /experiments/ pages through experiments_facade.list_experiments, which filters with
+    # ExperimentService.filter_experiments_queryset
     list=extend_schema(
         description="List experiments for the current project. Supports filtering by status and archival state.",
         parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
@@ -554,9 +553,6 @@ class EnterpriseExperimentsViewSet(
         return Response(
             ExperimentSerializer(experiment, context=self.get_serializer_context()).data, status=status_code
         )
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(self.get_serializer(self.get_object()).data)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)

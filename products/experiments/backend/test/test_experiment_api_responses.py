@@ -9,8 +9,7 @@ import time_machine
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, PersonalAPIKey, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models import OrganizationMembership, User
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.facade.testing import create_access_control
@@ -166,10 +165,7 @@ class TestExperimentListAccess(ExperimentFixtures, APILicensedTest):
     def _listed_names(self, query: str, credential: str) -> set[str]:
         headers: dict[str, str] = {}
         if credential == "personal_api_key":
-            token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="Experiments", secure_value=hash_key_value(token), scopes=["experiment:read"]
-            )
+            token = self.create_personal_api_key_with_scopes(["experiment:read"])
             headers = {"Authorization": f"Bearer {token}"}
             self.client.logout()
         elif credential == "project_secret_api_key":
