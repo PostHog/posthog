@@ -1,6 +1,5 @@
 import os
 import json
-import math
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
@@ -740,24 +739,11 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
-
-def _shadow_read_rate(value: str) -> float:
-    """A value that is not a number turns shadow reads off instead of failing startup."""
-    try:
-        rate = float(value)
-    except ValueError:
-        return 0.0
-    return 0.0 if math.isnan(rate) else min(max(rate, 0.0), 1.0)
-
-
 QUOTA_LIMITING_REDIS_URL = os.getenv("QUOTA_LIMITING_REDIS_URL", None)
 QUOTA_LIMITING_REDIS_CLUSTER_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
-# disabled, shadow or live, in any case and with surrounding spaces ignored. Any other value reads shared Redis
-# only, as disabled does.
+# disabled, shadow or live. Any other value reads shared Redis only, as disabled does.
 QUOTA_LIMITING_REDIS_READ_MODE = get_from_env("QUOTA_LIMITING_REDIS_READ_MODE", "disabled")
-QUOTA_LIMITING_REDIS_SHADOW_READ_RATE = get_from_env(
-    "QUOTA_LIMITING_REDIS_SHADOW_READ_RATE", 0.0, type_cast=_shadow_read_rate
-)
+QUOTA_LIMITING_REDIS_SHADOW_READ_RATE = get_from_env("QUOTA_LIMITING_REDIS_SHADOW_READ_RATE", 0.0, type_cast=float)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is

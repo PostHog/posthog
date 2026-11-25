@@ -37,7 +37,6 @@ QUOTA_SHADOW_READ_DURATION = Histogram(
     buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
 SECONDARY_RETRY_DELAY_SECONDS = 30
-SHADOW_MISMATCH_LOG_DELAY_SECONDS = 60
 # Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
 QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
 QUOTA_READ_PAGE_SIZE = 5_000
@@ -47,7 +46,6 @@ _QUOTA_READ_RETRY_ERRORS = (RedisClusterException, RedisConnectionError, RedisTi
 _retry_after: dict[str, float] = {}
 # Reads keep their own cooldown so a slow read never stops the dual writes that keep the copy correct.
 _read_retry_after: dict[str, float] = {}
-_shadow_mismatch_log_after: dict[tuple[str, str], float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
     "billing_quota_migration_enabled",
@@ -124,18 +122,14 @@ def run_secondary_quota_operation[T](
         return None
 
 
-def _quota_read_mode() -> str:
-    return settings.QUOTA_LIMITING_REDIS_READ_MODE.strip().lower()
-
-
 def quota_reads_use_secondary() -> bool:
-    return bool(settings.QUOTA_LIMITING_REDIS_URL) and _quota_read_mode() == "live"
+    return bool(settings.QUOTA_LIMITING_REDIS_URL) and settings.QUOTA_LIMITING_REDIS_READ_MODE == "live"
 
 
 def quota_shadow_read_sampled() -> bool:
     return (
         bool(settings.QUOTA_LIMITING_REDIS_URL)
-        and _quota_read_mode() == "shadow"
+        and settings.QUOTA_LIMITING_REDIS_READ_MODE == "shadow"
         and random.random() < settings.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE
     )
 
@@ -148,7 +142,7 @@ def read_secondary_quota_store[T](operation: str, callback: Callable[[QuotaRedis
 def shadow_read_secondary_quota_store[T](
     operation: str,
     callback: Callable[[QuotaRedisClient], T],
-    count_differences: Callable[[T], int],
+    differs: Callable[[T], bool],
     *,
     function: str,
     resource: str,
@@ -163,14 +157,8 @@ def shadow_read_secondary_quota_store[T](
         QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="error").inc()
         return
     QUOTA_SHADOW_READ_DURATION.labels(function=function).observe(perf_counter() - started)
-    differences = count_differences(copy_answer)
-    if not differences:
-        QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="match").inc()
-        return
-    QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="mismatch").inc()
-    if monotonic() >= _shadow_mismatch_log_after.get((function, resource), 0):
-        _shadow_mismatch_log_after[(function, resource)] = monotonic() + SHADOW_MISMATCH_LOG_DELAY_SECONDS
-        logger.warning("quota_shadow_read_mismatch", function=function, resource=resource, differences=differences)
+    result = "mismatch" if differs(copy_answer) else "match"
+    QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result=result).inc()
 
 
 def _read_retries() -> Iterator[tuple[int, float]]:
