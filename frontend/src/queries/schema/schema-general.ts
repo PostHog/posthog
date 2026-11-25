@@ -9357,6 +9357,10 @@ export interface MarketingAnalyticsRecommendationCpa {
 export type MarketingAnalyticsRecommendationsDataGapKind =
     | 'conversion_action_tables_not_synced'
     | 'performance_max_search_terms_count_primary_conversions'
+    | 'posthog_conversions_not_ready'
+    | 'posthog_conversion_goals_unusable'
+    | 'posthog_campaigns_unmatched'
+    | 'posthog_conversions_failed'
 
 export interface MarketingAnalyticsRecommendationsDataGap {
     kind: MarketingAnalyticsRecommendationsDataGapKind
@@ -9557,6 +9561,12 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * Defaults to false.
      */
     counts_as_revenue?: boolean
+    /**
+     * When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the
+     * conversions Google Ads reports. Conversions from every marked goal are added together, so marking
+     * two goals the same person completes counts that person twice. Defaults to false.
+     */
+    use_in_recommendations?: boolean
 }
 
 export enum AttributionMode {

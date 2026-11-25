@@ -1,14 +1,14 @@
 {% extends "email/base.html" %}
-{% block heading %}We didn't approve {{ app_name }}{% endblock %}
+{% block heading %}We blocked {{ app_name }} from provisioning{% endblock %}
 {% block section %}
     <p>
-        We reviewed <strong>{{ app_name }}</strong> and turned off provisioning for it, so it can't use the PostHog provisioning API.
-        Every connection it had to a PostHog account was signed out.
+        We blocked <strong>{{ app_name }}</strong> from provisioning, so it can't use the PostHog provisioning API. Every connection
+        it had to a PostHog account was signed out.
     </p>
     {% if partner_message %}
         <p><strong>Note from the PostHog team:</strong> {{ partner_message }}</p>
     {% endif %}
-    <p>If you think we got this wrong, or you've changed the application since, open the review and contact support from there.</p>
+    <p>Registering again or asking for another review doesn't lift the block. If you think we got this wrong, open the review and contact support from there.</p>
     <p>
         You're getting this email because you're an admin or owner of {{ organization_name }}, which owns this application. Its
         client ID is {{ client_id }}.

@@ -3926,10 +3926,10 @@ Today (14): `activities`, `activity_categories`, `activity_types`, `contacts`, `
 
 Diffed against: <https://api.commonroom.io/docs/api-v2.html>
 
-- [ ] `Job openings (GET /job-openings)` — Hiring signals for organizations we already sync, a common buying-intent input (medium)
-- [ ] `Activity sentiment labels (GET /activity-sentiment)` — Lookup for the sentiment classification carried on activities (medium)
-- [ ] `Locations (GET /locations)` — Lookup of community member locations, sorted by member count (low)
-- [ ] `News items (GET /news-items)` — News articles per organization, for account research (low)
+- [x] `Job openings (GET /job-openings)` — Hiring signals for organizations we already sync, a common buying-intent input (medium)
+- [x] `Activity sentiment labels (GET /activity-sentiment)` — Lookup for the sentiment classification carried on activities (medium)
+- [ ] `Locations (GET /locations)` — Lookup of community member locations, sorted by member count (low). Skipped: each request needs one required locationType facet and returns only location names, with no member counts, so it adds little as a table.
+- [x] `News items (GET /news-items)` — News articles per organization, for account research (low)
 - [ ] `Buying committee cells (GET /buying-committee-cells)` — Ranked contacts per seniority and department for one organization (low)
 
 Note: Parsed the OpenAPI spec embedded in the Redoc page (\_\_redoc_state). Job openings, news items and buying committee cells need organizationId (or objectId) per request, so they need fan-out over organizations. Excluded prospector-\*, suggestion lookups (job-titles, industries, tech-stack-products), analytics/query (rep-level aggregates), and all POST write routes.
@@ -6963,7 +6963,7 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (18): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_requests`
+Today (20): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `events`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_activities`, `time_off_requests`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
@@ -6974,9 +6974,9 @@ Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 - [x] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
 - [x] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
 - [x] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
-- [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
+- [x] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
 - [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
-- [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
+- [x] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
 - [x] `Tax payments (GET /v1/companies/{company_uuid}/tax_payments)` — reconcile payroll tax liabilities with what Gusto paid each agency and when (medium)
 
 Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI blocks from each selected reference page. Compared their GET operations with the nine static source tables. Compensation records, terminations, and garnishments are already nested in existing responses. Child collections need parent fan-out; events require system authentication and retain only 30 days.
@@ -12695,7 +12695,7 @@ Note: The connector authenticates with a Rollbar project access token, while pro
 
 ## Rootly — gaps
 
-Today (19): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
+Today (22): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_roles`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedule_rotation_users`, `schedule_rotations`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
@@ -12703,10 +12703,10 @@ Diffed against: <https://docs.rootly.com/api-reference>
 - [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
 - [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
 - [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
-- [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
-- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
-- [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
-- [ ] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium)
+- [x] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high) → `incident_roles` (full refresh)
+- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium) Skipped: `GET /v1/oncalls` computes who is on call at a `since`/`until` time (default now), unpaginated and with no timestamps to sync on.
+- [x] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium) → `schedule_rotations` (full refresh, fan-out over `schedules`)
+- [x] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium) → `schedule_rotation_users` (full refresh, two-level fan-out over `schedules` and their rotations)
 - [ ] `workflow_runs (list-workflow-runs)` — execution history for the workflows we already sync (medium)
 - [ ] `sub_statuses (list-sub-statuses)` — lookup resolving incident sub-status IDs (medium)
 - [ ] `incident_feedbacks (list-incident-feedbacks)` — post-incident satisfaction scoring (medium)
@@ -15060,7 +15060,7 @@ Note: Docusaurus site; sitemap enumerated the full operation list and individual
 
 Re-audited 2026-11-19 against: <https://docs.tinyrelay.com/docs/tiny-email/list-templates>
 
-- [ ] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
+- [x] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
 
 Note (2026-11-19): Diffed the sitemap at docs.tinyemail.com (now served under docs.tinyrelay.com) against our tables. Templates are the only new readable list; it is paged with zero-based page, size and sort params (name, createdAt, updatedAt). Excluded account customer (single GET by email, no list), segment single lookups, bounce code reference page, and all write routes.
 
