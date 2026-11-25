@@ -78,7 +78,7 @@ _STUB_ROWS = [
     {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
 ]
 _REFUSED_CONNECTION_ERROR = (
-    "HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded with url: "
+    "HTTPConnectionPool(host='capture.posthog.invalid', port=8010): Max retries exceeded with url: "
     "/i/v1/analytics/events (Caused by NewConnectionError('<urllib3.connection.HTTPConnection "
     "object at 0x7f0000000000>: Failed to establish a new connection: [Errno 111] Connection refused'))"
 )
@@ -331,8 +331,8 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
                     error={"error": "transport_error", "error_description": _REFUSED_CONNECTION_ERROR},
                     unaccounted=[event["event_uuid"] for event in events],
                 ),
-                "transport_error: HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded "
-                "with url: /i/v1/an... object at 0x7f0000000000>: Failed to establish a new connection: "
+                "transport_error: HTTPConnectionPool(host='capture.posthog.invalid', port=8010): Max retries exceeded "
+                "with url: /i/v... object at 0x7f0000000000>: Failed to establish a new connection: "
                 "[Errno 111] Connection refused')))",
             ),
             (

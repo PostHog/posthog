@@ -2689,10 +2689,10 @@ Note: The vendor's API repo later added more resource sections (stats, contribut
 
 Re-audited 2026-11-19 against: <https://github.com/Buzzsprout/buzzsprout-api/blob/master/README.md>
 
-- [ ] `Team (GET /api/:podcast_id/team)` — people with login access to the podcast and their roles (medium)
-- [ ] `Brand affiliations (GET /api/:podcast_id/brand_affiliations)` — sponsor and brand records linked to episodes, for sponsorship reporting (low)
-- [ ] `Podrolls (GET /api/:podcast_id/podrolls)` — podcasts recommended by this show (low)
-- [ ] `Episode transcripts (GET /api/:podcast_id/episodes/:episode_id/transcript)` — transcript text per episode for content analysis, fan-out over episodes (low)
+- [x] `Team (GET /api/:podcast_id/team)` — people with login access to the podcast and their roles (medium)
+- [x] `Brand affiliations (GET /api/:podcast_id/brand_affiliations)` — sponsor and brand records linked to episodes, for sponsorship reporting (low)
+- [x] `Podrolls (GET /api/:podcast_id/podrolls)` — podcasts recommended by this show (low)
+- [ ] `Episode transcripts (GET /api/:podcast_id/episodes/:episode_id/transcript)` — transcript text per episode for content analysis, fan-out over episodes (low) Skipped: returns only transcript status and a download link, not the text, and needs one request per episode against a 60 requests/minute limit.
 
 Note (2026-11-19): Read the README and every section file in the vendor repo (sections/\*.md) and listed each GET route. Podcasts, episodes, downloads, contributors, fan mail and listings are already synced. Excluded uploads, chapters, soundbites, insertion points, feed verifications and the MCP page as media or write-oriented. Transcripts need one request per episode and may 404 when none exists.
 
@@ -3926,10 +3926,10 @@ Today (14): `activities`, `activity_categories`, `activity_types`, `contacts`, `
 
 Diffed against: <https://api.commonroom.io/docs/api-v2.html>
 
-- [ ] `Job openings (GET /job-openings)` — Hiring signals for organizations we already sync, a common buying-intent input (medium)
-- [ ] `Activity sentiment labels (GET /activity-sentiment)` — Lookup for the sentiment classification carried on activities (medium)
-- [ ] `Locations (GET /locations)` — Lookup of community member locations, sorted by member count (low)
-- [ ] `News items (GET /news-items)` — News articles per organization, for account research (low)
+- [x] `Job openings (GET /job-openings)` — Hiring signals for organizations we already sync, a common buying-intent input (medium)
+- [x] `Activity sentiment labels (GET /activity-sentiment)` — Lookup for the sentiment classification carried on activities (medium)
+- [ ] `Locations (GET /locations)` — Lookup of community member locations, sorted by member count (low). Skipped: each request needs one required locationType facet and returns only location names, with no member counts, so it adds little as a table.
+- [x] `News items (GET /news-items)` — News articles per organization, for account research (low)
 - [ ] `Buying committee cells (GET /buying-committee-cells)` — Ranked contacts per seniority and department for one organization (low)
 
 Note: Parsed the OpenAPI spec embedded in the Redoc page (\_\_redoc_state). Job openings, news items and buying committee cells need organizationId (or objectId) per request, so they need fan-out over organizations. Excluded prospector-\*, suggestion lookups (job-titles, industries, tech-stack-products), analytics/query (rep-level aggregates), and all POST write routes.
@@ -6963,7 +6963,7 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (18): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_requests`
+Today (20): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `events`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_activities`, `time_off_requests`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
@@ -6974,9 +6974,9 @@ Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 - [x] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
 - [x] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
 - [x] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
-- [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
+- [x] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
 - [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
-- [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
+- [x] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
 - [x] `Tax payments (GET /v1/companies/{company_uuid}/tax_payments)` — reconcile payroll tax liabilities with what Gusto paid each agency and when (medium)
 
 Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI blocks from each selected reference page. Compared their GET operations with the nine static source tables. Compensation records, terminations, and garnishments are already nested in existing responses. Child collections need parent fan-out; events require system authentication and retain only 30 days.
@@ -9088,8 +9088,8 @@ Today (5): `bounces`, `campaign_analytics`, `campaigns`, `lists`, `subscribers`
 
 Diffed against: <https://raw.githubusercontent.com/knadh/listmonk/master/docs/swagger/collections.yaml>
 
-- [ ] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
-- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low)
+- [x] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
+- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low). Skipped: returns one log string of the running import, not rows.
 
 Note: Parsed the official Swagger collection file. Subscribers, lists, campaigns, bounces and campaign analytics are already synced. Other routes are settings, config, health, admin and write actions. Templates takes a required no_body flag, so send no_body=true or false by choice. Import logs is only for the running import, so it is probably not worth a table.
 
@@ -12587,7 +12587,7 @@ Note: Read llms.txt and the .md page for every REST resource: campaigns, affilia
 
 ## Rippling — gaps
 
-Today (20): `companies`, `compensations`, `departments`, `employment_types`, `leave_accruals`, `leave_balances`, `leave_requests`, `levels`, `payroll_runs`, `teams`, `time_entries`, `titles`, `tracks`, `users`, `variable_compensation_payouts`, `work_locations`, `worker_change_fields`, `worker_changes`, `worker_payroll_records`, `workers`
+Today (24): `companies`, `compensations`, `departments`, `employment_types`, `job_assignments`, `job_codes`, `leave_accruals`, `leave_balances`, `leave_requests`, `leave_types`, `levels`, `payroll_runs`, `teams`, `time_cards`, `time_entries`, `titles`, `tracks`, `users`, `variable_compensation_payouts`, `work_locations`, `worker_change_fields`, `worker_changes`, `worker_payroll_records`, `workers`
 
 Diffed against: <https://developer.rippling.com/sitemap.xml>
 
@@ -12599,10 +12599,10 @@ Diffed against: <https://developer.rippling.com/sitemap.xml>
 - [x] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
 - [x] `list-titles` — lookup resolving the job title ID carried on workers (high)
 - [x] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
-- [ ] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
-- [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium)
-- [ ] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
-- [ ] `list-time-cards` — approved timesheet totals per period, the aggregate view of time entries (medium)
+- [x] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
+- [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium) Skipped: not in the published rest-api reference (the reference page and LegalEntity schema return 404); only a guide links to it.
+- [x] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
+- [x] `list-time-cards` — approved timesheet totals per period, the aggregate view of time entries (medium)
 - [x] `list-variable-compensation-payouts` — per-worker variable compensation payouts (bonuses, commissions, one-off pay) with status and scheduled dates (medium)
 
 Note: Rippling exposes three distinct API surfaces (base-api, company-api, rest-api). The PostHog tables match the modern rest-api (Rippling Platform API), so the diff was taken against the ~230 rest-api reference pages in the sitemap; the base-api/company-api surfaces are older equivalents and were not counted as gaps.
@@ -12695,7 +12695,7 @@ Note: The connector authenticates with a Rollbar project access token, while pro
 
 ## Rootly — gaps
 
-Today (19): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
+Today (22): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_roles`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedule_rotation_users`, `schedule_rotations`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
@@ -12703,10 +12703,10 @@ Diffed against: <https://docs.rootly.com/api-reference>
 - [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
 - [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
 - [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
-- [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
-- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
-- [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
-- [ ] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium)
+- [x] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high) → `incident_roles` (full refresh)
+- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium) Skipped: `GET /v1/oncalls` computes who is on call at a `since`/`until` time (default now), unpaginated and with no timestamps to sync on.
+- [x] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium) → `schedule_rotations` (full refresh, fan-out over `schedules`)
+- [x] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium) → `schedule_rotation_users` (full refresh, two-level fan-out over `schedules` and their rotations)
 - [ ] `workflow_runs (list-workflow-runs)` — execution history for the workflows we already sync (medium)
 - [ ] `sub_statuses (list-sub-statuses)` — lookup resolving incident sub-status IDs (medium)
 - [ ] `incident_feedbacks (list-incident-feedbacks)` — post-incident satisfaction scoring (medium)
@@ -12918,10 +12918,10 @@ Diffed against: <https://developers.salesloft.com/docs/api/opportunities-index/>
 - [x] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
 - [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium); skipped: `GET /v2/account_types` returns only the distinct account type names for filter pickers, with no id, no pagination and results limited to the caller's readable accounts. Accounts carry the type as a plain string (`company_type`), so there is no id to resolve and the values are derivable from the `accounts` table
 - [x] `opportunity_people` — join table linking people to opportunities (medium)
-- [ ] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
-- [ ] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium)
-- [ ] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
-- [ ] `custom_roles` — lookup resolving the role assigned to each user (low)
+- [x] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
+- [x] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium); built `conversations`. `conversations_calls` is not a table: `POST /v2/conversations/calls` only creates a dialer call and has no list endpoint
+- [x] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
+- [x] `custom_roles` — lookup resolving the role assigned to each user (low)
 
 Note: Salesloft publishes no OpenAPI file (api.salesloft.com/v2.json is auth-gated); the complete v2.0 resource list is rendered into the Docusaurus sidebar on every /docs/api/\*-index page. Excluded plumbing: webhook subscriptions, bulk jobs, external id configuration/mapping, redaction and right-to-be-forgotten, saved list views, recording settings.
 
@@ -16205,16 +16205,23 @@ Diffed against: <https://workos.com/docs/reference/authkit/waitlist>
 Re-audited 2026-11-19 against: <https://workos.com/docs/llms.txt>
 
 - [x] `Organization memberships (GET /user_management/organization_memberships)` — Join table between users and organizations with role and status; the users and organizations tables cannot be linked without it (high)
-- [ ] `Invitations (GET /user_management/invitations)` — AuthKit invites with state and expiry, to measure invite acceptance by organization (medium)
-- [ ] `Environment roles (GET /authorization/roles)` — Lookup that names the role slugs carried on memberships (medium)
+- [x] `Invitations (GET /user_management/invitations)` — AuthKit invites with state and expiry, to measure invite acceptance by organization (medium)
+- [x] `Environment roles (GET /authorization/roles)` — Lookup that names the role slugs carried on memberships (medium)
 - [ ] `Permissions (GET /authorization/permissions)` — Environment permission catalog that roles refer to (low)
-- [ ] `Organization groups (GET /organizations/{organizationId}/groups)` — AuthKit groups of memberships; needs one call per organization (medium)
+- [x] `Organization groups (GET /organizations/{organizationId}/groups)` — AuthKit groups of memberships; needs one call per organization (medium)
 - [ ] `Feature flags (GET /feature-flags)` — Flag definitions for the environment (low)
-- [ ] `Events (GET /events)` — Change feed of user, organization, directory and connection events; keeps history that current-state tables lose (medium)
+- [x] `Events (GET /events)` — Change feed of user, organization, directory and connection events; keeps history that current-state tables lose (medium)
 
 Note (2026-11-19): Read llms.txt and the reference pages served as .md, and checked each list route heading. Invitations, roles, permissions and events are environment-level lists. Groups need a fan-out per organization. Excluded sessions and identities (per-user fan-out, ephemeral), API keys, agent vault, redirect URIs, CORS origins, webhooks, audit log schema and export, FGA and Pipes. The events list needs a type filter and has a limited retention window, so confirm both before building.
 
 Note (2026-11-23): Built `organization_memberships`. The list call needs `user_id` or `organization_id`, so it fans out over organizations. It returns only active memberships by default, so the sync asks for `statuses=active,inactive,pending`. Webhook sync through the `organization_membership.*` events is not built.
+
+Note (2026-11-24): Built `invitations`, `roles`, `organization_groups` and `events`.
+`invitations` drops the `token` and `accept_invitation_url` columns, because they let anyone accept the invite.
+`roles` takes no `limit` or `order`.
+`organization_groups` fans out over organizations.
+`events` needs a type filter, so it asks for the documented identity event types (not Vault, Pipes, feature flag, Radar or agent registration events).
+It syncs incrementally on `created_at` through `range_start`, in oldest-first order.
 
 ## World Bank Open Data — gaps
 

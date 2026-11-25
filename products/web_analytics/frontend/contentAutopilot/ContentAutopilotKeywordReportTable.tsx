@@ -1,6 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { IconInfo, IconPencil } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumnGroup,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -12,6 +22,7 @@ import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/gen
 import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
 import type { KeywordSearchImpressions } from './keywordSearchImpressions'
 import { windowRange } from './utils'
 
@@ -32,13 +43,14 @@ const byRate =
     (a: AEOKeywordReportRowApi, b: AEOKeywordReportRowApi): number =>
         ((a[field] as number | null) ?? -1) - ((b[field] as number | null) ?? -1)
 
-const COLUMNS: ReportColumn[] = [
-    {
-        title: 'Keyword',
-        key: 'keyword',
-        render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
-        sorter: (a, b) => a.keyword.localeCompare(b.keyword),
-    },
+const KEYWORD_COLUMN: ReportColumn = {
+    title: 'Keyword',
+    key: 'keyword',
+    render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
+    sorter: (a, b) => a.keyword.localeCompare(b.keyword),
+}
+
+const AI_COLUMNS: ReportColumn[] = [
     {
         title: 'Mention rate',
         key: 'answer_mention_rate',
@@ -119,6 +131,15 @@ const COLUMNS: ReportColumn[] = [
 
 type SearchMetric = keyof KeywordSearchImpressions
 
+const GroupTitle = ({ title, description }: { title: string; description: string }): JSX.Element => (
+    <span className="inline-flex items-center gap-1">
+        {title}
+        <Tooltip title={description} interactive openOnClick>
+            <LemonButton size="xsmall" noPadding icon={<IconInfo />} aria-label={`About ${title}`} />
+        </Tooltip>
+    </span>
+)
+
 const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[] = [
     {
         metric: 'impressions',
@@ -144,7 +165,7 @@ const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[]
     },
 ]
 
-/** One sortable column per Search Console number. Null `impressions` means they have not loaded. */
+/** One sortable column per Search Console number. Null `impressions` means they are loading. */
 const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | null): ReportColumn[] =>
     SEARCH_COLUMNS.map(({ metric, title, tooltip }) => ({
         title,
@@ -175,15 +196,56 @@ const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | n
 export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { report, reportLoading, reportError } = useValues(contentAutopilotKeywordsLogic)
     const { loadReport } = useActions(contentAutopilotKeywordsLogic)
-    const { searchTable, searchConsoleMissing, impressions, impressionsFailed } = useValues(
+    const { searchTable, searchConsoleMissing, impressions, impressionsLoading, impressionsFailed } = useValues(
         contentAutopilotKeywordSearchLogic
     )
-    // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns = searchTable && !impressionsFailed ? [...COLUMNS, ...searchColumns(impressions)] : COLUMNS
+    const { openKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
+    const columns: LemonTableColumnGroup<AEOKeywordReportRowApi>[] = [
+        { children: [KEYWORD_COLUMN] },
+        {
+            title: (
+                <GroupTitle
+                    title="AI answers"
+                    description="Each day the engines answer your prompts. A keyword counts in an answer, or in a web search the engine ran for it, when that text contains the keyword, case ignored."
+                />
+            ),
+            children: AI_COLUMNS,
+        },
+        // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
+        ...(searchTable && !impressionsFailed
+            ? [
+                  {
+                      title: (
+                          <GroupTitle
+                              title="Google search"
+                              description="From Google Search Console: Google searches that contain the keyword and showed your site."
+                          />
+                      ),
+                      children: searchColumns(impressionsLoading ? null : impressions),
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="How your keywords perform" />
+            <PagePerformanceCardHeader
+                title="How your keywords perform"
+                actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ContentAutopilotKeywordSuggestButton size="small" />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPencil />}
+                            onClick={openKeywordsModal}
+                            data-attr="content-autopilot-keywords-manage"
+                        >
+                            Manage keywords
+                        </LemonButton>
+                    </div>
+                }
+            />
             {reportError ? (
                 <LemonBanner
                     type="error"
@@ -210,21 +272,18 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         columns={columns}
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
-                            <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(report.answers, 'answer')} {windowRange(report)}. A keyword matches any
-                                text that contains it, case ignored.
-                                {searchConsoleMissing ? (
-                                    <>
-                                        {' '}
-                                        <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
-                                            Connect Google Search Console
-                                        </Link>{' '}
-                                        to see how often your site appears on Google for each keyword.
-                                    </>
-                                ) : impressionsFailed ? (
-                                    " Couldn't load the Search Console numbers. Reload the page to try again."
-                                ) : null}
-                            </span>
+                            searchConsoleMissing ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
+                                        Connect Google Search Console
+                                    </Link>{' '}
+                                    to see how often your site appears on Google for each keyword.
+                                </span>
+                            ) : impressionsFailed ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    Couldn't load the Search Console numbers. Reload the page to try again.
+                                </span>
+                            ) : undefined
                         }
                     />
                 </div>

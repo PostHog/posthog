@@ -161,7 +161,7 @@ from products.cohorts.backend.realtime_state import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -2146,7 +2146,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         new_properties = _flat_properties(self._effective_filters_after_update(attrs))
         if team is None or next(_hidden_event_references(new_properties), None) is None:
             return
-        mode = get_flag_evaluations_read_mode(team.organization_id)
+        mode = get_flag_evaluations_read_config(team.organization_id, team_id=team.id).mode
         if mode == FlagEvaluationsMode.EVENTS:
             return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
