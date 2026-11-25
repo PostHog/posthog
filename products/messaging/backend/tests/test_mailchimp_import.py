@@ -24,7 +24,6 @@ from products.messaging.backend.provider_imports.mailchimp import (
     DELETED_AUDIENCE_NOTE,
     NO_AUDIENCES_NOTE,
     NOT_EMPTIED_NOTE,
-    UNCONFIRMED_AUDIENCE_NOTE,
     MailchimpImportProvider,
 )
 from products.messaging.backend.tests.fake_mailchimp import FULL_KEY, Failure, FakeMailchimp, split_url
@@ -774,7 +773,7 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         return {
             item["label"]: (item["status"], item["notes"][0])
             for item in run.progress["contacts"]["items"]
-            if item["notes"][0] in (DELETED_AUDIENCE_NOTE, NOT_EMPTIED_NOTE, UNCONFIRMED_AUDIENCE_NOTE)
+            if item["notes"][0] in (DELETED_AUDIENCE_NOTE, NOT_EMPTIED_NOTE)
         }
 
     def test_the_cohort_of_a_deleted_audience_is_emptied_and_named_every_time(self) -> None:
@@ -823,16 +822,20 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
             ("server_error", lambda test: test._refuse_read(500)),
         ]
     )
-    def test_an_audience_not_confirmed_deleted_keeps_its_cohort(
+    def test_an_audience_not_confirmed_deleted_changes_no_cohort(
         self, _name: str, change: Callable[["TestMailchimpContacts"], None]
     ) -> None:
         self._close(self._import_contacts("new_people"))
         change(self)
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
 
-        run = self._import_contacts("new_people")
+        with self.assertRaises((ImportProviderUnavailable, ImportCredentialsInvalid)):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
-        assert NOVEDADES not in self._staged(run)
-        assert self._emptied(run) == {NOVEDADES: ("skipped", UNCONFIRMED_AUDIENCE_NOTE)}
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
 
     def _use_account(self, account_id: str) -> None:
         self.mailchimp.data["account"] = {"account_id": account_id, "account_name": "Other", "role": "owner"}

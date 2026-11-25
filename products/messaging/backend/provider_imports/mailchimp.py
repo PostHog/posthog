@@ -140,9 +140,9 @@ NOT_EMPTIED_NOTE = (
     "This audience was deleted in Mailchimp, but PostHog couldn't empty its cohort. Import again as someone who can edit "
     "it."
 )
-UNCONFIRMED_AUDIENCE_NOTE = (
-    "Mailchimp doesn't list this audience, but PostHog couldn't confirm it was deleted, so its cohort stays as it is. "
-    "Import again, with the API key of an owner or admin of the account."
+UNCONFIRMED_AUDIENCE_MESSAGE = (
+    "Mailchimp doesn't list the audience of the cohort \"{cohort}\", and PostHog couldn't confirm it was deleted, so no "
+    "cohort changed. Import with the API key of an owner or admin of the account, or delete that cohort in PostHog."
 )
 # Other roles can have access to only some audiences, which for them looks like the rest were deleted.
 _ROLES_SEEING_EVERY_AUDIENCE = frozenset({"owner", "admin"})
@@ -866,6 +866,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         )
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, items=(item,)))
         return
+    emptied = _cohorts_of_deleted_audiences(client, context, account_id, _clean(account.get("role")), audiences)
     # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
     # them again.
     run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
@@ -910,26 +911,15 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         invalid_skipped=contacts.invalid_skipped,
     )
     segments = _read_segments(client, account_id, subscribed)
-    gone = _cohorts_of_missing_audiences(client, context, account_id, _clean(account.get("role")), audiences)
 
     def save() -> SavedPage:
-        saved = save_contact_lists(
-            context, everyone, [*lists, *segments.lists, *gone.emptied], contacts.other_spellings
-        )
+        saved = save_contact_lists(context, everyone, [*lists, *segments.lists, *emptied], contacts.other_spellings)
         if saved.error:
             return saved
-        first_emptied = len(saved.items) - len(gone.emptied)
-        emptied = [
-            replace(item, status="failed", notes=(NOT_EMPTIED_NOTE,))
-            if item.status == "failed" or item.url is None
-            # A skipped item says it was left as it is.
-            else replace(item, status="listed")
-            for item in saved.items[first_emptied:]
-        ]
+        first, *rest = _emptied_first(saved.items, len(emptied))
         return replace(
             saved,
-            # The run keeps only its first items, so what needs a look comes before the audiences and tags.
-            items=(saved.items[0], *emptied, *gone.kept, *segments.skipped, *saved.items[1:first_emptied]),
+            items=(first, *segments.skipped, *rest),
             counts={**saved.counts, "segments_failed": segments.failed},
         )
 
@@ -1104,43 +1094,45 @@ def _account_prefix(account_id: str) -> str:
     return f"Imported from Mailchimp account {account_id}, "
 
 
-@frozen
-class _MissingAudiences:
-    emptied: tuple[ContactList, ...] = ()
-    kept: tuple[ImportItem, ...] = ()
+def _emptied_first(items: tuple[ImportItem, ...], emptied: int) -> tuple[ImportItem, ...]:
+    """Moves the emptied cohorts, which were saved last, before the audiences, because a run keeps only its first
+    items."""
+    everyone, *rest = items
+    others, last = rest[: len(rest) - emptied], rest[len(rest) - emptied :]
+    failed = [
+        replace(item, status="failed", notes=(NOT_EMPTIED_NOTE,))
+        for item in last
+        if item.status == "failed" or item.url is None
+    ]
+    # A skipped item says it was left as it is.
+    done = [replace(item, status="listed") for item in last if item.status != "failed" and item.url is not None]
+    return (everyone, *failed, *done, *others)
 
 
-def _cohorts_of_missing_audiences(
+def _cohorts_of_deleted_audiences(
     client: MailchimpClient,
     context: ImportContext,
     account_id: str,
     role: str,
     audiences: list[dict[str, Any]],
-) -> _MissingAudiences:
-    """The cohorts an earlier import of this account made for audiences Mailchimp doesn't list anymore, as empty lists
-    when Mailchimp confirms the audience is gone."""
+) -> list[ContactList]:
+    """The cohorts earlier imports of this account made for audiences deleted since, as empty lists.
+
+    Fails the step for an audience that's missing for another reason, because the account's own cohort would lose its
+    contacts too.
+    """
     prefix = _account_prefix(account_id)
     present = {str(audience["id"]) for audience in audiences}
     made_by_imports = _cohort_ids_of_earlier_imports(context.team_id)
-    gone: dict[str, bool] = {}
+    deleted: set[str] = set()
     emptied: list[ContactList] = []
-    kept: list[ImportItem] = []
     for cohort in described_static_cohorts(context.team_id, prefix):
         match = _AUDIENCE_COHORT.fullmatch(cohort.description.removeprefix(prefix))
         if match is None or match[1] in present or cohort.id not in made_by_imports:
             continue
-        if match[1] not in gone:
-            gone[match[1]] = role.lower() in _ROLES_SEEING_EVERY_AUDIENCE and _is_deleted(client, match[1])
-        if not gone[match[1]]:
-            kept.append(
-                ImportItem(
-                    label=cohort.name,
-                    status="skipped",
-                    url=f"/cohorts/{cohort.id}",
-                    notes=(UNCONFIRMED_AUDIENCE_NOTE,),
-                )
-            )
-            continue
+        if match[1] not in deleted:
+            _confirm_deleted(client, match[1], role, UNCONFIRMED_AUDIENCE_MESSAGE.format(cohort=cohort.name))
+            deleted.add(match[1])
         emptied.append(
             ContactList(
                 cohort_name=cohort.name,
@@ -1150,7 +1142,7 @@ def _cohorts_of_missing_audiences(
                 empty_note=DELETED_AUDIENCE_NOTE,
             )
         )
-    return _MissingAudiences(emptied=tuple(emptied), kept=tuple(kept))
+    return emptied
 
 
 def _cohort_ids_of_earlier_imports(team_id: int) -> set[int]:
@@ -1162,17 +1154,18 @@ def _cohort_ids_of_earlier_imports(team_id: int) -> set[int]:
     return {plan["cohort_id"] for stored in plans if stored for plan in stored}
 
 
-def _is_deleted(client: MailchimpClient, audience_id: str) -> bool:
+def _confirm_deleted(client: MailchimpClient, audience_id: str, role: str, unconfirmed: str) -> None:
+    if role.lower() not in _ROLES_SEEING_EVERY_AUDIENCE:
+        raise ImportCredentialsInvalid(unconfirmed)
     try:
         client.get(f"/lists/{quoted(audience_id)}", {"fields": "id"})
     except MailchimpNotFound:
-        return True
-    except MailchimpRateLimited:
+        return
+    except MailchimpKeyRejected as e:
+        if e.status_code == 403:
+            raise ImportCredentialsInvalid(unconfirmed) from e
         raise
-    except MailchimpAPIError as e:
-        if isinstance(e, MailchimpKeyRejected) and e.status_code != 403:
-            raise
-    return False
+    raise ImportProviderUnavailable(unconfirmed)
 
 
 def _collect_subscribed(
