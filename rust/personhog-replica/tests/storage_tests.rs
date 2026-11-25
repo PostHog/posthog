@@ -660,17 +660,6 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     ctx.insert_hash_key_override(person.id, "flag", "hash")
         .await
         .unwrap();
-    sqlx::query(
-        r#"UPDATE posthog_person
-           SET properties_last_updated_at = '{"email": "2026-01-01T00:00:00Z"}'::jsonb,
-               properties_last_operation = '{"email": "set"}'::jsonb
-           WHERE team_id = $1 AND id = $2"#,
-    )
-    .bind(ctx.team_id as i32)
-    .bind(person.id)
-    .execute(&ctx.pool)
-    .await
-    .unwrap();
 
     let deleted = ctx
         .storage
@@ -688,16 +677,6 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     assert_eq!(version, 1);
     assert_eq!(properties, serde_json::json!({}));
     assert_eq!(distinct_ids, vec![(true, 1), (true, 1)]);
-    let meta: (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT properties_last_updated_at::text, properties_last_operation::text
-         FROM posthog_person WHERE team_id = $1 AND id = $2",
-    )
-    .bind(ctx.team_id as i32)
-    .bind(person.id)
-    .fetch_one(&ctx.pool)
-    .await
-    .unwrap();
-    assert_eq!(meta, (None, None));
     assert_eq!(
         cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
         0

@@ -8,7 +8,18 @@ import { urls } from 'scenes/urls'
 
 import { AppContext } from '~/types'
 
+const mockGateModuleLoaded = jest.fn()
+jest.mock('lib/components/ProductEmptyState/ProductEmptyStateGate', () => {
+    mockGateModuleLoaded()
+    return {}
+})
+
 describe('prefetchScene', () => {
+    beforeEach(() => {
+        jest.resetModules()
+        mockGateModuleLoaded.mockClear()
+    })
+
     afterEach(() => {
         jest.restoreAllMocks()
         window.history.replaceState(null, '', '/')
@@ -67,5 +78,18 @@ describe('prefetchScene', () => {
         await Promise.resolve()
 
         expect(importScene).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['loads the gate for a scene with an empty state', { scene: { emptyState: {} } }, 1],
+        ['skips the gate for a scene without one', { scene: {} }, 0],
+    ])('%s', async (_case, sceneModule, gateLoads) => {
+        window.history.replaceState(null, '', `/project/1${urls.savedInsights()}`)
+        jest.spyOn(appScenes, Scene.SavedInsights).mockResolvedValue(sceneModule)
+
+        prefetchScene()
+        await new Promise(process.nextTick)
+
+        expect(mockGateModuleLoaded).toHaveBeenCalledTimes(gateLoads)
     })
 })

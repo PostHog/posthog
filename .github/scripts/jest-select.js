@@ -26,7 +26,17 @@ function fallback(isDraft, changedFileCount, category, detail) {
 }
 
 /** @returns {Candidate | Fallback} */
-function classifyChanges({ files, diffOutcome, isDraft }) {
+function classifyChanges({ files, diffOutcome, isDraft, forceFull }) {
+    // The merge queue's run gates master and a labeled PR asked for coverage, so neither
+    // may narrow. `forced_full` stays 'full' even for a draft: a trunk-merge PR is a draft,
+    // and skipping jest there would pass the gate without running a test.
+    if (forceFull) {
+        return {
+            mode: 'full',
+            changedFileCount: files.length || null,
+            reason: { category: 'forced_full', detail: 'merge queue or run-ci-frontend' },
+        }
+    }
     if (diffOutcome !== 'success' || files.length === 0) {
         return fallback(isDraft, null, 'diff_unavailable', diffOutcome)
     }
@@ -160,11 +170,38 @@ function main() {
             files: fs.existsSync(filesPath) ? fs.readFileSync(filesPath, 'utf8').split('\n').filter(Boolean) : [],
             diffOutcome: process.env.DIFF_OUTCOME ?? '',
             isDraft: process.env.PR_DRAFT === 'true',
+            forceFull: process.env.FORCE_FULL === 'true',
             installOutcome: process.env.INSTALL_OUTCOME ?? '',
         }
         if (process.argv[2] === 'prepare') {
             const candidate = classifyChanges(input)
             outputs = { needs_dependencies: candidate.mode === 'selective' && candidate.changedFiles.length > 0 }
+        } else if (process.argv[2] === 'plan') {
+            // Per-shard planning for the jest job: classification only, no dependency
+            // install and no related-test count. Every shard classifies the same diff
+            // and agrees, so the matrix does not have to wait for a selector job to
+            // install pnpm and count the tests reachable from the changed files.
+            const candidate = classifyChanges(input)
+            if (candidate.mode !== 'selective') {
+                const behavior =
+                    candidate.mode === 'skip'
+                        ? 'draft skips jest (its ready run selects again)'
+                        : 'running the full jest matrix'
+                console.log(`::notice::${candidate.reason.category} (${candidate.reason.detail}); ${behavior}`)
+            }
+            const selective = candidate.mode === 'selective' && candidate.changedFiles.length > 0
+            outputs = {
+                mode: candidate.mode,
+                changed_files: selective ? candidate.changedFiles.join(' ') : '',
+                // Drafts defer an untrusted selection to their ready run; the test step
+                // skips itself rather than running a matrix nothing selected. A shard with
+                // nothing to run also installs no dependencies, which is the bulk of an
+                // idle shard on this fanout.
+                should_run: String(candidate.mode !== 'skip'),
+                // A full run needs the workspace too; only a diff with no Jest sources
+                // and no fallback can skip the install entirely.
+                needs_dependencies: String(selective || candidate.mode === 'full'),
+            }
         } else if (process.argv[2] === 'select') {
             const selection = selectTests(input, listRelatedTests)
             if (selection.mode !== 'selective' && selection.reason.category !== 'selector_crash') {
@@ -176,7 +213,7 @@ function main() {
             }
             outputs = workflowOutputs(selection)
         } else {
-            throw new Error('Expected prepare or select, or no command for CHANGED_FILES input')
+            throw new Error('Expected prepare, plan or select, or no command for CHANGED_FILES input')
         }
     }
     fs.appendFileSync(
@@ -185,7 +222,7 @@ function main() {
             .map(([key, value]) => `${key}=${value}\n`)
             .join('')
     )
-    if (outputs.mode === 'selective') {
+    if (outputs.mode === 'selective' && outputs.related_test_count !== undefined) {
         console.log(
             `Selective mode: ${outputs.selected_file_count} changed files, ${outputs.related_test_count} related tests, ${outputs.shard_count} shards`
         )

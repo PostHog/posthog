@@ -1,5 +1,7 @@
 from products.messaging.backend.provider_imports.base import ImportProvider
 from products.messaging.backend.provider_imports.customerio import CustomerIOImportProvider
+from products.messaging.backend.provider_imports.mailchimp import MailchimpImportProvider
+from products.messaging.backend.provider_imports.mailgun import MailgunImportProvider
 from products.messaging.backend.provider_imports.postmark import PostmarkImportProvider
 from products.messaging.backend.provider_imports.resend import ResendImportProvider
 from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider
@@ -12,6 +14,8 @@ PROVIDERS: dict[str, ImportProvider] = {
         ResendImportProvider(),
         PostmarkImportProvider(),
         SendGridImportProvider(),
+        MailgunImportProvider(),
+        MailchimpImportProvider(),
     )
 }
 

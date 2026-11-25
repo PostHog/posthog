@@ -17,10 +17,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import {
+  scoutNameForSkill,
+  stripScoutPrefix,
+} from "@posthog/shared/scout-names";
 import type { Signal, SignalFindingContent } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
+import { useScoutNamesBySkill } from "@posthog/ui/features/scouts/hooks/useScoutNamesBySkill";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import {
@@ -48,22 +53,14 @@ const ERROR_TRACKING_TYPE_LABELS: Record<string, string> = {
   issue_spiking: "Volume spike",
 };
 
-// Turn a scout's skill_name (e.g. "signals-scout-error-tracking") into a
-// human-friendly label (e.g. "Error tracking").
-function prettifyScoutName(skillName: string): string {
-  const cleaned = skillName
-    .replace(/^signals-scout-/, "")
-    .replace(/[-_]/g, " ")
-    .trim();
-  if (!cleaned) return "";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-}
-
-export function signalCardSourceLine(signal: {
-  source_product: string;
-  source_type: string;
-  extra?: Record<string, unknown>;
-}): string {
+export function signalCardSourceLine(
+  signal: {
+    source_product: string;
+    source_type: string;
+    extra?: Record<string, unknown>;
+  },
+  scoutNames?: Record<string, string>,
+): string {
   const { source_product, source_type } = signal;
 
   if (source_product === "error_tracking") {
@@ -117,11 +114,10 @@ export function signalCardSourceLine(signal: {
     source_product === "signals_scout" &&
     source_type === "cross_source_issue"
   ) {
-    const skillName =
-      typeof signal.extra?.skill_name === "string"
-        ? prettifyScoutName(signal.extra.skill_name)
-        : "";
-    return skillName ? `Scout · ${skillName}` : "Scout · Cross-source issue";
+    const skillName = signal.extra?.skill_name;
+    return typeof skillName === "string" && stripScoutPrefix(skillName).trim()
+      ? `Scout · ${scoutNameForSkill(scoutNames, skillName)}`
+      : "Scout · Cross-source issue";
   }
 
   const productLabel = source_product.replace(/_/g, " ");
@@ -325,6 +321,7 @@ function SignalCardHeader({
   verified?: boolean;
 }) {
   const meta = getSourceProductMeta(signal.source_product);
+  const scoutNames = useScoutNamesBySkill();
 
   return (
     <Flex align="center" gap="2" className="mb-2 cursor-default select-none">
@@ -339,7 +336,10 @@ function SignalCardHeader({
         )}
       </span>
       <Text className="font-medium text-[14px] text-gray-10">
-        {signalCardSourceLine({ ...signal, extra: parseExtra(signal.extra) })}
+        {signalCardSourceLine(
+          { ...signal, extra: parseExtra(signal.extra) },
+          scoutNames,
+        )}
       </Text>
       <span className="flex-1" />
       <RelativeTimestamp timestamp={signal.timestamp} />

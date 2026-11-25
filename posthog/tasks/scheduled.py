@@ -135,6 +135,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -474,6 +475,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="45"),
         prune_expired_scratchpad_entries_task.s(),
         name="prune expired signals scratchpad entries",
+    )
+
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
     )
 
     add_periodic_task_with_expiry(

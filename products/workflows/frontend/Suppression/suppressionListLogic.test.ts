@@ -69,8 +69,6 @@ describe('suppressionListLogic', () => {
     })
 
     describe('overlapping request isolation', () => {
-        // Guards the loader breakpoint: a page that the server returns after a newer search must not replace the
-        // search results or move the page number away from them.
         it('shows the search results when the next page they replaced arrives late', async () => {
             const listed = ['a@example.com', 'b@example.com', 'c@example.com']
             let releaseNextPage: () => void = () => {}
@@ -166,6 +164,109 @@ describe('suppressionListLogic', () => {
                 identifiers: ['a@example.com'],
                 confirm_complaints: confirmComplaints,
             })
+        })
+
+        it.each([
+            [
+                'steps back when another session already removed part of a selection that filled the last page',
+                {
+                    listed: 'abcd',
+                    removedElsewhere: 'c',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
+            ],
+            [
+                'steps back when the page still links to a next page another session emptied',
+                {
+                    listed: 'abcde',
+                    removedElsewhere: 'ce',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
+            ],
+            [
+                'stays on the last page when rows are left on it',
+                { listed: 'abcd', removedElsewhere: '', selected: 'c', pageOnWhileRemoving: false, expected: [2, 'd'] },
+            ],
+            [
+                'steps back when the removal empties the last page the user moved to while it ran',
+                {
+                    listed: 'abcde',
+                    removedElsewhere: '',
+                    selected: 'c',
+                    pageOnWhileRemoving: true,
+                    expected: [2, 'de'],
+                },
+            ],
+        ])('%s', async (_label, { listed: initial, removedElsewhere, selected, pageOnWhileRemoving, expected }) => {
+            const addresses = (names: string): string[] => [...names].map((name) => `${name}@example.com`)
+            let listed = addresses(initial)
+            let releaseRemoval: () => void = () => {}
+            const removalHeld = new Promise<void>((resolve) => {
+                releaseRemoval = resolve
+            })
+            let removalReceived: () => void = () => {}
+            const removalRequested = new Promise<void>((resolve) => {
+                removalReceived = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                        const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+                        const rows = listed.slice((page - 1) * 2, page * 2)
+                        if (page > 1 && rows.length === 0) {
+                            return [404, { detail: 'Invalid page.' }]
+                        }
+                        const next = page * 2 < listed.length ? `${request.url.split('?')[0]}?page=${page + 1}` : null
+                        return [
+                            200,
+                            {
+                                count: listed.length,
+                                next,
+                                previous: null,
+                                results: rows.map((id) => suppressionRow(id)),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
+                        const { identifiers } = (await request.json()) as { identifiers: string[] }
+                        if (pageOnWhileRemoving) {
+                            removalReceived()
+                            await removalHeld
+                        }
+                        const removed = identifiers.filter((id) => listed.includes(id))
+                        listed = listed.filter((id) => !identifiers.includes(id))
+                        return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
+                    },
+                },
+            })
+            const logic = suppressionListLogic()
+            logic.mount()
+            await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
+            logic.actions.loadNextPage()
+            await waitFor(() => expect(logic.values.currentPage).toBe(2))
+            listed = listed.filter((id) => !addresses(removedElsewhere).includes(id))
+
+            logic.actions.removeSuppressions({ identifiers: addresses(selected), confirmComplaints: false })
+            if (pageOnWhileRemoving) {
+                await removalRequested
+                logic.actions.loadNextPage()
+                await waitFor(() => expect(logic.values.currentPage).toBe(3))
+                releaseRemoval()
+            }
+
+            const [expectedPage, expectedRows] = expected as [number, string]
+            await waitFor(() =>
+                expect([
+                    logic.values.currentPage,
+                    logic.values.suppressions.results.map((row) => row.identifier),
+                ]).toEqual([expectedPage, addresses(expectedRows)])
+            )
         })
     })
 })

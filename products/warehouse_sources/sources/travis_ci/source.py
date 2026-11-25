@@ -125,6 +125,16 @@ The token can read every repository its owning user has access to; only those re
                 return "Full refresh only, walking every accessible repository's branch list"
             if endpoint == "crons":
                 return "Full refresh only, walking every accessible repository's cron list"
+            if endpoint == "messages":
+                return (
+                    "Config validation messages embedded in each repository's requests, synced newest-first; "
+                    "incremental syncs stop at the last-synced request id"
+                )
+            if endpoint == "caches":
+                return (
+                    "Full refresh only, walking every accessible repository's caches; repositories where "
+                    "the token's user has no push access are skipped"
+                )
             return None
 
         schemas = [

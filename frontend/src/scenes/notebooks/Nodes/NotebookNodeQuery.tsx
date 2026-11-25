@@ -225,7 +225,7 @@ const Component = ({
         return <UnsupportedNodePlaceholder />
     }
 
-    if (getSqlEditorSourceQuery(query)) {
+    if (!componentPanelState?.outputOnly && getSqlEditorSourceQuery(query)) {
         return (
             <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
                 <NotebookSQLEditorOutput
@@ -245,14 +245,18 @@ const Component = ({
             query={modifiedQuery}
             context={{ insightProps: dataframeInsightProps }}
             attachTo={notebookLogic}
-            setQuery={(t) => {
-                updateAttributes({
-                    query: {
-                        ...attributes.query,
-                        source: (t as DataTableNode | InsightVizNode).source,
-                    } as QuerySchema,
-                })
-            }}
+            setQuery={
+                componentPanelState?.outputOnly
+                    ? undefined
+                    : (t) => {
+                          updateAttributes({
+                              query: {
+                                  ...attributes.query,
+                                  source: (t as DataTableNode | InsightVizNode).source,
+                              } as QuerySchema,
+                          })
+                      }
+            }
             embedded
             readOnly
         />
@@ -263,11 +267,13 @@ const Component = ({
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 {isInsightViz ? (
                     <div className="flex flex-1 flex-col overflow-hidden">
-                        <NotebookInsightRefresh
-                            insightProps={dataframeInsightProps}
-                            notebookShortId={notebookLogic.props.shortId}
-                            nodeId={nodeId}
-                        />
+                        {!componentPanelState?.outputOnly && (
+                            <NotebookInsightRefresh
+                                insightProps={dataframeInsightProps}
+                                notebookShortId={notebookLogic.props.shortId}
+                                nodeId={nodeId}
+                            />
+                        )}
                         <div className="flex min-h-0 flex-1 flex-col">{queryComponent}</div>
                     </div>
                 ) : (

@@ -85,8 +85,7 @@ class SQLV2RunPlan:
     code: str
     # Frames the kernel must materialize first; always empty on the ClickHouse lane.
     inputs: list[dict[str, Any]]
-    # DuckDB lane only: values for the `$name` parameters `code` now carries, bound by the
-    # driver rather than written into the SQL. Empty on every other lane.
+    # Python receives the whole notebook namespace; DuckDB receives only the parameters in its SQL.
     variables: dict[str, NotebookVariableValue] = field(default_factory=dict)
 
 

@@ -10,6 +10,7 @@ mutation) is mocked. These tests only exercise the serializer + helper logic.
 """
 
 from contextlib import ExitStack
+from datetime import timedelta
 
 import pytest
 from unittest import mock
@@ -179,6 +180,41 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     assert schema.initial_sync_complete is False
     assert schema.sync_type_config.get("reset_pipeline") is True
     mock_cancel.assert_called_once_with(running_job.workflow_id)
+    mock_trigger.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("new_mode", "expect_resnapshot"),
+    [
+        pytest.param("consolidated", False, id="resent_mode_syncs_for_the_shorter_cadence"),
+        pytest.param("both", True, id="added_target_syncs_only_for_the_resnapshot"),
+    ],
+)
+def test_patch_shorter_cadence_with_cdc_table_mode_starts_one_sync(
+    team, user, client: HttpClient, new_mode, expect_resnapshot
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(pk=schema.pk).update(sync_frequency_interval=timedelta(hours=1))
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": "5min", "cdc_table_mode": new_mode},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_frequency_interval == timedelta(minutes=5)
+    assert (schema.sync_type_config.get("cdc_mode") == "snapshot") is expect_resnapshot
     mock_trigger.assert_called_once()
 
 

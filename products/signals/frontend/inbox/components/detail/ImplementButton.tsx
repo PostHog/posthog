@@ -25,7 +25,6 @@ import { ReportGithubConnection } from './ReportGithubConnection'
 interface ImplementButtonProps {
     report: SignalReport
     surface?: 'detail_pane' | 'triage_mode'
-    position?: 'body' | 'header'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
@@ -35,7 +34,6 @@ interface ImplementButtonProps {
 export function ImplementButton({
     report,
     surface = 'detail_pane',
-    position = 'body',
     implementationDisabledReason,
     reportTaskToOpen,
     openChoicesFromLink = false,
@@ -50,6 +48,7 @@ export function ImplementButton({
         failed: githubCheckFailed,
         loading: githubCheckLoading,
         repositoryRequired,
+        repositorySelectionRequests,
         repositoryIntegrationId,
         selectedRepository,
         githubIntegrations,
@@ -69,10 +68,10 @@ export function ImplementButton({
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
     useEffect(() => {
-        if (repositoryRequired) {
+        if (repositorySelectionRequests > 0) {
             setChoicesOpen(true)
         }
-    }, [repositoryRequired])
+    }, [repositorySelectionRequests])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -87,7 +86,10 @@ export function ImplementButton({
             report,
             actionType: 'implementation_button_clicked',
             surface,
-            extra: { button_action: buttonAction, button_position: position },
+            extra: {
+                button_action: buttonAction,
+                ...(surface === 'detail_pane' ? { button_position: 'header' } : {}),
+            },
         })
     }
 
@@ -220,6 +222,7 @@ export function ImplementButton({
                                                 value={selectedRepository}
                                                 valueKey="full_name"
                                                 onChange={setSelectedRepository}
+                                                selectOnlyOption
                                             />
                                         ) : (
                                             <LemonButton

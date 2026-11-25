@@ -204,6 +204,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange as MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
@@ -1458,6 +1459,14 @@ class CustomerAnalyticsPinnedProperty(BaseModel):
     kind: Kind
 
 
+class CustomerAnalyticsRoleDefaultPinnedProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    pinned_properties: list[CustomerAnalyticsPinnedProperty]
+    role_id: str
+
+
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1775,6 +1784,20 @@ class ErrorTrackingIssueTagFilter(BaseModel):
         description=("True matches the issues the tag is applied to. False matches every other issue."),
     )
     key: str = Field(..., description="Key of the tag definition.")
+
+
+class ErrorTrackingIssueTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have all of these tags."),
+    )
+    hasNot: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have none of these tags."),
+    )
 
 
 class Person(BaseModel):
@@ -5593,10 +5616,18 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
@@ -6726,6 +6757,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -6756,6 +6793,16 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: PropertyGroupsMode | None = None
     pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionFilterGlobalJoin: bool | None = Field(
+        default=None,
+        description=(
+            "Filter the sessions join of an events query by its session property"
+            " filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once"
+            " instead of once per events shard. Applies only when every session filter"
+            " is an equality or `IN` against non-empty strings, which are false for an"
+            " event with no matching session."
+        ),
+    )
     sessionIdPushdown: bool | None = Field(
         default=None,
         description=(
@@ -7422,6 +7469,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     customerTable: str | None = Field(
         default=None,
         description="Google Ads customer table, used for the account currency.",
+    )
+    keywordTable: str | None = Field(
+        default=None,
+        description=("Google Ads keyword table, used to tell which searches are already keywords."),
     )
     performanceMaxSearchTermTable: str | None = Field(
         default=None,
@@ -9663,7 +9714,7 @@ class WebPageDirectorySiteTotals(BaseModel):
     bounceRate: float | None = None
     conversions: WebPageDirectoryValue | None = None
     googleSearch: WebPageDirectoryValue | None = None
-    serverLogs: int
+    serverLogs: int | None = None
     timeOnPageP90: float | None = None
     visitors: WebPageDirectoryValue | None = None
 
@@ -11783,6 +11834,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int
@@ -17759,6 +17814,8 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18152,6 +18209,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18162,6 +18220,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None
@@ -22484,6 +22543,14 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    detectedChange: MarketingAnalyticsRecommendationDetectedChange | None = Field(
+        default=None,
+        description=(
+            "The change in Google Ads that applied this recommendation, when the synced"
+            " data shows one. A detected recommendation counts as applied, so it"
+            " follows the same rules as a resolved one."
+        ),
+    )
     identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
@@ -24334,6 +24401,8 @@ class QueryResponseAlternative27(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30901,6 +30970,8 @@ class WebPageDirectoryQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -36237,6 +36308,7 @@ class CustomerAnalyticsConfig(BaseModel):
     activity_event: EventsNode | ActionsNode
     default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
+    role_default_pinned_properties: list[CustomerAnalyticsRoleDefaultPinnedProperties] | None = None
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
@@ -36555,6 +36627,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(
@@ -37099,10 +37179,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
-    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+    issueTag: ErrorTrackingIssueTagFilter | None = None
+    issueTags: ErrorTrackingIssueTagsFilter | None = Field(
         default=None,
         description=(
-            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+            "Filter by issue tags. Get the keys from the issue tag definitions. The"
+            " query ignores a key whose tag is off for the project."
         ),
     )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"

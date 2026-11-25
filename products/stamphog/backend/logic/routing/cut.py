@@ -1,9 +1,9 @@
-"""The cut step: one LLM call per pull request that may only remove owners whose part is trivial.
+"""The cut step: an LLM call per pull request that may only remove owners whose part is trivial.
 
 Every candidate is requested by default. The model can only take owners away, and the guards in
 `apply_cut_guards` decide what a cut may touch, so a wrong or missing answer never drops a pinned
-owner, an owner the model could not see, or every owner. The network call is injected, so this
-module stays pure.
+owner, an owner the model could not see, or every owner. A diff too large for one prompt is split
+by owner over a few calls. The network call is injected, so this module stays pure.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ CUT_MODEL = "claude-haiku-5-5"
 
 DESCRIPTION_MAX_CHARS = 3_000
 DIFF_MAX_CHARS = 150_000
+# Each call mints its own capped token and has its own timeout, so this bounds the spend and the wait.
+MAX_CUT_CALLS = 4
 
 _UNTRUSTED_TAG = "untrusted_pr_content"
 _NO_PATCH = "(GitHub gave no patch for this file)"
@@ -84,6 +86,7 @@ class CutPrompt:
     user_prompt: str
     # Owners with at least one file whose diff the model did not see. The guards never cut them.
     owners_left_out: frozenset[str]
+    diff_capped: bool
 
 
 @frozen
@@ -136,12 +139,25 @@ def _candidate_line(candidate: OwnerCandidate) -> str:
     return line
 
 
-def build_cut_prompt(*, title: str, description: str, candidates: Sequence[OwnerCandidate]) -> CutPrompt:
+def _owners_by_path(candidates: Sequence[OwnerCandidate]) -> dict[str, list[str]]:
     owners_by_path: dict[str, list[str]] = {}
-    files_by_path: dict[str, ChangedFile] = {}
     for candidate in candidates:
         for file in candidate.files:
             owners_by_path.setdefault(file.path, []).append(candidate.owner)
+    return owners_by_path
+
+
+def _build_prompt(
+    *,
+    title: str,
+    description: str,
+    shown: Sequence[OwnerCandidate],
+    owners_by_path: Mapping[str, Sequence[str]],
+) -> CutPrompt:
+    """The prompt that asks about the `shown` owners. A file header names every owner of the file."""
+    files_by_path: dict[str, ChangedFile] = {}
+    for candidate in shown:
+        for file in candidate.files:
             files_by_path[file.path] = file
 
     lines = [
@@ -152,12 +168,13 @@ def build_cut_prompt(*, title: str, description: str, candidates: Sequence[Owner
         f"</{_UNTRUSTED_TAG}>",
         "",
         "Candidate owners:",
-        *(_candidate_line(candidate) for candidate in candidates),
+        *(_candidate_line(candidate) for candidate in shown),
         "",
         "Files and their diffs:",
         f"<{_UNTRUSTED_TAG}>",
     ]
     owners_left_out: set[str] = set()
+    diff_capped = False
     used = 0
     for path in sorted(files_by_path):
         file = files_by_path[path]
@@ -169,6 +186,7 @@ def build_cut_prompt(*, title: str, description: str, candidates: Sequence[Owner
         elif used + len(file.patch) > DIFF_MAX_CHARS:
             patch = _PATCH_LEFT_OUT
             owners_left_out.update(owners_by_path[path])
+            diff_capped = True
         else:
             patch = _strip_delimiters(file.patch)
         used += len(patch)
@@ -178,7 +196,13 @@ def build_cut_prompt(*, title: str, description: str, candidates: Sequence[Owner
         )
         lines.append(f"{header}\n{patch}")
     lines.append(f"</{_UNTRUSTED_TAG}>")
-    return CutPrompt(user_prompt="\n".join(lines), owners_left_out=frozenset(owners_left_out))
+    return CutPrompt(user_prompt="\n".join(lines), owners_left_out=frozenset(owners_left_out), diff_capped=diff_capped)
+
+
+def build_cut_prompt(*, title: str, description: str, candidates: Sequence[OwnerCandidate]) -> CutPrompt:
+    return _build_prompt(
+        title=title, description=description, shown=candidates, owners_by_path=_owners_by_path(candidates)
+    )
 
 
 def _proposed_cuts(model_output: Mapping[str, object] | None) -> dict[str, str]:
@@ -257,6 +281,103 @@ def attested_decision(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
     )
 
 
+def _ask_model(call_model: CutModelCall, user_prompt: str) -> Mapping[str, object] | None:
+    try:
+        return call_model(CUT_SYSTEM_PROMPT, user_prompt, CUT_SCHEMA)
+    except Exception as exc:  # noqa: BLE001 - the cut is optional, so any failure keeps the owners of the call
+        logger.warning("stamphog_reviewer_routing_cut_failed", error_type=type(exc).__name__)
+        return None
+
+
+def _diff_chars(candidate: OwnerCandidate) -> int:
+    return sum(len(file.patch or "") for file in candidate.files)
+
+
+def _batch_prompt(
+    *,
+    title: str,
+    description: str,
+    candidates: Sequence[OwnerCandidate],
+    batch: Sequence[OwnerCandidate],
+    owners_by_path: Mapping[str, Sequence[str]],
+) -> CutPrompt:
+    batch_owners = {candidate.owner for candidate in batch}
+    shown = [candidate for candidate in candidates if candidate.owner in batch_owners]
+    return _build_prompt(title=title, description=description, shown=shown, owners_by_path=owners_by_path)
+
+
+def _pack_batches(
+    *,
+    title: str,
+    description: str,
+    candidates: Sequence[OwnerCandidate],
+    owners_by_path: Mapping[str, Sequence[str]],
+) -> list[list[OwnerCandidate]]:
+    """The owners the model can cut, packed into at most `MAX_CUT_CALLS` prompts that each show every diff."""
+
+    def fits(batch: Sequence[OwnerCandidate]) -> bool:
+        prompt = _batch_prompt(
+            title=title, description=description, candidates=candidates, batch=batch, owners_by_path=owners_by_path
+        )
+        return not prompt.diff_capped
+
+    # The guards keep a pinned owner and an owner of a file without a patch whatever the model says.
+    cuttable = [
+        candidate for candidate in candidates if not candidate.is_pinned and all(file.patch for file in candidate.files)
+    ]
+    # Smallest parts first, so the capped calls cover the most owners.
+    ordered = sorted(cuttable, key=lambda candidate: (_diff_chars(candidate), candidate.owner))
+    batches: list[list[OwnerCandidate]] = []
+    current: list[OwnerCandidate] = []
+    for candidate in ordered:
+        if fits([*current, candidate]):
+            current.append(candidate)
+            continue
+        if current:
+            batches.append(current)
+        if len(batches) == MAX_CUT_CALLS:
+            return batches
+        current = [candidate] if fits([candidate]) else []
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _decide_in_batches(
+    *, candidates: Sequence[OwnerCandidate], title: str, description: str, call_model: CutModelCall
+) -> RoutingDecision:
+    """One call per batch of owners, for a diff that does not fit one prompt. The guards then judge all answers."""
+    owners_by_path = _owners_by_path(candidates)
+    batches = _pack_batches(title=title, description=description, candidates=candidates, owners_by_path=owners_by_path)
+    if not batches:
+        owners_left_out = frozenset(candidate.owner for candidate in candidates)
+        return _keep_all(candidates, LlmSkipReason.NOTHING_CUTTABLE, owners_left_out)
+
+    answered: set[str] = set()
+    cuts: list[dict[str, str]] = []
+    for batch in batches:
+        prompt = _batch_prompt(
+            title=title, description=description, candidates=candidates, batch=batch, owners_by_path=owners_by_path
+        )
+        model_output = _ask_model(call_model, prompt.user_prompt)
+        if model_output is None:
+            continue
+        batch_owners = {candidate.owner for candidate in batch}
+        answered.update(batch_owners)
+        # A file header can name an owner of another batch, and this call did not see that owner's other files.
+        cuts.extend(
+            {"owner": owner, "reason": reason}
+            for owner, reason in _proposed_cuts(model_output).items()
+            if owner in batch_owners
+        )
+    logger.info("stamphog_reviewer_routing_cut_batched", calls=len(batches), owners_answered=len(answered))
+    if not answered:
+        return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
+    # An owner without an answer counts as unseen, so the run log does not read as a model decision.
+    owners_left_out = frozenset(candidate.owner for candidate in candidates if candidate.owner not in answered)
+    return apply_cut_guards(candidates=candidates, model_output={"cuts": cuts}, owners_left_out=owners_left_out)
+
+
 def decide_cuts(
     *,
     candidates: Sequence[OwnerCandidate],
@@ -266,7 +387,7 @@ def decide_cuts(
     call_model: CutModelCall,
     files_truncated: bool = False,
 ) -> RoutingDecision:
-    """Which candidates to request. Never raises: any failure of the model call cuts nobody."""
+    """Which candidates to request. Never raises: a failed model call cuts none of the owners it asked about."""
     if files_truncated:
         return _keep_all(candidates, LlmSkipReason.FILES_TRUNCATED)
     if len(candidates) < 2:
@@ -274,14 +395,12 @@ def decide_cuts(
     if is_fork:
         return _keep_all(candidates, LlmSkipReason.FORK)
     prompt = build_cut_prompt(title=title, description=description, candidates=candidates)
+    if prompt.diff_capped:
+        return _decide_in_batches(candidates=candidates, title=title, description=description, call_model=call_model)
     if all(_guard_reason(candidate, prompt.owners_left_out) for candidate in candidates):
         return _keep_all(candidates, LlmSkipReason.NOTHING_CUTTABLE, prompt.owners_left_out)
 
-    try:
-        model_output = call_model(CUT_SYSTEM_PROMPT, prompt.user_prompt, CUT_SCHEMA)
-    except Exception as exc:  # noqa: BLE001 - the cut is optional, so any failure keeps every owner
-        logger.warning("stamphog_reviewer_routing_cut_failed", error_type=type(exc).__name__)
-        return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
+    model_output = _ask_model(call_model, prompt.user_prompt)
     if model_output is None:
         return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     return apply_cut_guards(candidates=candidates, model_output=model_output, owners_left_out=prompt.owners_left_out)

@@ -220,6 +220,11 @@ services:
             # PersonHog is required for CDP — point at the local gRPC router
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            # Each Kafka consumer's fetch holds a libuv thread, and this process runs every CDP
+            # consumer. With the default 4 threads, DNS lookups for new Redis connections queue
+            # behind them, connects time out, and the Redis client stops the process. Production
+            # CDP pods set the same value.
+            UV_THREADPOOL_SIZE: '128'
         depends_on:
             kafka:
                 condition: service_started
@@ -319,6 +324,7 @@ services:
             # hobby extends, so that a hobby install never runs with them.
             INTERNAL_API_SECRET: 'posthog123'
             RECORDING_API_JWT_SECRET: 'dev-recording-api-jwt-secret'
+            RECORDING_API_STAFF_JWT_SECRET: 'dev-recording-api-staff-jwt-secret'
         depends_on:
             redis7:
                 condition: service_healthy

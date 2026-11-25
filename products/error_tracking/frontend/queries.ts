@@ -38,7 +38,7 @@ export const errorTrackingQuery = ({
     orderBy,
     status,
     severity,
-    issueTag,
+    issueTags,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -57,7 +57,7 @@ export const errorTrackingQuery = ({
     | 'orderBy'
     | 'status'
     | 'severity'
-    | 'issueTag'
+    | 'issueTags'
     | 'dateRange'
     | 'assignee'
     | 'filterTestAccounts'
@@ -80,7 +80,15 @@ export const errorTrackingQuery = ({
             orderBy,
             status,
             ...(severity ? { severity } : {}),
-            ...(issueTag ? { issueTag } : {}),
+            // Sorted so that the same tags picked in another order share a cache key.
+            ...(issueTags
+                ? {
+                      issueTags: {
+                          has: [...(issueTags.has ?? [])].sort(),
+                          hasNot: [...(issueTags.hasNot ?? [])].sort(),
+                      },
+                  }
+                : {}),
             dateRange,
             assignee,
             volumeResolution,

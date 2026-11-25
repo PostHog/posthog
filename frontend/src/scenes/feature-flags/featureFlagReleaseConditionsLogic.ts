@@ -173,7 +173,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     currentProjectId: number | null // projectLogic
     affectedCounts: Record<string, number | undefined>
-    aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
+    aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     computeBlastRadiusPercentage: (rolloutPercentage: any, sortKey: any) => any
     distinctIdNameCache: Record<string, string>
@@ -342,7 +342,7 @@ export interface featureFlagReleaseConditionsLogicMeta {
                 groups: FeatureFlagGroupTypeWithSortKey[]
             },
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-        ) => (conditionGroupTypeIndex?: number | null | undefined) => string
+        ) => (conditionGroupTypeIndex?: number | null) => string
         taxonomicGroupTypesForCondition: (
             filters: FeatureFlagFilters & {
                 groups: FeatureFlagGroupTypeWithSortKey[]

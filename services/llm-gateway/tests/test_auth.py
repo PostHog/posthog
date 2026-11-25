@@ -546,8 +546,8 @@ class TestAuthService:
                 ],
                 [{"role_id": "role-1"}],
                 ['{"key": "access_control"}', '{"key": "role_based_access"}'],
-                789,
-                id="role_grant_outranks_member_denial",
+                None,
+                id="member_denial_outranks_role_grant",
             ),
         ],
     )

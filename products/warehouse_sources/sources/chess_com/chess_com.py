@@ -1,7 +1,7 @@
 import re
 import hmac
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,8 +10,22 @@ from django.conf import settings
 from requests import HTTPError, Session
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.sources.chess_com.settings import GAMES, PRIMARY_KEYS
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, validate_via_probe
+from products.warehouse_sources.sources.chess_com.settings import (
+    GAMES,
+    LEADERBOARDS,
+    PLAYERS,
+    PRIMARY_KEYS,
+    RATINGS,
+    TEAM_MATCHES,
+    TOURNAMENTS,
+)
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    reach_safe_point,
+    validate_via_probe,
+)
 
 CHESS_COM_API_URL = "https://api.chess.com/pub"
 REQUEST_TIMEOUT_SECONDS = 30
@@ -51,6 +65,10 @@ _PGN_KEPT_TAGS = frozenset(
 )
 # The PGN standard requires these tags, so they stay with the value for unknown.
 _PGN_MASKED_TAGS = frozenset({"Event", "White", "Black"})
+# Tournament and team match lists group their entries by these states.
+_LIST_STATES = ("finished", "in_progress", "registered")
+
+RowsBuilder = Callable[[int, str, dict[str, Any]], list[dict[str, Any]]]
 
 
 def split_usernames(raw: str) -> list[str]:
@@ -198,6 +216,134 @@ def _ratings(session: Session, team_id: int, usernames: list[str]) -> Iterator[l
             yield rows
 
 
+def _country_code(country_url: str | None) -> str | None:
+    """The ISO code at the end of a country URL such as https://api.chess.com/pub/country/US."""
+    if not country_url:
+        return None
+    return country_url.rstrip("/").rsplit("/", 1)[-1] or None
+
+
+def _player_rows(team_id: int, username: str, profile: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "player_key": opaque_key(team_id, username),
+            "title": profile.get("title"),
+            "status": profile.get("status"),
+            "country": _country_code(profile.get("country")),
+            "joined_at": _timestamp(profile.get("joined")),
+            "last_online_at": _timestamp(profile.get("last_online")),
+            "followers": profile.get("followers"),
+            "league": profile.get("league"),
+            "fide_rating": profile.get("fide"),
+            "is_streamer": profile.get("is_streamer"),
+            "verified": profile.get("verified"),
+        }
+    ]
+
+
+@frozen
+class _ListedEntry:
+    state: str
+    ref: str
+    entry: dict[str, Any]
+
+
+def _listed_entries(body: dict[str, Any]) -> Iterator[_ListedEntry]:
+    """Each entry of a tournament or team match list with its state and API URL, once per URL."""
+    seen: set[str] = set()
+    for state in _LIST_STATES:
+        for entry in body.get(state) or []:
+            ref = entry.get("@id") or entry.get("url")
+            if ref and ref not in seen:
+                seen.add(ref)
+                yield _ListedEntry(state=state, ref=ref, entry=entry)
+
+
+def _tournament_rows(team_id: int, username: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "player_key": opaque_key(team_id, username),
+            "tournament_key": opaque_key(team_id, listed.ref),
+            "state": listed.state,
+            "status": listed.entry.get("status"),
+            "type": listed.entry.get("type"),
+            "time_class": listed.entry.get("time_class"),
+            "wins": listed.entry.get("wins"),
+            "losses": listed.entry.get("losses"),
+            "draws": listed.entry.get("draws"),
+            "points_awarded": listed.entry.get("points_awarded"),
+            "placement": listed.entry.get("placement"),
+            "total_players": listed.entry.get("total_players"),
+        }
+        for listed in _listed_entries(body)
+    ]
+
+
+def _team_match_rows(team_id: int, username: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for listed in _listed_entries(body):
+        results = listed.entry.get("results") or {}
+        club = listed.entry.get("club")
+        rows.append(
+            {
+                "player_key": opaque_key(team_id, username),
+                "match_key": opaque_key(team_id, listed.ref),
+                "club_key": opaque_key(team_id, club) if club else None,
+                "state": listed.state,
+                "result_as_white": results.get("played_as_white"),
+                "result_as_black": results.get("played_as_black"),
+                "outcome_as_white": _outcome(results.get("played_as_white")),
+                "outcome_as_black": _outcome(results.get("played_as_black")),
+            }
+        )
+    return rows
+
+
+def _per_player(
+    session: Session, team_id: int, usernames: list[str], path: str, build_rows: RowsBuilder
+) -> Iterator[list[dict[str, Any]]]:
+    for username in usernames:
+        body = _get(session, f"{CHESS_COM_API_URL}/player/{username}{path}")
+        rows = build_rows(team_id, username, body) if body else []
+        if rows:
+            yield rows
+        else:
+            reach_safe_point()
+
+
+def _leaderboards(session: Session, team_id: int) -> Iterator[list[dict[str, Any]]]:
+    body = _get(session, f"{CHESS_COM_API_URL}/leaderboards") or {}
+    for leaderboard, entries in body.items():
+        rows = []
+        for entry in entries or []:
+            username = str(entry.get("username") or "").lower()
+            if not username:
+                continue
+            trend_score = entry.get("trend_score") or {}
+            trend_rank = entry.get("trend_rank") or {}
+            rows.append(
+                {
+                    "leaderboard": leaderboard,
+                    # Keyed like the listed players, so a listed player on a leaderboard joins to the other tables.
+                    "player_key": opaque_key(team_id, username),
+                    "rank": entry.get("rank"),
+                    "score": entry.get("score"),
+                    "title": entry.get("title"),
+                    "status": entry.get("status"),
+                    "country": _country_code(entry.get("country")),
+                    "wins": entry.get("win_count"),
+                    "losses": entry.get("loss_count"),
+                    "draws": entry.get("draw_count"),
+                    "score_trend_direction": trend_score.get("direction"),
+                    "score_trend_delta": trend_score.get("delta"),
+                    "rank_trend_direction": trend_rank.get("direction"),
+                    "rank_trend_delta": trend_rank.get("delta"),
+                }
+            )
+        if rows:
+            yield rows
+
+
 def chess_com_source(
     team_id: int, usernames: list[str], endpoint: str, since: datetime | None, logger: FilteringBoundLogger
 ) -> SourceResponse:
@@ -205,8 +351,16 @@ def chess_com_source(
         session = make_tracked_session(headers=HEADERS)
         if endpoint == GAMES:
             yield from _games(session, team_id, usernames, since, logger)
-        else:
+        elif endpoint == RATINGS:
             yield from _ratings(session, team_id, usernames)
+        elif endpoint == PLAYERS:
+            yield from _per_player(session, team_id, usernames, "", _player_rows)
+        elif endpoint == TOURNAMENTS:
+            yield from _per_player(session, team_id, usernames, "/tournaments", _tournament_rows)
+        elif endpoint == TEAM_MATCHES:
+            yield from _per_player(session, team_id, usernames, "/matches", _team_match_rows)
+        elif endpoint == LEADERBOARDS:
+            yield from _leaderboards(session, team_id)
 
     if endpoint == GAMES:
         return SourceResponse(

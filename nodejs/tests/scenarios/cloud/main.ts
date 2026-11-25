@@ -38,7 +38,7 @@ function defaultController(): Controller {
 
 async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
     const { profile } = inputs
-    const { min, idleMax } = profile.readerAcu
+    const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
         throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
     }
@@ -48,8 +48,13 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         return EXIT_CODE.invalid
     }
     const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
-    if (card.failsOver && profile.readerAcu.idleMax === undefined) {
+    if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
+    }
+    if (card.failsOver && idleMax !== undefined && idleMax >= max) {
+        throw new Error(
+            `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
+        )
     }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)

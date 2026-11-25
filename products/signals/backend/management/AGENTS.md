@@ -221,8 +221,9 @@ reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
 `uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
 batch of verified implementation PRs that need participant snapshots. Remove
-`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
-100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+`--dry-run` to queue the GitHub refresh. `--limit` bounds the PRs each invocation
+checks (default 100, maximum 1000), so a batch can queue fewer when some PRs are not
+verified implementation PRs; use the printed `--after` cursor to continue. Run it without a
 cursor again to retry missing snapshots. The worker repairs missing merge times
 before checking the seven-day window. Completed snapshots are skipped.
 
@@ -464,7 +465,8 @@ The backlog after the tick is in `remaining_due_pairs`, `remaining_due_without_l
 `publish_signal_filter_catalogs` publishes the checked-in field catalogs in `../filter_catalog_seeds.py` to the instance-global filter catalog tables.
 Run it once in each region after a change to a seed.
 An unchanged catalog creates no version, and a changed one becomes the next active version.
-It sets the rollout state only when it creates a source, and it never sets filter eligibility.
+It sets the rollout state and filter eligibility only when it creates a source, so a rerun keeps any later rollout decision.
+A seed starts ineligible unless it sets `initial_filter_query_eligible`.
 
 ```bash
 uv run manage.py publish_signal_filter_catalogs

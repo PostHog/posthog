@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -9,17 +10,23 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { QuillConfigureIdJagModal } from './QuillConfigureIdJagModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureIdJagModal(): JSX.Element {
     const { configureIdJagModalId, configureIdJagModalLoading, isIdJagConfigSubmitting, idJagConfig } =
         useValues(verifiedDomainsLogic)
     const { setConfigureIdJagModalId } = useActions(verifiedDomainsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const idJagReady = Boolean(idJagConfig.id_jag_issuer_url)
 
     const handleClose = (): void => {
         setConfigureIdJagModalId(null)
+    }
+
+    if (todayRailNav) {
+        return <QuillConfigureIdJagModal idJagReady={idJagReady} onClose={handleClose} />
     }
 
     return (

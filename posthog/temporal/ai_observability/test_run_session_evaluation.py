@@ -5,6 +5,8 @@ import pytest
 import time_machine
 from unittest.mock import Mock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 
@@ -23,7 +25,6 @@ from posthog.temporal.ai_observability.evaluation_payload import payload_budget_
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
-    AI_EVENTS_RETENTION_DAYS,
     ExecuteSessionEvaluationInputs,
     SessionFetchOutcome,
     _count_session_events,
@@ -414,13 +415,17 @@ class TestFetchSessionForEvaluation:
         query = mock_session_query_runner.call_args.kwargs["query"]
         assert query.dateRange.date_from == first_seen.isoformat()
 
-    def test_floors_date_from_at_retention_for_a_session_older_than_retention(self):
+    @pytest.mark.parametrize("retention_days_by_team,retention_days", [({}, 30), ({1: 90}, 90)])
+    def test_floors_date_from_at_retention_for_a_session_older_than_retention(
+        self, retention_days_by_team, retention_days
+    ):
         # A session's real start is unreachable past ai_events retention regardless of the
         # lookback math, so the fetch must not ask ClickHouse for data it can never return.
         window_start = datetime(2026, 7, 20, tzinfo=UTC)
-        first_seen = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS + 10)
-        retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
+        first_seen = window_start - timedelta(days=retention_days + 10)
+        retention_floor = window_start - timedelta(days=retention_days)
         with (
+            override_settings(AI_EVENTS_RETENTION_DAYS_BY_TEAM=retention_days_by_team),
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
@@ -429,7 +434,7 @@ class TestFetchSessionForEvaluation:
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
                 return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
-            ),
+            ) as mock_count_session_events,
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
             ) as mock_session_query_runner,
@@ -441,6 +446,7 @@ class TestFetchSessionForEvaluation:
 
         query = mock_session_query_runner.call_args.kwargs["query"]
         assert query.dateRange.date_from == retention_floor.isoformat()
+        assert mock_count_session_events.call_args.args[2] == retention_floor
 
     def test_returns_traces_oldest_first_even_though_the_runner_orders_newest_first(self):
         # SessionQueryRunner orders `first_timestamp DESC` for the UI session list. The judge's

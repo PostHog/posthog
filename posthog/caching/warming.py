@@ -17,7 +17,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -407,7 +407,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
-            elif isinstance(e, ExposedHogQLError):
+            elif isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
                 # The query itself is wrong, and only its author can correct it. Report it as an
                 # event so it stays with the team instead of becoming an issue in our error tracking.
                 with ph_scoped_capture() as capture_ph_event:

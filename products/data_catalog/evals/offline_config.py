@@ -36,6 +36,9 @@ _SCORERS: dict[str, OfflineScorer] = {
     "metric_search_correct_no_match": OfflineScorer(
         kind="numeric", version=UUID("01a1c580-b96c-7143-a8db-1ac0dca93e1b")
     ),
+    "metric_search_meaning_above_shared_word": OfflineScorer(
+        kind="numeric", version=UUID("01a1f49f-2275-79b5-adaf-fa4ad109b857")
+    ),
     "metric_search_recall": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49b3290bdf6")),
     "metric_search_recall_acronym": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49c1c34d843")),
     "metric_search_recall_description_words": OfflineScorer(
@@ -58,6 +61,9 @@ _SCORERS: dict[str, OfflineScorer] = {
     ),
     "metric_search_recall_several_phrasings": OfflineScorer(
         kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a38ba110b1")
+    ),
+    "metric_search_recall_shared_word": OfflineScorer(
+        kind="numeric", version=UUID("01a1f49f-2275-7e97-8d50-c953cdebcdc6")
     ),
     "metric_search_recall_typo": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a4508c53e2")),
     "metric_search_recall_word_form": OfflineScorer(
