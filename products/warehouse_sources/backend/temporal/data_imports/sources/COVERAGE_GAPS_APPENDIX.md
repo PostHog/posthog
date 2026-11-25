@@ -9566,7 +9566,7 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (18): `Campaigns`, `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
+Today (22): `Campaigns`, `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `RefundReasons`, `Regions`, `Reservations`, `ReturnReasons`, `Returns`, `SalesChannels`, `ShippingOptions`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
@@ -9584,10 +9584,10 @@ Note: Parsed the official v2 OpenAPI root and fetched referenced path files to v
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
-- [ ] `Sales channels (GET /admin/sales-channels)` — resolve sales_channel_id carried on synced Orders, DraftOrders and Products to channel names (high)
-- [ ] `Return reasons (GET /admin/return-reasons)` — resolve return_reason_id on synced Returns and analyze why items come back (high)
-- [ ] `Refund reasons (GET /admin/refund-reasons)` — resolve refund reason IDs on payment refunds for revenue reconciliation (medium)
-- [ ] `Shipping options (GET /admin/shipping-options)` — resolve shipping option IDs on order shipping methods and compare delivery pricing (medium)
+- [x] `Sales channels (GET /admin/sales-channels)` — resolve sales_channel_id carried on synced Orders, DraftOrders and Products to channel names (high). Added as `SalesChannels`.
+- [x] `Return reasons (GET /admin/return-reasons)` — resolve return_reason_id on synced Returns and analyze why items come back (high). Added as `ReturnReasons`.
+- [x] `Refund reasons (GET /admin/refund-reasons)` — resolve refund reason IDs on payment refunds for revenue reconciliation (medium). Added as `RefundReasons` (full refresh: the list route documents no timestamp filters).
+- [x] `Shipping options (GET /admin/shipping-options)` — resolve shipping option IDs on order shipping methods and compare delivery pricing (medium). Added as `ShippingOptions`.
 - [ ] `Tax regions (GET /admin/tax-regions); Tax rates (GET /admin/tax-rates)` — explain tax amounts on orders by country and rate (medium)
 - [ ] `Users (GET /admin/users)` — resolve admin user IDs that appear as creators on orders changes, returns and notes (medium)
 - [ ] `Shipping profiles (GET /admin/shipping-profiles)` — resolve shipping_profile_id on synced Products (low)
