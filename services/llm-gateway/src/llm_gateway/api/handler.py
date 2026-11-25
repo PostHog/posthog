@@ -205,22 +205,43 @@ def _raise_if_unsupported_model(model: str) -> None:
 
 # LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
-    {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
+    {
+        "api_key",
+        "api_base",
+        "base_url",
+        "api_version",
+        "organization",
+        "model_list",
+        "fallbacks",
+        "custom_llm_provider",
+        "litellm_params",
+        "litellm_credential_name",
+        "use_litellm_proxy",
+        "client_secret",
+        "ssl_verify",
+    }
 )
+# litellm reads provider credentials and endpoints (STS role assumption, OIDC token sources, AD tokens,
+# service-account files) from these kwarg namespaces. Match by prefix so a new litellm param is covered.
+FORBIDDEN_REQUEST_PARAM_PREFIXES = ("aws_", "azure_", "vertex_", "watsonx_")
+
+
+def _is_forbidden_param(key: str) -> bool:
+    return key in FORBIDDEN_REQUEST_PARAMS or key.startswith(FORBIDDEN_REQUEST_PARAM_PREFIXES)
 
 
 def _sanitize_request_value(value: Any) -> Any:
     # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
     # to the provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
-        return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+        return {k: _sanitize_request_value(v) for k, v in value.items() if not _is_forbidden_param(k)}
     if isinstance(value, list):
         return [_sanitize_request_value(item) for item in value]
     return value
 
 
 def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
-    return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+    return {k: _sanitize_request_value(v) for k, v in data.items() if not _is_forbidden_param(k)}
 
 
 async def handle_llm_request(

@@ -25,6 +25,14 @@ DANGEROUS_PARAMS: list[tuple[str, str]] = [
     ("base_url", "https://attacker.example.com"),
     ("api_version", "2024-10-01"),
     ("organization", "org-attacker"),
+    ("aws_sts_endpoint", "https://sts.example.com"),
+    ("aws_web_identity_token", "test-identity-token"),
+    ("aws_role_name", "arn:aws:iam::000000000000:role/test"),
+    ("aws_bedrock_runtime_endpoint", "https://bedrock.example.com"),
+    ("azure_ad_token", "test-ad-token"),
+    ("vertex_credentials", "test-credentials"),
+    ("litellm_credential_name", "test-credential"),
+    ("ssl_verify", "false"),
 ]
 
 
@@ -411,6 +419,7 @@ class TestAnthropicMessagesEndpoint:
                 "nested": {
                     "keep": "ok",
                     "base_url": "https://attacker.example.com",
+                    "aws_sts_endpoint": "https://sts.example.com",
                 },
             },
         }
@@ -425,6 +434,7 @@ class TestAnthropicMessagesEndpoint:
         forwarded_metadata = call_kwargs.kwargs["metadata"]
         assert "api_key" not in forwarded_metadata
         assert "base_url" not in forwarded_metadata["nested"]
+        assert "aws_sts_endpoint" not in forwarded_metadata["nested"]
         assert forwarded_metadata["safe"] == "value"
         assert forwarded_metadata["nested"]["keep"] == "ok"
 
