@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import {
-    Badge,
     Button,
     Card,
     DataTable,
@@ -13,7 +12,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Skeleton,
     Text,
     Tooltip,
     TooltipContent,
@@ -22,6 +20,8 @@ import {
 } from '@posthog/quill'
 
 import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
+import { QuillTableSkeleton } from 'lib/components/QuillTableSkeleton/QuillTableSkeleton'
+import { QuillTagsCell } from 'lib/components/QuillTagsCell/QuillTagsCell'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
@@ -40,7 +40,6 @@ import { QuillActionsEmptyState } from './QuillActionsEmptyState'
 import { QuillActionsFilterMenu } from './QuillActionsFilterMenu'
 import { QuillDeleteReferencedActionDialog } from './QuillDeleteReferencedActionDialog'
 
-const VISIBLE_TAGS = 2
 const DEFAULT_ORDERING = '-created_by'
 
 type Columns = DataTableProps<ActionType, unknown>['columns']
@@ -49,20 +48,6 @@ type SortingState = NonNullable<DataTableProps<ActionType, unknown>['sorting']>
 interface PendingDelete {
     referenceCount: number
     performDelete: () => Promise<void>
-}
-
-function QuillActionsTableSkeleton(): JSX.Element {
-    return (
-        <div aria-busy aria-label="Loading actions" className="flex flex-col gap-3 p-3">
-            {Array.from({ length: 6 }, (_, index) => (
-                <div key={index} className="flex items-center gap-3">
-                    <Skeleton className="size-4 shrink-0" />
-                    <Skeleton className={index % 2 === 0 ? 'h-3 w-56' : 'h-3 w-40'} />
-                    <Skeleton className="ml-auto h-3 w-20" />
-                </div>
-            ))}
-        </div>
-    )
 }
 
 export function QuillActionsTable(): JSX.Element {
@@ -180,30 +165,7 @@ export function QuillActionsTable(): JSX.Element {
                 id: 'tags',
                 header: 'Tags',
                 enableSorting: false,
-                cell: ({ row }) => {
-                    const tags = row.original.tags ?? []
-                    if (!tags.length) {
-                        return (
-                            <Text size="xs" variant="muted">
-                                –
-                            </Text>
-                        )
-                    }
-                    return (
-                        <div className="flex items-center gap-1">
-                            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                                <Badge key={tag} className="max-w-24 truncate">
-                                    {tag}
-                                </Badge>
-                            ))}
-                            {tags.length > VISIBLE_TAGS && (
-                                <Text size="xs" variant="muted" title={tags.slice(VISIBLE_TAGS).join(', ')}>
-                                    {`+${tags.length - VISIBLE_TAGS}`}
-                                </Text>
-                            )}
-                        </div>
-                    )
-                },
+                cell: ({ row }) => <QuillTagsCell tags={row.original.tags ?? []} />,
             },
             {
                 id: 'created_by',
@@ -247,7 +209,7 @@ export function QuillActionsTable(): JSX.Element {
 
     const renderBody = (): JSX.Element => {
         if (!hasLoadedActions) {
-            return <QuillActionsTableSkeleton />
+            return <QuillTableSkeleton label="Loading actions" />
         }
         if (actionsLoadFailed && !actionsResponseLoading) {
             return (
