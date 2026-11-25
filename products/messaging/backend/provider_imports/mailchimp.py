@@ -122,7 +122,7 @@ NOT_EMPTIED_NOTE = (
 )
 UNCONFIRMED_AUDIENCE_MESSAGE = (
     "Mailchimp doesn't list the audience of the cohort \"{cohort}\", and PostHog couldn't confirm it was deleted, so no "
-    "cohort changed. Import with the API key of an owner or admin of the account, or delete that cohort in PostHog."
+    "cohort changed. Import with the API key of an owner or admin of the account, or delete the cohorts of that audience in PostHog."
 )
 # Other roles can have access to only some audiences, which for them looks like the rest were deleted.
 _ROLES_SEEING_EVERY_AUDIENCE = frozenset({"owner", "admin"})
