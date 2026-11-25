@@ -172,8 +172,9 @@ _OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
 _FABLE_5_2_COST = ModelCost(8, 40)
 _SONNET_COST = ModelCost(2, 10)
-# The rates for prompts over 100k tokens. Agent prompts usually pass 100k.
-_HAIKU_5_5_COST = ModelCost(0.5, 2.5)
+_HAIKU_5_5_COST = ModelCost(
+    0.1, 0.5, long_context=LongContextCost(above_input_tokens=100_000, input_per_mtok=0.5, output_per_mtok=2.5)
+)
 _SONNET_4_COST = ModelCost(3, 15)
 _GPT_PRO_COST = ModelCost(5, 30)
 _GPT_MID_COST = ModelCost(2.5, 15)

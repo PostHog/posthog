@@ -27,6 +27,8 @@ export interface ModelPrice {
 export interface ModelPriceRule {
   match: RegExp;
   price: ModelPrice;
+  // A request whose prompt is over aboveInputTokens pays these prices for all of its tokens.
+  longContext?: { aboveInputTokens: number; price: ModelPrice };
 }
 
 export interface BudgetThresholdEvent {
@@ -96,9 +98,12 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   },
   {
-    // The over-100k-prompt rates. Most agent calls pass 100k, so the guard never estimates low.
     match: /haiku-5-5/i,
-    price: { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 },
+    price: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    longContext: {
+      aboveInputTokens: 100_000,
+      price: { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 },
+    },
   },
   {
     match: /haiku/i,
@@ -187,9 +192,16 @@ export function estimateMessageCostUsd(
   const usage = message.usage;
   if (!usage) return 0;
   const model = message.model ?? "";
-  const price =
-    prices.find((rule) => rule.match.test(model))?.price ?? OPUS_PRICE;
+  const rule = prices.find((candidate) => candidate.match.test(model));
   const cacheWriteTotal = usage.cache_creation_input_tokens ?? 0;
+  const promptTokens =
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    cacheWriteTotal;
+  const price =
+    rule?.longContext && promptTokens > rule.longContext.aboveInputTokens
+      ? rule.longContext.price
+      : (rule?.price ?? OPUS_PRICE);
   const oneHourWrites = Math.min(
     usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
     cacheWriteTotal,
