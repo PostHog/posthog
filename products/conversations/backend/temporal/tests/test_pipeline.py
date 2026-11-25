@@ -1687,6 +1687,12 @@ class TestPersistReplyActivity:
                 {"widget": {"account_billing": "bot_reply"}},
                 True,
             ),
+            (
+                "forwarded_email_stays_private_even_if_set_to_bot_reply",
+                {"allow_bot_reply": True, "channel_source": "email", "ticket_type": "how_to", "forwarded": True},
+                {"email": {"how_to": "bot_reply"}},
+                True,
+            ),
         ]
     )
     @pytest.mark.django_db
@@ -1704,6 +1710,7 @@ class TestPersistReplyActivity:
             widget_session_id="aabbccdd-0000-0000-0000-000000000001",
             distinct_id="test-user",
             channel_source=call_kwargs["channel_source"],
+            anonymous_traits={"email_forwarded": True} if call_kwargs.get("forwarded") else {},
         )
 
         output = _persist_reply_sync(
