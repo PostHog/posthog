@@ -1367,7 +1367,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1411,7 +1411,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1455,7 +1455,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1521,7 +1521,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1565,7 +1565,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1609,7 +1609,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1653,7 +1653,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1697,7 +1697,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1719,7 +1719,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1763,7 +1763,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1807,7 +1807,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1873,7 +1873,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1917,7 +1917,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1961,7 +1961,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2005,7 +2005,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2049,7 +2049,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2071,7 +2071,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2115,7 +2115,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2159,7 +2159,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2225,7 +2225,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2269,7 +2269,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2313,7 +2313,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2357,7 +2357,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2401,7 +2401,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2423,7 +2423,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2467,7 +2467,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2511,7 +2511,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2577,7 +2577,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2621,7 +2621,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2665,7 +2665,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2709,7 +2709,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2753,7 +2753,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2775,7 +2775,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2819,7 +2819,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2863,7 +2863,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', '')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2929,7 +2929,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com', 'other_value')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2973,7 +2973,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3017,7 +3017,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3061,7 +3061,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('null', 'NULL')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3105,7 +3105,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.test_prop, 'Nullable(String)'), tuple('hello@posthog.com')), equals(events.event, 'mat_col_opt_in_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3279,7 +3279,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_eq_test'), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), 'target_value'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), 'target_value'), 0), equals(events.event, 'mat_col_opt_eq_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3323,7 +3323,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_eq_test'), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), 'target_value'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(CAST(events.properties.test_prop, 'Nullable(String)'), 'target_value'), 0), equals(events.event, 'mat_col_opt_eq_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3345,7 +3345,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_range_test'), ifNull(greaterOrEquals(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0), equals(events.event, 'mat_col_opt_range_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3367,7 +3367,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_range_test'), ifNull(less(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0), equals(events.event, 'mat_col_opt_range_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3389,7 +3389,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_range_test'), ifNull(greaterOrEquals(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0), equals(events.event, 'mat_col_opt_range_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3411,7 +3411,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_range_test'), ifNull(less(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(CAST(events.properties.test_prop, 'Nullable(String)'), 'mango'), 0), equals(events.event, 'mat_col_opt_range_test'))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

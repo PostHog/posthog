@@ -153,6 +153,8 @@ class TestGraphFanOut:
             ("graph_edges", "edge", 100),
             ("graph_nodes", "node", 100),
             ("graph_episodes", "episodes", 50),
+            ("graph_observations", "observation", 100),
+            ("graph_thread_summaries", "thread-summary", 100),
         ]
     )
     def test_walks_user_and_standalone_graphs_by_cursor_header(self, endpoint: str, kind: str, limit: int) -> None:
@@ -274,19 +276,74 @@ class TestGraphFanOut:
         assert result.requests == []
 
 
+class TestOntology:
+    @parameterized.expand(
+        [
+            (
+                "both_kinds",
+                ScriptedResponse(
+                    json={
+                        "entity_types": [
+                            {"name": "Customer", "description": "A buyer", "identity_properties": ["email"]}
+                        ],
+                        "edge_types": [
+                            {"name": "PURCHASED", "description": "Bought", "source_targets": [{"source": "Customer"}]}
+                        ],
+                    }
+                ),
+                [
+                    {"name": "Customer", "description": "A buyer", "identity_properties": ["email"], "kind": "entity"},
+                    {
+                        "name": "PURCHASED",
+                        "description": "Bought",
+                        "source_targets": [{"source": "Customer"}],
+                        "kind": "edge",
+                    },
+                ],
+            ),
+            (
+                "null_edge_types",
+                ScriptedResponse(json={"entity_types": [{"name": "Topic"}], "edge_types": None}),
+                [{"name": "Topic", "kind": "entity"}],
+            ),
+            ("empty_object", ScriptedResponse(json={}), []),
+            ("null_body", ScriptedResponse(body=b"null"), []),
+            ("not_found", ScriptedResponse(status=404, json={"message": "not found"}), []),
+        ]
+    )
+    def test_flattens_entity_and_edge_types(
+        self, _name: str, answer: ScriptedResponse, expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = _run("graph_ontology_types", [answer])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert [(r.method, r.path) for r in result.requests] == [("GET", "/api/v2/graph/list-ontology")]
+
+    def test_other_client_error_raises(self) -> None:
+        result = _run("graph_ontology_types", [ScriptedResponse(status=401, json={"message": "unauthorized"})])
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+
 class TestZepSourceResponse:
     @parameterized.expand(
         [
-            ("users", ["uuid"], "asc"),
-            ("threads", ["uuid"], "asc"),
-            ("thread_messages", ["uuid"], "asc"),
-            ("graphs", ["uuid"], "asc"),
-            ("graph_edges", ["graph_scope", "graph_owner_id", "uuid"], None),
-            ("graph_nodes", ["graph_scope", "graph_owner_id", "uuid"], None),
-            ("graph_episodes", ["graph_scope", "graph_owner_id", "uuid"], None),
+            ("users", ["uuid"], "asc", "created_at"),
+            ("threads", ["uuid"], "asc", "created_at"),
+            ("thread_messages", ["uuid"], "asc", "created_at"),
+            ("graphs", ["uuid"], "asc", "created_at"),
+            ("graph_edges", ["graph_scope", "graph_owner_id", "uuid"], None, "created_at"),
+            ("graph_nodes", ["graph_scope", "graph_owner_id", "uuid"], None, "created_at"),
+            ("graph_episodes", ["graph_scope", "graph_owner_id", "uuid"], None, "created_at"),
+            ("graph_observations", ["graph_scope", "graph_owner_id", "uuid"], None, "created_at"),
+            ("graph_thread_summaries", ["graph_scope", "graph_owner_id", "uuid"], None, None),
+            ("graph_ontology_types", ["kind", "name"], None, None),
         ]
     )
-    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_sort: str | None) -> None:
+    def test_source_response_shape(
+        self, endpoint: str, expected_pks: list[str], expected_sort: str | None, expected_partition: str | None
+    ) -> None:
         result = _run(endpoint, always(ScriptedResponse(json={"users": [], "threads": [], "graphs": []})))
 
         response = result.response
@@ -294,5 +351,9 @@ class TestZepSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         assert response.sort_mode == expected_sort
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
+        if expected_partition is None:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [expected_partition]
+            assert response.partition_mode == "datetime"

@@ -30,7 +30,7 @@ def _gateway_client(reply: Message) -> MagicMock:
     return client
 
 
-_BUILD_CLIENT = "products.business_knowledge.backend.logic.build_ai_gateway_anthropic_client"
+_BUILD_CLIENT = "products.business_knowledge.backend.logic.build_anthropic_client"
 
 
 class TestRerankChunks(BaseTest):

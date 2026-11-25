@@ -291,8 +291,10 @@ async function storeObject(request: Request, url: URL, entry: RecordedRequest): 
     if (request.method === 'PUT') {
         const body = new Uint8Array(await request.arrayBuffer())
         entry.upload = { sha512: createHash('sha512').update(body).digest('hex'), length: body.length }
-        // A presigned PUT signs the content length, so a different length fails like it does on S3.
-        if (Number(url.searchParams.get('length')) !== body.length) {
+        // A presigned PUT signs the content length, so a different length, or a chunked body that
+        // states none, fails like it does on S3.
+        const signed = Number(url.searchParams.get('length'))
+        if (signed !== body.length || Number(request.headers.get('content-length')) !== signed) {
             return new Response('<Error>SignatureDoesNotMatch</Error>', { status: 403 })
         }
         return new Response(null, { status: 200 })

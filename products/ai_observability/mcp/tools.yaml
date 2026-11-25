@@ -1315,17 +1315,16 @@ tools:
             Upload reported scores or request composite calculations for their shared items in one atomic request. For
             reported scorers, supply status and value as appropriate. For composite scorers only, send {item_id,
             scorer_version_id, calculate: true} without a value or result metadata. The server evaluates that version's
-            saved formula using its pinned input results for the same item. Include all inputs in this request, or use
-            credentials with evaluation:read and llm_analytics:read to reuse stored inputs, including on retries.
-            Project secret keys must include all inputs in the request. Missing inputs reject the whole batch. The
-            server does not run LLM judges or other external evaluators. Submit 1–1,000 results, keyed by item_id and
-            exact scorer_version_id, with up to 1,000 item declarations. Reuse caller-generated item IDs and unchanged
-            content for retries; a result is unique per item/scorer version. Existing items can be referenced without
-            repeating their declaration or payload. Item payloads allow 1 MiB and result payloads 256 KiB; use small
-            batches through MCP and the API for bulk uploads. Correct validation errors before retrying; never generate
-            new IDs merely to retry an uncertain response. Each result receipt includes status and error_code, including
-            calculation failures. HTTP success means the upload was accepted; inspect each result's status to check
-            whether its calculation succeeded.
+            saved formula using its pinned input results for the same item. With ingestion access alone, include every
+            pinned input. To reuse stored inputs, including on retries, grant evaluation:read and llm_analytics:read.
+            Missing inputs reject the whole batch. The server does not run LLM judges or other external evaluators.
+            Submit 1–1,000 results, keyed by item_id and exact scorer_version_id, with up to 1,000 item declarations.
+            Reuse caller-generated item IDs and unchanged content for retries; a result is unique per item/scorer
+            version. Existing items can be referenced without repeating their declaration or payload. Item payloads
+            allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk uploads. Correct
+            validation errors before retrying; never generate new IDs merely to retry an uncertain response. Each result
+            receipt includes status and error_code, including calculation failures. HTTP success means the upload was
+            accepted; inspect each result's status to check whether its calculation succeeded.
         param_overrides:
             items:
                 input_schema: OfflineExperimentUploadItemsSchema
@@ -1883,41 +1882,6 @@ tools:
             bullets, and interesting notes. Results are cached. Use mode "minimal" (default) for 3-5 points or
             "detailed" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.
         requires_ai_consent: true
-    llma-tagger-list:
-        operation: taggers_list
-        enabled: true
-        scopes:
-            - tagger:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        list: true
-        title: List taggers
-        description: >
-            List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search,
-            and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
-            configuration, creator, and timestamps. Taggers are deprecated and new ones can't be created. To tag or
-            classify generations, create a categorical evaluation with llma-evaluation-create instead.
-        feature_flag: llm-analytics-tags
-        url_prefix: /ai-evals/taggers
-    llma-tagger-test-hog:
-        operation: taggers_test_hog_create
-        enabled: true
-        scopes:
-            - tagger:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: false
-        title: Test Hog tagger code
-        description: >
-            Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should
-            return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
-            tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
-            reasoning, and any execution error for each sampled event.
-        feature_flag: llm-analytics-tags
     llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true

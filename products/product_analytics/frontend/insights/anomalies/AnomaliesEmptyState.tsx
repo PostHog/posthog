@@ -48,6 +48,19 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
     }
 
     const longerRange = longerAnomaliesDateRange(filters.dateFrom)
+    const viewedScope = anomalies.viewed_scope_empty ? null : anomalies.viewed_within_days
+    const buttons = [
+        longerRange && {
+            text: 'Try a longer range',
+            onClick: () => setFilters({ dateFrom: longerRange.dateFrom }),
+            dataAttr: 'anomalies-tab-longer-range',
+        },
+        viewedScope != null && {
+            text: 'Show whole project',
+            onClick: () => setFilters({ viewedWithinDays: null }),
+            dataAttr: 'anomalies-tab-whole-project',
+        },
+    ].filter((button) => !!button)
     if (anomalies.insights_scored_in_range === 0) {
         return (
             <EmptyMessage
@@ -63,10 +76,15 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
     return (
         <EmptyMessage
             title={`No anomalies in the ${anomaliesDateRangeLabel(filters.dateFrom).toLowerCase()}`}
-            description={checked}
-            buttonText={longerRange ? 'Try a longer range' : undefined}
-            buttonOnClick={longerRange ? () => setFilters({ dateFrom: longerRange.dateFrom }) : undefined}
-            buttonDataAttr="anomalies-tab-longer-range"
+            description={
+                viewedScope != null
+                    ? `None of the insights you viewed in the last ${viewedScope} days was anomalous. ${checked}`
+                    : checked
+            }
+            buttonText={buttons[0]?.text}
+            buttonOnClick={buttons[0]?.onClick}
+            buttonDataAttr={buttons[0]?.dataAttr}
+            secondaryButton={buttons[1]}
         />
     )
 }

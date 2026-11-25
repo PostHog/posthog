@@ -5,6 +5,18 @@ from products.warehouse_sources.sources.sdk import IncrementalField, incremental
 
 
 @dataclass(frozen=True)
+class KernelFanOutConfig:
+    # Top-level endpoint whose rows are the parents of each child request.
+    parent_endpoint: str
+    # Parent row field that fills the `{parent_id}` placeholder of the child path.
+    parent_id_field: str
+    # Column on each child row that holds the parent id.
+    parent_key: str
+    # Whether the child endpoint takes limit/offset and returns X-Has-More / X-Next-Offset.
+    paginated: bool = True
+
+
+@dataclass(frozen=True)
 class KernelEndpointConfig:
     name: str
     path: str
@@ -20,6 +32,7 @@ class KernelEndpointConfig:
     # Error `code` in a 404 body that means the resource is switched off for the organization,
     # so the table is empty rather than broken.
     empty_on_error_code: Optional[str] = None
+    fan_out: Optional[KernelFanOutConfig] = None
     should_sync_default: bool = True
     description: Optional[str] = None
 
@@ -95,6 +108,34 @@ KERNEL_ENDPOINTS: dict[str, KernelEndpointConfig] = {
         should_sync_default=False,
         description="Organization-wide audit log of authenticated API requests: who called which endpoint, when, and the response status.",
     ),
+    "auth_connections": KernelEndpointConfig(
+        name="auth_connections",
+        path="/auth/connections",
+        description="Managed auth connections: the profile and domain each one signs in to, its authentication status, and its health check settings.",
+    ),
+    "auth_connection_events": KernelEndpointConfig(
+        name="auth_connection_events",
+        path="/auth/connections/{parent_id}/timeline",
+        # Event ids come from separate login, reauth and health check records, so the type is part of the key.
+        primary_keys=["auth_connection_id", "type", "id"],
+        fan_out=KernelFanOutConfig(
+            parent_endpoint="auth_connections", parent_id_field="id", parent_key="auth_connection_id"
+        ),
+        # Fans out over every auth connection, and periodic health checks add many events, so it's opt-in.
+        should_sync_default=False,
+        description="Timeline of login, automatic reauth, and health check events for each managed auth connection.",
+    ),
+    "browser_replays": KernelEndpointConfig(
+        name="browser_replays",
+        path="/browsers/{parent_id}/replays",
+        primary_keys=["browser_session_id", "replay_id"],
+        fan_out=KernelFanOutConfig(
+            parent_endpoint="browsers", parent_id_field="session_id", parent_key="browser_session_id", paginated=False
+        ),
+        # Fans out over every browser session, so it's opt-in.
+        should_sync_default=False,
+        description="Video replay recordings of browser sessions, with their start and finish times.",
+    ),
 }
 
 ENDPOINTS = tuple(KERNEL_ENDPOINTS.keys())
@@ -112,7 +153,8 @@ TELEMETRY_DROPPED_DATA_FIELDS: frozenset[str] = frozenset({"headers", "post_data
 
 # Credential-bearing fields stripped from every Kernel row before it lands in the warehouse.
 # Kernel app/deployment objects carry `env_vars`; browser objects expose CDP / live-view URLs
-# that embed short-lived access tokens. Importing them verbatim would let anyone who can query
+# that embed short-lived access tokens. Auth connections expose hosted login and live-view URLs,
+# and replays a view URL that carries a JWT. Importing them verbatim would let anyone who can query
 # the synced table recover deployment secrets or attach to a live browser session. Matched
 # case-insensitively against top-level keys (values here must be lowercase).
 SENSITIVE_FIELDS: frozenset[str] = frozenset(
@@ -121,5 +163,8 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset(
         "cdp_ws_url",
         "webdriver_ws_url",
         "browser_live_view_url",
+        "live_view_url",
+        "hosted_url",
+        "replay_view_url",
     }
 )

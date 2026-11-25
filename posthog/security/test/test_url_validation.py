@@ -432,8 +432,13 @@ class TestUrlValidation:
             ("http://0x7f.0.0.1/", True, "Dotted hex encoding of 127.0.0.1"),
         ],
     )
-    def test_encoded_ip_addresses_blocked(self, url, expected_blocked, description):
+    def test_encoded_ip_addresses_blocked(self, monkeypatch, url, expected_blocked, description):
         """Encoded IP addresses (decimal, hex) should be blocked via DNS resolution."""
+
+        def unresolvable(host: str):
+            return set()
+
+        monkeypatch.setattr(uv, "resolve_host_ips", unresolvable)
         assert uv.should_block_url(url) is expected_blocked, description
 
     @pytest.mark.parametrize(

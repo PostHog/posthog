@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections, connection, transaction
@@ -330,6 +330,61 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
+
+    @parameterized.expand([("delivered", None, True), ("not_delivered", RuntimeError("temporal is down"), False)])
+    def test_client_activity_counts_as_life_only_when_its_signal_lands(
+        self, _name: str, signal_error: Exception | None, heartbeat_stored: bool
+    ) -> None:
+        run = TaskRun.objects.create(task=self._make_task(), team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with patch("posthog.temporal.common.client.sync_connect") as connect:
+            connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
+            facade.signal_task_run_client_activity(run.id, run.task_id, self.team.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at is not None, heartbeat_stored)
+
+    def test_origin_run_ids_since_finds_every_run_of_the_origin_in_the_window(self) -> None:
+        since = django_timezone.now() - timedelta(days=1)
+        origin = Task.OriginProduct.AUTORESEARCH
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        counted = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        on_deleted_task = TaskRun.objects.create(
+            task=self._make_task(origin_product=origin, deleted=True), team=self.team
+        )
+        before_window = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        TaskRun.objects.filter(id=before_window.id).update(created_at=since - timedelta(minutes=1))
+        TaskRun.objects.create(task=self._make_task(), team=self.team)
+        TaskRun.objects.create(task=self._make_task(team=other_team, origin_product=origin), team=other_team)
+
+        run_ids = facade.origin_run_ids_since(team_id=self.team.id, origin_product=origin, since=since)
+
+        self.assertCountEqual(run_ids, [counted.id, on_deleted_task.id])
+
+    def test_heartbeat_does_not_reach_a_run_of_another_task(self) -> None:
+        other_run = TaskRun.objects.create(
+            task=self._make_task(), team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(other_run.id, self._make_task().id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        other_run.refresh_from_db()
+        self.assertIsNone(other_run.last_heartbeat_at)
+
+    @parameterized.expand([("completed", TaskRun.Status.COMPLETED), ("queued", TaskRun.Status.QUEUED)])
+    def test_heartbeat_does_not_reach_a_run_from_before_a_handoff(self, _name: str, run_status: str) -> None:
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL, state={}
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(run.id, task.id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        run.refresh_from_db()
+        self.assertEqual(run.status, run_status)
+        self.assertIsNone(run.last_heartbeat_at)
 
     @parameterized.expand(
         [

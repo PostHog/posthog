@@ -30,6 +30,8 @@ class ListmonkEndpointConfig:
     extra_params: Optional[dict[str, str]] = None
     incremental_fields: Optional[list[IncrementalField]] = None
     partition_key: Optional[str] = "created_at"
+    # False for endpoints that return every row in one unpaged `data` array.
+    paginated: bool = True
 
 
 LISTMONK_ENDPOINTS: dict[str, ListmonkEndpointConfig] = {
@@ -59,6 +61,14 @@ LISTMONK_ENDPOINTS: dict[str, ListmonkEndpointConfig] = {
         name="bounces",
         path="/bounces",
         primary_keys=["id"],
+    ),
+    "templates": ListmonkEndpointConfig(
+        name="templates",
+        path="/templates",
+        primary_keys=["id"],
+        order_by=None,
+        extra_params={"no_body": "false"},
+        paginated=False,
     ),
     "campaign_analytics": ListmonkEndpointConfig(
         name="campaign_analytics",

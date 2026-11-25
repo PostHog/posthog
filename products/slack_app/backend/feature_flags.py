@@ -36,6 +36,11 @@ on a gate that falls back to the workspace as a mix of the two.
 
 from __future__ import annotations
 
+import json
+from urllib.parse import urlsplit
+
+from django.core.cache import cache
+
 import structlog
 import posthoganalytics
 
@@ -57,6 +62,9 @@ SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
+SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
+SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
+WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -177,9 +185,9 @@ def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
 
 
 def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
-    """Gate for the "Fork to DM" menu under a reply.
+    """Gate for the fork menu under a reply.
 
-    A fork lands in a DM and is answered there, so it inherits the assistant
+    A fork can land in a DM and be answered there, so it inherits the assistant
     surface's scope requirements wholesale — ``im:history`` in particular, without
     which the forked thread would answer once and then go deaf to follow-ups.
     Gating on the assistant scopes rather than its flag keeps the two rollouts
@@ -237,6 +245,25 @@ def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distin
     )
 
 
+def is_slack_app_web_settings_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for the settings that people change on the web: channel settings apply only while it is on. The
+    decision is about the workspace's organization, not about one person, so no distinct ID is passed.
+
+    The Slack webhook can check it more than once for one message, and a remote evaluation can take seconds, so
+    the decision is kept for a minute."""
+    cache_key = f"slack_app_web_settings_flag:{_organization_id(integration)}:{integration.integration_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    enabled = _workspace_flag_enabled(
+        SLACK_APP_WEB_SETTINGS_FLAG,
+        integration,
+        failure_log_key="slack_app_web_settings_feature_flag_check_failed",
+    )
+    cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
+    return enabled
+
+
 def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The daily work focus also tells the person what moved in the channels they share with the bot."""
     return _workspace_flag_enabled(
@@ -245,6 +272,59 @@ def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_
         failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
+
+
+# The bot shows a payload GIF inside customer workspaces, so a flag edit must not be able to pick any image on the
+# internet. Only PostHog's own Cloudinary account qualifies.
+_ALLOWED_GIF_HOST = "res.cloudinary.com"
+_ALLOWED_GIF_PATH_PREFIX = "/dmukukwp6/"
+
+
+def is_allowed_gif_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.hostname == _ALLOWED_GIF_HOST
+        and parts.port is None
+        and not parts.username
+        and not parts.password
+        and parts.path.startswith(_ALLOWED_GIF_PATH_PREFIX)
+    )
+
+
+def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: str | None) -> tuple[str, ...] | None:
+    """The GIFs from the flag payload ``{"gif_urls": [...]}``, or ``None`` when the flag is off. The payload lets the
+    team change the GIFs without a deploy. Only URLs on PostHog's own asset host pass (``is_allowed_gif_url``).
+    A missing or malformed payload gives an empty tuple, and the caller then uses its default GIFs."""
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            SLACK_APP_FRUSTRATION_GIF_FLAG,
+            distinct_id or f"slack_workspace:{integration.integration_id}",
+            groups={"organization": _organization_id(integration)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("slack_app_frustration_gif_feature_flag_check_failed", integration_id=integration.id)
+        return None
+    if result is None or not result.enabled:
+        return None
+    payload = result.payload
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return ()
+    urls = payload.get("gif_urls") if isinstance(payload, dict) else None
+    if not isinstance(urls, list):
+        return ()
+    return tuple(url for url in urls if is_allowed_gif_url(url))
 
 
 def is_slack_app_onboarding_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:

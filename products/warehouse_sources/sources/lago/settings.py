@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # Number of records to request per page. Lago caps `per_page` at 100.
 DEFAULT_PAGE_SIZE = 100
@@ -22,12 +22,16 @@ class LagoEndpointConfig:
     # and never changes. Never partition on a mutable field.
     partition_key: Optional[str] = "created_at"
     page_size: int = DEFAULT_PAGE_SIZE
-    # Billing entities and the analytics reports return their whole collection in one unpaginated body.
+    # Billing entities, the analytics reports and the per-subscription usage and per-plan
+    # entitlement reads return their whole result in one unpaginated body.
     paginated: bool = True
-    # Lago's REST API exposes no universal server-side `created_at`/`updated_at` cursor, so every
-    # stream is full-refresh only. Left empty deliberately — see the module docstring in lago.py.
+    # Lago's REST API exposes no universal server-side `created_at`/`updated_at` cursor, so most
+    # streams are full-refresh only — see the module docstring in lago.py.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
+    # Query param that filters the incremental field server-side (at or after the given value).
+    incremental_start_param: Optional[str] = None
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
     # Set for resources only listed per parent (e.g. a plan's charges); the parent is re-listed each sync.
     fanout: Optional[DependentEndpointConfig] = None
 
@@ -45,9 +49,47 @@ def _analytics_endpoint(name: str, path: str, data_key: str, primary_keys: list[
     )
 
 
+_SUBSCRIPTION_FIELD_RENAMES = {
+    "lago_id": "lago_subscription_id",
+    "external_id": "external_subscription_id",
+    "external_customer_id": "external_customer_id",
+}
+
+
+def _subscription_usage_fanout(resolve_field: str, include_from_parent: list[str]) -> DependentEndpointConfig:
+    # `/subscriptions` lists only active subscriptions, which are the only ones with in-period usage.
+    # A subscription terminated between the listing and the usage read 404s, so skip it.
+    return DependentEndpointConfig(
+        parent_name="subscriptions",
+        resolve_param="usage_ref",
+        resolve_field=resolve_field,
+        include_from_parent=include_from_parent,
+        parent_field_renames={key: _SUBSCRIPTION_FIELD_RENAMES[key] for key in include_from_parent},
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
+
+
 # Charge filters are not a separate table: every charge row already carries its `filters` array.
 LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
     "add_ons": LagoEndpointConfig(name="add_ons", path="/add_ons", data_key="add_ons"),
+    # Newest first, filtered server-side on `logged_at` with `from_date`.
+    "activity_logs": LagoEndpointConfig(
+        name="activity_logs",
+        path="/activity_logs",
+        data_key="activity_logs",
+        primary_keys=["activity_id"],
+        incremental_fields=[
+            IncrementalField(
+                label="logged_at",
+                type=IncrementalFieldType.DateTime,
+                field="logged_at",
+                field_type=IncrementalFieldType.DateTime,
+            )
+        ],
+        default_incremental_field="logged_at",
+        incremental_start_param="from_date",
+        sort_mode=None,
+    ),
     "analytics_gross_revenue": _analytics_endpoint(
         "analytics_gross_revenue",
         "/analytics/gross_revenue",
@@ -94,6 +136,25 @@ LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
         ),
     ),
     "customers": LagoEndpointConfig(name="customers", path="/customers", data_key="customers"),
+    # One in-period usage snapshot per active subscription. The usage body carries no subscription id.
+    "customer_current_usage": LagoEndpointConfig(
+        name="customer_current_usage",
+        path="/customers/{usage_ref}",
+        data_key="customer_usage",
+        primary_keys=["lago_subscription_id"],
+        partition_key=None,
+        paginated=False,
+        fanout=_subscription_usage_fanout("_current_usage_ref", ["lago_id", "external_id", "external_customer_id"]),
+    ),
+    # One row per subscription and closed billing period.
+    "customer_past_usage": LagoEndpointConfig(
+        name="customer_past_usage",
+        path="/customers/{usage_ref}",
+        data_key="usage_periods",
+        primary_keys=["lago_subscription_id", "from_datetime"],
+        partition_key="from_datetime",
+        fanout=_subscription_usage_fanout("_past_usage_ref", ["lago_id", "external_id", "external_customer_id"]),
+    ),
     # Lago events have no guaranteed `lago_id`. Lago dedupes an event on its transaction id within a
     # subscription, and the ClickHouse event store also keys on the timestamp.
     "events": LagoEndpointConfig(
@@ -103,6 +164,8 @@ LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
         primary_keys=["transaction_id", "external_subscription_id", "timestamp"],
         partition_key="timestamp",
     ),
+    # Features are keyed by their user-defined code and carry no `lago_id`.
+    "features": LagoEndpointConfig(name="features", path="/features", data_key="features", primary_keys=["code"]),
     "fees": LagoEndpointConfig(name="fees", path="/fees", data_key="fees"),
     "invoices": LagoEndpointConfig(name="invoices", path="/invoices", data_key="invoices"),
     "payment_receipts": LagoEndpointConfig(
@@ -112,8 +175,33 @@ LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
         name="payment_requests", path="/payment_requests", data_key="payment_requests"
     ),
     "payments": LagoEndpointConfig(name="payments", path="/payments", data_key="payments"),
+    # Entitlements are keyed by feature code within a plan.
+    "plan_entitlements": LagoEndpointConfig(
+        name="plan_entitlements",
+        path="/plans/{plan_code}/entitlements",
+        data_key="entitlements",
+        primary_keys=["lago_plan_id", "code"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="plans",
+            resolve_param="plan_code",
+            resolve_field="_path_code",
+            include_from_parent=["lago_id", "code"],
+            parent_field_renames={"lago_id": "lago_plan_id", "code": "plan_code"},
+        ),
+    ),
     "plans": LagoEndpointConfig(name="plans", path="/plans", data_key="plans"),
     "subscriptions": LagoEndpointConfig(name="subscriptions", path="/subscriptions", data_key="subscriptions"),
+    "subscription_lifetime_usage": LagoEndpointConfig(
+        name="subscription_lifetime_usage",
+        path="/subscriptions/{usage_ref}/lifetime_usage",
+        data_key="lifetime_usage",
+        partition_key=None,
+        paginated=False,
+        # The usage body already carries both subscription ids.
+        fanout=_subscription_usage_fanout("_path_external_id", ["external_customer_id"]),
+    ),
     "taxes": LagoEndpointConfig(name="taxes", path="/taxes", data_key="taxes"),
     # `/wallet_transactions` only accepts POST (top-ups); the listing is per wallet.
     "wallet_transactions": LagoEndpointConfig(
@@ -136,3 +224,6 @@ ENDPOINTS = tuple(LAGO_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in LAGO_ENDPOINTS.items()
 }
+
+# Lago writes activity logs asynchronously, so a log can land after a sync already read later ones.
+INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {"activity_logs": 3600}

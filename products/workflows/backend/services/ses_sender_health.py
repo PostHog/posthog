@@ -44,7 +44,14 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     failed = tuple(sorted({domain.lower() for domain in failed_domains}))
     rolled_out = cache(_rolled_out)
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
-        if rolled_out(sender.team_id) is not True:
+        in_rollout = rolled_out(sender.team_id)
+        if in_rollout is not True:
+            logger.info(
+                "ses_sender_health_held_back",
+                team_id=sender.team_id,
+                domain=sender.config["domain"],
+                rolled_out=in_rollout,
+            )
             continue
         stopped_at = _mark_stop_awaiting_notice(sender)
         if stopped_at and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at):

@@ -1358,7 +1358,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description="Report authored (READY/PENDING_INPUT/suppressed), or skipped by a preflight gate.",
+                description=(
+                    "Report authored (READY/PENDING_INPUT/suppressed), skipped by a preflight gate, or refused "
+                    "because an open report already names a source issue."
+                ),
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
             404: OpenApiResponse(description="Run not found for this project."),
@@ -1371,7 +1374,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "behaves like a pipeline report. Safe to retry: resending an emission returns the report the first "
             "call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, "
             "without one, on the report's content. Use `reports` to find a report from an earlier run and "
-            "`edit-report` to update it instead of authoring a near-duplicate."
+            "`edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue "
+            "that an open report already names is refused with `source_issue_already_reported` and that "
+            "report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it."
         ),
         operation_id="signals_scout_emit_report",
     )
@@ -3856,7 +3861,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here "
             "once its config is registered, either explicitly via create or by the coordinator's next "
             "tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given "
-            "labels, and `search` to narrow it to the scouts matching a substring of either name."
+            "labels, `search` to narrow it to the scouts matching a substring of either name, and "
+            "`source_product` to narrow it to the scouts another product stood up, such as Slack channel scouts."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -3887,6 +3893,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # types the label they see, a caller holding a stored identifier types the slug.
         if search := query.get("search"):
             queryset = queryset.filter(Q(display_name__icontains=search) | Q(skill_name__icontains=search))
+        if source_product := query.get("source_product"):
+            queryset = queryset.filter(source_product=source_product)
         # Ordered by the label the reader sees rather than by the identifier, which no surface shows
         # first. A scout with no name of its own falls back to its slug, which is close enough to the
         # label the clients derive from it to keep the two kinds interleaved instead of clumping the

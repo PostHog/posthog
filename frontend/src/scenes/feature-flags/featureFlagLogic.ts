@@ -31,7 +31,7 @@ import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLog
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { describeCron } from 'lib/cron'
+import { describeCron, nextCronOccurrence } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -538,6 +538,17 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
+// Returns the first cron match after now, or on or after `fromDay` when that day is later, or null for an invalid cron.
+// `fromDay` is a browser-local Dayjs whose wall clock shows project time, so `.tz(timezone, true)` reinterprets it.
+// Searching from a previously computed run would skip the first match after a second cron edit.
+export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null): Dayjs | null {
+    const now = new Date()
+    // Step back 1 ms so that a match at exactly midnight of the picked day counts.
+    const dayStart = fromDay?.startOf('day').tz(timezone, true).subtract(1, 'millisecond').toDate()
+    const nextDate = nextCronOccurrence(cron, timezone, dayStart && dayStart > now ? dayStart : now)
+    return nextDate ? scheduleDateFromStoredISO(nextDate.toISOString(), timezone) : null
+}
+
 // Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
 // next occurrence for recurring changes too, so it is a uniform sort key across all change types.
 // Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
@@ -732,7 +743,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 // Mirrors RESERVED_NEW_VARIANT_KEYS in products/feature_flags/backend/reserved_variant_keys.py.
-const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null']
+const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null', 'true', 'false']
 
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
  * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
@@ -1470,6 +1481,7 @@ export interface featureFlagLogicValues {
     scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
+    schedulePickedDay: Dayjs | null
     schedulePreset: PairedPresetKey | null
     scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
@@ -2207,6 +2219,9 @@ export interface featureFlagLogicActions {
         payloads: Record<string, any> | null | undefined
         variants: MultivariateFlagVariant[] | null | undefined
     }
+    setSchedulePickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
+    }
     setSchedulePreset: (preset: PairedPresetKey | null) => {
         preset: PairedPresetKey | null
     }
@@ -2731,6 +2746,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setSchedulePickedDay: (day: Dayjs | null) => ({ day }),
         setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
         resetScheduleFormExpanded: true,
         setSchedulePayload: (
@@ -3205,6 +3221,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        // The day last picked in the date picker. Kept apart from scheduleDateMarker, which each
+        // cron edit overwrites, so a cron typed after picking a day still searches from that day.
+        schedulePickedDay: [
+            null as Dayjs | null,
+            {
+                setSchedulePickedDay: (_, { day }) => day,
+                // A null marker means the form was reset or the picker was cleared, so drop the picked day
+                setScheduleDateMarker: (state, { dateMarker }) => (dateMarker ? state : null),
             },
         ],
         // Null until the user opens or closes the form; the default is derived from
@@ -4336,26 +4362,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!cronExpression) {
                 return
             }
-            // Only compute next run for valid 5-field cron expressions
-            const fields = cronExpression.trim().split(/\s+/)
-            if (fields.length !== 5) {
-                return
-            }
-            try {
-                const timezone = values.currentTeam?.timezone || 'UTC'
-                // scheduleDateMarker is a browser-local Dayjs whose wall clock matches the
-                // project timezone. Reinterpret it in the project timezone before passing to
-                // cron-parser so the cron fields (e.g. "0 9") are evaluated in the project's
-                // timezone rather than the browser's.
-                const baseDate = values.scheduleDateMarker?.tz(timezone, true).toDate() ?? new Date()
-                const interval = CronExpressionParser.parse(cronExpression, {
-                    currentDate: baseDate,
-                    tz: timezone,
-                })
-                const nextDate = interval.next().toDate()
-                actions.setScheduleDateMarker(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
-            } catch {
-                // Invalid expression — don't update the date picker
+            const timezone = values.currentTeam?.timezone || 'UTC'
+            const nextRun = nextCronRunDate(cronExpression, timezone, values.schedulePickedDay)
+            // Invalid expression: leave the date picker as it is
+            if (nextRun) {
+                actions.setScheduleDateMarker(nextRun)
             }
         },
         setRepeatsValue: ({ value }) => {

@@ -85,6 +85,18 @@ describe('CohortFlagTargetingNotice', () => {
             turnOn: false,
             planLimits: true,
         },
+        {
+            name: 'off for a time range realtime cohorts can not follow',
+            realtime: readiness('off', { reason: 'unsupported_time_range' }),
+            turnOn: false,
+            planLimits: false,
+        },
+        {
+            name: 'off for a reason this bundle predates',
+            realtime: readiness('off', { reason: 'added_after_this_bundle' as CohortRealtimeReadinessApi['reason'] }),
+            turnOn: false,
+            planLimits: false,
+        },
         { name: 'building', realtime: readiness('building'), turnOn: false, planLimits: false },
         { name: 'rebuilding', realtime: readiness('rebuilding'), turnOn: false, planLimits: false },
         { name: 'needs_attention', realtime: readiness('needs_attention'), turnOn: false, planLimits: false },
@@ -97,6 +109,39 @@ describe('CohortFlagTargetingNotice', () => {
         })
         expect(!!screen.queryByText('Turn on realtime')).toBe(turnOn)
         expect(!!screen.queryByText('See plan limits')).toBe(planLimits)
+    })
+
+    it.each([
+        {
+            name: 'a reason this bundle words',
+            reason: 'action_criteria',
+            shows: /realtime cohorts can't match on/,
+            generic: false,
+        },
+        {
+            name: 'a reason this bundle predates',
+            reason: 'added_after_this_bundle',
+            shows: /once-a-day calculation/,
+            generic: true,
+        },
+    ])('explains a cohort kept off realtime by $name', async ({ reason, shows, generic }) => {
+        await renderNotice(readiness('daily', { reason: reason as CohortRealtimeReadinessApi['reason'] }))
+
+        await waitFor(() => {
+            expect(screen.getByText('Viewed pricing this week')).toBeInTheDocument()
+        })
+        expect(screen.getByText(shows)).toBeInTheDocument()
+        expect(!!screen.queryByText(/once-a-day calculation/)).toBe(generic)
+    })
+
+    it.each([
+        { state: 'off', reason: 'unsupported_time_range', shows: /whole days back from today/ },
+        { state: 'off', reason: 'added_after_this_bundle', shows: /Realtime can't be turned on for it/ },
+        { state: 'needs_attention', reason: 'unsupported_time_range', shows: /whole days back from today/ },
+    ] as const)('explains a cohort that is $state with the reason $reason', async ({ state, reason, shows }) => {
+        await renderNotice(readiness(state, { reason: reason as CohortRealtimeReadinessApi['reason'] }))
+
+        expect(await screen.findByText(shows)).toBeInTheDocument()
     })
 
     it.each([

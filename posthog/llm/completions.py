@@ -54,7 +54,6 @@ def hit_openai(
     if resolve_ai_gateway_config() is not None:
         properties = posthog_properties or {}
         gateway_client = build_openai_client(
-            "django",
             ai_product=properties.get("ai_product"),
             properties=_gateway_labels(properties),
             distinct_id=distinct_id,

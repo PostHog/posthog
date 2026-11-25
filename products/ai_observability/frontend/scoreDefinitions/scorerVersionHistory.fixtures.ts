@@ -18,6 +18,8 @@ export const historyDefinition: ScoreDefinitionApi = {
     team: 997,
     created_by: null,
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     created_at: '2026-01-01T12:00:00Z',
     updated_at: '2026-01-02T12:00:00Z',
 }
@@ -33,6 +35,7 @@ export const historyVersions: ScoreDefinitionVersionApi[] = [
         config: historyDefinition.config,
         created_at: '2026-01-02T12:00:00Z',
         created_by: null,
+        created_by_project_key_id: 'example-project-key-00000001',
     },
     {
         id: 'quality-v1',
@@ -44,5 +47,6 @@ export const historyVersions: ScoreDefinitionVersionApi[] = [
         config: { min: 0, max: 10, step: 1, passing_rule: { operator: 'gte', threshold: 7 } },
         created_at: historyDefinition.created_at,
         created_by: null,
+        created_by_project_key_id: null,
     },
 ]

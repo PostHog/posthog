@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
+from .enums import AutoQuarantineMode, NoRunNeededOutcome, QuarantineLiftState, RunGate, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -93,6 +93,25 @@ class CreateRunInput:
     # Tells the classifier to leave omitted baseline identifiers alone instead
     # of marking them as removed.
     is_partial: bool = False
+
+
+@dataclass(frozen=True)
+class NoRunNeededInput:
+    """CI decided that a commit needs no visual run of one run type."""
+
+    repo_id: UUID
+    run_type: str
+    commit_sha: str
+    branch: str
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
+class NoRunNeededResult:
+    """What the report did. `detail` says it in a sentence for the CI log."""
+
+    outcome: NoRunNeededOutcome
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -362,6 +381,9 @@ class Run:
     metadata: dict = field(default_factory=dict)
     # How this row matched the `search` query param: "exact", "similar", or None when not searching.
     search_match_type: str | None = None
+    gate: RunGate = RunGate.CI_JOB
+    # Computed by the single-run read only, because it reads the ledger per run.
+    stale_approval_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -681,6 +703,38 @@ class BaselineLedgerRepair:
     # Planned entries whose hash differs from the file read again at their own commit. An apply
     # refuses to write while there is any.
     mismatches: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoptionItem:
+    """One named identifier of a ledger adoption, with the ledger at the cursor and the chosen run's render."""
+
+    identifier: str
+    # Empty when the ledger does not hold the identifier at the cursor.
+    ledger_hash: str
+    render_hash: str
+    # Only reported. An adoption does not change approvals.
+    open_approvals: int
+
+    @property
+    def already_matches(self) -> bool:
+        return self.ledger_hash == self.render_hash
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoption:
+    """What adopting renders into the ledger for one run type plans or wrote, at the newest resolved ledger commit."""
+
+    run_type: str
+    run_id: UUID
+    run_position: int
+    cursor_position: int
+    cursor_sha: str
+    items: tuple[BaselineLedgerAdoptionItem, ...]
+
+    @property
+    def to_append(self) -> tuple[BaselineLedgerAdoptionItem, ...]:
+        return tuple(item for item in self.items if not item.already_matches)
 
 
 # How far back the page reads. Sets the width of the per-day activity strip and
