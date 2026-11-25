@@ -66,6 +66,9 @@ export const getBatchExportsListUrl = (projectId: string, params?: BatchExportsL
         : `/api/projects/${projectId}/batch_exports/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsList = async (
     projectId: string,
     params?: BatchExportsListParams,
@@ -81,6 +84,9 @@ export const getBatchExportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsCreate = async (
     projectId: string,
     batchExportRequestApi: BatchExportRequestApi,
@@ -218,6 +224,9 @@ export const getBatchExportsRunsListUrl = (
         : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRunsList = async (
     projectId: string,
     batchExportId: string,
@@ -234,6 +243,9 @@ export const getBatchExportsRunsRetrieveUrl = (projectId: string, batchExportId:
     return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRunsRetrieve = async (
     projectId: string,
     batchExportId: string,
@@ -289,6 +301,9 @@ export const getBatchExportsRunsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRunsLogsRetrieve = async (
     projectId: string,
     batchExportId: string,
@@ -331,6 +346,9 @@ export const getBatchExportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRetrieve = async (
     projectId: string,
     id: string,
@@ -346,6 +364,9 @@ export const getBatchExportsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsUpdate = async (
     projectId: string,
     id: string,
@@ -364,6 +385,9 @@ export const getBatchExportsPartialUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -382,6 +406,9 @@ export const getBatchExportsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsDestroyUrl(projectId, id), {
         ...options,
@@ -409,6 +436,9 @@ export const getBatchExportsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/batch_exports/${id}/logs/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsLogsRetrieve = async (
     projectId: string,
     id: string,
@@ -439,6 +469,9 @@ export const getBatchExportsRunTestStepCreateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/batch_exports/${id}/run_test_step/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRunTestStepCreate = async (
     projectId: string,
     id: string,
@@ -478,6 +511,9 @@ export const getBatchExportsRunTestStepNewCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/run_test_step_new/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsRunTestStepNewCreate = async (
     projectId: string,
     batchExportApi: NonReadonly<BatchExportApi>,
@@ -495,6 +531,9 @@ export const getBatchExportsTestRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/test/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const batchExportsTestRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsTestRetrieveUrl(projectId), {
         ...options,
@@ -518,6 +557,9 @@ export const getFileDownloadBatchExportsListUrl = (projectId: string, params?: F
         : `/api/projects/${projectId}/file_download_batch_exports/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const fileDownloadBatchExportsList = async (
     projectId: string,
     params?: FileDownloadBatchExportsListParams,
@@ -635,6 +677,9 @@ export const getFileDownloadBatchExportsLogsRetrieveUrl = (
         : `/api/projects/${projectId}/file_download_batch_exports/${id}/logs/`
 }
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const fileDownloadBatchExportsLogsRetrieve = async (
     projectId: string,
     id: string,

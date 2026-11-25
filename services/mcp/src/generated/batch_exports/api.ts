@@ -8,6 +8,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const BatchExportsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -23,6 +26,9 @@ export const BatchExportsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const BatchExportsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -756,6 +762,9 @@ export const BatchExportsCreateBody = () => zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const BatchExportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
@@ -765,6 +774,9 @@ export const BatchExportsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const BatchExportsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
@@ -1505,6 +1517,9 @@ export const BatchExportsPartialUpdateBody = () => zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
+/**
+ * Answer 400 when a request would start work on an instance that runs no batch exports.
+ */
 export const BatchExportsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this batch export.'),
     project_id: zod
