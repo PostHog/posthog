@@ -517,6 +517,36 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         # A SQL tile is fresh for as long as its range's interval allows, so the hour tile expires first.
         self.assertEqual([line["result"]["cache"]["stale"] for line in later[1:]], [False, True])
 
+    @parameterized.expand(
+        [
+            ("spans", {"kind": "TraceSpansQuery", "dateRange": {"date_from": "-24h"}}),
+            (
+                "aggregation",
+                {
+                    "kind": "TraceSpansAggregationQuery",
+                    "dateRange": {"date_from": "-24h"},
+                    "serviceNames": ["api"],
+                    "includeImpact": True,
+                },
+            ),
+        ]
+    )
+    def test_a_traces_tile_gets_the_tracing_access_check(self, _name: str, query: dict) -> None:
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        lines = self._lines([{"target": target, "time": _LAST_7_DAYS}])
+
+        self.assertEqual(
+            lines,
+            [
+                {
+                    "i": 0,
+                    "refId": "traces",
+                    "error": "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+                }
+            ],
+        )
+
     def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
         sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"
         queries = [

@@ -10,7 +10,7 @@ import base64
 import decimal
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -49,6 +49,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner
 
 
 # Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
@@ -1456,13 +1458,6 @@ def run_aggregation_query(
     include_health: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
-    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
-    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
-
-    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
-    # on its own thread, where a Django read would open a second connection.
-    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
-
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -1472,16 +1467,30 @@ def run_aggregation_query(
         groupByEndpoint=group_by_endpoint,
         includeHealth=include_health,
     )
-    runner = TraceSpansAggregationQueryRunner(
-        query,
-        team,
-        limit=limit,
-        offset=offset,
-        identity_keys=resolved_tracing_identity_attribute_keys(team) if include_impact else None,
-    )
+    runner = aggregation_query_runner(query, team=team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response
+
+
+def aggregation_query_runner(
+    query: TraceSpansAggregationQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansAggregationQueryRunner":
+    """The flat span aggregation runner, for the tracing API and for `get_query_runner`."""
+    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
+    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
+    # on its own thread, where a Django read would open a second connection.
+    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
+
+    query = TraceSpansAggregationQuery.model_validate(query)
+    return TraceSpansAggregationQueryRunner(
+        query,
+        team=team,
+        identity_keys=resolved_tracing_identity_attribute_keys(team) if query.includeImpact else None,
+        **kwargs,
+    )
 
 
 def run_tree_query(
