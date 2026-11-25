@@ -59,6 +59,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthRuleTest,
     ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
+    ExperimentHoldoutView,
     ExperimentValidationError,
     RunningTimeMode,
 )
@@ -615,6 +616,27 @@ class ExperimentHealthSerializer(serializers.Serializer):
     )
 
 
+class _ObjectAccessLevelField(serializers.SerializerMethodField):
+    """The viewer's access level, which the access control serializer mixin resolves from a reference to the rendered
+    contract, the same way it resolves a model."""
+
+    def __init__(self, resource: Literal["experiment", "experiment_holdout"]) -> None:
+        self.resource = resource
+        super().__init__(help_text="The effective access level the user has for this object")
+
+    def get_attribute(self, instance: ExperimentBasic | ExperimentHoldoutView) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource=self.resource,
+            id=str(instance.id),
+            team_id=self.context["get_team"]().id,
+            created_by_id=instance.created_by.id if instance.created_by else None,
+        )
+
+
+class _ExperimentHoldoutViewSerializer(ExperimentHoldoutSerializer):
+    user_access_level = _ObjectAccessLevelField("experiment_holdout")
+
+
 class _FeatureFlagKeyField(serializers.CharField):
     # The experiment service reads the key from the validated data under the source name, `get_feature_flag_key`.
     # A read renders a contract, which holds the key as `feature_flag_key`.
@@ -742,11 +764,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
         required=False,
         help_text="Organizational tags for this experiment (up to 100, 255 characters each).",
     )
-    user_access_level = serializers.SerializerMethodField(
-        method_name="get_experiment_access_level",
-        read_only=True,
-        help_text="The effective access level the user has for this object",
-    )
+    user_access_level = _ObjectAccessLevelField("experiment")
 
     Meta: Any
 
@@ -760,23 +778,6 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
         # model declares a field-level access rule, so the check has nothing to enforce.
         return attrs
 
-    def _access_level(
-        self, resource: Literal["experiment", "experiment_holdout"], object_id: int, created_by_id: int | None
-    ) -> str | None:
-        if self.user_access_control is None:
-            return None
-        return self.get_user_access_level(
-            ObjectAccessRef(
-                resource=resource,
-                id=str(object_id),
-                team_id=self.context["get_team"]().id,
-                created_by_id=created_by_id,
-            )
-        )
-
-    def get_experiment_access_level(self, experiment: ExperimentBasic) -> str | None:
-        return self._access_level("experiment", experiment.id, experiment.created_by_id)
-
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
     def get_status(self, experiment: ExperimentBasic) -> str:
         return experiment.status
@@ -788,17 +789,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
 
     @extend_schema_field(ExperimentHoldoutSerializer)
     def get_holdout(self, experiment: ExperimentBasic) -> dict[str, Any] | None:
-        holdout = experiment.holdout
-        if holdout is None:
+        if experiment.holdout is None:
             return None
-        # Without a request in its context, the holdout serializer renders no access level, because it reads the
-        # level from a holdout model. The level comes from a reference to the holdout instead.
-        return {
-            **ExperimentHoldoutSerializer(holdout).data,
-            "user_access_level": self._access_level(
-                "experiment_holdout", holdout.id, holdout.created_by.id if holdout.created_by else None
-            ),
-        }
+        return _ExperimentHoldoutViewSerializer(experiment.holdout, context=self.context).data
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_legacy(self, experiment: ExperimentBasic) -> bool:
