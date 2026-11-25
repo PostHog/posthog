@@ -40,7 +40,6 @@ export function stableSeriesColors(
     const taken = new Set([...assigned.values()].map((color) => palette.indexOf(color)).filter((slot) => slot >= 0))
     for (const key of [...keys].sort()) {
         const previous = assigned.get(key)
-        // A colour from a palette the theme no longer uses is picked again.
         if (previous !== undefined && palette.includes(previous)) {
             colors.set(key, previous)
             continue
@@ -75,7 +74,6 @@ export function timeSeriesFromFrames(
     palette?: string[],
     assignedColors?: Map<string, string>
 ): TimeSeriesData {
-    // Where two frames name one instant differently, the longer, full timestamp is the label both join on.
     const labelByKey = new Map<string, string>()
     for (const time of frames.flatMap((frame) => fieldValues(frame, 'time').map(String))) {
         const key = timeKey(time)
