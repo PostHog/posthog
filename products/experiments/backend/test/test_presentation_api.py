@@ -1251,7 +1251,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     @parameterized.expand(
         [
             ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch", {})),
-            ("draft_at_launch", "?at_launch=true", {}, "no_metric", ("finding", None, {})),
+            (
+                "draft_at_launch",
+                "?at_launch=true",
+                {},
+                "no_metric",
+                ("finding", None, {"primary_metric_count": 0, "secondary_metric_count": 0}),
+            ),
             (
                 "matured_users_at_launch",
                 "?at_launch=true",
