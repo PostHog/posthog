@@ -69,13 +69,28 @@ describe('support ticket fetching', () => {
     it.each([
         ['the Today panel', TodaySupportPanel],
         ['the side panel', SidePanelSupport],
-    ])('fetches from %s and keeps existing tickets reachable on a free plan', async (_case, Surface) => {
+    ])('shows feedback links in %s and keeps existing tickets reachable on a free plan', async (_case, Surface) => {
         getTickets.mockResolvedValue({
             results: [{ id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' }],
         })
-        const { findByText, unmount } = render(<Surface />)
+        const { findAllByRole, findByText, unmount } = render(<Surface />)
 
         expect(await findByText('Your tickets')).toBeTruthy()
+
+        const bugReportHref = 'https://github.com/PostHog/posthog/issues/new?template=bug_report.yml'
+        const bugReportLinks = await findAllByRole('link', { name: 'Report a bug' })
+        const bugReportLink = bugReportLinks.find((link) => link.getAttribute('href') === bugReportHref)
+        expect(bugReportLink?.getAttribute('href')).toBe(bugReportHref)
+        expect(bugReportLink?.getAttribute('target')).toBe('_blank')
+        expect(bugReportLink?.getAttribute('rel')).toContain('noopener')
+        expect(bugReportLink?.getAttribute('data-attr') ?? bugReportLink?.getAttribute('data-attr-id')).toBe(
+            'support-report-bug'
+        )
+
+        const featureRequestLinks = await findAllByRole('link', { name: 'Request a feature' })
+        expect(
+            featureRequestLinks.some((link) => link.getAttribute('href') === 'https://posthog.com/roadmap?idea=new')
+        ).toBe(true)
         unmount()
     })
 })

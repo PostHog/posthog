@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconExternal, IconFeatures, IconHelmet, IconInfo, IconMap } from '@posthog/icons'
+import { IconBug, IconExternal, IconFeatures, IconHelmet, IconInfo, IconMap } from '@posthog/icons'
 import {
     Button,
     Heading,
@@ -53,12 +53,25 @@ const FEEDBACK_LINKS = [
     { label: "See what we're building", href: 'https://posthog.com/wip', Icon: IconHelmet },
     { label: 'Vote on our roadmap', href: 'https://posthog.com/roadmap', Icon: IconMap },
     { label: 'Request a feature', href: 'https://posthog.com/roadmap?idea=new', Icon: IconFeatures },
+    {
+        label: 'Report a bug',
+        href: 'https://github.com/PostHog/posthog/issues/new?template=bug_report.yml',
+        Icon: IconBug,
+        dataAttr: 'support-report-bug',
+    },
 ]
 
-function ExternalLinkButton({ href, children }: { href: string; children: React.ReactNode }): JSX.Element {
+function ExternalLinkButton({
+    href,
+    children,
+    dataAttr,
+}: {
+    href: string
+    children: React.ReactNode
+    dataAttr?: string
+}): JSX.Element {
     return (
-        // eslint-disable-next-line react/forbid-elements
-        <Button variant="outline" render={<a href={href} target="_blank" rel="noopener noreferrer" />}>
+        <Button variant="outline" data-attr={dataAttr} render={<LinkPrimitive to={href} target="_blank" />}>
             {children}
         </Button>
     )
@@ -191,8 +204,8 @@ export function TodaySupportPanel(): JSX.Element {
                         Share feedback
                     </Heading>
                     <div className="flex flex-col items-start gap-2">
-                        {FEEDBACK_LINKS.map(({ label, href, Icon }) => (
-                            <ExternalLinkButton key={href} href={href}>
+                        {FEEDBACK_LINKS.map(({ label, href, Icon, dataAttr }) => (
+                            <ExternalLinkButton key={href} href={href} dataAttr={dataAttr}>
                                 <Icon />
                                 {label}
                             </ExternalLinkButton>
