@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
+from dataclasses import replace
 from datetime import UTC, datetime, tzinfo
 from functools import partial
 from queue import Empty, Queue
@@ -48,8 +49,8 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -77,6 +78,7 @@ from products.dashboards.backend.v2.telemetry import (
 logger = structlog.get_logger(__name__)
 
 MAX_QUERIES_PER_BATCH = 500
+HOGQL_TARGET_ROW_LIMIT = 10_000
 WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
@@ -259,6 +261,9 @@ _QUERY_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 _EXPOSED_ERRORS = (
     ExposedHogQLError,
     ExposedCHQueryError,
+    # A timeout reads as /query's 504, not as a failure the panel cannot explain.
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ResolutionError,
     UserAccessControlError,
     TelemetryTargetError,
@@ -331,6 +336,8 @@ def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
                     "kind": "HogQLQuery",
                     "query": target.query,
                     "filters": {"dateRange": {"date_from": date_from, "date_to": date_to}},
+                    # The rows a chart can draw. `hasMore` still marks the line truncated past it.
+                    "limit": HOGQL_TARGET_ROW_LIMIT,
                 },
                 target.engine,
             ),
@@ -431,24 +438,14 @@ def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) ->
     return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _line_shape(
-    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat, *, team: Team
-) -> _LineShape:
-    frames = result_format == ResultFormat.FRAMES
-    query = resolved.query if resolved is not None else {}
-    if frames and resolved is not None and resolved.filters:
-        # The runner applies the target's filters, an interval override among them, so frames read the query that ran.
-        try:
-            query = apply_dashboard_filters_to_dict(query, resolved.filters, team)
-        except Exception:
-            logger.warning("dashboard_v2_query_batch_frame_filters_failed", exc_info=True)
+def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
     return _LineShape(
         language=item.target.language,
-        query=query,
+        query=resolved.query if resolved is not None else {},
         canonical=canonical_query(item, resolved),
         legend=item.target.legend,
         target_format=item.target.format,
-        frames=frames,
+        frames=result_format == ResultFormat.FRAMES,
     )
 
 
@@ -569,6 +566,18 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape)
         legend=shape.legend if shape.frames else None,
         target_format=shape.target_format if shape.frames else None,
     )
+
+
+def _entry_key(key: _ServedKey) -> _ServedKey:
+    """The key without presentation. Whether a stale entry runs fresh depends on the entry, not on how it is drawn."""
+    return replace(key, legend=None, target_format=None)
+
+
+def _shared_body(served: dict[_ServedKey, bytes], key: _ServedKey) -> Optional[bytes]:
+    body = served.get(key)
+    if body is None and served.get(_entry_key(key)) == _RUN_FRESH:
+        return _RUN_FRESH
+    return body
 
 
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
@@ -762,7 +771,7 @@ class QueryBatch:
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
                 continue
-            self._shapes[index] = _line_shape(item, resolved[index], self._result_format, team=self._team)
+            self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
         if logql:
             try:
@@ -827,7 +836,7 @@ class QueryBatch:
         for index, item in enumerate(inputs):
             if item.target.language != QueryBatchLanguage.LOGQL:
                 continue
-            self._shapes[index] = _line_shape(item, None, self._result_format, team=self._team)
+            self._shapes[index] = _line_shape(item, None, self._result_format)
             if item.cache_only:
                 self._add_ready(_miss_line(index, None, self._shapes[index]))
             else:
@@ -850,7 +859,12 @@ class QueryBatch:
             # A panel repeating an entry an earlier chunk served is left unplanned, so its blob is not fetched again.
             planned = plan(index)
             if planned is not None:
-                body = served.get(_served_key(planned, inputs[index], self._shapes[index]))
+                if self._shapes[index].frames:
+                    # The planned runner holds the query with the target's filters applied, an interval override
+                    # among them, so frames read the query that ran without building a second runner. A duplicate
+                    # that runs fresh skips the loop below, so the shape takes the query here.
+                    self._shapes[index] = replace(self._shapes[index], query=planned.query_runner.query.model_dump())
+                body = _shared_body(served, _served_key(planned, inputs[index], self._shapes[index]))
                 if body is not None:
                     duplicates[index] = body
                     return None
@@ -881,11 +895,12 @@ class QueryBatch:
                         to_run.append(index)
                     continue
                 same_entry = _served_key(planned, item, self._shapes[index])
-                if same_entry in served:
-                    if served[same_entry] == _RUN_FRESH:
+                shared = _shared_body(served, same_entry)
+                if shared is not None:
+                    if shared == _RUN_FRESH:
                         to_run.append(index)
                     else:
-                        self._add_shared(index, served[same_entry])
+                        self._add_shared(index, shared)
                     continue
                 started = monotonic()
                 # Frames can be far smaller than the entry they came from, so the read budget counts the entry.
@@ -917,7 +932,7 @@ class QueryBatch:
                     self._read_bytes += stored_bytes or len(
                         _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
                     )
-                    served[same_entry] = _RUN_FRESH
+                    served[same_entry] = served[_entry_key(same_entry)] = _RUN_FRESH
                     to_run.append(index)
                     continue
                 line = _result_line(

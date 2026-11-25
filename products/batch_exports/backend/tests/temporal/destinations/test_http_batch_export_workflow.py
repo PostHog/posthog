@@ -249,7 +249,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.parametrize("has_mutations", [True, False])
 @pytest.mark.parametrize("days_ago", [10, 0], ids=["events-json", "events-json-recent"])
 async def test_insert_into_http_activity_exports_person_properties_as_set_when_using_native_events(

@@ -42,9 +42,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 
@@ -1762,76 +1760,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
 
     @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_as_admin(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create a test feature flag
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
-        )
-        FeatureFlagRoleAccess.objects.create(
-            feature_flag=feature_flag,
-            role=self.admin_role,
-        )
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        feature_flag_access = FeatureFlagRoleAccess.objects.first()
-        self.assertIsNone(feature_flag_access)
-
-        access_control = AccessControl.objects.get(resource="feature_flag")
-        self.assertEqual(access_control.access_level, "editor")
-        self.assertEqual(access_control.role, self.admin_role)
-        self.assertEqual(access_control.resource, "feature_flag")
-        self.assertEqual(access_control.resource_id, str(feature_flag.id))
-
-        # Verify reporting calls
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_with_specific_role_access(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create a test feature flag
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
-        )
-
-        # Create specific role access
-        FeatureFlagRoleAccess.objects.create(
-            feature_flag=feature_flag,
-            role=self.admin_role,
-        )
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Verify specific role access was migrated
-        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
-        access_control = AccessControl.objects.get(
-            resource="feature_flag",
-            resource_id=str(feature_flag.id),
-            role=self.admin_role,
-        )
-        self.assertEqual(access_control.access_level, "editor")
-
-        # Add verification of reporting calls at the end
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
     def test_migrate_team_rbac_as_admin(self, mock_report_action):
         # Create a new team with access control enabled
         team_with_access_control = Team.objects.create(
@@ -1943,103 +1871,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/{other_org.id}/migrate_access_control/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_both_feature_flags_and_team_rbac(self, mock_report_action):
-        """Test that both feature flag and team RBAC migrations can be performed in a single call."""
-        # Create a new team with access control enabled
-        team_with_access_control = Team.objects.create(
-            organization=self.organization, name="Team with Access Control", access_control=True
-        )
-
-        # Set up users
-        self.admin_user = self._create_user("rbac_admin+5@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        self.member_user = self._create_user("rbac_member+5@posthog.com")
-
-        self.client.force_login(self.admin_user)
-
-        # Create explicit team memberships
-        ExplicitTeamMembership.objects.create(
-            team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
-            level=ExplicitTeamMembership.Level.ADMIN,
-        )
-        ExplicitTeamMembership.objects.create(
-            team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
-            level=ExplicitTeamMembership.Level.MEMBER,
-        )
-
-        # Create feature flags with role access
-        feature_flags = []
-        for i in range(2):
-            feature_flag = FeatureFlag.objects.create(
-                team=team_with_access_control,
-                created_by=self.admin_user,
-                key=f"test-flag-{i}",
-                name=f"Test Flag {i}",
-            )
-            feature_flags.append(feature_flag)
-            FeatureFlagRoleAccess.objects.create(
-                feature_flag=feature_flag,
-                role=self.admin_role,
-            )
-
-        # Perform migration
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Verify feature flag access controls
-        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
-        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 2)
-
-        for feature_flag in feature_flags:
-            access_control = AccessControl.objects.get(resource="feature_flag", resource_id=str(feature_flag.id))
-            self.assertEqual(access_control.access_level, "editor")
-            self.assertEqual(access_control.role, self.admin_role)
-
-        # Verify team access controls
-        self.assertEqual(ExplicitTeamMembership.objects.count(), 0)
-        base_access = AccessControl.objects.get(
-            team=team_with_access_control,
-            organization_member__isnull=True,
-            access_level="none",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        self.assertIsNotNone(base_access)
-
-        admin_access = AccessControl.objects.filter(
-            team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
-            access_level="admin",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        # Shouldn't exist
-        self.assertEqual(admin_access.count(), 0)
-
-        member_access = AccessControl.objects.get(
-            team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
-            access_level="member",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        self.assertIsNotNone(member_access)
-
-        # Verify total number of access controls
-        # 2 feature flags + 2 team access controls (base + member)
-        self.assertEqual(AccessControl.objects.count(), 4)
-
-        # Add verification of reporting calls at the end
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
 
     @patch("posthog.api.organization.report_organization_action")
     def test_migrate_team_rbac_fails_with_error(self, mock_report_action):

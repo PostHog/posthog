@@ -58,6 +58,7 @@ PHREC1\n                       magic
 
 Each block is the stored block, decrypted and otherwise unchanged (snappy-compressed JSON lines).
 The header carries viewports because file playback has no events to read them from.
+They come from the session's `$pageview` and `$screen` events, which the run reads once per day before that day's shards.
 
 ## What the customer sets up
 

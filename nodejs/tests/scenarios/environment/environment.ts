@@ -26,6 +26,7 @@ import {
     RoleId,
     RoleSpec,
     consumerGroupsOf,
+    intakeTopicsOf,
     portOf,
     roleIdsOf,
     roleSpecs,
@@ -35,6 +36,7 @@ import {
     Hogli,
     ProbeFailure,
     STACK,
+    createTopics,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     forgetSesBucket,
@@ -321,6 +323,7 @@ export function createEnvironment({
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs
+        await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
             async () => {
@@ -425,6 +428,10 @@ export function createEnvironment({
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
+        await createTopics(intakeTopicsOf(specs), docker)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')

@@ -36,7 +36,13 @@ from products.experiments.backend.health.context import (
     ReachableCondition,
     load_health_context,
 )
-from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckSkip, not_applicable, not_checked
+from products.experiments.backend.health.skips import (
+    NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
+    CheckSkip,
+    not_applicable,
+    not_checked,
+)
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -124,6 +130,11 @@ class TestExposureFilters(TestCase):
             ),
             ("event_exclusion_without_a_cohort", _filters(EXCLUDED_URL), NO_COHORT_FILTER),
             ("archived", _filters(cohorts=(DYNAMIC,), archived=True), not_applicable(NOT_ON_ARCHIVED)),
+            (
+                "warehouse_native_exposure",
+                replace(RUNNING_CONTEXT, warehouse_native_exposures=True, exposure_events=None),
+                not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES),
+            ),
         ]
     )
     def test_exposure_filters(

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.elevenlabs._config import ElevenLabsSourceConfig
 from products.warehouse_sources.sources.elevenlabs.elevenlabs import (
+    MISSING_PERMISSION_SYNC_MESSAGE,
     ElevenLabsResumeConfig,
     elevenlabs_source,
     validate_credentials as validate_elevenlabs_credentials,
@@ -97,7 +98,9 @@ Grant the following read permissions when creating the key:
             # Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.elevenlabs.io": "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your ElevenLabs account settings, then reconnect.",
             "402 Client Error: Payment Required for url: https://api.elevenlabs.io": "Your ElevenLabs account is out of credits, or this data needs a plan upgrade. Check your ElevenLabs billing and plan, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.elevenlabs.io": "Your ElevenLabs API key is missing the read permissions needed to sync this data. Grant the required read scopes in your ElevenLabs account settings, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.elevenlabs.io": MISSING_PERMISSION_SYNC_MESSAGE,
+            # A 401 whose body says `missing_permissions` is raised with this message by a response action.
+            MISSING_PERMISSION_SYNC_MESSAGE: MISSING_PERMISSION_SYNC_MESSAGE,
         }
 
     def get_schemas(

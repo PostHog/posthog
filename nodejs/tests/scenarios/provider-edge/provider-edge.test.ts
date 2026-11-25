@@ -294,6 +294,24 @@ describe('provider edge', () => {
             ['MessageRejected', 'sent', 'TooManyRequestsException'],
         ],
         [
+            'counts an accepted ambiguous send against the throttle rate, because SES took it',
+            [
+                { name: 'ses.throttle', params: { rate: 1 } },
+                { name: 'ses.ambiguous', params: { accepted: true }, dose: { count: 1 } },
+            ],
+            [ALICE, ALICE],
+            ['Error', 'TooManyRequestsException'],
+        ],
+        [
+            'does not count a refused ambiguous send against the throttle rate',
+            [
+                { name: 'ses.throttle', params: { rate: 1 } },
+                { name: 'ses.ambiguous', params: { accepted: false }, dose: { count: 1 } },
+            ],
+            [ALICE, ALICE],
+            ['Error', 'sent'],
+        ],
+        [
             'answers a send over the throttle rate with the throttle, though a rejection added before it matches',
             [
                 { name: 'ses.reject', params: { type: 'rejected' }, match: { recipient: BOB }, dose: { share: 1 } },
