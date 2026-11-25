@@ -572,6 +572,18 @@ describe('hogFlowOutputMappingLogic', () => {
                 expect(wfLogic.values.workflow.variables).toEqual(variables)
             })
 
+            it('renames one of two saved fields that share a variable', async () => {
+                selectStep('action-shared', [{ key: 'score', label: 'score', type: 'number', default: '' }])
+                logic.actions.initMappings([
+                    { key: 'score', result_path: 'output.score' },
+                    { key: 'score', result_path: 'output.rating' },
+                ])
+
+                logic.actions.setAgentField(1, 'grade')
+
+                expect(logic.values.mappings[1]).toEqual({ key: 'score', result_path: 'output.grade' })
+            })
+
             it.each([
                 ['a name another field already uses', 'summary'],
                 ['an empty name on a saved field', ''],

@@ -304,7 +304,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     if (!name && state[index].key) {
                         return state
                     }
-                    if (name && state.some((m, i) => i !== index && (m.result_path === path || m.key === key))) {
+                    const isNew = !state[index].key
+                    const taken = (m: OutputMapping, i: number): boolean =>
+                        i !== index && (m.result_path === path || (isNew && m.key === key))
+                    if (name && state.some(taken)) {
                         return state
                     }
                     const updated = [...state]
@@ -366,7 +369,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, selectors }) => {
         const persistMappings = (newMappings: OutputMapping[]): void => {
             const selectedNode = values.selectedNode
             if (!selectedNode) {
@@ -426,8 +429,12 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
                 persistMappings(values.mappings)
             },
-            setAgentField: ({ index }) => {
-                const key = values.mappings[index]?.key
+            setAgentField: ({ index }, _, __, previousState) => {
+                const mapping = values.mappings[index]
+                if (mapping === selectors.mappings(previousState)[index]) {
+                    return // refused
+                }
+                const key = mapping?.key
                 // Also brings back a variable deleted in the variables tab, so type and description edits land.
                 if (key) {
                     ensureVariable(key, key)

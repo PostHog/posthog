@@ -150,7 +150,7 @@ export function AiTaskReturns(): JSX.Element {
                                     onCommit={(path) => {
                                         const agentField = AGENT_FIELD_PATH.exec(path)?.[1]
                                         if (agentField) {
-                                            setAgentField(index, agentField)
+                                            setAgentField(index, sanitizeAgentFieldName(agentField))
                                         } else {
                                             updateMappingResultPath(index, path)
                                         }
