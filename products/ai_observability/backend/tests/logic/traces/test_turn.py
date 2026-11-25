@@ -425,6 +425,16 @@ def test_sides_match_the_anchor_after_repeated_earlier_messages() -> None:
     assert [m.role for m in messages_of(sides.input)] == ["user", "assistant"]
 
 
+def test_sides_match_an_anchor_that_starts_by_repeating_itself() -> None:
+    hi, refund = text_message("user", "hi"), text_message("user", "refund?")
+    first = reading(at_node("gen-1", hi, hi, refund))
+    latest_input = at_node("gen-2", hi, hi, hi, refund, tool_call_message())
+
+    sides = sides_of(first=first, latest_input=latest_input, latest=reading(latest_input))
+
+    assert [m.role for m in messages_of(sides.input)] == ["user", "user", "user", "assistant"]
+
+
 def test_sides_fall_back_when_latest_does_not_share_history() -> None:
     first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?")))
     summarizer_input = at_node("gen-9", text_message("user", "summarize this"))
@@ -569,3 +579,45 @@ def test_state_messages_input_wins_with_json_output() -> None:
 
     assert sides.input.value == conversation(text_message("user", "from state"))
     assert sides.output == latest.output
+
+
+def test_a_state_output_that_repeats_the_conversation_is_cut_to_the_answer() -> None:
+    question = text_message("user", "from state")
+    answer = text_message("assistant", "state answer")
+    state = reading(conversation(*HISTORY, question), conversation(*HISTORY, question, tool_call_message(), answer))
+
+    sides = sides_of(state=state)
+
+    assert sides.output.value == conversation(tool_call_message(), answer)
+
+
+@parameterized.expand(
+    [
+        ("a JSON value", json_side({"answer": 1}), None, json_side({"answer": 1}), None),
+        ("a reason it was not read", None, TOO_LARGE, None, TOO_LARGE),
+    ]
+)
+def test_a_state_side_stands_when_no_generation_has_anything(
+    _name: str,
+    value: contracts.TraceJsonSide | None,
+    unread: Unreadable | None,
+    expected_value: contracts.TraceJsonSide | None,
+    expected_unread: Unreadable | None,
+) -> None:
+    state = TurnStep(input=Side(value=value, unread=unread), output=Side(value=value, unread=unread))
+
+    sides = sides_of(state=state)
+
+    assert sides.input == Side(value=expected_value, unread=expected_unread)
+    assert sides.output == Side(value=expected_value, unread=expected_unread)
+
+
+def test_steps_lost_to_a_cut_in_the_latest_generation_are_reported() -> None:
+    first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?")))
+    latest_input = at_node("gen-2", text_message("tool", "the end of a large result"))
+
+    sides = sides_of(
+        first=first, latest_input=latest_input, latest=reading(latest_input), latest_input_unread=TOO_LARGE
+    )
+
+    assert sides.input == Side(value=at_node("gen-1", text_message("user", "refund?")), unread=TOO_LARGE)
