@@ -10,7 +10,6 @@ import { cn } from 'lib/utils/css-classes'
 import { MissingReleaseIdBanner } from '../../../Banners/MissingReleaseIdBanner'
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
 import { ExceptionPlatformPills } from '../../../ExceptionAttributesPreview/ExceptionPlatformPills'
-import { KeptResolvedPill } from '../../../ExceptionAttributesPreview/KeptResolvedPill'
 import { ReleasePreviewPill } from '../../../ReleasesPreview/ReleasePreviewPill'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from './../SubHeader'
@@ -23,7 +22,7 @@ export interface StackTraceTabProps extends Omit<ComponentProps<typeof TabsConte
 
 export function StackTraceTab({ className, renderActions, ...props }: StackTraceTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, properties, release, releaseIdMissingFromSDK, uuid } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, release, releaseIdMissingFromSDK, uuid } = useValues(errorPropertiesLogic)
 
     return (
         <TabsContent {...props} className={cn('flex flex-col', className)}>
@@ -31,7 +30,6 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                     {release && <ReleasePreviewPill release={release} />}
-                    {!loading && properties?.$exception_issue_kept_resolved === true && <KeptResolvedPill />}
                     {!loading && <ExceptionPlatformPills attributes={exceptionAttributes} />}
                 </div>
                 {renderActions?.()}
