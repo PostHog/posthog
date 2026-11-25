@@ -2,6 +2,7 @@ from typing import cast
 
 from products.warehouse_sources.sources.doit._config import DoItSourceConfig
 from products.warehouse_sources.sources.doit.doit import (
+    DOIT_CONCURRENCY_QUOTA_ERROR,
     DOIT_INCREMENTAL_FIELDS,
     REPORT_ID_METADATA_KEY,
     doit_endpoint_source,
@@ -105,11 +106,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     def get_retryable_errors(self) -> set[str]:
         # `DOIT_RETRY` already retries a 429 at the transport level; this is DoIt's own account-wide
         # concurrency quota (multiple schemas of one source can query reports at once), which can
-        # outlast that budget. It clears once the other in-flight requests finish, and Temporal
-        # retries the whole activity from there, so it's transient and self-recovering rather than a
-        # bug. Match the trailing phrase only — the quota key embedded earlier in the message is
-        # account-specific.
-        return {"exhausted; please wait for previous requests to complete"}
+        # outlast that budget. The source waits minutes for it (`_get_waiting_for_concurrency_quota`).
+        # A quota that outlasts those waits still clears once the other in-flight requests finish,
+        # and Temporal retries the whole activity from there, so it's transient and self-recovering
+        # rather than a bug. Match the trailing phrase only, because the quota key embedded earlier
+        # in the message is account-specific.
+        return {DOIT_CONCURRENCY_QUOTA_ERROR}
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         if inputs.schema_name in DOIT_ENDPOINTS:
