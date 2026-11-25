@@ -4,7 +4,7 @@ import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
-import { ItemError, toPipelineResults } from '~/ingestion/common/service-response'
+import { toPipelineResults } from '~/ingestion/common/service-response'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
@@ -46,6 +46,27 @@ function previousOverflowAttempts(message: Pick<Message, 'headers'> | undefined)
     return 0
 }
 
+/** Returns `undefined` when the event has no further attempt to make, which sends it to the DLQ. */
+function retryOnOverflow<T>(
+    { overflowMode, preservePartitionLocality }: CymbalRetryOptions,
+    message: Pick<Message, 'headers'> | undefined,
+    warnings: PipelineWarning[]
+): PipelineResult<T, OverflowOutput> | undefined {
+    if (overflowMode === 'disabled') {
+        return undefined
+    }
+    // Only the overflow lane counts attempts, because the main lane always hands the event over.
+    const attempts = overflowMode === 'consume' ? previousOverflowAttempts(message) + 1 : 0
+    if (attempts >= CYMBAL_MAX_OVERFLOW_ATTEMPTS) {
+        return undefined
+    }
+    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, {
+        preserveKey: preservePartitionLocality,
+        warnings,
+        headers: attempts > 0 ? { [CYMBAL_RETRY_ATTEMPTS_HEADER]: String(attempts) } : undefined,
+    })
+}
+
 /**
  * Validates and normalizes the event timestamp.
  * Returns the validated ISO timestamp and any warnings from invalid timestamps.
@@ -85,8 +106,6 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient,
     retryOptions: CymbalRetryOptions = { overflowMode: 'disabled', preservePartitionLocality: true }
 ): ChunkProcessingStep<T, T, OverflowOutput> {
-    const { overflowMode, preservePartitionLocality } = retryOptions
-
     return async function cymbalProcessingStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
         if (inputs.length === 0) {
             return []
@@ -119,27 +138,6 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
         try {
             const results = await cymbalClient.processExceptions(items)
 
-            // A dropped event keeps Cymbal's reason, and an event Cymbal fails goes to the DLQ.
-            const redirectToOverflow = (
-                _error: ItemError,
-                index: number,
-                warnings: PipelineWarning[]
-            ): PipelineResult<T, OverflowOutput> | undefined => {
-                if (overflowMode === 'disabled') {
-                    return undefined
-                }
-                if (overflowMode === 'redirect') {
-                    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, preservePartitionLocality, true, [], warnings)
-                }
-                const attempts = previousOverflowAttempts(validatedInputs[index].input.message) + 1
-                if (attempts >= CYMBAL_MAX_OVERFLOW_ATTEMPTS) {
-                    return undefined
-                }
-                return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, preservePartitionLocality, true, [], warnings, {
-                    [CYMBAL_RETRY_ATTEMPTS_HEADER]: String(attempts),
-                })
-            }
-
             return toPipelineResults<CymbalResponse, T, OverflowOutput>(
                 'cymbal',
                 results,
@@ -155,7 +153,8 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
                     return ok({ ...input, event: input.event }, [], warnings)
                 },
-                redirectToOverflow
+                (_error, index, warnings) =>
+                    retryOnOverflow(retryOptions, validatedInputs[index].input.message, warnings)
             )
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {

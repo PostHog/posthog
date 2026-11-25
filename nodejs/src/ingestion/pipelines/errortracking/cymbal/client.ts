@@ -294,8 +294,8 @@ export class CymbalClient {
     /**
      * Fan out a timed-out chunk to individual events. Each event gets a single
      * attempt through processChunk. Events that succeed return their response.
-     * Events that timeout come back as a `retry` result, so one slow event goes to the DLQ
-     * and a batch where every event timed out fails as a whole.
+     * Events that timeout come back as a `retry` result, so the caller decides where the
+     * next attempt happens.
      * Non-timeout errors (5xx, network) are thrown to abort the fan-out and let
      * the retry wrapper handle them.
      */

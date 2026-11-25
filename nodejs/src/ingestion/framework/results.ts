@@ -105,12 +105,15 @@ export function timeout<T>(
 export function redirect<T, R extends string>(
     reason: string,
     output: R,
-    preserveKey: boolean = true,
-    awaitAck: boolean = true,
-    sideEffects: Promise<unknown>[] = [],
-    warnings: PipelineWarning[] = [],
-    headers?: Record<string, string>
+    options: {
+        preserveKey?: boolean
+        awaitAck?: boolean
+        sideEffects?: Promise<unknown>[]
+        warnings?: PipelineWarning[]
+        headers?: Record<string, string>
+    } = {}
 ): PipelineResult<T, R> {
+    const { preserveKey = true, awaitAck = true, sideEffects = [], warnings = [], headers } = options
     return {
         type: PipelineResultType.REDIRECT,
         reason,

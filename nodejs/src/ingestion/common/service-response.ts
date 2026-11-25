@@ -105,6 +105,19 @@ export function toPipelineResults<T, O, R extends string = never>(
         throw new ServiceResponseError(`${service} asked to retry every item in the batch`, true)
     }
 
+    const toDlq = (
+        item: { result: 'retry' | 'fail'; error: ItemError },
+        warnings: PipelineWarning[]
+    ): PipelineResult<O, R> => {
+        serviceItemFailures.labels({ service, result: item.result, code: item.error.code }).inc()
+        return dlq(
+            `${service}_item_${item.result}`,
+            new Error(`${item.error.code}: ${item.error.message}`),
+            [],
+            warnings
+        )
+    }
+
     return results.map((item, index) => {
         const warnings = toPipelineWarnings(service, item.warnings)
         switch (item.result) {
@@ -112,21 +125,10 @@ export function toPipelineResults<T, O, R extends string = never>(
                 return onOk(item.value, index, warnings)
             case 'drop':
                 return drop(item.reason, [], warnings)
-            case 'retry': {
-                const handled = onRetry?.(item.error, index, warnings)
-                if (handled) {
-                    return handled
-                }
-            }
-            // falls through
+            case 'retry':
+                return onRetry?.(item.error, index, warnings) ?? toDlq(item, warnings)
             case 'fail':
-                serviceItemFailures.labels({ service, result: item.result, code: item.error.code }).inc()
-                return dlq(
-                    `${service}_item_${item.result}`,
-                    new Error(`${item.error.code}: ${item.error.message}`),
-                    [],
-                    warnings
-                )
+                return toDlq(item, warnings)
         }
     })
 }
