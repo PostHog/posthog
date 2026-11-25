@@ -16,7 +16,7 @@ and none for anything else. Liquid alone would loop over an object's key and val
 
 import re
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -136,6 +136,9 @@ class HandlebarsToLiquid:
         dialect: Dialect,
         root_value: Callable[[str], str | None] = lambda _name: None,
         split_text: TextSplitter | None = None,
+        root_path: str = "variables",
+        variable_names: Collection[str] = (),
+        allows_raw: bool = True,
     ) -> None:
         self.is_html = is_html
         self._dialect = dialect
@@ -143,6 +146,11 @@ class HandlebarsToLiquid:
         self.converted: list[str] = []
         self._root_value = root_value
         self._split_text = split_text
+        self._root_path = root_path
+        # Stay under `variables` when `root_path` is something else.
+        self._variable_names = variable_names
+        self._allows_raw = allows_raw
+        self.read_root = False
         self._html = HtmlContext() if is_html else None
         self._loop_names: list[str] = []
         self._after_raw_html = False
@@ -152,7 +160,7 @@ class HandlebarsToLiquid:
         self._converted_root = ""
 
     def convert(self, nodes: tuple[object, ...]) -> str:
-        converted = self._nodes(nodes, (_Frame(this="variables"),))
+        converted = self._nodes(nodes, (_Frame(this=self._root_path),))
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
         if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
@@ -220,6 +228,7 @@ class HandlebarsToLiquid:
         self._converted_root = ""
         if body.startswith("&"):
             body, raw = body[1:].strip(), True
+        raw = raw and self._allows_raw
         try:
             liquid, raw = self._output_liquid(body, raw, frames)
         except (_Unsupported, _Unconvertible):
@@ -537,8 +546,11 @@ class HandlebarsToLiquid:
             named = self._block_param(parts[0], frames)
             if named is not None:
                 base, parts = named, parts[1:]
-        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == "variables"):
+        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == self._root_path):
             raise _Unsupported
+        if base == self._root_path and parts[0] in self._variable_names:
+            base = "variables"
+        self.read_root = self.read_root or base == self._root_path
         return ".".join([base, *parts])
 
     def _block_param(self, name: str, frames: tuple[_Frame, ...]) -> str | None:

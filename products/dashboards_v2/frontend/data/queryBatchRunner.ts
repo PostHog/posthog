@@ -71,9 +71,10 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi): Promise<Re
         const response = await fetch(getDashboardV2QueryBatchCreateUrl(String(teamId)), {
             method: 'POST',
             credentials: 'same-origin',
+            // No Accept header: DRF negotiates it against JSON renderers before the view streams, so
+            // `application/x-ndjson` is refused with a 406.
             headers: {
                 'Content-Type': 'application/json',
-                Accept: 'application/x-ndjson',
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
             },
             body: JSON.stringify(body),
