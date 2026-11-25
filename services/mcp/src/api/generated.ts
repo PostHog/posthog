@@ -11836,6 +11836,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter1Response;
       schema_map: ConversionGoalFilter1SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11869,6 +11871,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter2Response;
       schema_map: ConversionGoalFilter2SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11907,6 +11911,8 @@ export namespace Schemas {
       schema_map: ConversionGoalFilter3SchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -32939,6 +32945,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter1Response;
       schema_map?: PartialConversionGoalFilter1SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -32970,6 +32977,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter2Response;
       schema_map?: PartialConversionGoalFilter2SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -33006,6 +33014,7 @@ export namespace Schemas {
       schema_map?: PartialConversionGoalFilter3SchemaMap;
       table_name?: string | null;
       timestamp_field?: string | null;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -62354,6 +62363,10 @@ export namespace Schemas {
     export const MarketingAnalyticsRecommendationsDataGapKind = {
       ConversionActionTablesNotSynced: 'conversion_action_tables_not_synced',
       PerformanceMaxSearchTermsCountPrimaryConversions: 'performance_max_search_terms_count_primary_conversions',
+      PosthogConversionsNotReady: 'posthog_conversions_not_ready',
+      PosthogConversionGoalsUnusable: 'posthog_conversion_goals_unusable',
+      PosthogCampaignsUnmatched: 'posthog_campaigns_unmatched',
+      PosthogConversionsFailed: 'posthog_conversions_failed',
     } as const;
 
     export interface MarketingAnalyticsRecommendationsDataGap {
@@ -74563,6 +74576,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsActionConversionGoalResponse;
       schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74610,6 +74625,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsEventConversionGoalResponse;
       schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74648,6 +74665,8 @@ export namespace Schemas {
       schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -80247,6 +80266,20 @@ export namespace Schemas {
       step_at_delegation?: string;
     }
 
+    /**
+     * * `this_organization` - Linked to this organization
+     * * `other_region` - Linked to an organization in another region
+     * * `not_linked` - Not linked
+     */
+    export type OrganizationLinkStateEnum = typeof OrganizationLinkStateEnum[keyof typeof OrganizationLinkStateEnum];
+
+
+    export const OrganizationLinkStateEnum = {
+      ThisOrganization: 'this_organization',
+      OtherRegion: 'other_region',
+      NotLinked: 'not_linked',
+    } as const;
+
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
@@ -80384,6 +80417,8 @@ export namespace Schemas {
      * * `not_a_partner` - Not a provisioning partner
      * * `in_review` - In review
      * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
      * * `on` - On
      * * `off` - Off
      * * `blocked` - Blocked
@@ -80395,6 +80430,8 @@ export namespace Schemas {
       NotAPartner: 'not_a_partner',
       InReview: 'in_review',
       WaitingForStaff: 'waiting_for_staff',
+      ChangesRequested: 'changes_requested',
+      Declined: 'declined',
       On: 'on',
       Off: 'off',
       Blocked: 'blocked',
@@ -80403,7 +80440,9 @@ export namespace Schemas {
     /**
      * * `pending` - Pending
      * * `accepted` - Accepted
-     * * `rejected` - Rejected
+     * * `declined` - Declined
+     * * `changes_requested` - Changes requested
+     * * `rejected` - Blocked
      * * `needs_human` - Needs staff review
      */
     export type ProvisioningReviewStatusEnum = typeof ProvisioningReviewStatusEnum[keyof typeof ProvisioningReviewStatusEnum];
@@ -80412,9 +80451,55 @@ export namespace Schemas {
     export const ProvisioningReviewStatusEnum = {
       Pending: 'pending',
       Accepted: 'accepted',
+      Declined: 'declined',
+      ChangesRequested: 'changes_requested',
       Rejected: 'rejected',
       NeedsHuman: 'needs_human',
     } as const;
+
+    /**
+     * * `registered` - Registered
+     * * `automated_review` - Automated review
+     * * `staff_decision` - PostHog staff decision
+     * * `staff_message` - Message from PostHog staff
+     * * `partner_note` - Note from the partner
+     */
+    export type PartnerReviewEventKindEnum = typeof PartnerReviewEventKindEnum[keyof typeof PartnerReviewEventKindEnum];
+
+
+    export const PartnerReviewEventKindEnum = {
+      Registered: 'registered',
+      AutomatedReview: 'automated_review',
+      StaffDecision: 'staff_decision',
+      StaffMessage: 'staff_message',
+      PartnerNote: 'partner_note',
+    } as const;
+
+    export interface PartnerReviewEvent {
+      /** When it happened. */
+      readonly at: string;
+      /** registered: the app registered for provisioning. automated_review: the automated review decided. staff_decision: PostHog staff decided. staff_message: PostHog staff changed their message. partner_note: an admin of the app's organization sent a note.
+       *
+       * * `registered` - Registered
+       * * `automated_review` - Automated review
+       * * `staff_decision` - PostHog staff decision
+       * * `staff_message` - Message from PostHog staff
+       * * `partner_note` - Note from the partner */
+      readonly kind: PartnerReviewEventKindEnum;
+      /** The review status the event left. Null for registrations and notes.
+       *
+       * * `pending` - Pending
+       * * `accepted` - Accepted
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
+       * * `needs_human` - Needs staff review */
+      readonly status: ProvisioningReviewStatusEnum | null;
+      /** What PostHog staff wrote to the app's owners, or the text of the note. Empty when there is none. */
+      readonly message: string;
+      /** The email of the admin who sent a note. Empty for every other event. */
+      readonly author: string;
+    }
 
     /**
      * The review an app went through to become a provisioning partner, as its owners see it.
@@ -80423,11 +80508,13 @@ export namespace Schemas {
      * review checks, which would teach an abusive app what to fake.
      */
     export interface PartnerReview {
-      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. changes_requested: PostHog staff asked for changes or more information, so send a review note. declined: not approved, and a review note asks for another review. rejected: provisioning is blocked, and only PostHog staff can lift it.
        *
        * * `pending` - Pending
        * * `accepted` - Accepted
-       * * `rejected` - Rejected
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
        * * `needs_human` - Needs staff review */
       readonly status: ProvisioningReviewStatusEnum;
       /** When the app registered for provisioning. */
@@ -80437,8 +80524,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly decided_at: string | null;
-      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization. */
       readonly partner_message: string;
+      /** What happened on the review, oldest first: decisions, messages from PostHog staff, and notes. */
+      readonly timeline: readonly PartnerReviewEvent[];
     }
 
     /**
@@ -80460,6 +80549,8 @@ export namespace Schemas {
        * * `not_a_partner` - Not a provisioning partner
        * * `in_review` - In review
        * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
        * * `on` - On
        * * `off` - Off
        * * `blocked` - Blocked */
@@ -80467,6 +80558,94 @@ export namespace Schemas {
       readonly provisioning_review: PartnerReview | null;
       readonly created: string;
       readonly updated: string;
+    }
+
+    /**
+     * * `none` - Public client, PKCE only
+     * * `client_secret_post` - Client secret
+     * * `private_key_jwt` - Signs with a private key
+     */
+    export type PartnerAuthenticationEnum = typeof PartnerAuthenticationEnum[keyof typeof PartnerAuthenticationEnum];
+
+
+    export const PartnerAuthenticationEnum = {
+      None: 'none',
+      ClientSecretPost: 'client_secret_post',
+      PrivateKeyJwt: 'private_key_jwt',
+    } as const;
+
+    export interface RegisteredPartnerDetails {
+      /** The app's name, as of its last metadata refresh. */
+      readonly client_name: string;
+      /** The homepage in the document saved when the review opened. Empty when it had none. */
+      readonly client_uri: string;
+      /** The app's logo, as of its last metadata refresh. */
+      readonly logo_uri: string;
+      /** The terms of service in the document saved when the review opened. Empty when it had none. */
+      readonly tos_uri: string;
+      /** The privacy policy in the document saved when the review opened. Empty when it had none. */
+      readonly policy_uri: string;
+      /** Contact emails in the document saved when the review opened. */
+      readonly contacts: readonly string[];
+      /** Where PostHog sends people after they sign in, as of the last metadata refresh. */
+      readonly redirect_uris: readonly string[];
+      /** Where the app publishes the public keys it signs with. Empty for a public client. */
+      readonly jwks_uri: string;
+      /** How the app authenticates: none (public client), client_secret_post, or private_key_jwt.
+       *
+       * * `none` - Public client, PKCE only
+       * * `client_secret_post` - Client secret
+       * * `private_key_jwt` - Signs with a private key */
+      readonly authentication: PartnerAuthenticationEnum;
+      /** Every scope the app can ask people to grant. */
+      readonly scopes: readonly string[];
+      /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
+      readonly uses_default_scopes: boolean;
+      /** Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with. */
+      readonly needs_signing_key: boolean;
+      /** Whether the app can create PostHog accounts once provisioning is on. */
+      readonly can_create_accounts: boolean;
+      /** Whether the app can create projects and resources once provisioning is on. */
+      readonly can_provision_resources: boolean;
+      /** Whether a verification token links the app to this organization, to one in another region, or to none.
+       *
+       * * `this_organization` - Linked to this organization
+       * * `other_region` - Linked to an organization in another region
+       * * `not_linked` - Not linked */
+      readonly organization_link: OrganizationLinkStateEnum;
+      /** The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none. */
+      readonly metadata_document: string;
+    }
+
+    /**
+     * One application, with what PostHog read from its metadata document.
+     */
+    export interface OrganizationOAuthApplicationDetail {
+      readonly id: string;
+      /** @maxLength 255 */
+      name?: string;
+      /** @maxLength 2048 */
+      client_id?: string;
+      readonly redirect_uris_list: readonly string[];
+      /** True if this application has been verified by PostHog */
+      is_verified?: boolean;
+      /** True when the app registered itself from a client ID metadata document (CIMD). */
+      readonly is_cimd_client: boolean;
+      /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+       *
+       * * `not_a_partner` - Not a provisioning partner
+       * * `in_review` - In review
+       * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
+       * * `on` - On
+       * * `off` - Off
+       * * `blocked` - Blocked */
+      readonly provisioning_status: PartnerProvisioningStatusEnum;
+      readonly provisioning_review: PartnerReview | null;
+      readonly created: string;
+      readonly updated: string;
+      readonly registration: RegisteredPartnerDetails;
     }
 
     export interface OrganizationPersonalAPIKeyOwner {
@@ -90206,6 +90385,14 @@ export namespace Schemas {
     export interface PanelQueryCheckResponse {
       /** One result for each checked panel. */
       results: PanelQueryCheckResult[];
+    }
+
+    export interface PartnerReviewNote {
+      /**
+         * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
+         * @maxLength 4000
+         */
+      note: string;
     }
 
     export interface PassRateBucket {

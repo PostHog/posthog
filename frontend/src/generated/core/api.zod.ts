@@ -609,6 +609,21 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreateBodyNoteMax = 4000
+
+export const OauthApplicationsReviewNoteCreateBody = /* @__PURE__ */ zod.object({
+    note: zod
+        .string()
+        .max(oauthApplicationsReviewNoteCreateBodyNoteMax)
+        .describe(
+            'What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.'
+        ),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
