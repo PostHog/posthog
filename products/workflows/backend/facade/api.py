@@ -279,15 +279,18 @@ def users_who_can_view_workflow(*, team: Team, workflow_id: str, users: Iterable
     flow = HogFlow.objects.filter(team_id=team.id, id=workflow_id).only("id", "team_id", "created_by_id").first()
     if flow is None:
         return []
-    viewers = []
-    for user in users:
-        access = UserAccessControl(user=user, team=team)
-        if (
+    users = list(users)
+    access_by_user = UserAccessControl.for_user_ids(user_ids=[user.id for user in users], team=team)
+    return [
+        user
+        for user in users
+        if (access := access_by_user.get(user.id))
+        and (
             access.check_access_level_for_resource("hog_flow", "viewer")
             or access.has_any_specific_access_for_resource("hog_flow", "viewer")
-        ) and access.check_access_level_for_object(flow, "viewer"):
-            viewers.append(user)
-    return viewers
+        )
+        and access.check_access_level_for_object(flow, "viewer")
+    ]
 
 
 def get_workflow_access_levels(
