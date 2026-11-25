@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
+import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -496,6 +496,29 @@ describe('provider edge', () => {
             clock.mockRestore()
         }
     })
+
+    it.each<[string, (hold: FaultHold) => Promise<boolean>]>([
+        ['observed', (hold) => hold.observed()],
+        ['accepted', (hold) => hold.accepted!(new AbortController().signal)],
+    ])(
+        'keeps a fault %s once it read it applied, when the faults are cleared before another read',
+        async (_, waitOn) => {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            const answer = await send(ALICE)
+            const held = holdOf({
+                firstAppliedAt: () => {
+                    const appliedAt = edge.firstAppliedAt(faultId)
+                    edge.clearFaults()
+                    return Promise.resolve(appliedAt)
+                },
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+
+            expect({ answer, held: await waitOn(held) }).toEqual({ answer: 'MessageRejected', held: true })
+        }
+    )
 
     it('does not observe a fault for a drive that ended before its observation began', async () => {
         const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))

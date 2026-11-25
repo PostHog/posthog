@@ -56,19 +56,24 @@ export function holdOf(fault: HeldFault): FaultHold {
             const answeredInWindow = async (): Promise<boolean> =>
                 ((await fault.firstAppliedAt()) ?? Infinity) <= windowEndsAt
             try {
-                while (Date.now() <= deadline && !holdEnds?.aborted && !(await answeredInWindow())) {
+                let answered = await answeredInWindow()
+                while (!answered && Date.now() <= deadline && !holdEnds?.aborted) {
                     await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+                    answered = await answeredInWindow()
                 }
-                return await answeredInWindow()
+                return answered
             } finally {
                 holdEnds?.removeEventListener('abort', holdEnded)
             }
         },
         accepted: async (until) => {
-            while (!until.aborted && (await fault.firstAppliedAt()) === undefined) {
+            const applied = async (): Promise<boolean> => (await fault.firstAppliedAt()) !== undefined
+            let accepted = await applied()
+            while (!accepted && !until.aborted) {
                 await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
+                accepted = await applied()
             }
-            return (await fault.firstAppliedAt()) !== undefined
+            return accepted
         },
         release: () => fault.remove(),
     }
