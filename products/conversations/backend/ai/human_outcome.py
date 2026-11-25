@@ -22,7 +22,6 @@ from posthog.ph_client import ph_scoped_capture
 from products.conversations.backend.models import Ticket
 
 HumanOutcome = Literal["used", "edited", "ignored"]
-# "draft_button" is the "Use as reply" or "Use question" button. "reply" is the first public human reply.
 HumanOutcomeSource = Literal["draft_button", "reply"]
 
 # pinned: analytics event name. Dashboards break when it is renamed.

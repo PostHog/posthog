@@ -13,13 +13,13 @@ export interface AiReplyFeedbackProps {
     onSubmit: (rating: AiReplyFeedbackRating, feedbackText?: string, reasons?: AiFeedbackReasonEnumApi[]) => void
 }
 
+// pinned: the `dataAttr` values are autocapture keys. Do not rename.
 const RATING_BUTTONS = [
     {
         rating: 'good',
         label: 'Useful',
         icon: <IconThumbsUp />,
         selectedIcon: <IconThumbsUpFilled />,
-        // pinned: autocapture key. Do not rename.
         dataAttr: 'ai-reply-feedback-good',
     },
     {
@@ -27,7 +27,6 @@ const RATING_BUTTONS = [
         label: 'Not useful',
         icon: <IconThumbsDown />,
         selectedIcon: <IconThumbsDownFilled />,
-        // pinned: autocapture key. Do not rename.
         dataAttr: 'ai-reply-feedback-bad',
     },
 ] as const
