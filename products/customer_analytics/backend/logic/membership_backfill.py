@@ -213,7 +213,8 @@ def get_membership_group_column(group_type_index: int, *, native_json: bool) -> 
 
 
 def get_membership_activity_filter(*, native_json: bool) -> str:
-    # Flag calls never count, so the backfill agrees with ingestion on every flag evaluations mode.
+    # Flag calls never count on any flag evaluations mode.
+    # This matches the filter in PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL.
     last_seen_filter = (
         "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
         if native_json
