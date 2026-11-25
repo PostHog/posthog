@@ -1329,13 +1329,18 @@ describe('scenario environment', () => {
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
+            const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
             if (args[0] === 'ps') {
                 const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.Label "com.docker.compose.service"}}']
                 if (args.slice(1).join(' ') !== lists.join(' ')) {
                     process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
                     process.exit(125)
                 }
-                process.stdout.write('kafka\\ndb\\n')
+                process.stdout.write((stack.services || ['kafka', 'db']).join('\\n') + '\\n')
+                process.exit(0)
+            }
+            if (args.join(' ') === 'volume ls --format {{.Name}}') {
+                process.stdout.write((stack.volumes || []).join('\\n') + '\\n')
                 process.exit(0)
             }
             const [exec, container, rpk, noun, verb, group] = args
@@ -1513,6 +1518,8 @@ describe('scenario environment', () => {
             firstStartS?: number
             hangs?: boolean
             ignoresTerm?: boolean
+            services?: string[]
+            volumes?: string[]
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1733,7 +1740,12 @@ describe('scenario environment', () => {
         )
 
         it('names the existing dev services it keeps when it starts the stack', async () => {
-            writeStack({ running: false, ready: false })
+            writeStack({
+                running: false,
+                ready: false,
+                services: ['kafka', 'db', 'clickhouse'],
+                volumes: ['posthog_clickhouse-data'],
+            })
             const said = jest.spyOn(process.stderr, 'write')
             environment = environmentOf()
 
@@ -1741,11 +1753,34 @@ describe('scenario environment', () => {
                 await environment.up(NEVER_ABORTED)
 
                 expect(said).toHaveBeenCalledWith(
-                    expect.stringContaining('Keeping the existing dev services as they are: db, kafka.')
+                    expect.stringContaining('Keeping the existing dev services as they are: clickhouse, db, kafka.')
                 )
             } finally {
                 said.mockRestore()
             }
+        }, 30_000)
+
+        it('refuses to keep a ClickHouse container whose data is not on its named volume yet, before hogli starts anything', async () => {
+            writeStack({
+                running: false,
+                ready: false,
+                services: ['db', 'clickhouse'],
+                volumes: ['posthog_postgres-15-data'],
+            })
+            environment = environmentOf()
+
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                name: 'StackNotReadyError',
+                message: expect.stringContaining(
+                    'The dev services clickhouse still keep their data on anonymous volumes'
+                ),
+            })
+            expect(stackOf()).toEqual({
+                running: false,
+                ready: false,
+                services: ['db', 'clickhouse'],
+                volumes: ['posthog_postgres-15-data'],
+            })
         }, 30_000)
 
         it.each([

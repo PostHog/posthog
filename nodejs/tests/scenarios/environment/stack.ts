@@ -110,18 +110,50 @@ export class StackNotReadyError extends Error {
     }
 }
 
+// The keys hogli writes on its docker-compose proc. Any other, such as a cmd that phrocs would run in place of the
+// shell or a merge key that brings one in, is refused rather than interpreted.
+const COMPOSE_PROC_KEYS = new Set(['shell', 'ready_pattern', 'capability', 'groups', 'autostart'])
+
 export function keepRunningContainers(mprocsYaml: string): string {
-    const config = (parse(mprocsYaml) ?? {}) as { procs?: Record<string, { shell?: unknown; cmd?: unknown }> }
-    const compose = config.procs?.['docker-compose']
+    let config: { procs?: Record<string, Record<string, unknown> | null> } | null
+    try {
+        config = parse(mprocsYaml)
+    } catch (error) {
+        throw new StackNotReadyError(`The dev config hogli generated is not valid YAML: ${(error as Error).message}`)
+    }
+    const compose = config?.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    const generated = compose?.cmd === undefined ? GENERATED_COMPOSE_SHELL.exec(shell) : null
-    if (!generated) {
+    const otherKeys = Object.keys(compose ?? {}).filter((key) => !COMPOSE_PROC_KEYS.has(key))
+    const generated = otherKeys.length === 0 ? GENERATED_COMPOSE_SHELL.exec(shell) : null
+    if (!compose || !generated) {
         throw new StackNotReadyError(
-            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs and no cmd, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
+            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}${otherKeys.length > 0 ? `; its other keys: ${otherKeys.join(', ')}` : ''}`
         )
     }
-    compose!.shell = generated[1] + KEEPING_COMPOSE_UP + generated[2]
+    compose.shell = generated[1] + KEEPING_COMPOSE_UP + generated[2]
     return stringify(config, { lineWidth: 0 })
+}
+
+// bin/start moves these services' data from anonymous to named volumes before compose runs, and expects compose
+// to recreate the containers on the named ones. A kept container would go on writing to its old volume.
+const NAMED_VOLUMES: Record<string, string> = { clickhouse: 'clickhouse-data', zookeeper: 'zookeeper-data' }
+
+export async function onAnonymousVolumes(
+    docker: string,
+    project: string,
+    services: string[],
+    signal?: AbortSignal
+): Promise<string[]> {
+    const moving = services.filter((service) => service in NAMED_VOLUMES)
+    if (moving.length === 0) {
+        return []
+    }
+    const { stdout } = await promisify(execFile)(docker, ['volume', 'ls', '--format', '{{.Name}}'], {
+        timeout: 10_000,
+        signal,
+    })
+    const volumes = new Set(stdout.split('\n'))
+    return moving.filter((service) => !volumes.has(`${project}_${NAMED_VOLUMES[service]}`))
 }
 
 export async function existingServices(docker: string, project: string, signal?: AbortSignal): Promise<string[]> {
@@ -162,11 +194,14 @@ export async function startStack(
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
     writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
-    const kept = await existingServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal).catch((error: Error) => {
-        signal.throwIfAborted()
-        process.stderr.write(`Could not list the existing dev services: ${error.message}\n`)
-        return []
-    })
+    const project = env.COMPOSE_PROJECT_NAME || 'posthog'
+    const kept = await existingServices(docker, project, signal)
+    const unmoved = await onAnonymousVolumes(docker, project, kept, signal)
+    if (unmoved.length > 0) {
+        throw new StackNotReadyError(
+            `The dev services ${unmoved.join(', ')} still keep their data on anonymous volumes, and the runner would keep them there. Start the stack once with \`hogli start\` while no other worktree uses it, so it moves the data to named volumes, then run again.`
+        )
+    }
     if (kept.length > 0) {
         process.stderr.write(
             `Keeping the existing dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`

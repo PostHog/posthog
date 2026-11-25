@@ -75,8 +75,17 @@ describe('keepRunningContainers', () => {
                 '    cmd: [docker, compose, -p, posthog, up, -d]\n    ready_pattern'
             ),
         ],
+        [
+            'a merge key that brings in a cmd',
+            'compose_defaults: &compose\n  cmd: [docker, compose, -p, posthog, up, -d]\n' +
+                generatedConfig(composeShell(COMPOSE, 'up --pull always -d')).replace(
+                    '  docker-compose:\n',
+                    '  docker-compose:\n    <<: *compose\n'
+                ),
+        ],
         ['no docker-compose proc', 'procs:\n  backend:\n    shell: bin/start-backend\n'],
         ['nothing in it', ''],
+        ['YAML that does not parse', 'procs:\n  docker-compose: [\n'],
     ])('refuses a config with %s, which would recreate the shared containers', (_case, config) => {
         expect(() => keepRunningContainers(config)).toThrow(StackNotReadyError)
     })
