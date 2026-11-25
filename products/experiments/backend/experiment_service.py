@@ -4749,12 +4749,15 @@ class ExperimentService:
         action: str | None,
         query_params: Mapping[str, Any] | None = None,
         request_data: Mapping[str, Any] | None = None,
+        include_deleted: bool = False,
     ) -> QuerySet[Experiment]:
-        """Apply experiment list/detail filtering and ordering rules."""
+        """Apply experiment list/detail filtering and ordering rules.
+
+        Deleted experiments stay out unless `include_deleted` is set, or an update sends a falsy `deleted`.
+        """
         query_params = query_params or {}
         request_data = request_data or {}
 
-        include_deleted = False
         if action in ("partial_update", "update"):
             deleted_value = request_data.get("deleted")
             if deleted_value is not None:
