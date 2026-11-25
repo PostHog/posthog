@@ -10,6 +10,7 @@ from posthog.helpers.impersonation import is_impersonated
 from ...facade import api, contracts
 from .list_filters import check_one_page_position, page_limit_field
 from .session_resource import SESSION_ID_PARAMETER, SessionQuerySerializer, SessionResourceViewSet
+from .trace_page import ConversationReadThrottled
 from .trace_resource import THROTTLED_RESPONSE, request_user
 
 
@@ -38,7 +39,7 @@ class SessionTurnsQuerySerializer(SessionQuerySerializer):
         return attrs
 
 
-class SessionTurnsViewSet(SessionResourceViewSet):
+class SessionTurnsViewSet(ConversationReadThrottled, SessionResourceViewSet):
     @validated_request(
         query_serializer=SessionTurnsQuerySerializer,
         parameters=[SESSION_ID_PARAMETER],
