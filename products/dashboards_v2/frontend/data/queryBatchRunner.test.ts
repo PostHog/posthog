@@ -4,7 +4,7 @@ import { TextDecoder, TextEncoder } from 'node:util'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { QueryRequest } from '../widgets/chart/vizTypes'
-import { createQueryBatchRunner } from './queryBatchRunner'
+import { BUSY_ERROR, createQueryBatchRunner } from './queryBatchRunner'
 
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
@@ -25,6 +25,7 @@ describe('createQueryBatchRunner', () => {
     let status: number
 
     beforeEach(() => {
+        jest.useFakeTimers()
         Object.assign(globalThis, { TextDecoder, TextEncoder })
         streams = []
         status = 200
@@ -44,7 +45,14 @@ describe('createQueryBatchRunner', () => {
         jest.useRealTimers()
     })
 
-    const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+    const flush = (): Promise<void> => jest.advanceTimersByTimeAsync(50)
+    const answer = (stream: OpenStream, i: number, total: number): void =>
+        stream.push(
+            `${JSON.stringify({ i, result: { frames: [{ name: null, labels: {}, fields: [{ name: 'total', type: 'number', values: [total] }], meta: {}, hash: 'h' }] } })}\n`
+        )
+    const totalOf = (total: number): unknown => ({
+        frames: [{ fields: [{ name: 'total', type: 'number', values: [total] }] }],
+    })
 
     it('sends the queries asked in one tick as one stream and settles each as its line arrives', async () => {
         const runQuery = createQueryBatchRunner(7)
@@ -103,12 +111,56 @@ describe('createQueryBatchRunner', () => {
         await expect(result).rejects.toThrow('No answer came back for this query')
     })
 
+    it('sends charts that mount across ticks as one stream and holds later asks until it ends', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const first = runQuery(SQL)
+        await jest.advanceTimersByTimeAsync(0)
+        const second = runQuery(TRENDS)
+        await jest.advanceTimersByTimeAsync(0)
+        const third = runQuery(SQL)
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+        expect(streams[0].body.queries).toHaveLength(3)
+
+        const late = runQuery(TRENDS)
+        await flush()
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+
+        answer(streams[0], 2, 3)
+        answer(streams[0], 0, 1)
+        answer(streams[0], 1, 2)
+        streams[0].close()
+        await expect(Promise.all([first, second, third])).resolves.toEqual([totalOf(1), totalOf(2), totalOf(3)])
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+        expect(streams[1].body.queries).toEqual([
+            { target: { refId: '0', language: 'query', query: '{"kind":"TrendsQuery","series":[]}' }, time: TIME },
+        ])
+        answer(streams[1], 0, 4)
+        await expect(late).resolves.toEqual(totalOf(4))
+    })
+
+    it('asks once more for a query answered busy, after the stream ends', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const result = runQuery(SQL)
+        await flush()
+        streams[0].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        streams[0].close()
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+        streams[1].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+
+        await expect(result).rejects.toThrow(BUSY_ERROR)
+    })
+
     it('asks again when the endpoint is busy with earlier batches', async () => {
-        jest.useFakeTimers()
         status = 429
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)
-        await jest.advanceTimersByTimeAsync(0)
+        await flush()
         status = 200
 
         await jest.advanceTimersByTimeAsync(1000)

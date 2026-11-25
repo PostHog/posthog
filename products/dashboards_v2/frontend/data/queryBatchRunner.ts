@@ -10,11 +10,16 @@ const NO_ANSWER = 'No answer came back for this query'
 // The endpoint answers 429 while this person's earlier batches still hold its slots, which frees up within seconds.
 const THROTTLE_RETRY_DELAYS_MS = [1000, 3000, 8000]
 const MAX_QUERIES_PER_BATCH = 500
+// Tiles mount across several ticks, so one tick would split a board into several batches.
+const COALESCE_MS = 30
+// `_BUSY` in `products/dashboards/backend/v2/query_batch.py`.
+export const BUSY_ERROR = 'Too many dashboards are loading at once. Try again shortly.'
 
 interface Pending {
     request: QueryRequest
     resolve: (result: QueryResult) => void
     reject: (error: Error) => void
+    retriedBusy?: boolean
 }
 
 function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi['queries'][number] {
@@ -86,7 +91,7 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi): Promise<Re
     }
 }
 
-async function runBatch(teamId: number, batch: Pending[]): Promise<void> {
+async function runBatch(teamId: number, batch: Pending[], retry: (pending: Pending) => void): Promise<void> {
     const unanswered = new Map(batch.map((pending, index) => [index, pending]))
     let error = new Error(NO_ANSWER)
     try {
@@ -103,6 +108,11 @@ async function runBatch(teamId: number, batch: Pending[]): Promise<void> {
                     return
                 }
                 unanswered.delete(line.i)
+                // Another tab, or a slot not yet freed, held this person's one running batch.
+                if (line.error === BUSY_ERROR && !pending.retriedBusy) {
+                    retry({ ...pending, retriedBusy: true })
+                    return
+                }
                 const result = resultFromLine(line)
                 if (result instanceof Error) {
                     pending.reject(result)
@@ -119,23 +129,35 @@ async function runBatch(teamId: number, batch: Pending[]): Promise<void> {
 }
 
 /**
- * Runs chart queries through `POST dashboard_v2/query_batch/`. The charts that ask in the same tick, such as every
- * tile a dashboard mounts at once, share one stream, and each chart's promise settles as soon as its own line arrives.
+ * Runs chart queries through `POST dashboard_v2/query_batch/`. The charts that ask within a short window, such as
+ * every tile a dashboard mounts, share one stream, and each chart's promise settles as soon as its own line arrives.
+ * Only one stream runs at a time, because the server runs one batch per person and answers the rest busy: charts that
+ * ask while a stream is open are sent together once it ends.
  */
 export function createQueryBatchRunner(teamId: number): RunQuery {
     let queued: Pending[] = []
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let running = false
+
     const flush = (): void => {
-        const batch = queued
-        queued = []
-        for (let start = 0; start < batch.length; start += MAX_QUERIES_PER_BATCH) {
-            void runBatch(teamId, batch.slice(start, start + MAX_QUERIES_PER_BATCH))
+        timer = null
+        if (running || queued.length === 0) {
+            return
         }
+        const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
+        queued = queued.slice(MAX_QUERIES_PER_BATCH)
+        running = true
+        void runBatch(teamId, batch, (pending) => queued.push(pending)).finally(() => {
+            running = false
+            flush()
+        })
     }
+
     return (request) =>
         new Promise<QueryResult>((resolve, reject) => {
-            if (queued.length === 0) {
-                setTimeout(flush, 0)
-            }
             queued.push({ request, resolve, reject })
+            if (!running && timer === null) {
+                timer = setTimeout(flush, COALESCE_MS)
+            }
         })
 }
