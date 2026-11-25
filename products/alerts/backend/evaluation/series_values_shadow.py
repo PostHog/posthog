@@ -140,7 +140,7 @@ def compare_series_values_shadow(
             comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-            series_index = int((alert.config or {}).get("series_index", 0))
+            series_index = (alert.config or {}).get("series_index", 0)
             precomputed = precomputed_series_values(
                 runner, series_index=series_index, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS
             )
