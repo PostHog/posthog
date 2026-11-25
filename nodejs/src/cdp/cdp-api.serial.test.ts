@@ -75,6 +75,7 @@ import { CdpApi } from './cdp-api'
 import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
+import { INTAKE_ACK_DEADLINE_MS } from './intake/intake-producer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
@@ -5897,16 +5898,34 @@ describe('CDP API', () => {
                         if (deliverHeld || args[0] !== intakeTopic) {
                             return deliver(...args)
                         }
-                        deliverHeld = () => deliver(...args)
+                        let delivered = false
+                        deliverHeld = () => {
+                            if (!delivered) {
+                                delivered = true
+                                deliver(...args)
+                            }
+                        }
                         reachedBroker()
                     }) as typeof deliver)
+                    const realSetTimeout = global.setTimeout
+                    const ackDeadlines = jest
+                        .spyOn(global, 'setTimeout')
+                        .mockImplementation(((
+                            callback: (...args: unknown[]) => void,
+                            ms?: number,
+                            ...args: unknown[]
+                        ) =>
+                            ms === INTAKE_ACK_DEADLINE_MS
+                                ? realSetTimeout(() => {}, 0)
+                                : realSetTimeout(callback, ms, ...args)) as typeof setTimeout)
 
                     const ada = recipient('ada@example.com')
+                    let first: Promise<supertest.Response> | undefined
                     let sameTeam: supertest.Response
                     let otherTeam: supertest.Response
                     let held: supertest.Response
                     try {
-                        const first = sendBatchTo(two, TEMPLATE, batchOf(ada)).then((answer) => answer)
+                        first = sendBatchTo(two, TEMPLATE, batchOf(ada)).then((answer) => answer)
                         await Promise.race([
                             reached,
                             first.then(() =>
@@ -5923,6 +5942,9 @@ describe('CDP API', () => {
                         deliverHeld!()
                         held = await first
                     } finally {
+                        deliverHeld?.()
+                        await first?.catch(() => undefined)
+                        ackDeadlines.mockRestore()
                         mockKafkaClient.produce.mockImplementation(deliver)
                     }
 
