@@ -244,6 +244,7 @@ from products.workflows.backend.facade.email_health import (
     get_email_sending_state,
     pause_requires_staff,
     team_email_sending_allowance,
+    unusable_email_steps,
     verified_email_domains,
 )
 from products.workflows.backend.facade.enums import (
@@ -293,7 +294,6 @@ from products.workflows.backend.facade.sandbox_email import (
     has_verified_own_sender,
     is_sensitive,
     own_only_settings,
-    own_sender_verification,
     provision_sandbox_sender,
     provision_sandbox_sender_if_available,
     require_sandbox_runtime,
@@ -4775,48 +4775,18 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
 
 
-def _email_step_sender_ids(action: dict) -> list[str | None]:
-    config = action.get("config") or {}
-    if action.get("type") != "function_email" and config.get("template_id") != "template-email":
-        return []
-    email_input = (config.get("inputs") or {}).get("email")
-    value = email_input.get("value") if isinstance(email_input, dict) else None
-    sender = value.get("from") if isinstance(value, dict) else None
-    if not isinstance(sender, dict):
-        return []
-    # The send path picks from the rotation alone when one is set.
-    rotation = sender.get("integrationIds")
-    configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
-    # JSON can carry an id as 42.0, which the send path reads as sender 42.
-    configured = [int(value) if isinstance(value, float) and value.is_integer() else value for value in configured]
-    # The send path loads a sender only from a JSON number, so an id stored as text, such as "42", names none.
-    return [
-        str(sender_id) if isinstance(sender_id, int) else None
-        for sender_id in configured
-        if sender_id not in (None, "")
-    ]
-
-
 def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
-    named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
-    if not any(sender_ids for _, sender_ids in named):
-        return
-    verification = own_sender_verification(team_id)
     problems: list[str] = []
-    for step_action, sender_ids in named:
-        for sender_id in sender_ids:
-            if sender_id is not None and verification.get(sender_id):
-                continue
-            step = step_action.get("name") or "Email"
-            if sender_id in verification:
-                url = absolute_uri(f"/project/{team_id}/workflows/channels/email/{sender_id}")
-                problems.append(
-                    f'The "{step}" step sends from a sender whose domain isn\'t verified yet, so its emails '
-                    f"would fail. Verify the domain at {url}, or choose a verified sender."
-                )
-            else:
-                problems.append(f"The \"{step}\" step's email sender can't be found. Choose another sender.")
-            break
+    for step in unusable_email_steps(actions, team_id=team_id):
+        sender = step.senders[0]
+        if sender.unverified:
+            url = absolute_uri(f"/project/{team_id}/workflows/channels/email/{sender.sender_id}")
+            problems.append(
+                f'The "{step.name}" step sends from a sender whose domain isn\'t verified yet, so its emails '
+                f"would fail. Verify the domain at {url}, or choose a verified sender."
+            )
+        else:
+            problems.append(f"The \"{step.name}\" step's email sender can't be found. Choose another sender.")
     if problems:
         raise serializers.ValidationError({"actions": " ".join(problems)})
 

@@ -1,5 +1,6 @@
 """Email health: sending rates, the AWS SES tenant verdict, the per-ISP breakdown, the sending
-allowance, the shared infrastructure's health, the project-wide suspension and the per-workflow pause."""
+allowance, the shared infrastructure's health, the project-wide suspension, the per-workflow pause
+and the email steps whose sender cannot send."""
 
 from products.workflows.backend.services.email_health import (
     email_domain_sharers,
@@ -14,6 +15,7 @@ from products.workflows.backend.services.email_health import (
 )
 from products.workflows.backend.services.email_sending_controls import get_email_sending_state
 from products.workflows.backend.services.workflow_email_health import pause_requires_staff, resume_email_sending
+from products.workflows.backend.services.workflow_email_senders import unusable_email_steps
 
 __all__ = [
     "email_domain_sharers",
@@ -27,5 +29,6 @@ __all__ = [
     "pause_requires_staff",
     "resume_email_sending",
     "team_email_sending_allowance",
+    "unusable_email_steps",
     "verified_email_domains",
 ]

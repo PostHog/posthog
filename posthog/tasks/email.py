@@ -749,24 +749,9 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     broken.sort(key=lambda entry: (entry.hog_function.name or "", entry.hog_function.id))
 
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
-    # A creator may have left the organization, or kept organization membership while losing access
-    # to this project. The email names the project, the destinations and the filter errors, so a
-    # creator is included by effective access to this team, not by organization membership.
     for entry in broken:
         creator = entry.hog_function.created_by
-        if not creator or not creator.is_active or creator in recipients:
-            continue
-        creator_membership = OrganizationMembership.objects.filter(
-            organization_id=team.organization_id, user=creator
-        ).first()
-        if not creator_membership:
-            continue
-        effective_level = (
-            UserPermissions(creator)
-            .team(team)
-            .effective_membership_level_for_parent_membership(creator_membership.organization, creator_membership)
-        )
-        if effective_level is not None:
+        if creator and creator.is_active and creator not in recipients and _can_open_project(creator, team):
             recipients.add(creator)
     if not recipients:
         return
@@ -794,6 +779,21 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     for user in recipients:
         message.add_user_recipient(user)
     message.send()
+
+
+def _can_open_project(user: User, team: Team) -> bool:
+    # A creator may have left the organization, or kept organization membership while losing access
+    # to this project. These emails name the project and what broke in it, so a creator is included
+    # by effective access to this team, not by organization membership.
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
+    if not membership:
+        return False
+    effective_level = (
+        UserPermissions(user)
+        .team(team)
+        .effective_membership_level_for_parent_membership(membership.organization, membership)
+    )
+    return effective_level is not None
 
 
 def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
@@ -1006,6 +1006,50 @@ def send_email_sender_domain_sending_stopped(team_id: int, domain: str, stopped_
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_workflow_email_sender_unusable(
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    steps: list[dict[str, str]],
+    sender_ids: list[str | None],
+    created_by_id: int | None = None,
+) -> None:
+    """
+    Tell a project's admins and the workflow's creator that a live workflow's email steps send from
+    a sender that is deleted or whose domain isn't verified, so every send from those steps fails.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
+    creator = User.objects.filter(id=created_by_id, is_active=True).first() if created_by_id else None
+    if creator and creator not in recipients and _can_open_project(creator, team):
+        recipients.add(creator)
+    if not recipients:
+        return
+    # Keyed on the broken senders, so a workflow emails again only when the set of senders that
+    # cannot send changes.
+    senders_digest = hashlib.sha256("|".join(sorted(str(sender_id) for sender_id in sender_ids)).encode()).hexdigest()
+    workflow_label = single_line(hog_flow_name or "an unnamed workflow")
+    message = EmailMessage(
+        campaign_key=f"workflow_email_sender_unusable_{hog_flow_id}_{senders_digest[:32]}",
+        subject=f"Emails from '{workflow_label}' in project '{single_line(str(team))}' are failing",
+        template_name="workflow_email_sender_unusable",
+        template_context={
+            "team": team,
+            "hog_flow_name": workflow_label,
+            "steps": steps,
+            "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
+            "channels_path": f"/project/{team.id}/workflows/channels",
+        },
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
     message.send()
 
 

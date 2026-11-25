@@ -87,6 +87,23 @@ class OwnedWorkflowHealth:
 
 
 @frozen
+class UnusableEmailSender:
+    """A sender an email step names that cannot send: it exists with an unverified domain, or it can't be found.
+
+    `sender_id` is None when the step's id is one the send path cannot load, such as a number stored as text.
+    """
+
+    sender_id: str | None
+    unverified: bool
+
+
+@frozen
+class UnusableEmailStep:
+    name: str
+    senders: tuple[UnusableEmailSender, ...]
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 

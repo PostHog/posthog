@@ -23,7 +23,7 @@ from posthog.tasks.email import send_email_sender_domain_sending_stopped
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.workflows.backend.services.ses_sender_health import SES_SENDER_HEALTH_FLAG
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
-from products.workflows.backend.test.email_domain_api_test_case import ALL_KINDS, DOMAIN, EmailDomainApiTestCase
+from products.workflows.backend.test.email_domain_api_test_case import DOMAIN, EmailDomainApiTestCase
 from products.workflows.backend.tests.fakes.faults import AwsFault
 
 OTHER_DOMAIN = "news.example.com"
@@ -50,12 +50,6 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
                 side_effect=lambda key, *args, **kwargs: key != SES_SENDER_HEALTH_FLAG or self.rolled_out,
             )
         )
-
-    def verified_sender(self, email: str) -> int:
-        sender = self.create_sender(email)
-        self.publish(self.records_to_publish(sender, domain=email.split("@")[1]), *ALL_KINDS)
-        assert self.verify(sender).status_code == status.HTTP_200_OK
-        return sender
 
     def sender_config(self, integration_id: int) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/integrations/{integration_id}")
