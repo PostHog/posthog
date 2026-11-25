@@ -1128,9 +1128,10 @@ def log_activity(
         user_id = user.pk if user is not None else None
 
         def _do_log_activity(deferred: bool) -> ActivityLog:
+            manager = ActivityLog.objects.db_manager(using) if strict else ActivityLog.objects
             if deferred and user_id is not None and _deleted_user_ids({user_id}):
-                return ActivityLog.objects.create(**{**fields, "user": None})
-            return ActivityLog.objects.create(**fields)
+                return manager.create(**{**fields, "user": None})
+            return manager.create(**fields)
 
         if instance_only:
             return ActivityLog(**fields)
@@ -1407,15 +1408,17 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 
 
 @receiver(post_save, sender=ActivityLog)
-def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+def activity_log_created(sender, instance: "ActivityLog", created, using: str | None = None, **kwargs):
+    if created:
+        transaction.on_commit(lambda: _publish_activity_log(instance), using=using or instance._state.db)
+
+
+def _publish_activity_log(instance: "ActivityLog") -> None:
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.models.activity_logging.utils import activity_visibility_manager
 
     from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-
-    if not created:
-        return
 
     try:
         if activity_visibility_manager.is_restricted(instance, restrict_for_staff=True):

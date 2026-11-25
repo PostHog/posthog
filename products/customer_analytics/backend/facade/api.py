@@ -73,6 +73,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.conversations.backend.facade.api import (
@@ -1100,9 +1101,7 @@ def _set_tags(
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     if removed_tags:
-        Tag.objects.filter(
-            Q(team_id=account.team_id) & Q(id__in=[tag.id for tag in removed_tags]) & Q(tagged_items__isnull=True)
-        ).delete()
+        delete_unused_tags(account.team_id, [tag.id for tag in removed_tags])
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
     _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)

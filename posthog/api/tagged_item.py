@@ -1,11 +1,11 @@
 import dataclasses
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.db import models
-from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db.models import Prefetch, QuerySet, prefetch_related_objects
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import response, serializers, status, viewsets
@@ -17,7 +17,8 @@ from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
-from posthog.models.tag import tagify
+from posthog.models.tag import tag_assignment_transaction, tagify
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
@@ -32,53 +33,59 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     and bulk operations. It leaves orphaned tags in place; use ``replace_tags_on_object``
     to also remove them.
     """
-    tagged_item_objects, _ = _set_tags_on_object(tags, obj)
-    return tagged_item_objects
+    with tag_assignment_transaction([obj.team_id]) as using:
+        tagged_item_objects, _ = _set_tags_on_object(tags, obj, using=using)
+        return tagged_item_objects
 
 
 def replace_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Set tags on an object, then delete the removed tags that no other object uses."""
-    tagged_item_objects, removed_tag_ids = _set_tags_on_object(tags, obj)
-    cleanup_orphan_tags(obj.team_id, removed_tag_ids)
-    return tagged_item_objects
+    with tag_assignment_transaction([obj.team_id]) as using:
+        tagged_item_objects, removed_tag_ids = _set_tags_on_object(tags, obj, using=using)
+        cleanup_orphan_tags(obj.team_id, removed_tag_ids)
+        return tagged_item_objects
 
 
-def _set_tags_on_object(tags: list[str], obj: Any) -> tuple[list[TaggedItem], set[int]]:
+def _set_tags_on_object(tags: list[str], obj: Any, *, using: str) -> tuple[list[TaggedItem], set[UUID]]:
     """Set tags on an object and return its tagged items and the ids of the tags it lost."""
     # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
     deduped_tags = sorted({tagify(t) for t in tags})
     tagged_item_objects = []
+    tagged_items = obj.tagged_items.using(using)
 
     for tag in deduped_tags:
-        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        # The instance, not the id, so TaggedItem.save() reads the team without re-fetching.
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag=tag_instance)
+        tag_instance, _ = Tag.objects.using(using).get_or_create(name=tag, team_id=obj.team_id)
+        item = TaggedItem.for_content_object(tag_instance, obj)
+        tagged_item_instance, _ = tagged_items.get_or_create(
+            tag=tag_instance,
+            content_type_id=item.content_type_id,
+            object_id=item.object_id,
+            object_uuid=item.object_uuid,
+        )
         tagged_item_objects.append(tagged_item_instance)
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)
-    removed_tag_ids: set[int] = set()
+    removed_tag_ids: set[UUID] = set()
     # Activity logging reads each deleted item's tag, its team and the tagged object.
     tagged_items_to_delete = (
-        obj.tagged_items.exclude(tag__name__in=deduped_tags)
+        tagged_items.exclude(tag__name__in=deduped_tags)
         .select_related("tag__team")
         .prefetch_related("integer_object", "uuid_object")
     )
     for tagged_item in tagged_items_to_delete:
         removed_tag_ids.add(tagged_item.tag_id)
-        tagged_item.delete()
+        tagged_item.delete(using=using)
 
     return tagged_item_objects, removed_tag_ids
 
 
-def cleanup_orphan_tags(team_id: int, tag_ids: Collection[int]) -> None:
+def cleanup_orphan_tags(team_id: int, tag_ids: Collection[UUID]) -> None:
     """Delete the given tags if no TaggedItem references them any more.
 
     Only a removed TaggedItem can orphan a tag, so callers pass the ids of the tags they detached.
     A scan of every tag of the team is slow on teams with many tags.
     """
-    if not tag_ids:
-        return
-    Tag.objects.filter(Q(team_id=team_id) & Q(id__in=tag_ids) & Q(tagged_items__isnull=True)).delete()
+    delete_unused_tags(team_id, tag_ids)
 
 
 def normalize_tag_names(tags: Iterable[str]) -> set[str]:
@@ -128,11 +135,11 @@ def apply_bulk_tag_changes(
     tags: list[str],
     *,
     activity_context: Optional[BulkTagActivityContext] = None,
+    validate: Callable[[Sequence, str, list[str]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Apply an add/remove/set tag mutation to each object and return a per-object result.
 
-    Callers are responsible for team-scoping and access-checking ``objects`` first. When a
-    ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
+    Callers are responsible for team-scoping and access-checking ``objects`` first.
     Orphaned tags are cleaned up per affected team, since ``objects`` may span multiple teams
     when the caller scopes by project (e.g. event definitions across environments).
 
@@ -142,27 +149,34 @@ def apply_bulk_tag_changes(
     """
     normalized_tags = normalize_tag_names(tags)
     updated: list[dict[str, Any]] = []
-    removed_tag_ids_by_team: defaultdict[int, set[int]] = defaultdict(set)
+    removed_tag_ids_by_team: defaultdict[int, set[UUID]] = defaultdict(set)
     activity_entries: list[LogActivityEntry] = []
 
-    for obj in objects:
-        current_tags = current_tag_names(obj)
-        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
+    with tag_assignment_transaction([obj.team_id for obj in objects]) as using:
+        for obj in objects:
+            if hasattr(obj, "prefetched_tags"):
+                del obj.prefetched_tags
+        _prefetch_tags_for_instances(objects, using=using)
+        if validate is not None:
+            validate(objects, tag_action, tags)
+        for obj in objects:
+            current_tags = current_tag_names(obj)
+            new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
 
-        _, removed_tag_ids = _set_tags_on_object(list(new_tags), obj)
-        removed_tag_ids_by_team[obj.team_id] |= removed_tag_ids
-        updated.append({"id": obj.id, "tags": sorted(new_tags)})
+            _, removed_tag_ids = _set_tags_on_object(list(new_tags), obj, using=using)
+            removed_tag_ids_by_team[obj.team_id] |= removed_tag_ids
+            updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
-        if activity_context is not None and current_tags != new_tags:
-            activity_entries.append(
-                _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
-            )
+            if activity_context is not None and current_tags != new_tags:
+                activity_entries.append(
+                    _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
+                )
 
-    for team_id, removed_tag_ids in removed_tag_ids_by_team.items():
-        cleanup_orphan_tags(team_id, removed_tag_ids)
+        for team_id, removed_tag_ids in removed_tag_ids_by_team.items():
+            cleanup_orphan_tags(team_id, removed_tag_ids)
 
-    if activity_entries:
-        bulk_log_activity(activity_entries)
+        if activity_entries:
+            bulk_log_activity(activity_entries, using=using)
 
     return updated
 
@@ -320,7 +334,7 @@ class BulkUpdateTagsUUIDResponseSerializer(serializers.Serializer):
     skipped = BulkUpdateTagsUUIDErrorSerializer(many=True, help_text="Objects that were skipped, with a reason each.")
 
 
-def _prefetch_tags_for_instances(instances: Sequence) -> None:
+def _prefetch_tags_for_instances(instances: Sequence, *, using: str | None = None) -> None:
     """Manually prefetch tagged_items for a list of model instances.
 
     Handles RawQuerySet results that may have NULL PKs (e.g., from FULL OUTER JOINs)
@@ -335,7 +349,7 @@ def _prefetch_tags_for_instances(instances: Sequence) -> None:
             valid_instances,
             Prefetch(
                 "tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
+                queryset=TaggedItem.objects.using(using).select_related("tag"),
                 to_attr="prefetched_tags",
             ),
         )
@@ -432,7 +446,6 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
 
         # Build queryset from the viewset's own queryset (inherits team/project scoping)
         queryset = self.get_queryset().filter(id__in=validated_ids)
-        queryset = self.prefetch_tagged_items_if_available(queryset)
         objects = list(queryset)
 
         # Access control: filter to only objects the user can edit
@@ -462,10 +475,12 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
 
-        self.validate_bulk_tag_changes(editable_objects, tag_action, tags)
-
         updated = apply_bulk_tag_changes(
-            editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()
+            editable_objects,
+            tag_action,
+            tags,
+            activity_context=self._bulk_tag_activity_context(),
+            validate=self.validate_bulk_tag_changes,
         )
         return response.Response({"updated": updated, "skipped": errors})
 
