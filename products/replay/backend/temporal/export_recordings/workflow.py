@@ -131,7 +131,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=timedelta(hours=3),
             heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=common.RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=30)),
+            retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
         )
 
     @staticmethod

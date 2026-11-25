@@ -79,6 +79,7 @@ UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
 PERSON_ROW_LIMIT = 50000
 VIEWPORTS_QUERY_TIMEOUT_SECONDS = 2 * 60 * 60
+VIEWPORTS_GROUP_BY_SPILL_BYTES = 10 * 1024 * 1024 * 1024
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
@@ -121,7 +122,7 @@ ORDER BY session_id
 # One query reads a day's viewports for all its shards, because events has no session ID in its sort key and
 # so every viewport query scans its whole time range. The event filter is in the sort key, so ClickHouse reads
 # only those events. A session lasts at most a day, so two days hold every event of the sessions that started
-# on the first. A row per viewport state and minute keeps the result small and still follows resizes.
+# on the first, and the hour before catches a first pageview stamped just ahead of the recording. A row per viewport state and minute keeps the result small and still follows resizes.
 DAY_VIEWPORTS_QUERY = """
 SELECT
     cityHash64(`$session_id`) % {shards_per_day} AS shard,
@@ -129,7 +130,8 @@ SELECT
     toUnixTimestamp64Milli(min(timestamp)) AS first_ms,
     toString(properties.$viewport_width) AS width,
     toString(properties.$viewport_height) AS height,
-    toString(properties.$current_url) AS href
+    -- A long URL would break the line-by-line read.
+    left(toString(properties.$current_url), 4096) AS href
 FROM events
 WHERE event IN ('$pageview', '$screen')
     AND timestamp >= {start} AND timestamp < {end}
@@ -299,13 +301,16 @@ def day_viewports_sql(team: Team, input: DayViewportsInput) -> tuple[str, dict[s
             DAY_VIEWPORTS_QUERY,
             placeholders={
                 "shards_per_day": ast.Constant(value=input.shards_per_day),
-                "start": ast.Constant(value=day_start),
+                "start": ast.Constant(value=day_start - timedelta(hours=1)),
                 "end": ast.Constant(value=day_start + timedelta(days=2)),
             },
         ),
         context,
         "clickhouse",
-        settings=HogQLGlobalSettings(max_execution_time=VIEWPORTS_QUERY_TIMEOUT_SECONDS),
+        settings=HogQLGlobalSettings(
+            max_execution_time=VIEWPORTS_QUERY_TIMEOUT_SECONDS,
+            max_bytes_before_external_group_by=VIEWPORTS_GROUP_BY_SPILL_BYTES,
+        ),
     )
     return sql, context.values
 
@@ -318,7 +323,9 @@ class ViewportFileWriter:
         self.written: set[int] = set()
         self.shard: int | None = None
         self.listed: frozenset[str] = frozenset()
+        self.rows = 0
         self.buffer = io.BytesIO()
+        self.file = gzip.GzipFile(fileobj=self.buffer, mode="wb")
 
     async def add(self, row: dict[str, Any]) -> None:
         shard = int(row["shard"])
@@ -338,15 +345,18 @@ class ViewportFileWriter:
                 "height": row["height"],
                 "href": row["href"],
             }
-            self.buffer.write(json.dumps([row["session_id"], viewport]).encode() + b"\n")
+            self.file.write(json.dumps([row["session_id"], viewport]).encode() + b"\n")
+            self.rows += 1
 
     async def flush(self) -> None:
         if self.shard is not None:
             key = viewports_shard_key(self.input.team_id, self.input.run_id, self.input.day, self.shard)
-            await database_sync_to_async_pool(object_storage.write)(key, gzip.compress(self.buffer.getvalue()))
+            self.file.close()
+            await database_sync_to_async_pool(object_storage.write)(key, self.buffer.getvalue())
             self.written.add(self.shard)
         self.shard = None
         self.buffer = io.BytesIO()
+        self.file = gzip.GzipFile(fileobj=self.buffer, mode="wb")
 
     async def finish(self) -> None:
         await self.flush()
@@ -355,6 +365,7 @@ class ViewportFileWriter:
             if shard not in self.written:
                 self.shard = shard
                 await self.flush()
+        self.file.close()
 
 
 @activity.defn
@@ -375,6 +386,7 @@ async def load_day_viewports(input: DayViewportsInput) -> None:
                     await writer.add(json.loads(line))
         await writer.finish()
     await database_sync_to_async_pool(object_storage.write)(done_key, b"done")
+    logger.info("export_recordings.day_viewports_loaded", team_id=input.team_id, day=input.day, rows=writer.rows)
 
 
 class ViewportReader:
