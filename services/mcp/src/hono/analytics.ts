@@ -353,9 +353,18 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
+// Their results are live credentials: a SCIM bearer token, and a skill-store key that the
+// install commands also embed in a git URL. The result reaches analytics as formatted text,
+// so key-based redaction can't find the credential in it.
+const CREDENTIAL_ISSUING_TOOL_NAMES = [
+    'identity-provider-configs-scim-token-create-execute',
+    'skill-store-install-command',
+]
+
 const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
     PRESIGNED_UPLOAD_TOOL_NAME,
     FIVETRAN_UPLOAD_TOOL_NAME,
+    ...CREDENTIAL_ISSUING_TOOL_NAMES,
 ])
 
 function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
