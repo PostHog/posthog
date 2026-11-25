@@ -648,6 +648,63 @@ describe('action.conditional_branch', () => {
             expect(await lateAdvanceCount()).toBe(0)
         })
 
+        it.each([
+            {
+                name: 'does not count a match on a condition the author added after the run parked',
+                parked: { filters: null },
+                current: { properties: [{ key: 'plan', type: 'person', value: 'pro' }], bytecode: ['_H', 1, 29] },
+                expected: 0,
+            },
+            {
+                name: 'does not count a match on a condition the author changed after the run parked',
+                parked: {
+                    filters: {
+                        properties: [{ key: 'plan', type: 'person', value: 'team' }],
+                        bytecode: ['_H', 1, 30],
+                    },
+                },
+                current: { properties: [{ key: 'plan', type: 'person', value: 'pro' }], bytecode: ['_H', 1, 29] },
+                expected: 0,
+            },
+            {
+                name: 'counts a match on an unchanged condition whose derived fields Django rewrote',
+                parked: {
+                    filters: {
+                        properties: [{ key: 'plan', type: 'person', value: 'pro' }],
+                        bytecode: ['_H', 1, 30],
+                        bytecode_contract: 'old',
+                    },
+                },
+                current: {
+                    properties: [{ key: 'plan', type: 'person', value: 'pro' }],
+                    bytecode: ['_H', 1, 29],
+                    bytecode_contract: 'new',
+                    source: 'events',
+                },
+                expected: 1,
+            },
+        ])('$name', async ({ parked, current, expected }) => {
+            waitAction.config.condition = parked as typeof waitAction.config.condition
+            waitAction.config.max_wait_duration = '4h'
+            const parkResult = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+            expect(parkResult.scheduledAt).toEqual(DateTime.utc().plus({ hours: 4 }))
+
+            waitAction.config.condition = { filters: current }
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await lateAdvanceCount()).toBe(expected)
+        })
+
         it('does not count a timeout, which takes the continue edge rather than matching', async () => {
             // The default condition never matches, so reaching the ceiling is an ordinary timeout.
             waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()

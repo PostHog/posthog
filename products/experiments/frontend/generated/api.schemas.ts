@@ -5579,6 +5579,7 @@ export type ExperimentSavedMetricsListParams = {
     event?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

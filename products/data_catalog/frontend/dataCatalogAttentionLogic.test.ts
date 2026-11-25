@@ -88,6 +88,21 @@ describe('dataCatalogAttentionLogic', () => {
         expect(logic.values.attention.failingChecks).toEqual(2)
     })
 
+    it.each([
+        ['the catalog request', dataCatalogAttentionRetrieve],
+        ['the failing checks request', dataQualityChecksFailingCountRetrieve],
+    ])('on refresh, an empty body from %s keeps the last counts', async (_case, request) => {
+        mountWithFlags(RESTRUCTURE_FLAGS)
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+        ;(request as jest.Mock).mockResolvedValue(null)
+
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+
+        expect(logic.values.totalCount).toEqual(10)
+    })
+
     it('keeps the last review counts when the server could not read them', async () => {
         mountWithFlags(RESTRUCTURE_FLAGS)
         logic.actions.loadAttention()

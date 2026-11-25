@@ -381,6 +381,7 @@ export function FeatureFlagReleaseConditions({
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                 showCohortFlagTargeting
+                                allowNonCapturedPersonProperties
                             />
                             <CohortFlagTargetingNotice properties={group.properties ?? []} className="mt-2" />
                         </div>

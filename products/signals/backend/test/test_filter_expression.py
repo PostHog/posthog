@@ -25,6 +25,9 @@ class TestFilterExpression(SimpleTestCase):
             "project_name = 'Core' AND NOT has(label_names, 'internal')",
             "isNull(label_names)",
             "HAS(label_names, 'internal')",
+            "empty(label_names)",
+            "NOT notEmpty(label_names)",
+            "EMPTY(label_names) OR priority = 1",
         ]
     )
     def test_boolean_contract(self, expression: str) -> None:
@@ -63,8 +66,10 @@ class TestFilterExpression(SimpleTestCase):
             "startsWith(project_name, 'co')",
             "endsWith(project_name, 're')",
             "length(label_names) > 0",
-            "empty(label_names)",
             "notEmpty(project_name)",
+            "empty(priority)",
+            "empty(['x'])",
+            "empty(label_names, label_names)",
             "has(priority, 1)",
             "label_names = ['x']",
             "priority IN (project_name, priority)",
@@ -104,10 +109,22 @@ class TestFilterExpression(SimpleTestCase):
             FilterExpression("", {"future_field": field_type})
         self.assertEqual(raised.exception.code, "unsupported_field_type")
 
-    def test_blank_and_structured_errors(self) -> None:
+    def test_blank_expression_has_no_predicate(self) -> None:
         self.assertIsNone(FilterExpression(" \n ", self.fields).predicate())
+
+    @parameterized.expand(
+        [
+            ("unknown_field", "project_name = 'Core' AND unknown = 1", "unknown_field", 26, 33),
+            ("unknown_field_after_non_ascii", "project_name = 'Cœur' AND unknown = 1", "unknown_field", 26, 33),
+            ("type", "priority = 'high'", "type", 0, 17),
+            ("boolean_required", "project_name", "boolean_required", 0, 12),
+            ("syntax_trailing_token", "project_name = 'Core' )", "syntax", 22, 23),
+            ("syntax_ends_early", "project_name = ", "syntax", 15, 15),
+            ("syntax_after_non_ascii", "project_name = 'Cœur' )", "syntax", None, None),
+            ("expression_limit", " " * 4097, "expression_limit", None, None),
+        ]
+    )
+    def test_error_position(self, _name: str, expression: str, code: str, start: int | None, end: int | None) -> None:
         with self.assertRaises(FilterValidationError) as raised:
-            FilterExpression("unknown = 1", self.fields)
-        self.assertEqual(raised.exception.code, "unknown_field")
-        self.assertIsNotNone(raised.exception.start)
-        self.assertIsNotNone(raised.exception.end)
+            FilterExpression(expression, self.fields)
+        self.assertEqual((raised.exception.code, raised.exception.start, raised.exception.end), (code, start, end))

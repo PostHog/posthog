@@ -30,7 +30,7 @@ from products.signals.backend.report_charts import _unstorable_text
 from products.signals.backend.report_lifecycle import disabled_monitoring_organizations
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
-from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_monitoring_attempts import attempt_credit, current_monitoring_attempt
 from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt
 
 logger = structlog.get_logger(__name__)
@@ -209,6 +209,7 @@ def finish_monitoring_assessment(
             .order_by("id")
         ):
             cancel_check(check, reason="monitoring_completed", attribution=ArtefactAttribution.system())
+        report._transition_credit = attempt_credit(attempt)  # type: ignore[attr-defined]
         report.save(
             update_fields=report.transition_to(SignalReport.Status.RESOLVED if resolved else SignalReport.Status.CLOSED)
         )

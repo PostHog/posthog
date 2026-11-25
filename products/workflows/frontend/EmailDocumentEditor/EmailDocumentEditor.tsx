@@ -12,6 +12,7 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { PreviewPerson } from 'scenes/hog-functions/email-templater/preview/emailPreviewPersonLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cleanPastedHtml } from './cleanPastedHtml'
@@ -20,6 +21,7 @@ import { EmailDocumentPreview } from './components/EmailDocumentPreview'
 import { imageNode, insertBlockOption } from './components/emailEditorActions'
 import { EmailEditorFeedback } from './components/EmailEditorFeedback'
 import { EmailEditorSwitch } from './components/EmailEditorSwitch'
+import { EmailHtmlView } from './components/EmailHtmlView'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
 import { EmailOwnPlainTextNotice } from './components/EmailOwnPlainTextNotice'
@@ -36,12 +38,15 @@ import { buildEmailExtensions } from './emailExtensions'
 import { uploadEmailImage, uploadErrorText } from './emailMediaLibraryLogic'
 import { EmailSuggestionItem, createEmailSuggestion } from './emailSuggestionExtension'
 import { EmailVariableContext, EmailVariableOption, variableOptions as toVariableOptions } from './emailVariables'
-import { renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
+import { htmlSentAsWritten, renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
 
 const PLACEHOLDER = 'Write something, type / for blocks or {{ for variables'
 const NARROW_WIDTH = 900
 
-type Mode = 'edit' | 'preview'
+// The little padding keeps the selected outline in view.
+const PAGE_FOR_HTML_AS_WRITTEN = resolvePageStyle({ bodyPadding: { top: 4, right: 0, bottom: 4, left: 0 } })
+
+type Mode = 'edit' | 'preview' | 'html'
 
 function firstImageFile(files: FileList | null | undefined): File | null {
     return Array.from(files ?? []).find((file) => file.type.startsWith('image/')) ?? null
@@ -72,6 +77,8 @@ export function EmailDocumentEditor(): JSX.Element {
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
     const [mode, setMode] = useState<Mode>('edit')
+    // Held here so the pick survives switching between editing and previewing.
+    const [previewPerson, setPreviewPerson] = useState<PreviewPerson | null>(null)
     const [panelOpen, setPanelOpen] = useState(true)
     const [imagePicker, setImagePicker] = useState<((image: PickedEmailImage) => void) | null>(null)
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
@@ -329,21 +336,26 @@ export function EmailDocumentEditor(): JSX.Element {
         setPanelOpen(!narrow)
     }, [narrow])
 
+    const doc = editor.getJSON()
+    const sentAsWritten = htmlSentAsWritten(doc) !== null
+    const page = sentAsWritten ? PAGE_FOR_HTML_AS_WRITTEN : resolvePageStyle(doc.attrs?.page)
+    const html = mode === 'preview' ? renderEmailHtml(doc) : ''
+
     const context: EmailEditorContextValue = useMemo(
         () => ({
             variableContext,
             variableOptions,
             pickImage,
             openLinkEditor: () => setLinkEditorRequest((request) => request + 1),
+            sentAsWritten,
         }),
         // pickImage only sets state, so it stays valid between renders.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [variableContext, variableOptions]
+        [variableContext, variableOptions, sentAsWritten]
     )
 
-    const doc = editor.getJSON()
-    const page = resolvePageStyle(doc.attrs?.page)
-    const html = mode === 'preview' ? renderEmailHtml(doc) : ''
+    // A modal that only saves on Save holds its edits in the canvas, so its stored html is behind what it would save.
+    const commitsLive = logicProps.liveChanges || logicProps.layout === 'inline'
 
     return (
         <EmailEditorContext.Provider value={context}>
@@ -383,6 +395,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         options={[
                             { value: 'edit', label: 'Edit', 'data-attr': 'email-editor-mode-edit' },
                             { value: 'preview', label: 'Preview', 'data-attr': 'email-editor-mode-preview' },
+                            ...(commitsLive
+                                ? [{ value: 'html' as const, label: 'HTML', 'data-attr': 'email-editor-mode-html' }]
+                                : []),
                         ]}
                     />
                     {mode === 'edit' ? (
@@ -425,7 +440,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                {mode === 'preview' ? (
+                {mode === 'html' ? (
+                    <EmailHtmlView />
+                ) : mode === 'preview' ? (
                     <EmailDocumentPreview
                         html={html}
                         liquid={
@@ -433,6 +450,15 @@ export function EmailDocumentEditor(): JSX.Element {
                             'liquid'
                         }
                         unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
+                        person={previewPerson}
+                        onPersonChange={(person) => {
+                            setPreviewPerson(person)
+                            // pinned: analytics event name and properties, renaming breaks dashboards
+                            posthog.capture('email editor preview person changed', {
+                                email_type: logicProps.type,
+                                action: person ? 'picked' : 'cleared',
+                            })
+                        }}
                     />
                 ) : (
                     <div className="flex flex-1 min-h-0 relative">
@@ -453,7 +479,8 @@ export function EmailDocumentEditor(): JSX.Element {
                             <div
                                 className="EmailDocumentEditor__body mx-auto"
                                 style={{
-                                    maxWidth: page.bodyWidth,
+                                    // Html sent as written lays out in the width it gets, so it takes the room there is.
+                                    maxWidth: sentAsWritten ? undefined : page.bodyWidth,
                                     padding: page.padding || undefined,
                                     marginLeft: page.align === 'left' ? 0 : undefined,
                                     marginRight: page.align === 'right' ? 0 : undefined,

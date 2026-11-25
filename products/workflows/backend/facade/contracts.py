@@ -366,6 +366,10 @@ class ContactsCohortGone(Exception):
     """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
 
 
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
+
+
 class ContactsCleanupFailed(Exception):
     """Object storage kept some of the parts an import stored."""
 
@@ -443,7 +447,6 @@ class EmailInfrastructureHealth:
     """How the email every project in this region sends through PostHog fared, rounded for display."""
 
     emails_sent_at_least: int
-    delivery_rate: float
     bounce_rate: float
     complaint_rate: float
 
