@@ -77,7 +77,7 @@ _SCHEDULE_LOOKUP: dict[str, dict[str, Any]] = {
 }
 
 
-def _run(adapter, *, schedule_state="present"):
+def _run(adapter, *, schedule_state="present", boundaries: dict[str, MagicMock] | None = None):
     with (
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync"),
@@ -94,10 +94,13 @@ def _run(adapter, *, schedule_state="present"):
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
         patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"),
-        patch("products.notifications.backend.facade.api.create_notification"),
+        patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
+        patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
         patch("posthoganalytics.capture"),
     ):
         cleanup_orphan_slots_activity()
+    if boundaries is not None:
+        boundaries.update(notify=mock_notify, digest=mock_digest)
     return mock_activity, mock_delete, mock_pause
 
 
@@ -481,6 +484,108 @@ def test_a_failed_billing_check_still_checks_the_slots_lag(team):
     adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
 
     with patch(f"{_ACTIVITIES}.blocked_past_buffer_retention", side_effect=RuntimeError("quota cache down")):
+        _run(adapter)
+
+    adapter.drop_stream.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"
+
+
+def _set_organization_active(team, is_active):
+    team.organization.is_active = is_active
+    team.organization.save(update_fields=["is_active"])
+
+
+@pytest.mark.parametrize(
+    "is_active, job_inputs, stopped",
+    [
+        (False, _cdc_job_inputs(), True),
+        # A deactivated organization must run nothing, so the auto-drop setting does not keep the slot.
+        (False, _cdc_job_inputs(auto_drop_slot=False), True),
+        # A customer-owned slot is kept, and capture keeps advancing it so their WAL does not grow.
+        (False, _cdc_job_inputs(management="self_managed"), False),
+        (True, _cdc_job_inputs(), False),
+        (None, _cdc_job_inputs(), False),
+    ],
+)
+def test_a_deactivated_organization_stops_capture_on_a_posthog_managed_slot(team, is_active, job_inputs, stopped):
+    _set_organization_active(team, is_active)
+    source = _create_source(team, job_inputs=job_inputs)
+    schema = _create_cdc_schema(team, source)
+    adapter = _mock_adapter()
+    boundaries: dict[str, MagicMock] = {}
+
+    _, _, mock_pause = _run(adapter, boundaries=boundaries)
+
+    assert adapter.drop_stream.called is stopped
+    assert mock_pause.called is stopped
+    assert adapter.get_lag.called is not stopped
+    schema.refresh_from_db()
+    source.refresh_from_db()
+    marker = schema.sync_type_config.get("cdc_broken") or {}
+    assert (marker.get("reason") == "organization_deactivated") is stopped
+    assert (source.status == ExternalDataSource.Status.ERROR) is stopped
+    boundaries["notify"].assert_not_called()
+    boundaries["digest"].assert_not_called()
+    assert not ExternalDataJob.objects.filter(schema=schema).exists()
+
+
+def test_a_deactivated_organization_is_stopped_once(team):
+    _set_organization_active(team, False)
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    _create_cdc_schema(team, source)
+    _run(_mock_adapter())
+    adapter = _mock_adapter()
+
+    _, _, mock_pause = _run(adapter)
+
+    adapter.drop_stream.assert_not_called()
+    adapter.get_lag.assert_not_called()
+    mock_pause.assert_not_called()
+
+
+@pytest.mark.parametrize("earlier_reason", ["billing_limit_expired", None])
+def test_a_deactivated_organization_stops_a_source_that_was_not_stopped_for_it(team, earlier_reason):
+    _set_organization_active(team, False)
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    _create_cdc_schema(team, source)
+    _run(_mock_adapter())
+    # A table added after the stop, or a marker with another reason, still holds a slot to drop.
+    added = _create_cdc_schema(team, source, name="events")
+    if earlier_reason is not None:
+        ExternalDataSchema.objects.filter(id=added.id).update(
+            sync_type_config={**added.sync_type_config, "cdc_broken": {"reason": earlier_reason, "slot_kept": True}}
+        )
+    adapter = _mock_adapter()
+
+    _run(adapter)
+
+    adapter.drop_stream.assert_called_once()
+    added.refresh_from_db()
+    assert added.sync_type_config["cdc_broken"]["reason"] == "organization_deactivated"
+
+
+def test_a_slot_that_survives_the_drop_keeps_deactivated_capture_running(team):
+    _set_organization_active(team, False)
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _create_cdc_schema(team, source)
+    adapter = _mock_adapter(slot_survives_drop=True)
+
+    _, _, mock_pause = _run(adapter)
+
+    adapter.drop_stream.assert_called()
+    mock_pause.assert_not_called()
+    adapter.get_lag.assert_called_once()
+    schema.refresh_from_db()
+    assert "cdc_broken" not in schema.sync_type_config
+
+
+def test_a_failed_organization_check_still_checks_the_slots_lag(team):
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _create_cdc_schema(team, source)
+    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
+
+    with patch(f"{_ACTIVITIES}.organization_deactivated", side_effect=RuntimeError("db unavailable")):
         _run(adapter)
 
     adapter.drop_stream.assert_called_once()

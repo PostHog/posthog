@@ -4075,11 +4075,11 @@ Diffed against: <https://developers.kit.com/llms.txt>
 - [x] `GET /v4/segments` — segment lookup table, entirely unsynced (high)
 - [x] `GET /v4/sequences/{id}/emails (list-sequence-emails)` — the individual emails inside each sequence - line items for the sequences already synced (medium)
 - [x] `GET /v4/broadcasts/{id}/clicks (get-link-clicks-for-a-broadcast)` — per-link click breakdown within a broadcast (medium)
-- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium)
+- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium) Skipped: one request per subscriber, and the API key limit of 120 requests a minute makes a full sync of a large list take hours.
 - [x] `GET /v4/account/growth_stats` — subscriber growth, cancellations and net new over a date range (medium)
-- [ ] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
-- [ ] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
-- [ ] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
+- [x] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
+- [x] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
+- [x] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
 
 Note: Kit (formerly ConvertKit) publishes a complete llms.txt index of its v4 API reference; each operation also has a .md variant. Core objects are synced but every engagement metric and every subscriber-membership junction is missing.
 
@@ -16115,10 +16115,10 @@ Note: Read the official eCommerce operation index and linked Stores, Blog, Booki
 
 Re-audited 2026-11-19 against: <https://dev.wix.com/docs/llms.txt>
 
-- [ ] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
-- [ ] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
-- [ ] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
-- [ ] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
+- [x] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
+- [x] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
+- [x] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
+- [x] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
 - [ ] `Coupons (POST /stores/v2/coupons/query)` — store coupon definitions and usage, to explain order discounts (medium)
 - [ ] `Form submissions (POST /form-submission-service/v4/submissions/namespace/query)` — lead and contact form entries; needs a namespace filter (medium)
 - [ ] `Booking staff members (POST /bookings/v1/staff-members/query)` — staff who deliver bookings, for utilisation by staff (medium)
