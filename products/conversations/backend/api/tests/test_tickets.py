@@ -3637,36 +3637,57 @@ class TestAiFeedbackAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", {"$ai_metric_value": 0}),
             (
                 "bad_with_text",
                 {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
                 "$ai_feedback",
-                None,
+                {"$ai_feedback_text": "Wrong answer", "feedback_reasons": []},
+            ),
+            (
+                "bad_with_reasons_only",
+                {"message_id": "msg-1", "rating": "bad", "reasons": ["wrong_tone", "wrong_facts"]},
+                "$ai_feedback",
+                {"$ai_feedback_text": "", "feedback_reasons": ["wrong_facts", "wrong_tone"]},
+            ),
+            (
+                "good_ignores_reasons",
+                {"message_id": "msg-1", "rating": "good", "reasons": ["wrong_facts"]},
+                "$ai_metric",
+                {"$ai_metric_value": 1},
             ),
         ]
     )
     @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
-    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
-        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    def test_ai_feedback_metric_vs_details_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_properties, mock_capture, mock_on_commit
     ):
         response = self.client.post(self.url, payload, format="json")
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_capture.assert_called_once()
         _, kwargs = mock_capture.call_args
         assert kwargs["event"] == expected_event
+        assert kwargs["groups"]["project"] == str(self.team.uuid)
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        for key, value in expected_properties.items():
+            assert kwargs["properties"][key] == value
         if expected_event == "$ai_metric":
-            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
             assert "$ai_feedback_text" not in kwargs["properties"]
         else:
-            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
             assert "$ai_metric_name" not in kwargs["properties"]
-            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
 
     def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
         response = self.client.post(
             self.url,
             {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_ai_feedback_rejects_unknown_reason(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "bad", "reasons": ["made_up"]},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST

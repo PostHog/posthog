@@ -15,16 +15,24 @@ from posthog.models import User
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.facade.enums import SlackChannelQuestionMode
 from products.slack_app.backend.facade.types import (
+    UNSET,
+    ProjectOption,
     SlackAppSettings,
     SlackChannelSettings,
     SlackPersonalSettings,
+    SlackPersonalSettingsChange,
     SlackReactionChoice,
     SlackSettingsInvalid,
     SlackWorkspaceSettings,
     WorkspaceSettingsError,
 )
+from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
-from products.slack_app.backend.models import SlackChannelSettings as SlackChannelSettingsRow
+from products.slack_app.backend.models import (
+    SlackChannelSettings as SlackChannelSettingsRow,
+    ThreadJoinMode,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.integration_references import read_integration_id, store_integration_id
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.reaction_settings import (
@@ -37,8 +45,18 @@ from products.slack_app.backend.services.reaction_settings import (
     with_every_kind,
 )
 from products.slack_app.backend.services.slack_settings import (
+    resolve_auto_model_choice,
     resolve_external_channels_enabled,
+    resolve_personal_default_integration_id,
+    resolve_thread_join_mode,
+    resolve_untagged_followup_mode,
+    resolve_untagged_question_mode,
+    set_auto_model_choice,
     set_external_channels_enabled,
+    set_personal_default_integration,
+    set_thread_join_mode,
+    set_untagged_followup_mode,
+    set_untagged_question_mode,
 )
 from products.slack_app.backend.services.slack_user_oauth import linked_slack_user_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
@@ -65,24 +83,54 @@ def clean_reactions(reactions: ReactionSettings) -> ReactionSettings:
     return cleaned
 
 
+def _project_options(integration: WorkspaceIntegration, user: User) -> list[WorkspaceIntegration]:
+    """Projects connected to this Slack workspace that the person can open."""
+    return accessible_candidates(workspace_integrations(_workspace_id(integration)), user=user)
+
+
+def _personal_settings(
+    integration: WorkspaceIntegration, user: User, slack_user_id: str | None
+) -> SlackPersonalSettings:
+    slack_workspace_id = _workspace_id(integration)
+    workspace_reactions = load_reactions(slack_workspace_id, None)
+    personal_reactions = load_reactions(slack_workspace_id, slack_user_id) if slack_user_id else {}
+    return SlackPersonalSettings(
+        slack_user_id=slack_user_id,
+        reactions=with_every_kind(personal_reactions),
+        effective_reactions=resolve_reactions(workspace_reactions, personal_reactions),
+        default_integration_id=(
+            resolve_personal_default_integration_id(slack_workspace_id, slack_user_id) if slack_user_id else None
+        ),
+        project_options=tuple(
+            ProjectOption(
+                integration_id=option.id,
+                project_name=option.team.name,
+                organization_name=option.team.organization.name,
+            )
+            for option in _project_options(integration, user)
+        ),
+        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id).value,
+        untagged_question_mode=resolve_untagged_question_mode(slack_workspace_id, slack_user_id).value,
+        thread_join_mode=resolve_thread_join_mode(integration, slack_user_id).value,
+        auto_model_choice=resolve_auto_model_choice(slack_workspace_id, slack_user_id),
+        feature_tips_enabled=get_state(slack_workspace_id, slack_user_id).opted_out_at is None
+        if slack_user_id
+        else True,
+    )
+
+
 def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSettings:
     slack_workspace_id = _workspace_id(integration)
     slack_user_id = linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
-    workspace_reactions = load_reactions(slack_workspace_id, None)
-    personal_reactions = load_reactions(slack_workspace_id, slack_user_id) if slack_user_id else {}
     return SlackAppSettings(
         integration_id=integration.id,
         slack_workspace_name=((integration.config or {}).get("team") or {}).get("name"),
         can_edit_workspace=can_change_workspace_settings(integration, user),
         workspace=SlackWorkspaceSettings(
-            reactions=with_every_kind(workspace_reactions),
+            reactions=with_every_kind(load_reactions(slack_workspace_id, None)),
             external_channels_enabled=resolve_external_channels_enabled(slack_workspace_id),
         ),
-        personal=SlackPersonalSettings(
-            slack_user_id=slack_user_id,
-            reactions=with_every_kind(personal_reactions),
-            effective_reactions=resolve_reactions(workspace_reactions, personal_reactions),
-        ),
+        personal=_personal_settings(integration, user, slack_user_id),
     )
 
 
@@ -108,13 +156,56 @@ def update_workspace_settings(
         )
 
 
-def update_personal_settings(integration: WorkspaceIntegration, user: User, *, reactions: ReactionSettings) -> None:
+def update_personal_settings(
+    integration: WorkspaceIntegration, user: User, change: SlackPersonalSettingsChange
+) -> None:
     slack_workspace_id = _workspace_id(integration)
     slack_user_id = linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
     if slack_user_id is None:
         raise WorkspaceSettingsError("Link your Slack account in this workspace to change your own settings.")
-    save_reactions(slack_workspace_id, slack_user_id, clean_reactions(reactions))
-    _capture_change(integration, user, scope="personal", setting="reactions", reactions=reactions)
+    if change.default_integration_id is not UNSET and change.default_integration_id is not None:
+        if all(option.id != change.default_integration_id for option in _project_options(integration, user)):
+            raise SlackSettingsInvalid("This project is not connected to this Slack workspace, or you can't open it.")
+
+    if change.reactions is not UNSET:
+        save_reactions(slack_workspace_id, slack_user_id, clean_reactions(change.reactions))
+        _capture_change(integration, user, scope="personal", setting="reactions", reactions=change.reactions)
+    if change.default_integration_id is not UNSET:
+        set_personal_default_integration(slack_workspace_id, slack_user_id, change.default_integration_id)
+        _capture_change(
+            integration,
+            user,
+            scope="personal",
+            setting="default_project",
+            uses_workspace_default=change.default_integration_id is None,
+        )
+    if change.untagged_followup_mode is not UNSET:
+        set_untagged_followup_mode(
+            slack_workspace_id, slack_user_id, UntaggedFollowupMode(change.untagged_followup_mode)
+        )
+        _capture_change(
+            integration, user, scope="personal", setting="untagged_replies", value=change.untagged_followup_mode
+        )
+    if change.untagged_question_mode is not UNSET:
+        set_untagged_question_mode(
+            slack_workspace_id, slack_user_id, UntaggedFollowupMode(change.untagged_question_mode)
+        )
+        _capture_change(
+            integration, user, scope="personal", setting="untagged_questions", value=change.untagged_question_mode
+        )
+    if change.thread_join_mode is not UNSET:
+        set_thread_join_mode(slack_workspace_id, slack_user_id, ThreadJoinMode(change.thread_join_mode))
+        _capture_change(integration, user, scope="personal", setting="thread_join", value=change.thread_join_mode)
+    if change.auto_model_choice is not UNSET:
+        set_auto_model_choice(slack_workspace_id, slack_user_id, change.auto_model_choice)
+        _capture_change(
+            integration, user, scope="personal", setting="auto_model_choice", enabled=change.auto_model_choice
+        )
+    if change.feature_tips_enabled is not UNSET:
+        set_tips_enabled(slack_workspace_id, slack_user_id, change.feature_tips_enabled)
+        _capture_change(
+            integration, user, scope="personal", setting="feature_tips", enabled=change.feature_tips_enabled
+        )
 
 
 def _organization_id(integration: WorkspaceIntegration) -> UUID:
@@ -159,9 +250,9 @@ def update_channel_settings(
     slack_workspace_id = _workspace_id(integration)
     organization_id = _organization_id(integration)
     if default_integration_id is not None:
-        options = accessible_candidates(workspace_integrations(slack_workspace_id), user=user)
         if all(
-            option.id != default_integration_id or option.team.organization_id != organization_id for option in options
+            option.id != default_integration_id or option.team.organization_id != organization_id
+            for option in _project_options(integration, user)
         ):
             raise SlackSettingsInvalid(
                 "Pick a project of this organization that is connected to this Slack workspace and that you can open."
