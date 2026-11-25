@@ -129,7 +129,7 @@ describe('dependency watch', () => {
         }
     }
 
-    it('hears the edge from its own process, and the edge answers webhooks, while the runner is busy', async () => {
+    it('hears the edge from its own process while the runner is busy', async () => {
         const probes = startProbeProcess({
             edgeUrl: edge.url,
             postgresUrl: POSTGRES,
@@ -137,16 +137,19 @@ describe('dependency watch', () => {
             only: ['provider-edge'],
         })
         try {
-            const webhook = webhookAnswerOf(edge)
             const { losses } = await watching(() => probes.check(), RUNNER_BLOCKS_MS)
 
-            expect({ losses: losses.map(({ name, kind }) => `${name} ${kind}`), webhook: await webhook }).toEqual({
-                losses: [],
-                webhook: '200',
-            })
+            expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual([])
         } finally {
             probes.close()
         }
+    }, 30_000)
+
+    it('has the edge answer a webhook while the runner is blocked past the webhook timeout', async () => {
+        const webhook = webhookAnswerOf(edge)
+        busyFor(PROBE_TIMEOUT_MS + 1000)
+
+        expect(await webhook).toBe('200')
     }, 30_000)
 
     it('names dependencies that went away from its own process, with their step and error', async () => {
