@@ -44,8 +44,14 @@ import {
   getAvailableCodexModes,
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
-import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import {
+  fetchGatewayModels,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
+  normalizeGatewayModelsResponse,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
+  taskModelsUrl,
+} from "@posthog/agent/gateway-models";
 import {
   findPrUrls,
   wasCreatedByLogin,
@@ -59,7 +65,10 @@ import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
-import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import {
+  fetchPosthogPiModelCatalog,
+  resolvePosthogPiModelCatalog,
+} from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
@@ -1061,7 +1070,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     const channel = `agent-event:${taskRunId}`;
     const gatewayProxy = await this.agentAuthAdapter.ensureGatewayProxy(
-      credentials.apiHost,
       credentials.projectId,
     );
     const proxyUrl = gatewayProxy.proxyUrl;
@@ -2687,12 +2695,18 @@ For git operations while detached:
   }
 
   async getPiModelCatalog(apiHost: string, region: CloudRegion) {
-    const models = await this.catalogueSource(apiHost);
+    const source = await this.catalogueSource();
+    if (source === null) {
+      return resolvePosthogPiModelCatalog(
+        await this.taskModelRows(apiHost),
+        region,
+      );
+    }
     return fetchPosthogPiModelCatalog(
-      models.gatewayUrl,
+      source.gatewayUrl,
       region,
-      models.authToken,
-      models.projectId,
+      source.authToken,
+      source.projectId,
     );
   }
 
@@ -2700,34 +2714,45 @@ For git operations while detached:
    * Where the pickers read `/v1/models`: through the proxy for the selected
    * project, so Go's list gets the same filter and marks a session sees.
    */
-  private async catalogueSource(apiHost: string): Promise<{
+  private async catalogueSource(): Promise<{
     gatewayUrl: string;
     authToken: string | undefined;
-    projectId: number | undefined;
-  }> {
+    projectId: number;
+  } | null> {
     const projectId = this.agentAuthAdapter.gatewayProjectId();
+    if (projectId === null) return null;
     const authToken =
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined;
-    if (projectId !== null) {
-      try {
-        // The pickers keep no mode, so a due re-check runs in the background.
-        const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
-          apiHost,
-          projectId,
-          { awaitRecheck: false },
-        );
-        return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
-      } catch (err) {
-        this.log.warn("Gateway proxy unavailable for the model catalogue", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+    try {
+      // The pickers keep no mode, so a due re-check runs in the background.
+      const proxy = await this.agentAuthAdapter.ensureGatewayProxy(projectId, {
+        awaitRecheck: false,
+      });
+      return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
+    } catch (err) {
+      this.log.warn("Gateway proxy unavailable for the model catalogue", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
     }
-    return {
-      gatewayUrl: getLlmGatewayUrl(apiHost),
-      authToken,
-      projectId: projectId ?? undefined,
-    };
+  }
+
+  private async taskModelRows(apiHost: string): Promise<GatewayModelRow[]> {
+    const projectId = this.agentAuthAdapter.gatewayProjectId();
+    if (projectId === null) return [];
+    try {
+      const response = await this.agentAuthAdapter.authenticatedFetch(
+        taskModelsUrl(apiHost, projectId),
+        { signal: AbortSignal.timeout(TASK_MODELS_FETCH_TIMEOUT_MS) },
+      );
+      if (!response.ok) return [];
+      return gatewayModelRowsFromTaskModels(await response.json());
+    } catch (err) {
+      this.log.warn("Model catalogue fetch failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
   }
 
   async getPreviewConfigOptions(
@@ -2735,9 +2760,11 @@ For git operations while detached:
     adapter: Adapter = "claude",
     allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
-    const gatewayModels = await fetchGatewayModels(
-      await this.catalogueSource(apiHost),
-    );
+    const source = await this.catalogueSource();
+    const gatewayModels =
+      source === null
+        ? normalizeGatewayModelsResponse(await this.taskModelRows(apiHost))
+        : await fetchGatewayModels(source);
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
       adapter,

@@ -233,8 +233,8 @@ def _source_response(config: IncidentIoEndpointConfig, items: Iterable[Any]) -> 
         name=config.name,
         items=lambda: items,
         primary_keys=config.primary_keys,
-        # Incidents are requested with `sort_by=created_at_oldest_first` (the only sortable
-        # endpoint). When syncing incrementally on `updated_at`, values within a run aren't
+        # Incidents are requested with `sort_by=created_at_oldest_first`. When syncing
+        # incrementally on `updated_at`, values within a run aren't
         # monotonic — the final watermark is still correct because a run fetches every row
         # matching the filter, and merge-on-id dedupes any overlap on the next run.
         sort_mode="asc",

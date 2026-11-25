@@ -28,6 +28,7 @@ from rest_framework import status
 from posthog.api.services.query import process_query_dict, run_planned_query
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -40,6 +41,7 @@ from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
 from products.dashboards.backend.v2 import query_batch as query_batch_module
+from products.dashboards.backend.v2.frames import frames_for
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
@@ -231,6 +233,14 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": 0, "refId": "$pageview", "error": "The query failed."}])
         self.assertEqual(features, ["query"])
 
+    def test_a_query_that_times_out_says_so(self) -> None:
+        with patch(
+            "products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=ClickHouseQueryTimeOut()
+        ):
+            lines = self._lines([_insight("$pageview")])
+
+        self.assertEqual(lines, [{"i": 0, "refId": "$pageview", "error": ClickHouseQueryTimeOut.default_detail}])
+
     def test_misses_past_a_users_query_share_are_busy_and_the_share_comes_back(self) -> None:
         # A worker hands its share back after its line is streamed, so the test waits for both hand-backs.
         ended = Semaphore(0)
@@ -330,12 +340,37 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
     @parameterized.expand([("result",), ("frames",)])
     def test_a_stale_entry_without_swr_runs_fresh(self, result_format: str) -> None:
         self._warm_via_query_endpoint("$pageview")
+        panels = [_insight("$pageview") for _ in range(2)]
+        for panel, legend in zip(panels, ("a", "b")):
+            panel["target"]["legend"] = legend
 
-        with patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True):
-            (line,) = self._lines([_insight("$pageview")], format=result_format)
+        with (
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch("products.dashboards.backend.v2.query_batch.run_planned_query", wraps=run_planned_query) as reads,
+        ):
+            lines = self._lines(panels, format=result_format)
 
-        self.assertNotIn("error", line)
-        self.assertEqual(line["result"]["cache"]["hit"], False)
+        for line in lines:
+            self.assertNotIn("error", line)
+            self.assertEqual(line["result"]["cache"]["hit"], False)
+        # Panels drawing the same stale entry differently read it once and all run fresh.
+        self.assertEqual(reads.call_count, 1)
+
+    def test_stale_repeats_past_the_first_read_chunk_frame_the_query_that_ran(self) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        panels = [_insight("$pageview")] * (query_batch_module.CACHE_READ_CHUNK + 1)
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch("products.dashboards.backend.v2.query_batch.frames_for", wraps=frames_for) as framed,
+        ):
+            self._lines(panels, format="frames")
+
+        # The query that ran carries the panel's time range, which the query in the target does not.
+        queries = [json.dumps(call.args[1], sort_keys=True) for call in framed.call_args_list]
+        self.assertEqual(len(queries), len(panels))
+        self.assertEqual(len(set(queries)), 1)
+        self.assertIn('"after": "-7d"', queries[0])
 
     def test_stale_panels_differing_only_in_legend_refresh_their_query_once(self) -> None:
         self._warm_via_query_endpoint("$pageview")
@@ -556,7 +591,11 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             # Same query, so the second read serves both panels from one cached body.
             {"target": {"refId": "B", "language": "query", "query": node}, "time": _LAST_7_DAYS},
             {
-                "target": {"refId": "C", "language": "hogql", "query": "select number from numbers(150)"},
+                "target": {
+                    "refId": "C",
+                    "language": "hogql",
+                    "query": f"select number from numbers({query_batch_module.HOGQL_TARGET_ROW_LIMIT + 1})",
+                },
                 "time": _LAST_7_DAYS,
             },
         ]
@@ -1087,6 +1126,13 @@ class TestResolveQuery(SimpleTestCase):
         resolved = resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))
 
         self.assertEqual(resolved.filters, {"date_from": "-90d"})
+
+    def test_a_hogql_target_reads_up_to_the_chart_row_limit(self) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.HOGQL, query="select 1")
+
+        resolved = resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))
+
+        self.assertEqual(resolved.query["limit"], query_batch_module.HOGQL_TARGET_ROW_LIMIT)
 
     @parameterized.expand(
         [
