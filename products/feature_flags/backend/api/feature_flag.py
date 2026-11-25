@@ -1632,9 +1632,6 @@ class _TeamDashboardIdField(serializers.PrimaryKeyRelatedField):
 
     def get_queryset(self) -> QuerySet[Any]:
         # DRF refuses a writable related field that has neither a queryset nor its own get_queryset.
-        # This field keeps no queryset, so the base method returns None, which DRF reads as "no
-        # choices". With no queryset, drf-spectacular reads the id type from the model relation
-        # that has the field's source name, so the schema stays the dashboard primary key.
         return super().get_queryset()
 
     def to_internal_value(self, data: object) -> int:
