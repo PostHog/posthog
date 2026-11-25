@@ -46,15 +46,13 @@ PRIVATE_CHANNEL_SCOPES = frozenset({"groups:read", "groups:history"})
 INDEX_LOOKBACK = timedelta(days=3)
 CHANNELS_PER_WORKSPACE = 100
 ROOTS_PER_CHANNEL = 50
-# The build holds at most this many roots, the newest across the workspace, so a large workspace never loads every
-# channel's page at once and the cached index stays small.
+# The newest roots across the workspace, so the build and the cached index stay small.
 ROOTS_PER_WORKSPACE = 1000
 # Jev scores the newest roots across the workspace. Older ones stay in the index for the threads a person is in.
 ROOTS_SCORED_PER_WORKSPACE = 200
-# The gateway reads the whole state once for each question, so a request grows with the square of its batch. A batch
-# of 32 roots reached about 90,000 input tokens and the provider refused one in a large workspace.
+# The gateway reads the whole state once for each question, so a request grows with the square of its batch.
 RANK_BATCH_SIZE = 8
-# The index activity times out after five minutes, so scoring stops in time and leaves the rest of the roots unscored.
+# Inside the index activity's five-minute timeout.
 RANK_DEADLINE_SECONDS = 150
 # Rebuilt in each hour that has runs, so a run late in the day reads the threads from earlier that day.
 INDEX_TTL_SECONDS = 2 * 3600
@@ -303,8 +301,7 @@ def _build(integration: WorkspaceIntegration, slack: SlackIntegration, key: str)
     if isinstance(decision, BucketDecision) and not decision.allowed:
         raise DailySummaryIndexNotReady
     oldest = (timezone.now() - INDEX_LOOKBACK).timestamp()
-    # A min-heap on when each root last moved, so the build never holds more than ROOTS_PER_WORKSPACE roots. The
-    # counter breaks ties, because two roots can move in the same second and roots do not compare.
+    # The counter breaks ties: two roots can move in the same second, and roots do not compare.
     newest: list[tuple[float, int, RootRef, str]] = []
     order = itertools.count()
     read = 0

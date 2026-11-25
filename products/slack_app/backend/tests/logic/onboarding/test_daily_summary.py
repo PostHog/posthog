@@ -207,7 +207,7 @@ def test_a_failed_build_caches_nothing_and_its_retry_can_build(workspace_integra
     try:
         with (
             patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker,
-            # One channel read an hour: the retry only gets one because the failed build gave back the read it never made.
+            # One read an hour, so the retry only succeeds if the failed build refunded its unread channel.
             patch(f"{DAILY_SUMMARY}.HISTORY_BUDGET", Budget(burst=1, per_hour=1)),
         ):
             ranker.return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
@@ -252,7 +252,6 @@ def test_the_index_holds_the_newest_roots_and_skips_a_batch_jev_refuses(workspac
             ]
         }
 
-    # Two roots moved in the same second in different channels, so the cap has to break a tie.
     history = {"C1": roots(1, 3), "C2": roots(1, 2)}
     client = MagicMock()
     client.users_conversations.return_value = {"channels": [{"id": "C1"}, {"id": "C2"}]}
@@ -282,10 +281,29 @@ def test_the_index_holds_the_newest_roots_and_skips_a_batch_jev_refuses(workspac
 
     index = cached_index(workspace_integration)
     assert index is not None
-    # The oldest of the tied roots falls off, and no request asks Jev about more than a batch of roots.
     assert {(root.channel_id, root.ts): root.score for root in index} == {
         ("C1", f"{AFTER + 3:.6f}"): 0.0,
         ("C2", f"{AFTER + 2:.6f}"): 0.0,
         ("C2", f"{AFTER + 1:.6f}"): 0.9,
     }
     assert [len(call.kwargs["questions"]) for call in ranker.return_value.decide.call_args_list] == [2, 1]
+
+
+@pytest.mark.django_db
+@time_machine.travel(datetime(2026, 11, 9, 9, 30, tzinfo=UTC), tick=False)
+def test_scoring_past_the_deadline_leaves_roots_unscored_and_still_builds(workspace_integration) -> None:
+    cache.clear()
+    root = {"ts": f"{AFTER:.6f}", "user": "U_OTHER", "text": "rolling back", "reply_count": 2}
+    slack = _patched_slack(_index_client([{"messages": [root]}]))
+    try:
+        with (
+            patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker,
+            patch(f"{DAILY_SUMMARY}.RANK_DEADLINE_SECONDS", 0),
+        ):
+            assert build_workspace_index(workspace_integration) == 1
+    finally:
+        slack.stop()
+
+    index = cached_index(workspace_integration)
+    assert index is not None and [root.score for root in index] == [0.0]
+    assert not ranker.return_value.decide.called
