@@ -4082,9 +4082,7 @@ async fn test_incomplete_v2_entry_is_answered_from_the_legacy_entry(
     );
 }
 
-/// A client holds the v2 ETag only together with the v2 body, so a 304 for it stays correct
-/// after the payload is gone. Other requests fall back, and only a full legacy response
-/// spends the full-response budget.
+/// A client holds the v2 ETag only with the v2 body, so its 304 stays correct without the payload.
 #[rstest::rstest]
 #[case::etag_without_payload(None)]
 #[case::missing_marker(Some("__missing__".to_string()))]

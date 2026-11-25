@@ -516,8 +516,6 @@ async fn serve_v2_entry(
         return Ok(Some(not_modified_response(&etag)));
     }
 
-    // The payload is read before the full-response budget is spent. A request that falls back
-    // then spends that budget on the legacy path only, and not at all when it ends in a 304.
     let response = match reader
         .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
         .await
