@@ -234,7 +234,8 @@ Models that invalidate the flags cache:
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
 
-Deleting a `Team` clears its local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+Deleting a `Team` clears its flags, local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+Celery tasks run the clears, because the process that deletes the team can lack `FLAGS_REDIS_URL`.
 The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
 A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
 A refresh run that loaded the team before the deletion can write an entry again. The daily cleanup task deletes that entry from Redis and S3.

@@ -33,6 +33,7 @@ from structlog.testing import capture_logs
 from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
+from posthog.storage import object_storage
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -987,9 +988,8 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task to warm cache
         mock_task.delay.assert_called_once_with(new_team.id)
 
-    def test_signal_clears_cache_on_team_delete(self):
-        """Test that cache is cleared when a team is deleted."""
-        # Create and cache a flag
+    @parameterized.expand([("with_flags_redis", "redis://test"), ("without_flags_redis", "")])
+    def test_team_delete_clears_flags_cache_in_redis_and_s3(self, _name, deleting_process_flags_redis_url):
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -997,18 +997,18 @@ class TestServiceFlagsSignals(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
         update_flags_cache(self.team)
+        cache_key = flags_hypercache.get_cache_key(self.team)
+        assert flags_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
 
-        # Verify cache exists
-        flags = get_flags_from_cache(self.team)
-        assert flags is not None
-        assert len(flags) == 1
+        with (
+            override_settings(FLAGS_REDIS_URL=deleting_process_flags_redis_url),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.team.delete()
 
-        # Delete the team
-        self.team.delete()
-
-        # Cache should be cleared (this will load from DB and return empty)
-        # We can't test directly with the deleted team object, but the signal should have fired
-        # In production, this prevents stale cache entries
+        assert flags_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

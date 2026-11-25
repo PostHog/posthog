@@ -27,8 +27,8 @@ from products.feature_flags.backend.cross_region_flag_sync import sync_cross_reg
 from products.feature_flags.backend.flag_analytics import report_django_local_evaluation_usage
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
-    clear_flags_cache,
     enqueue_cohort_cache_invalidation,
+    flags_hypercache,
     get_cache_stats,
     publish_shadow_invalidation,
     refresh_expiring_flags_caches,
@@ -238,11 +238,17 @@ def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id
         cursor = response.results[-1][0]
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @skip_team_scope_audit
 def clear_team_evaluation_cache(team_id: int) -> None:
-    """Clear the /flags evaluation cache for a specific team, enqueued by staff tooling."""
-    clear_flags_cache(team_id)
+    """Clear the /flags evaluation cache for a team, on team deletion or from staff tooling."""
+    flags_hypercache.delete_cache_entry(team_id, strict_mirror=True)
 
 
 # The task retries because no rebuild can repair the entry once the Team row is gone.
