@@ -144,8 +144,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert excluded == {"assigned": False, "other-project": False, "malformed": True}
 
     def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
-        # The CSV fixture writes '' and null the same way and trims unquoted whitespace, so the next test
-        # checks those exact values against the expression.
+        """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""
         self._linear_issues(
             [_issue("described"), _issue("whitespace", description="\n "), _issue("missing", description=None)]
         )
