@@ -35,6 +35,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
     WATCHED_ROWS_PER_INSIGHT,
+    alert_inventory,
     enabled_alert_insight_ids,
     first_subscriber_id,
     get_alert_team_id,
@@ -1444,42 +1445,74 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{cap}_{kind}_{name}", cap, kind == "native", editing_it, counted)
-            for cap in ("ai_detector", "real_time")
+            (f"{cap}_{kind}_{name}", cap, kind, editing_it, counted)
+            for cap in ("alerts", "inventory", "ai_detector", "real_time")
             # A copy's row still says daily with no detector, which the caps must not follow.
-            for kind in ("native", "copy")
+            for kind in (
+                "native",
+                "copy",
+                "copy_whose_row_is_gone",
+                "copy_whose_row_says_insight_owns_it",
+                # The insight stack edits and checks such a row, so the caps follow the row when the copy is stale.
+                "stale_copy_whose_row_says_insight_owns_it",
+            )
             for name, editing_it, counted in [("counted", False, True), ("left_out_of_its_own_edit", True, False)]
+            # An edit is not checked against the alerts limit, and the inventory has no edit.
+            if not (cap in ("alerts", "inventory") and editing_it)
         ]
     )
     def test_the_plan_caps_count_an_alert_the_platform_owns_from_the_platform(
-        self, _name: str, cap: str, native: bool, editing_it: bool, counted: bool
+        self, _name: str, cap: str, kind: str, editing_it: bool, counted: bool
     ) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}
+            {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": 1},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1},
         ]
         self.organization.save()
+        native = kind == "native"
+        stale_copy = kind.startswith("stale")
         if native:
             self._forget_the_insight_row()
-        with team_scope(self.team.id):
+        elif kind == "copy_whose_row_is_gone":
+            AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        elif kind.endswith("copy_whose_row_says_insight_owns_it"):
+            row_settings: dict[str, Any] = {}
             if cap == "ai_detector":
+                row_settings["detector_config"] = {"type": "llm"}
+            elif cap == "real_time" and stale_copy:
+                row_settings["calculation_interval"] = AlertCalculationInterval.REAL_TIME
+            AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE, **row_settings)
+        with team_scope(self.team.id):
+            if cap == "ai_detector" and not stale_copy:
                 stored_config = self._copy().source_config
                 platform_testing.set_source_config(
                     self.copy_id,
                     {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
                 )
-            else:
+            elif cap == "real_time" and not stale_copy:
                 platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
         excluded = str(self.copy_id if native else self.alert.id) if editing_it else None
 
-        if cap == "ai_detector":
-            is_counted = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded) == 1
-        else:
+        if cap == "real_time":
+            # The limit of 1 tells counted from not counted, but not one count from two.
             is_counted = (
                 AlertConfiguration.check_real_time_alert_limit(self.team.id, self.organization, exclude_id=excluded)
                 is not None
             )
+            assert is_counted is counted
+            return
+        if cap == "alerts":
+            count = AlertConfiguration.team_alert_count(self.team.id)
+        elif cap == "inventory":
+            inventory = alert_inventory(team_id=self.team.id, recent_limit=10)
+            assert len(inventory.recent) == inventory.enabled_count == inventory.total_count
+            count = inventory.total_count
+        else:
+            count = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded)
 
-        assert is_counted is counted
+        # Both stacks run a split alert's charged checks, so the AI cap counts its row and its copy.
+        both_sides_charged = cap == "ai_detector" and kind == "copy_whose_row_says_insight_owns_it"
+        assert count == (0 if not counted else 2 if both_sides_charged else 1)
 
     @parameterized.expand(
         [

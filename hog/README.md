@@ -46,6 +46,60 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
 - `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
+### Notices
+
+A notice is a message the team sends to hogs that are already installed, such as "hog 1 gets no more fixes after June 1, 2027".
+`CLI_NOTICES` in `posthog/cli_notices.py` is the only list of notices, and it reaches hogs two ways. A notice that comes both ways shows once.
+
+- **The PostHog API** adds an `X-PostHog-CLI-Notice` header to its answers for the hog versions a notice names. hog reads it on every command that talks to PostHog, also with update checks off, as in CI with `PostHog/setup-hog`. A notice goes out once the change deploys to PostHog Cloud, and once a self-hosted instance updates.
+- **The release manifest.** `hogli build:projections` writes the list to `release/notices.generated.json`, and every hog release copies that file into its manifest. hog reads the manifest only when update checks are on.
+
+| Who runs hog                | What they see, on stderr after the output                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| A person at a terminal      | One line that starts with `Warning:`, or `Notice:` for an info notice, and ends with the update command and the link                    |
+| Agents, pipes and `-o json` | One JSON line: `{"notice":{"id","level","message","url","command"}}`                                                                    |
+| A GitHub Actions job        | The JSON line, plus a `::warning` or `::notice` annotation that shows on the run summary and the pull request. Agents get no annotation |
+
+```console
+$ hog config schema > schema.json
+Warning: hog 1 gets no more fixes after June 1, 2027. Move to hog 2. Run `brew upgrade hog`. https://posthog.com/docs/cli/migrating
+```
+
+- A `warning` shows on every command. An `info` notice shows at most once a day, because hog keeps the time it showed one in `~/.posthog/notices-shown.json`. A CI job starts without that file, so it sees an info notice on every run.
+- With `upgrade=True`, the line adds the update command for that install, the same one `hog upgrade` names.
+- hog turns control, bidirectional and zero-width characters into spaces, takes links only to `https://` pages on `posthog.com` written in printable ASCII, and skips a notice it can't read, such as one with a level a newer hog adds. A notice can't hold `##[`, which GitHub Actions reads as a command.
+- hog reads the header only from PostHog API answers, never from object storage, GitHub or an answer redirected to another origin.
+- hog sends `cli notice shown` with the notice ID each time it shows one.
+
+To send a notice, add it to `CLI_NOTICES` and run `hogli build:projections`:
+
+```python
+CLI_NOTICES: tuple[CliNotice, ...] = (
+    CliNotice(
+        id="hog-1-retiring",
+        level="warning",
+        message="hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
+        url="https://posthog.com/docs/cli/migrating",
+        below="2.0.0",
+        until=datetime(2027, 6, 1, tzinfo=UTC),
+        upgrade=True,
+    ),
+)
+```
+
+| Field                   | Means                                                                     |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `id`                    | Lowercase letters, digits and dashes, unique in the list                  |
+| `level`                 | `"warning"` for every command, `"info"` for once a day                    |
+| `message`               | Up to 300 printable characters                                            |
+| `url`                   | Optional. An `https://` page on `posthog.com`                             |
+| `from_version`, `below` | Optional. The versions it's for: `from_version` and up, and below `below` |
+| `until`                 | Optional. A time with a timezone, when the notice stops showing           |
+| `installs`              | Optional. Only these install kinds, such as `("homebrew", "npm-global")`  |
+| `upgrade`               | Optional. Adds the update command for the install                         |
+
+A notice hog would skip fails at import, so its pull request fails CI, and so does a stale `release/notices.generated.json`. `release/release.test.ts` checks the generated file with hog's own rules, and the release stops on a notice hog would skip. To remove a notice, delete it from `CLI_NOTICES`, or let `until` pass.
+
 ## Commands
 
 `hog` alone shows a person the commands most people start with, and `hog help` lists every command and option.
@@ -273,6 +327,7 @@ hog sends usage events to PostHog, so the team can see who uses which commands a
 - `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent, the CI provider and runner (such as GitHub Actions on Depot or Blacksmith), the OS, and counts from the result, such as rows returned or endpoints pushed.
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
+- `cli notice shown`, once for each notice hog shows, with its ID and level, where it came from and whether it was a GitHub Actions annotation.
 - `hog setup started`, with your answer to what you want to use PostHog for, the products picked and the region, `hog setup step completed` with the step, and `hog setup completed`. The question says that hog sends the answer. With telemetry off, hog keeps it on your machine only.
 
 With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
@@ -315,8 +370,8 @@ Point `$schema` at the published schema to get validation in your editor:
 ```
 
 `errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
-`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
-`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path. It must be inside the project.
+`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up. It writes to an `output_path` only inside the project, and refuses a path inside the repository that links out of it. `--file` can name a path outside the repository.
 A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
@@ -333,9 +388,10 @@ posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it d
 - a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
 - any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
-Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files. Each folder there must be inside the project. Pass a folder outside it on the command line.
 `upload` and `process` take `-` to read the paths from stdin, one per line, so a build tool can pass every file it wrote.
 `--kind` skips detection.
+hog skips a bundle whose sourcemap is outside the selected paths and never opens that map, so it never reads, rewrites, uploads or deletes a file elsewhere.
 
 JavaScript releases work in two modes, as in posthog-cli:
 
@@ -528,6 +584,7 @@ A release takes two merges, the change and then the release pull request, and on
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
 - Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
+- To send a message to installed hogs, such as an end of support, add a notice to `CLI_NOTICES` in `posthog/cli_notices.py`, as [Notices](#notices) describes.
 - Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.0.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
 
 ```bash

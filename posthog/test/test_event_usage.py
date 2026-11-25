@@ -22,6 +22,7 @@ from posthog.event_usage import (
     report_organization_deletion_completed,
     report_organization_deletion_initiated,
     report_user_action,
+    report_user_or_team_action,
     report_user_organization_membership_level_changed,
     report_user_signed_up,
     sanitize_header_value,
@@ -305,6 +306,22 @@ class TestReportUserAction(BaseTest):
 
         mock_capture.assert_called_once()
         assert mock_capture.call_args[1]["properties"]["source"] == "override"
+
+    @parameterized.expand(
+        [
+            ("cache_warming", EventSource.CACHE_WARMING, False),
+            ("alert", EventSource.ALERT, False),
+            ("subscription", EventSource.SUBSCRIPTION, False),
+            ("export", EventSource.EXPORT, None),
+            ("web", EventSource.WEB, None),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_automated_sources_do_not_mark_the_user_active(self, _name, source, expected, mock_capture):
+        report_user_or_team_action("query executed", user=self.user, team=self.team, analytics_props={"source": source})
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["properties"].get("$update_person_last_seen_at") == expected
 
     def test_raises_when_both_request_and_analytics_props_provided(self):
         factory = APIRequestFactory()

@@ -4,6 +4,8 @@ import json
 import base64
 import hashlib
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import timedelta
 from inspect import unwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -23,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from structlog.testing import capture_logs
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
@@ -34,17 +37,22 @@ from products.tasks.backend.logic.services.agent_egress_enrollment import (
 from products.tasks.backend.logic.services.agent_egress_lifecycle import (
     STATE_KEY,
     AgentEgressLifecycle,
+    AgentEgressOwnershipConflict,
     AgentEgressRunEnded,
 )
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeCertificate, AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_egress_probe_runner import AgentEgressProbeRunner
 from products.tasks.backend.logic.services.connection_token import reset_sandbox_jwt_key_cache
-from products.tasks.backend.logic.services.modal_egress_probe import ModalEgressProbe
+from products.tasks.backend.logic.services.modal_egress_probe import (
+    AgentEgressCertificateDeliveryError,
+    ModalEgressProbe,
+)
 from products.tasks.backend.models import AgentEgressRegistration, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.agent_egress import (
     AgentEgressCleanupInput,
     AgentEgressExecutionInput,
     AgentEgressProbeInput,
+    _prepare,
     _probe,
     cleanup_agent_egress,
     renew_agent_egress,
@@ -55,10 +63,14 @@ class FakeIssuer:
     def __init__(self, *, certificate: bytes, private_key: bytes) -> None:
         pass
 
-    def issue(self, csr: str) -> AgentEgressProbeCertificate:
+    def issue(self, csr: str, *, relay_key_sha256: str | None = None) -> AgentEgressProbeCertificate:
+        fingerprint = base64.urlsafe_b64encode(hashlib.sha256(csr.encode()).digest()).decode().rstrip("=")
+        if relay_key_sha256 is not None and relay_key_sha256 != fingerprint:
+            raise ValueError("The relay certificate key has changed")
         return AgentEgressProbeCertificate(
-            certificate=f"signed:{csr}",
-            relay_key_sha256=base64.urlsafe_b64encode(hashlib.sha256(csr.encode()).digest()).decode().rstrip("="),
+            certificate=f"signed:{csr}:{timezone.now().timestamp()}",
+            relay_key_sha256=fingerprint,
+            expires_at=timezone.now() + timedelta(minutes=15),
         )
 
 
@@ -74,12 +86,21 @@ class FakeProbe:
         self.on_publish: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
         self.on_probe: Callable[[], None] = lambda: None
+        self.certificates: list[str] = []
+        self.on_certificate: Callable[[], None] = lambda: None
+        self.on_csr: Callable[[], None] = lambda: None
 
     def certificate_request(self) -> str:
+        self.on_csr()
         return self.object_id
 
-    def start_relay(self, *, certificate: str, server_ca: str) -> None:
+    def start_relay(self, *, certificate: str, server_ca: str, client_ca: str | None = None) -> None:
+        self.certificates.append(certificate)
         self.on_start()
+
+    def renew_certificate(self, certificate: str) -> None:
+        self.on_certificate()
+        self.certificates.append(certificate)
 
     def publish_capability(self, capability: str) -> None:
         self.published.append(capability)
@@ -151,6 +172,7 @@ class TestAgentEgressLifecycle(TestCase):
         self.named_probes: dict[str, FakeProbe] = {}
         self.attached_relays: dict[tuple[str, str], FakeProbe] = {}
         self.deadlines: dict[UUID, float] = {}
+        self.sandbox_expires_at: float | None = None
         self.on_create: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
         self.on_publish: Callable[[], None] = lambda: None
@@ -230,6 +252,7 @@ class TestAgentEgressLifecycle(TestCase):
             execution_id=execution_id,
             workflow_run_id=workflow_run_id,
             provisioning_deadline=self.deadlines.setdefault(execution_id, timezone.now().timestamp() + 180),
+            sandbox_expires_at=self.sandbox_expires_at,
         )
 
     def registration(self, execution_id: UUID | None = None) -> AgentEgressRegistration:
@@ -251,6 +274,8 @@ class TestAgentEgressLifecycle(TestCase):
                 server_ca_file=self.config.server_ca_file,
                 client_ca_file=self.config.client_ca_file,
                 client_ca_key_file=self.config.client_ca_key_file,
+                renew_relay_certificate=self.config.renew_relay_certificate,
+                maintain_for_run=self.config.maintain_for_run,
                 duration_seconds=self.config.duration_seconds,
             ).model_dump_json()
         )
@@ -320,6 +345,250 @@ class TestAgentEgressLifecycle(TestCase):
         self.assertTrue(self.registration().revoked)
         self.assertTrue(probe.destroyed)
         self.assertEqual(self.probes[sandbox_id].destroyed, environment != "enrollment")
+
+    @parameterized.expand([("disabled", False), ("enabled", True)])
+    def test_certificate_renewal_survives_a_worker_restart(self, _name: str, enabled: bool) -> None:
+        self.config = self.config.model_copy(update={"renew_relay_certificate": enabled, "duration_seconds": 600})
+        sandbox = self.enroll_run()
+        sandbox_id = self.controller().prepare()
+        probe = self.attached_relays[(sandbox.id, self.controller().relay_name)]
+        original = probe.certificates[0]
+        registration = self.registration()
+        for _ in range(44):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.assertEqual(probe.certificates, [original])
+        self.clock.shift(10)
+        self.controller().renew()
+        self.assertEqual(len(probe.certificates), 2 if enabled else 1)
+        if enabled:
+            self.assertNotEqual(original, probe.certificates[-1])
+            self.task_run.refresh_from_db()
+            self.assertEqual(self.task_run.state[STATE_KEY]["certificate_refresh_at"], timezone.now().timestamp() + 450)
+        self.assertEqual(self.registration().relay_key_sha256, registration.relay_key_sha256)
+        self.assertEqual(self.registration().actor_epoch, registration.actor_epoch)
+        self.assertEqual(AgentEgressRegistration.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(self.controller().probe(), {204: self.config.requests_per_round})
+        self.controller().close(reason="completed", sandbox_id=sandbox_id)
+
+    @parameterized.expand([("delivery",), ("revoked_during_csr",), ("changed_key",)])
+    def test_certificate_renewal_failure_does_not_advance_the_deadline(self, failure: str) -> None:
+        self.config = self.config.model_copy(update={"renew_relay_certificate": True, "duration_seconds": 600})
+        sandbox_id = self.controller().prepare()
+        probe = self.probes[sandbox_id]
+        for _ in range(44):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.task_run.refresh_from_db()
+        refresh_at = self.task_run.state[STATE_KEY]["certificate_refresh_at"]
+
+        def refuse_delivery() -> None:
+            raise RuntimeError("Reload not acknowledged")
+
+        def revoke_during_csr() -> None:
+            self.controller().registry.revoke(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
+
+        if failure == "delivery":
+            probe.on_certificate = refuse_delivery
+        elif failure == "revoked_during_csr":
+            probe.on_csr = revoke_during_csr
+        else:
+            self.registration().delete()
+            controller = self.controller()
+            controller.registry.register(
+                team_id=self.team.id,
+                run_id=self.task_run.id,
+                execution_id=self.execution_id,
+                actor_id=self.actor.id,
+                authority=self.config.endpoint.removeprefix("https://"),
+                relay_key_sha256=base64.urlsafe_b64encode(hashlib.sha256(b"other key").digest()).decode().rstrip("="),
+                sandbox_id=sandbox_id,
+            )
+        self.clock.shift(10)
+        with self.assertRaises(RuntimeError if failure == "delivery" else ValueError):
+            self.controller().renew()
+        self.assertEqual(len(probe.certificates), 1)
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["certificate_refresh_at"], refresh_at)
+        if failure == "delivery":
+            probe.on_certificate = lambda: None
+            self.controller().renew()
+            self.assertEqual(len(probe.certificates), 2)
+        self.controller().close(reason="failed", sandbox_id=sandbox_id)
+
+    def test_existing_config_hash_can_renew_without_certificate_opt_in(self) -> None:
+        self.controller().prepare()
+        self.task_run.refresh_from_db()
+        legacy_config = self.config.model_dump_json(exclude={"renew_relay_certificate", "maintain_for_run"})
+        state = dict(self.task_run.state[STATE_KEY])
+        state["config_sha256"] = hashlib.sha256(legacy_config.encode()).hexdigest()
+        state.pop("certificate_refresh_at")
+        TaskRun.update_state_atomic(self.task_run.id, updates={STATE_KEY: state})
+        self.clock.shift(10)
+        self.controller().renew()
+        self.assertEqual(self.registration().lease_expires_at, timezone.now() + AGENT_EGRESS_LEASE_DURATION)
+
+    def start_run_maintenance(self) -> FakeProbe:
+        self.enterContext(
+            patch("products.tasks.backend.logic.services.agent_egress_lifecycle.MAX_SANDBOX_TTL_SECONDS", 21600)
+        )
+        self.config = self.config.model_copy(update={"maintain_for_run": True, "renew_relay_certificate": True})
+        sandbox = self.enroll_run()
+        self.sandbox_expires_at = timezone.now().timestamp() + 1800
+        return sandbox
+
+    def test_run_maintenance_survives_multiple_certificate_and_capability_expiries(self) -> None:
+        sandbox = self.start_run_maintenance()
+        input = AgentEgressExecutionInput(
+            probe=AgentEgressProbeInput(
+                config_path="",
+                team_id=self.team.id,
+                run_id=str(self.task_run.id),
+                sandbox_id=sandbox.id,
+                enrollment=True,
+                sandbox_expires_at=self.sandbox_expires_at,
+            ),
+            execution_id=str(self.execution_id),
+            provisioning_deadline=timezone.now().timestamp() + 180,
+        )
+        with patch("products.tasks.backend.temporal.process_task.activities.agent_egress.activity.info") as info:
+            info.return_value.workflow_run_id = "workflow-a"
+            prepared = unwrap(_prepare)(input)
+        self.assertEqual(prepared.enrollment_expires_at, self.sandbox_expires_at)
+        probe = self.attached_relays[(sandbox.id, self.controller().relay_name)]
+        registration = self.registration()
+        for _ in range(75):
+            self.clock.shift(20)
+            self.controller().renew()
+        self.assertEqual(len(probe.certificates), 4)
+        self.assertEqual(len(probe.published), 9)
+        self.assertEqual(AgentEgressRegistration.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(self.registration().actor_epoch, registration.actor_epoch)
+        self.assertEqual(self.registration().relay_key_sha256, registration.relay_key_sha256)
+        self.assertEqual(self.controller().probe(), {204: self.config.requests_per_round})
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["expires_at"], self.sandbox_expires_at)
+        self.assertGreater(self.task_run.state[STATE_KEY]["certificate_expires_at"], timezone.now().timestamp())
+        self.controller().close(reason="cancelled", sandbox_id=sandbox.id)
+        self.assertTrue(self.registration().revoked)
+        self.assertTrue(probe.destroyed)
+        self.assertFalse(sandbox.destroyed)
+
+    @parameterized.expand([("recovers",), ("expires",), ("revoked",)])
+    def test_certificate_delivery_retry_preserves_only_live_authority(self, outcome: str) -> None:
+        sandbox = self.start_run_maintenance()
+        self.controller().prepare()
+        probe = self.attached_relays[(sandbox.id, self.controller().relay_name)]
+        self.task_run.refresh_from_db()
+        deadline = self.task_run.state[STATE_KEY]["certificate_refresh_at"]
+
+        def reject_delivery() -> None:
+            if outcome == "revoked":
+                self.controller().registry.revoke(
+                    team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+                )
+            raise AgentEgressCertificateDeliveryError("Reload not acknowledged")
+
+        probe.on_certificate = reject_delivery
+        for _ in range(44):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.clock.shift(10)
+        if outcome == "revoked":
+            with self.assertRaisesRegex(ValueError, "no longer has egress authority"):
+                self.controller().renew()
+            self.assertTrue(self.registration().revoked)
+            return
+        with capture_logs() as logs:
+            self.controller().renew()
+        self.assertEqual(logs[-1]["event"], "agent_egress_certificate_delivery_retry")
+        for _ in range(9):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["certificate_refresh_at"], deadline)
+        self.assertEqual(len(probe.published), 4)
+        self.assertEqual(len(probe.certificates), 1)
+        if outcome == "recovers":
+            probe.on_certificate = lambda: None
+            self.clock.shift(10)
+            self.controller().renew()
+            self.assertEqual(len(probe.certificates), 2)
+            self.task_run.refresh_from_db()
+            self.assertGreater(self.task_run.state[STATE_KEY]["certificate_refresh_at"], deadline)
+        else:
+            for _ in range(35):
+                self.clock.shift(10)
+                self.controller().renew()
+            expires_at = self.registration().lease_expires_at
+            self.clock.shift(10)
+            with self.assertRaisesRegex(ValueError, "certificate has expired"):
+                self.controller().renew()
+            self.assertEqual(self.registration().lease_expires_at, expires_at)
+
+    @parameterized.expand([("csr",), ("acknowledgement",)])
+    def test_certificate_expiry_during_delivery_ends_enrollment(self, phase: str) -> None:
+        sandbox = self.start_run_maintenance()
+        self.controller().prepare()
+        probe = self.attached_relays[(sandbox.id, self.controller().relay_name)]
+
+        def reject_delivery() -> None:
+            raise AgentEgressCertificateDeliveryError("Retry later")
+
+        probe.on_certificate = reject_delivery
+        for _ in range(89):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.task_run.refresh_from_db()
+        deadline = self.task_run.state[STATE_KEY]["certificate_expires_at"]
+        probe.on_certificate = lambda: None
+
+        def cross_expiry() -> None:
+            self.clock.shift(6)
+
+        if phase == "csr":
+            probe.on_csr = cross_expiry
+        else:
+            probe.on_certificate = cross_expiry
+        self.clock.shift(5)
+        with self.assertRaisesRegex(ValueError, "certificate has expired"):
+            self.controller().renew()
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["certificate_expires_at"], deadline)
+        self.assertEqual(len(probe.certificates), 1 if phase == "csr" else 2)
+        self.controller().close(reason="failed", sandbox_id=sandbox.id)
+        self.assertTrue(self.registration().revoked)
+        self.assertTrue(probe.destroyed)
+        self.assertFalse(sandbox.destroyed)
+
+    @parameterized.expand([("missing", None), ("expired", -1), ("nan", float("nan")), ("too_long", 21601)])
+    def test_run_maintenance_rejects_invalid_sandbox_deadlines(self, _name: str, offset: float | None) -> None:
+        self.start_run_maintenance()
+        self.sandbox_expires_at = None if offset is None else timezone.now().timestamp() + offset
+        with self.assertRaisesRegex(ValueError, "live sandbox deadline"):
+            self.controller().prepare()
+        self.assertEqual(self.attached_relays, {})
+        self.assertFalse(AgentEgressRegistration.objects.for_team(self.team.id).exists())
+
+    def test_retried_prepare_cannot_extend_the_sandbox_deadline(self) -> None:
+        self.start_run_maintenance()
+        self.controller().prepare()
+        assert self.sandbox_expires_at is not None
+        self.sandbox_expires_at += 60
+        with self.assertRaisesRegex(ValueError, "sandbox deadline has changed"):
+            self.controller().prepare()
+
+    def test_run_maintenance_requires_certificate_renewal(self) -> None:
+        self.config = self.config.model_copy(update={"maintain_for_run": True})
+        with self.assertRaisesRegex(ValueError, "enrollment configuration"):
+            self.enroll_run()
+
+    def test_standalone_probe_cannot_enable_run_maintenance(self) -> None:
+        self.config = self.config.model_copy(update={"maintain_for_run": True, "renew_relay_certificate": True})
+        with self.assertRaisesRegex(ValueError, "requires enrollment configuration"):
+            self.controller().prepare()
 
     @parameterized.expand([("disabled",), ("deleted",), ("changed",)])
     def test_enrollment_configuration_changes_stop_renewal_but_allow_cleanup(self, change: str) -> None:
@@ -580,10 +849,68 @@ class TestAgentEgressLifecycle(TestCase):
             workflow_run_id="workflow-b" if mismatch == "workflow" else "workflow-a",
             provisioning_deadline=self.deadlines[self.execution_id],
         )
-        with self.assertRaises(TaskRun.DoesNotExist if mismatch == "team" else ValueError):
+        expected = (
+            TaskRun.DoesNotExist
+            if mismatch == "team"
+            else AgentEgressOwnershipConflict
+            if mismatch == "execution"
+            else ValueError
+        )
+        with self.assertRaises(expected):
             other.prepare()
         self.assertEqual(len(self.probes), 1)
         self.assertFalse(self.registration().revoked)
+
+    @parameterized.expand([("lease_expires", False), ("provisioning_expires", True)])
+    def test_enrollment_retry_waits_for_the_previous_lease(self, _name: str, missed_deadline: bool) -> None:
+        self.config = self.config.model_copy(update={"maintain_for_run": True, "renew_relay_certificate": True})
+        self.sandbox_expires_at = timezone.now().timestamp() + 900
+        sandbox = self.enroll_run()
+        self.controller().prepare()
+        lease_expires_at = self.registration().lease_expires_at
+        replacement_id = uuid4()
+        replacement = self.controller(execution_id=replacement_id, workflow_run_id="workflow-b")
+        with self.assertRaises(AgentEgressOwnershipConflict):
+            replacement.prepare()
+        execution = AgentEgressExecutionInput(
+            probe=AgentEgressProbeInput(
+                config_path="",
+                team_id=self.team.id,
+                run_id=str(self.task_run.id),
+                sandbox_id=sandbox.id,
+                enrollment=True,
+                sandbox_expires_at=self.sandbox_expires_at,
+            ),
+            execution_id=str(replacement_id),
+            provisioning_deadline=self.deadlines[replacement_id],
+        )
+        environment = ActivityEnvironment()
+        environment.info = replace(environment.info, workflow_run_id="workflow-b")
+        with self.assertRaises(ApplicationError) as raised:
+            environment.run(unwrap(_prepare), execution)
+        self.assertEqual(raised.exception.type, "AgentEgressOwnershipConflict")
+        self.assertFalse(raised.exception.non_retryable)
+        self.assertEqual(raised.exception.next_retry_delay, AGENT_EGRESS_LEASE_DURATION)
+        self.assertIsInstance(raised.exception.__cause__, AgentEgressOwnershipConflict)
+        self.assertEqual(self.registration().lease_expires_at, lease_expires_at)
+        self.assertFalse(self.registration().revoked)
+        self.assertEqual(len(self.attached_relays), 1)
+        self.assertEqual(AgentEgressRegistration.objects.for_team(self.team.id).count(), 1)
+        self.clock.shift(181 if missed_deadline else AGENT_EGRESS_LEASE_DURATION.total_seconds())
+        if missed_deadline:
+            with self.assertRaisesRegex(ValueError, "provisioning window"):
+                environment.run(unwrap(_prepare), execution)
+            self.assertEqual(len(self.attached_relays), 1)
+            return
+        prepared = environment.run(unwrap(_prepare), execution)
+        self.assertEqual(prepared.sandbox_id, sandbox.id)
+        self.assertEqual(prepared.enrollment_expires_at, self.sandbox_expires_at)
+        replacement.renew()
+        self.assertTrue(self.registration().revoked)
+        self.assertFalse(self.registration(replacement_id).revoked)
+        self.assertEqual(self.registration(replacement_id).actor_epoch, 2)
+        self.assertTrue(self.attached_relays[(sandbox.id, self.controller().relay_name)].destroyed)
+        self.assertFalse(self.attached_relays[(sandbox.id, replacement.relay_name)].destroyed)
 
     @parameterized.expand(
         [
@@ -723,10 +1050,20 @@ class TestAgentEgressLifecycle(TestCase):
             cancelled.prepare()
         self.assertEqual(len(self.probes), 1)
 
-    @parameterized.expand([("observation", False), ("enrollment", True)])
+    @parameterized.expand(
+        [
+            ("observation", False, False, False),
+            ("enrollment", True, False, False),
+            ("continued", True, True, False),
+            ("rotated", True, True, True),
+        ]
+    )
     def test_attached_observation_owns_only_its_relay_during_replacement_and_cleanup(
-        self, _name: str, enrollment: bool
+        self, _name: str, enrollment: bool, maintain_for_run: bool, replace_sandbox: bool
     ) -> None:
+        if maintain_for_run:
+            self.config = self.config.model_copy(update={"maintain_for_run": True, "renew_relay_certificate": True})
+            self.sandbox_expires_at = timezone.now().timestamp() + 900
         if enrollment:
             sandbox = self.enroll_run()
         else:
@@ -740,19 +1077,85 @@ class TestAgentEgressLifecycle(TestCase):
         self.assertEqual(previous.prepare(), sandbox.id)
         previous.renew()
         self.assertEqual(previous.probe(), {204: self.config.requests_per_round})
-        self.clock.shift(31)
+        previous_relay = self.attached_relays[(sandbox.id, previous.relay_name)]
+        previous_capability = previous_relay.published[-1]
+        if maintain_for_run:
+            previous.close(reason="cancelled", sandbox_id=sandbox.id)
+            self.clock.shift(1)
+        else:
+            self.clock.shift(31)
+        replacement_sandbox = self.enroll_run() if replace_sandbox else sandbox
         replacement_id = uuid4()
         replacement = self.controller(execution_id=replacement_id, workflow_run_id="workflow-b")
-        self.assertEqual(replacement.prepare(), sandbox.id)
+        self.assertEqual(replacement.prepare(), replacement_sandbox.id)
+        previous_revoked_at = self.registration().revoked_at
+        self.clock.shift(1)
         previous.close(reason="failed", sandbox_id=sandbox.id)
-        self.assertTrue(self.attached_relays[(sandbox.id, previous.relay_name)].destroyed)
-        self.assertFalse(self.attached_relays[(sandbox.id, replacement.relay_name)].destroyed)
+        replacement_relay = self.attached_relays[(replacement_sandbox.id, replacement.relay_name)]
+        self.assertTrue(previous_relay.destroyed)
+        self.assertFalse(replacement_relay.destroyed)
         self.assertFalse(sandbox.destroyed)
+        self.assertFalse(replacement_sandbox.destroyed)
+        self.assertEqual(self.registration().revoked_at, previous_revoked_at)
+        self.assertIsNotNone(previous_revoked_at)
+        old_claims = jwt.decode(
+            previous_capability, self.verification_key, algorithms=["RS256"], audience="posthog:agent_egress"
+        )
+        self.assertIsNone(
+            previous.registry.lookup(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=UUID(old_claims["execution_id"])
+            )
+        )
+        with self.assertRaises(ValueError):
+            previous.registry.issue_capability(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
         replacement.renew()
-        self.assertFalse(self.registration(replacement_id).revoked)
-        replacement.close(reason="completed", sandbox_id=sandbox.id)
-        self.assertTrue(self.attached_relays[(sandbox.id, replacement.relay_name)].destroyed)
+        registration = replacement.registry.lookup(
+            team_id=self.team.id, run_id=self.task_run.id, execution_id=replacement_id
+        )
+        self.assertIsNotNone(registration)
+        assert registration is not None
+        self.assertIsNone(registration.revoked_at)
+        self.assertEqual(registration.actor_epoch, old_claims["actor_epoch"] + 1)
+        self.assertNotEqual(registration.relay_key_sha256, old_claims["relay_key_sha256"])
+        self.assertNotEqual(previous_capability, replacement_relay.published[-1])
+        self.assertEqual(replacement.probe(), {204: self.config.requests_per_round})
+        replacement.close(reason="completed", sandbox_id=replacement_sandbox.id)
+        self.assertTrue(replacement_relay.destroyed)
         self.assertFalse(sandbox.destroyed)
+        self.assertFalse(replacement_sandbox.destroyed)
+
+    @parameterized.expand([("continued", False), ("rotated", True)])
+    def test_failed_handoff_cannot_reopen_previous_execution(self, _name: str, replace_sandbox: bool) -> None:
+        self.config = self.config.model_copy(update={"maintain_for_run": True, "renew_relay_certificate": True})
+        self.sandbox_expires_at = timezone.now().timestamp() + 900
+        sandbox = self.enroll_run()
+        previous = self.controller()
+        previous.prepare()
+        previous.close(reason="cancelled", sandbox_id=sandbox.id)
+        revoked_at = self.registration().revoked_at
+        replacement_sandbox = self.enroll_run() if replace_sandbox else sandbox
+
+        def refuse_publication() -> None:
+            raise OSError("Provider unavailable")
+
+        self.on_publish = refuse_publication
+        replacement_id = uuid4()
+        replacement = self.controller(execution_id=replacement_id, workflow_run_id="workflow-b")
+        with self.assertRaisesRegex(OSError, "Provider unavailable"):
+            replacement.prepare()
+        replacement.close(reason="failed", sandbox_id=replacement_sandbox.id)
+        with self.assertRaises(ValueError):
+            previous.prepare()
+        with self.assertRaises(ValueError):
+            previous.renew()
+        self.assertFalse(AgentEgressRegistration.objects.for_team(self.team.id).filter(revoked=False).exists())
+        self.assertEqual(self.registration().revoked_at, revoked_at)
+        self.assertEqual(self.registration().revocation_reason, "cancelled")
+        self.assertTrue(all(relay.destroyed for relay in self.attached_relays.values()))
+        self.assertFalse(sandbox.destroyed)
+        self.assertFalse(replacement_sandbox.destroyed)
 
     @parameterized.expand([("sandbox",), ("backend",)])
     def test_observation_cannot_attach_to_a_foreign_sandbox(self, mismatch: str) -> None:

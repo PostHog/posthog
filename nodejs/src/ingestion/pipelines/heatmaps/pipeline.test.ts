@@ -11,8 +11,9 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { drop, ok } from '~/ingestion/framework/results'
+import { PipelineResult, drop, isTimeoutResult, ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { createNoopTopHog } from '~/tests/helpers/tophog'
 
@@ -74,17 +75,20 @@ describe('HeatmapsPipeline', () => {
         } as Message
     }
 
-    const runPipeline = async (messages: Message[]): Promise<void> => {
+    const runPipeline = async (messages: Message[], budget?: BatchBudget): Promise<PipelineResult<unknown>[]> => {
         const pipeline = createHeatmapsPipeline(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch, {})
+        await pipeline.feed(batch, {}, budget)
+        const results: PipelineResult<unknown>[] = []
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.
             expect(result.sideEffects ?? []).toEqual([])
+            results.push(...result.elements.map((element) => element.result))
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
+        return results
     }
 
     const heatmapsProducedFor = (): any[] =>
@@ -153,6 +157,7 @@ describe('HeatmapsPipeline', () => {
             topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
             teamsPrefetchEnabled: true,
+            concurrentBatches: 1,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
             cookielessManager: mockCookielessManager,
@@ -215,5 +220,23 @@ describe('HeatmapsPipeline', () => {
         // Opt-out is a drop, not a DLQ — nothing is produced anywhere.
         expect(heatmapsProducedFor()).toHaveLength(0)
         expect(dlqProducedFor()).toHaveLength(0)
+    })
+
+    it('finishes an event whose time budget runs out during cookieless processing', async () => {
+        jest.useFakeTimers()
+        try {
+            const softAt = Date.now() + 1000
+            mockCookielessManager.doBatch.mockImplementation((events: any[]) => {
+                jest.setSystemTime(softAt)
+                return Promise.resolve(events.map((e) => ok(e)))
+            })
+
+            const results = await runPipeline([createMessage('$$heatmap')], BatchBudget.softDeadline(softAt))
+
+            expect(results.map((result) => isTimeoutResult(result))).toEqual([false])
+            expect(heatmapsProducedFor()).toHaveLength(1)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })
