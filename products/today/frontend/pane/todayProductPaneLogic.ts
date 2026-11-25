@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tagManagementAccessLogic } from 'lib/logic/tagManagementAccessLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { HrefPin, hrefPinsFromShortcuts, unpinnedRecents } from '~/layout/today/sidebar/hrefPins'
@@ -65,6 +66,7 @@ export interface todayProductPaneLogicValues {
         hash: string
     } // router
     shortcutData: FileSystemEntry[] // sidebarPinsLogic
+    canManageTags: boolean // tagManagementAccessLogic
     currentRecent: TodayRecent | null // todayRecentsLogic
     productPaneRecents: Record<TodayProductPaneKey, TodayRecent[]> // todayRecentsLogic
     activeRow: string | null
@@ -114,7 +116,11 @@ export interface todayProductPaneLogicMeta {
     key: TodayProductPaneKey
     __keaTypeGenInternalSelectorTypes: {
         config: (arg: any) => TodayProductPaneConfig
-        products: (config: TodayProductPaneConfig, featureFlags: FeatureFlagsSet) => TodayPaneProducts
+        products: (
+            config: TodayProductPaneConfig,
+            featureFlags: FeatureFlagsSet,
+            canManageTags: any
+        ) => TodayPaneProducts
         matching: (products: TodayPaneProducts, searchQuery: string) => TodayPaneProducts
         pinnedRows: (config: TodayProductPaneConfig, shortcutData: FileSystemEntry[]) => HrefPin<string>[]
         matchingPinnedRows: (pinnedRows: HrefPin<string>[], searchQuery: string) => HrefPin<string>[]
@@ -173,6 +179,8 @@ export const todayProductPaneLogic = kea<todayProductPaneLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
+            tagManagementAccessLogic,
+            ['canManageTags'],
             router,
             ['location'],
             sidebarPinsLogic,
@@ -214,9 +222,15 @@ export const todayProductPaneLogic = kea<todayProductPaneLogicType>([
     selectors({
         config: [() => [(_, props) => props.pane], (pane: TodayProductPaneKey) => productPaneConfig(pane)],
         products: [
-            (s) => [s.config, s.featureFlags],
-            (config: TodayProductPaneConfig, featureFlags: FeatureFlagsSet): TodayPaneProducts =>
-                filterPaneProducts(paneProducts(config), (product) => isPaneProductShown(product, featureFlags)),
+            (s) => [s.config, s.featureFlags, s.canManageTags],
+            (
+                config: TodayProductPaneConfig,
+                featureFlags: FeatureFlagsSet,
+                canManageTags: boolean
+            ): TodayPaneProducts =>
+                filterPaneProducts(paneProducts(config), (product) =>
+                    isPaneProductShown(product, featureFlags, canManageTags)
+                ),
         ],
         matching: [
             (s) => [s.products, s.searchQuery],

@@ -6526,6 +6526,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
+    requiresOrganizationAdmin: bool | None = None
     sceneKey: str | None = Field(
         default=None,
         description="Match this with the a base scene key or a specific one",

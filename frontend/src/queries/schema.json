@@ -31689,6 +31689,7 @@
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_tags",
+                "tag",
                 "llm_datasets",
                 "llm_playground",
                 "llm_prompts",
@@ -31792,6 +31793,9 @@
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
+                },
+                "requiresOrganizationAdmin": {
+                    "type": "boolean"
                 },
                 "sceneKey": {
                     "description": "Match this with the a base scene key or a specific one",

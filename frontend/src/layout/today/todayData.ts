@@ -23,6 +23,7 @@ function dataDefinitionSpecs(): TodayPaneProductSpec[] {
         { href: urls.dataCatalog() },
         { href: urls.eventDefinitions() },
         { href: urls.propertyDefinitions() },
+        { href: urls.tagDefinitions() },
         { href: urls.schemaManagement() },
         { href: urls.coreEvents() },
         { href: urls.actions() },
