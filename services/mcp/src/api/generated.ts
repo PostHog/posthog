@@ -34454,6 +34454,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties
+     */
+    export type WarehousePersonPropertyMissingRowBehaviorEnum = typeof WarehousePersonPropertyMissingRowBehaviorEnum[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnum];
+
+
+    export const WarehousePersonPropertyMissingRowBehaviorEnum = {
+      Keep: 'keep',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `tracked` - tracked
      * * `ignored` - ignored
      */
@@ -34545,6 +34557,8 @@ export namespace Schemas {
       readonly existing: number;
       /** Property updates written or produced to the ingestion pipeline. */
       readonly produced: number;
+      /** People whose mapped properties were removed after they left the source table. */
+      readonly removed: number;
       /** Changed rows skipped because no existing account, person, or group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
@@ -34586,6 +34600,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -34737,6 +34756,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -91800,6 +91824,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -107238,6 +107267,8 @@ export namespace Schemas {
     /**
      * * `insight` - Insight
      * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL
      */
     export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
 
@@ -107245,6 +107276,8 @@ export namespace Schemas {
     export const QueryBatchLanguageEnum = {
       Insight: 'insight',
       Hogql: 'hogql',
+      Promql: 'promql',
+      Logql: 'logql',
     } as const;
 
     /**
@@ -107259,10 +107292,12 @@ export namespace Schemas {
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
        * * `insight` - Insight
-       * * `hogql` - HogQL */
+       * * `hogql` - HogQL
+       * * `promql` - PromQL
+       * * `logql` - LogQL */
       language: QueryBatchLanguageEnum;
       /**
          * The query text, read according to `language`.
@@ -107295,10 +107330,16 @@ export namespace Schemas {
          */
       variables?: QueryBatchQueryVariables;
       /**
-         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
          * @maxLength 20
          */
       interval?: string;
+      /**
+         * For promql and logql targets: the most points per series. Sets the step with `interval`.
+         * @minimum 1
+         * @maximum 10000
+         */
+      maxDataPoints?: number;
       /** Serve a stale cached result at once and recompute it in the background for the next read. */
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */

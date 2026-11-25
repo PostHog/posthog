@@ -1321,6 +1321,28 @@ REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
 }
 
 
+def user_can_access_resource(
+    team: Team,
+    user: User,
+    scope: str,
+    level: AccessControlLevel,
+    *,
+    user_access_control: Optional[UserAccessControl] = None,
+) -> bool:
+    """Whether the user has `level` on the `scope` resource type in the team, outside a DRF permission.
+
+    For a product that checks access to another product's resource type, which it cannot import the authorization
+    facade for without closing a product cycle. Pass the caller's `UserAccessControl` to reuse the rules it loaded.
+    """
+    if user_access_control is not None:
+        authorization.reuse_current_rules(user_access_control)
+    return authorization.check(
+        resource=Resource(type=ResourceType(scope), project_id=team.pk),
+        action=REQUIRED_LEVEL_ACTIONS[level],
+        subject=Subject(user_id=user.pk),
+    )
+
+
 def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool:
     """Whether neither the object nor its view has a project, as for an organization's plugins."""
     return team is None and getattr(obj, "team_id", None) is None and ResourceType(scope) not in MEMBERSHIP_RESOURCES
