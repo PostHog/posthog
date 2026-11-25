@@ -517,7 +517,8 @@ export const GithubOptionalSkipConfirmation: Story = {
         await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
         await userEvent.click(activate)
         const page = within(document.body)
-        await expect(await page.findByText('Activate without GitHub?')).toBeVisible()
+        // The dialog is in the document one frame before it turns visible.
+        await waitFor(() => expect(page.getByText('Activate without GitHub?')).toBeVisible())
         await expect(page.getByText('Find root causes')).toBeVisible()
         await expect(page.getByText('security docs')).toBeVisible()
     },
