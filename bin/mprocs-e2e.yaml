@@ -33,6 +33,7 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
+            MCP_CATALOG_SYNC_ON_WORKER_READY: '0'
             PERSONHOG_ADDR: 'localhost:50052'
 
     frontend:
