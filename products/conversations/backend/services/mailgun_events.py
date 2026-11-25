@@ -850,7 +850,7 @@ def _forwarded_original_message(email: ParsedEmail, config: EmailChannel) -> _Fo
         return (
             address in internal_addresses
             or address.rpartition("@")[2] == forwarder_domain
-            or _extract_inbound_token(address) is not None
+            or _extract_inbound_token(address) == config.inbound_token
         )
 
     if is_internal(sender.email) or any(not is_internal(address) for address in recipients - {sender.email}):

@@ -589,6 +589,16 @@ class TestCollectEligibleAwaitingClarification:
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_malformed_traits_do_not_stop_the_scan(self, mock_master_flag):
+        team, ticket = self._team_and_ticket(status="new", awaiting=False)
+        ticket.anonymous_traits = ["x"]
+        ticket.save(update_fields=["anonymous_traits"])
+        self._comments(team, ticket, [("customer", 3)])
+
+        assert [t.ticket_id for t in _collect_eligible()] == [str(ticket.id)]
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
     def test_second_clarification_round_is_not_eligible(self, mock_master_flag):
         team, ticket = self._team_and_ticket()
         from products.conversations.backend.models.ticket import Ticket as TicketModel

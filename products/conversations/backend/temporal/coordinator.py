@@ -185,7 +185,9 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
 
         if is_untriaged:
             untriaged_ticket_ids.add(str(ticket.id))
-        if (ticket.anonymous_traits or {}).get("email_forwarded") is True:
+        # The scan covers every team, so one ticket's malformed traits must not stop it.
+        traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+        if traits.get("email_forwarded") is True:
             forwarded_ticket_ids.add(str(ticket.id))
 
         awaiting, clarification_round = _awaiting_clarification_round(ticket)

@@ -2811,6 +2811,7 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
             ("sent_on_to_an_outsider", {"To": "support@example.com, Bob <bob@example.org>"}),
             ("forwarded_sender_on_forwarders_domain", {"body-plain": _gmail_forward("Billing <billing@posthog.com>")}),
             ("forwarded_team_member", {"body-plain": _gmail_forward("Sam <sam@example.org>")}),
+            ("copied_to_a_lookalike_inbound_address", {"Cc": "team-abc123@example.org"}),
             (
                 "free_mail_forwarder_copies_an_outsider",
                 {

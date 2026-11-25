@@ -117,6 +117,13 @@ class TestTicketUpdateRequestSerializer(SimpleTestCase):
 
         assert serializer.is_valid() is expected_valid, serializer.errors
 
+    @parameterized.expand([("list", []), ("text", "Jane")])
+    def test_rejects_customer_details_that_are_not_an_object(self, _name: str, traits: object) -> None:
+        serializer = TicketUpdateRequestSerializer(Ticket(), data={"anonymous_traits": traits}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["anonymous_traits"][0].code == "invalid"
+
 
 # Patch on_commit to execute immediately in tests
 def immediate_on_commit(func):

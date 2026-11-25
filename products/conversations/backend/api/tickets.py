@@ -669,6 +669,13 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
 
+    def validate_anonymous_traits(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Send customer details as an object of fields, such as name and email.", code="invalid"
+            )
+        return value
+
     def validate_tags(self, value: list[str]) -> list[str]:
         # The cap counts new tags only. A client sends the whole list on every save, so a cap on
         # its length would reject every update of a ticket that already has more tags than the cap.
