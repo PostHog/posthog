@@ -14,7 +14,7 @@ export function PlatformAlertRowMenu({ configuration }: { configuration: Platfor
     const { updatingAlertIds } = useValues(platformAlertsLogic)
     const { snoozeAlert, unsnoozeAlert, setAlertEnabled } = useActions(platformAlertsLogic)
 
-    const snoozed = listRowMute({ kind: 'alert', configuration }, new Date())?.until != null
+    const snoozed = listRowMute({ kind: 'alert', configuration }, new Date())?.kind === 'snoozed'
     const sourceLabel = SOURCE_KINDS[configuration.source_kind].label
     const changeable = canChangeFromList(configuration)
     const editDisabledReason = changeable ? undefined : `Change this alert in ${sourceLabel}`
