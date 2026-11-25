@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh error_tracking",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {

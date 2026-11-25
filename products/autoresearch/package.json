@@ -2,7 +2,7 @@
     "name": "@posthog/products-autoresearch",
     "scripts": {
         "backend:contract-check": "echo 'Contract files unchanged'",
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || test $? -eq 5"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh autoresearch"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

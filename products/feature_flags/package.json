@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-feature-flags",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh feature_flags"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

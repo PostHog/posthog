@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-stamphog",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh stamphog",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {

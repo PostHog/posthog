@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-aeo",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short",
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh aeo",
         "backend:contract-check": "echo 'Contract files unchanged'"
     }
 }

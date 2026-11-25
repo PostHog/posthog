@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 import ast
 import json
-import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -150,36 +149,8 @@ def _is_noop_script(script: str) -> bool:
     return stripped.startswith("echo ") or stripped in ("true", "exit 0", ":")
 
 
-def _parse_pytest_paths(script: str) -> list[str]:
-    """Extract test path arguments from a pytest command.
-
-    Given something like:
-        pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short
-    Returns:
-        ["backend/tests"]
-    """
-    try:
-        parts = shlex.split(script)
-    except ValueError:
-        parts = script.split()
-    if not parts or parts[0] != "pytest":
-        return []
-
-    paths: list[str] = []
-    skip_next = False
-    for part in parts[1:]:
-        if skip_next:
-            skip_next = False
-            continue
-        # flags that consume the next token
-        if part in ("-c", "--rootdir", "-k", "-m", "-p", "--override-ini", "-o"):
-            skip_next = True
-            continue
-        # skip flags
-        if part.startswith("-"):
-            continue
-        paths.append(part)
-    return paths
+def _product_runner_script(product: str) -> str:
+    return f"bash ../../.github/scripts/run-product-tests.sh {product}"
 
 
 class PackageJsonScriptsCheck(ProductCheck):
@@ -207,38 +178,25 @@ class PackageJsonScriptsCheck(ProductCheck):
                 "turbo cannot discover this product"
             )
 
-        # --- content checks on backend:test ---
         test_script = scripts.get("backend:test", "")
-        if test_script:
-            # strip trailing || true / || exit 0 before further checks
-            base_script = test_script.split("||")[0].strip()
-
-            # check: || true / || exit 0 swallows failures
-            if "||" in test_script:
-                tail = test_script.split("||", 1)[1].strip()
-                if tail in ("true", "exit 0"):
-                    result.lines.append(f"✗ 'backend:test' uses '|| {tail}'")
-                    result.issues.append(f"'backend:test' script uses '|| {tail}' which swallows test failures in CI")
-
-            # check: no-op script but test files exist
-            if _is_noop_script(base_script) and _has_test_files(ctx.backend_dir):
+        runner_script = _product_runner_script(ctx.name)
+        if _is_noop_script(test_script):
+            if _has_test_files(ctx.backend_dir):
                 result.lines.append("✗ 'backend:test' is a no-op but test files exist")
                 result.issues.append(
                     "'backend:test' is a no-op (e.g. echo) but backend/ contains test files "
-                    "that will never run — update the script to use pytest"
+                    f"that will never run. Set it to '{runner_script}'."
                 )
-
-            # check: pytest paths exist on disk
-            if base_script.startswith("pytest"):
-                test_paths = _parse_pytest_paths(base_script)
-                for tp in test_paths:
-                    resolved = ctx.product_dir / tp
-                    if not resolved.exists():
-                        result.lines.append(f"✗ test path '{tp}' does not exist")
-                        result.issues.append(
-                            f"'backend:test' references path '{tp}' which does not exist — "
-                            "pytest will fail or silently collect zero tests"
-                        )
+        elif test_script and test_script != runner_script:
+            # CI calls the runner directly and never runs this script, so a different command
+            # (an extra -m, --reruns or test root) looks like it changes CI and does not.
+            result.lines.append("✗ 'backend:test' does not call the product runner")
+            result.issues.append(
+                f"'backend:test' must be '{runner_script}'. CI runs that command for every product "
+                "and ignores this script, so other pytest options or paths here never reach CI. "
+                "Put product-specific pytest config in a conftest.py, and paths other jobs own in "
+                ".github/scripts/product-tests-owned-elsewhere.txt."
+            )
 
         if not result.issues:
             result.lines.append("✓ ok")
@@ -494,7 +452,7 @@ class OrphanedTestFilesCheck(ProductCheck):
         result.issues.extend(
             f"Test file {rel} never runs in CI: turbo-discover builds a product job only for a product "
             "whose package.json has a backend:test task that is not a no-op. Add one "
-            f"(bash ../../.github/scripts/run-product-tests.sh {ctx.name})."
+            f"({_product_runner_script(ctx.name)})."
             for rel in test_files
         )
         return result

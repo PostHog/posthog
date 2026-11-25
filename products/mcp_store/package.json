@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-mcp-store",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh mcp_store"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",

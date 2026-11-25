@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-experiments",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh experiments"
     },
     "dependencies": {
         "@base-ui/react": "catalog:",

@@ -166,9 +166,8 @@ The lint command validates:
 
 - **Presence**: `backend:test` must exist
 - **Script content** (for `backend:test`):
-  - No `|| true` or `|| exit 0` — these swallow test failures in CI
-  - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
-  - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+  - Exactly `bash ../../.github/scripts/run-product-tests.sh <product_dir>`. CI calls that runner directly and never runs the script, so other pytest options or paths in it would not reach CI
+  - A no-op (e.g., `echo 'No backend tests'`) only when `backend/` contains no test files
 
 The lint does not check the boundaries between products.
 hoglint checks them: run `hoglint check`.
@@ -329,6 +328,7 @@ Locally, `hogli test products/<product_dir>/` runs the same thing for a product 
 A product that also has Jest tests keeps the per-type grouping.
 
 Turbo still decides which products a change affects.
-The `backend:test` script in each `package.json` only registers the task for that, and CI does not run it.
+The `backend:test` script in each `package.json` registers the task for that and calls the same runner, but CI does not run the script.
+Put product-specific pytest configuration in a `conftest.py` under the product, not in the script.
 
 See [architecture.md](./architecture.md) for how selective testing works.

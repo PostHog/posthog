@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-managed-migrations",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/api/test -v --tb=short"
+        "backend:test": "bash ../../.github/scripts/run-product-tests.sh managed_migrations"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",
