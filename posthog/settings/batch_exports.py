@@ -216,3 +216,7 @@ BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS: list[str] = get_list(
 BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: int = get_from_env(
     "BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE", 0, type_cast=int
 )
+
+# When false, the Temporal worker hosts no batch export workflows and loads none of the destination
+# SDKs, and the API refuses to create, unpause, backfill or retry a batch export.
+BATCH_EXPORTS_ENABLED: bool = get_from_env("BATCH_EXPORTS_ENABLED", True, type_cast=str_to_bool)

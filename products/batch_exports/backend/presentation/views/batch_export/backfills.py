@@ -22,6 +22,7 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
+from products.batch_exports.backend.presentation.views.utils import check_batch_exports_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -128,6 +129,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
 
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
+        check_batch_exports_enabled()
         export_id = self._get_export_id()
         start_at = request.data.get("start_at")
         end_at = request.data.get("end_at")

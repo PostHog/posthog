@@ -8,28 +8,39 @@ every destination's vendor SDK (databricks, snowflake, bigquery, ...), so this m
 imported where those loaders run, never on the startup path;
 ``posthog/test/repo_invariants/test_startup_import_budget.py`` holds that.
 
+With ``BATCH_EXPORTS_ENABLED`` off the declaration is empty, and none of that is imported.
+
 The worker bootstrap commands (``start_temporal_workflow``, ``execute_temporal_workflow``) take
 ``WORKFLOWS`` from here.
 """
 
-from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+from django.conf import settings
 
-from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor as _MetricsInterceptor
-from products.batch_exports.backend.temporal.workflows import (
-    ACTIVITIES as _ACTIVITIES,
-    WORKFLOWS,
-)
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
 
 __all__ = ["WORKFLOWS"]
 
-TEMPORAL = TemporalRegistration(
-    queues=(
-        QueueBinding(
-            queue_setting="SYNC_BATCH_EXPORTS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(_ACTIVITIES)
+WORKFLOWS: list[type] = []
+TEMPORAL = TemporalRegistration()
+
+if settings.BATCH_EXPORTS_ENABLED:
+    from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor as _MetricsInterceptor
+    from products.batch_exports.backend.temporal.workflows import (
+        ACTIVITIES as _ACTIVITIES,
+        WORKFLOWS as _WORKFLOWS,
+    )
+
+    WORKFLOWS = list(_WORKFLOWS)
+    TEMPORAL = TemporalRegistration(
+        queues=(
+            QueueBinding(
+                queue_setting="SYNC_BATCH_EXPORTS_TASK_QUEUE",
+                workflows=tuple(WORKFLOWS),
+                activities=tuple(_ACTIVITIES),
+            ),
+            QueueBinding(
+                queue_setting="BATCH_EXPORTS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(_ACTIVITIES)
+            ),
         ),
-        QueueBinding(
-            queue_setting="BATCH_EXPORTS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(_ACTIVITIES)
-        ),
-    ),
-    interceptors=(_MetricsInterceptor,),
-)
+        interceptors=(_MetricsInterceptor,),
+    )

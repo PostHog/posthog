@@ -214,6 +214,19 @@ if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
     fi
 fi
 
+# Batch exports are off unless .env turns them on. An install that already has one keeps them on,
+# so that its exports do not stop with the upgrade. This reads the database of the old stack.
+if ! grep -qE "^BATCH_EXPORTS_ENABLED=" .env; then
+    EXISTING_BATCH_EXPORTS=$(docker-compose exec -T db psql -U posthog -d posthog -tAc "SELECT count(*) FROM posthog_batchexport WHERE NOT deleted" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ "$EXISTING_BATCH_EXPORTS" =~ ^[1-9][0-9]*$ ]]; then
+        echo "BATCH_EXPORTS_ENABLED=true" >> .env
+        echo "This install has batch exports, so added BATCH_EXPORTS_ENABLED=true to .env file"
+    elif [[ "$EXISTING_BATCH_EXPORTS" != "0" ]]; then
+        echo "Could not check this install for batch exports. They are now off by default."
+        echo "To keep them running, add BATCH_EXPORTS_ENABLED=true to .env and run this upgrade again."
+    fi
+fi
+
 # MinIO is no longer in the stack. This asks for a decision while the old stack still
 # runs, because the objects cannot be moved after the swap without a temporary MinIO
 # container. The marker also covers the older SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS

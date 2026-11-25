@@ -41,6 +41,7 @@ from products.batch_exports.backend.facade.enums import (
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
+    check_batch_exports_enabled,
     check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
 )
@@ -606,6 +607,7 @@ class BatchExportSerializer(serializers.Serializer):
 
     def create(self, validated_data: dict) -> contracts.BatchExportConfiguration:
         """Create a BatchExport."""
+        check_batch_exports_enabled()
         destination_data = validated_data["destination"]
         export = contracts.NewBatchExport(
             destination=contracts.BatchExportDestinationInput(
@@ -710,6 +712,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
+        check_batch_exports_enabled()
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 

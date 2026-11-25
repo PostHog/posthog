@@ -26,6 +26,7 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
+from products.batch_exports.backend.presentation.views.utils import check_batch_exports_enabled
 
 
 class BatchExportRunSerializer(serializers.Serializer):
@@ -229,6 +230,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         We use the same underlying mechanism as when backfilling a batch export, as retrying
         a run is the same as backfilling one run.
         """
+        check_batch_exports_enabled()
         run = self.get_object()
 
         try:

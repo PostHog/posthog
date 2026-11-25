@@ -1,10 +1,12 @@
 import typing
 
+from django.conf import settings
+
 import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -20,6 +22,16 @@ HOGQL_MODIFIERS_HELP_TEXT = (
     "export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object "
     "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
+
+
+def check_batch_exports_enabled() -> None:
+    """Raise if this instance runs no batch exports, so the request would start work that never runs."""
+    if not settings.BATCH_EXPORTS_ENABLED:
+        raise ValidationError(
+            "Batch exports are turned off on this instance. "
+            "To turn them on, set BATCH_EXPORTS_ENABLED=true and restart PostHog.",
+            code="batch_exports_disabled",
+        )
 
 
 def check_hogql_batch_exports_enabled(team: Team) -> None:

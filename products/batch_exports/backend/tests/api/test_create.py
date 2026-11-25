@@ -944,3 +944,16 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
+
+
+def test_create_is_refused_while_batch_exports_are_off(
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data, settings
+):
+    client.force_login(user)
+    settings.BATCH_EXPORTS_ENABLED = False
+
+    response = create_batch_export(client, team.pk, s3_batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["code"] == "batch_exports_disabled"
+    assert not BatchExport.objects.filter(team=team).exists()

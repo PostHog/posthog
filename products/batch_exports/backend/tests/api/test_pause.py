@@ -256,3 +256,18 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
         start_at,
         end_at,
     )
+
+
+def test_unpause_is_refused_while_batch_exports_are_off(
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data, settings
+):
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
+    pause_batch_export_ok(client, team.pk, batch_export["id"])
+    settings.BATCH_EXPORTS_ENABLED = False
+
+    response = unpause_batch_export(client, team.pk, batch_export["id"])
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["code"] == "batch_exports_disabled"
+    assert describe_schedule(temporal, batch_export["id"]).schedule.state.paused is True
