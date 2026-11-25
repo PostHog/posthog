@@ -272,6 +272,29 @@ describe("Agent", () => {
     });
   });
 
+  it.each([
+    ["claude", { claudeModelAccess: "own-subscription" }],
+    ["codex", { codexModelAccess: "own-subscription" }],
+  ] as const)(
+    "skips the gateway credential on a %s subscription",
+    async (adapter, access) => {
+      const getApiKey = vi.fn().mockResolvedValue("phx_personal");
+      const agent = new Agent({
+        posthog: { apiUrl: "https://us.posthog.com", getApiKey, projectId: 1 },
+        skipLogPersistence: true,
+      });
+
+      await agent.run("task-1", "run-1", {
+        adapter,
+        ...access,
+        repositoryPath: "/tmp/repo",
+      });
+
+      expect(createAcpConnectionMock).toHaveBeenCalledTimes(1);
+      expect(getApiKey).not.toHaveBeenCalled();
+    },
+  );
+
   it("refuses a credential the AI gateway rejects instead of sending it", async () => {
     const agent = new Agent({
       posthog: {

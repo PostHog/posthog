@@ -4443,6 +4443,7 @@ describe("AgentServer HTTP Mode", () => {
     it.each(["token", "no_token", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
+        vi.stubEnv("LLM_GATEWAY_URL", undefined);
         const s = createServer({ claudeModelAccess: "own-subscription" });
         const { app } = s as unknown as {
           app: { fetch(request: Request): Promise<Response> | Response };

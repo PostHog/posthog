@@ -117,12 +117,16 @@ export class Agent {
     const claudeSubscription =
       options.adapter === "claude" &&
       options.claudeModelAccess === "own-subscription";
-    const gatewayConfig = claudeSubscription
-      ? null
-      : await this._resolveGatewayConfig(
-          options.gatewayUrl,
-          options.gatewayUrl ? options.gatewayApiKey : undefined,
-        );
+    const codexSubscription =
+      options.adapter === "codex" &&
+      options.codexModelAccess === "own-subscription";
+    const gatewayConfig =
+      claudeSubscription || codexSubscription
+        ? null
+        : await this._resolveGatewayConfig(
+            options.gatewayUrl,
+            options.gatewayUrl ? options.gatewayApiKey : undefined,
+          );
     this.taskRunId = taskRunId;
 
     const needsAttribution = !claudeSubscription && gatewayConfig !== null;
@@ -156,10 +160,6 @@ export class Agent {
             task_runtime_adapter: options.adapter ?? "claude",
             task_execution_environment: "local" as const,
           };
-
-    const codexSubscription =
-      options.adapter === "codex" &&
-      options.codexModelAccess === "own-subscription";
 
     if (options.adapter === "codex" && !codexSubscription && !gatewayConfig) {
       throw new Error(
