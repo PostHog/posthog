@@ -60,6 +60,7 @@ _TIMESTAMP_FIELDS = {
     "ScheduledTime",
     "TransformStartTime",
     "TransformEndTime",
+    "LastRunTime",
 }
 
 
@@ -180,10 +181,37 @@ def parent_names(
     parent: SageMakerParent,
     manager: ResumableSourceManager[AwsSagemakerResumeConfig],
 ) -> list[str]:
+    if parent.parent is None:
+        filters: list[dict[str, Any]] = [{}]
+    else:
+        filters = [{parent.parent.name_field: name} for name in parent_names(client, parent.parent, manager)]
+    names: list[str] = []
+    for extra in filters:
+        try:
+            names.extend(list_parent_page_names(client, parent, manager, extra))
+        except AwsSagemakerError as error:
+            # A parent deleted during the walk has no children left to list.
+            if not extra or error.code != "ResourceNotFound":
+                raise
+    # Sorting here keeps the resume order independent of how AWS collates names.
+    return sorted(set(names))
+
+
+def list_parent_page_names(
+    client: AwsSagemakerClient,
+    parent: SageMakerParent,
+    manager: ResumableSourceManager[AwsSagemakerResumeConfig],
+    filters: dict[str, Any],
+) -> list[str]:
     names: list[str] = []
     token: str | None = None
     while True:
-        payload: dict[str, Any] = {"MaxResults": MAX_RESULTS, "SortBy": "Name", "SortOrder": "Ascending"}
+        payload: dict[str, Any] = {
+            "MaxResults": MAX_RESULTS,
+            "SortBy": parent.sort_by,
+            "SortOrder": "Ascending",
+            **filters,
+        }
         if token:
             payload["NextToken"] = token
         page = client.request(parent.list_operation, payload)
@@ -191,12 +219,10 @@ def parent_names(
         manager.safe_point()
         next_token = page.get("NextToken") or None
         if next_token is None:
-            break
+            return names
         if next_token == token:
             raise ValueError("AWS SageMaker returned a repeated pagination token.")
         token = next_token
-    # Sorting here keeps the resume order independent of how AWS collates names.
-    return sorted(set(names))
 
 
 def list_pages(
@@ -210,12 +236,9 @@ def list_pages(
     following_parent: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     while True:
-        payload: dict[str, Any] = {
-            "MaxResults": MAX_RESULTS,
-            "SortBy": "CreationTime",
-            "SortOrder": "Ascending",
-            **dict(settings.list_filters),
-        }
+        payload: dict[str, Any] = {"MaxResults": MAX_RESULTS, "SortOrder": "Ascending", **dict(settings.list_filters)}
+        if settings.sort_by:
+            payload["SortBy"] = settings.sort_by
         if settings.parent and parent_name:
             payload[settings.parent.name_field] = parent_name
         if watermark is not None and incremental and settings.incremental:
@@ -234,6 +257,10 @@ def list_pages(
             for item in page[settings.result_key]
         ]
         for row in rows:
+            if settings.parent_column and parent_name:
+                row.setdefault(settings.parent_column, parent_name)
+            if settings.shape_row:
+                settings.shape_row(row)
             if any(not row.get(key) for key in settings.primary_keys):
                 raise ValueError("AWS SageMaker returned a resource without its identifier.")
         manager.save_state(
@@ -298,6 +325,21 @@ def get_rows(
         client.close()
 
 
+def first_parent_name(client: AwsSagemakerClient, parent: SageMakerParent) -> str | None:
+    filters: dict[str, Any] = {}
+    if parent.parent:
+        grandparent_name = first_parent_name(client, parent.parent)
+        if grandparent_name is None:
+            return None
+        filters[parent.parent.name_field] = grandparent_name
+    parents = client.request(parent.list_operation, {"MaxResults": 1, **filters})[parent.result_key]
+    return parents[0][parent.name_field] if parents else None
+
+
+def parent_operations(parent: SageMakerParent | None) -> list[str]:
+    return [*parent_operations(parent.parent), parent.list_operation] if parent else []
+
+
 def validate_credentials(
     config: AwsSagemakerSourceConfig, schema_name: str | None, api_version: str
 ) -> tuple[bool, str | None]:
@@ -311,10 +353,10 @@ def validate_credentials(
     try:
         filters = dict(settings.list_filters)
         if settings.parent:
-            parents = client.request(settings.parent.list_operation, {"MaxResults": 1})[settings.parent.result_key]
-            if not parents:
+            parent_name = first_parent_name(client, settings.parent)
+            if parent_name is None:
                 return True, None
-            filters[settings.parent.name_field] = parents[0][settings.parent.name_field]
+            filters[settings.parent.name_field] = parent_name
         page = client.request(settings.list_operation, {"MaxResults": 1, **filters})
         if schema_name and settings.describe_operation and page.get(settings.result_key):
             client.request(settings.describe_operation, settings.describe_payload(page[settings.result_key][0]))
@@ -323,7 +365,7 @@ def validate_credentials(
             if schema_name is None:
                 return True, None
             operations = [
-                settings.parent.list_operation if settings.parent else None,
+                *parent_operations(settings.parent),
                 settings.list_operation,
                 settings.describe_operation,
             ]
@@ -356,7 +398,7 @@ def aws_sagemaker_source(
         name=endpoint,
         items=lambda: get_rows(config, endpoint, api_version, manager, incremental, last_value),
         primary_keys=list(settings.primary_keys),
-        partition_keys=["creation_time"],
+        partition_keys=[settings.partition_key],
         partition_mode="datetime",
         partition_format="month",
         sort_mode="asc" if settings.incremental else None,

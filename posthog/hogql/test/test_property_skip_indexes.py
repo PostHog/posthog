@@ -648,8 +648,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # Sentinel-aware IN path bails when ``''`` / ``'null'`` is in the value set (non-nullable mat cols store both as sentinels), so the bloom filter doesn't fire.
             ("in_with_sentinel", PropertyOperator.IN_, ["5", ""], False),
-            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them). Non-numeric bound: numeric text coerces and skips the rewrite.
-            ("lt", PropertyOperator.LT, "mango", True),
+            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``. A bloom filter cannot exclude a granule for ``notEquals``, because it only answers "the value may be present", so only minmax on ``less`` prunes. Non-numeric bound: numeric text coerces and skips the rewrite.
+            ("lt", PropertyOperator.LT, "mango", False),
         ]
     )
     def test_mat_col_non_nullable_bloom_filter(

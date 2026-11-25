@@ -23,9 +23,17 @@ from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
 from pymongo import ASCENDING, DESCENDING, MongoClient, pool_shared
 from pymongo.collection import Collection
+from pymongo.common import validate
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import (
+    ConfigurationError,
+    CursorNotFound,
+    ExecutionTimeout,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 from pymongo.monitoring import (
     ServerHeartbeatFailedEvent,
     ServerHeartbeatListener,
@@ -35,7 +43,7 @@ from pymongo.monitoring import (
 from pymongo.pool_options import PoolOptions
 from pymongo.server_description import ServerDescription
 from pymongo.uri_parser import parse_uri
-from pymongo.uri_parser_shared import _validate_uri, split_options
+from pymongo.uri_parser_shared import _validate_uri
 from structlog.types import FilteringBoundLogger
 
 from posthog.cloud_utils import is_cloud
@@ -440,29 +448,6 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
-def _options(connection_string: str) -> list[str]:
-    return re.split(r"[&;]", connection_string.partition("?")[2])
-
-
-def _option_key(option: str) -> str:
-    return option.partition("=")[0].lower()
-
-
-def connection_timeouts(connection_string: str) -> dict[str, int]:
-    """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
-    option_keys = {_option_key(option) for option in _options(connection_string)}
-    return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
-
-
-# pymongo opens these paths on our host while it parses the string, so a path from the customer's
-# machine never works there. The CA bundle always comes from the `tlsCAFile` keyword, so that option
-# is dropped (AWS's DocumentDB string names `global-bundle.pem`). A revocation list or a client
-# certificate has no replacement, so the client refuses those rather than connect without them.
-_CA_FILE_OPTION = "tlscafile"
-_UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
-UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
-
-
 # Only mechanisms that sign in with the username and password in the string are allowed. The
 # other mechanisms (MONGODB-OIDC, MONGODB-AWS, MONGODB-X509, GSSAPI) get their credential from the
 # host that runs the client, which is our pod and not the customer's machine, and send it to the
@@ -471,6 +456,55 @@ _PASSWORD_AUTH_MECHANISMS = frozenset({"DEFAULT", "SCRAM-SHA-1", "SCRAM-SHA-256"
 _AUTH_MECHANISM_OPTION = "authmechanism"
 _AUTH_MECHANISM_PROPERTIES_OPTION = "authmechanismproperties"
 UNSUPPORTED_AUTH_OPTION_ERROR = "Connection string sets an authentication mechanism PostHog does not support"
+
+# pymongo opens these paths on our host, so a path from the customer's machine never works there.
+# A revocation list or a client certificate has no replacement, so the client refuses those rather
+# than connect without them. `tlsCAFile` is not on the allowlist below, because the CA bundle
+# always comes from the `tlsCAFile` keyword (AWS's DocumentDB string names `global-bundle.pem`).
+_UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
+UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
+
+# The connection string options that reach `MongoClient`, as keyword arguments. The client always
+# gets the string without its options, so any other option has no effect: the ones a customer's
+# string usually carries (retryWrites, w, maxPoolSize) tune writes and the connection pool, which a
+# read-only import does not use. `tls` and `ssl` are not here because the client always uses TLS.
+# The three `tlsAllow*`/`tlsInsecure` options stay, because a DocumentDB cluster behind a load
+# balancer and a self-signed cluster cannot connect without them. They weaken only the connection
+# to the source owner's own server, which the owner chose.
+_ALLOWED_CLIENT_OPTIONS = {
+    name.lower(): name
+    for name in (
+        "replicaSet",
+        "directConnection",
+        "loadBalanced",
+        "readPreference",
+        "readPreferenceTags",
+        "maxStalenessSeconds",
+        "readConcernLevel",
+        "srvServiceName",
+        "srvMaxHosts",
+        "compressors",
+        "zlibCompressionLevel",
+        "authSource",
+        "authMechanism",
+        "appName",
+        "tlsAllowInvalidHostnames",
+        "tlsAllowInvalidCertificates",
+        "tlsInsecure",
+        "connectTimeoutMS",
+        "socketTimeoutMS",
+        "timeoutMS",
+    )
+}
+# Each occurrence adds a tag set. pymongo decodes the tags itself, so the value stays encoded.
+_READ_PREFERENCE_TAGS_OPTION = "readpreferencetags"
+# pymongo gives this keyword to the SRV resolver before it validates keywords, and the resolver
+# compares it with a host count, so it must already be an int.
+_SRV_MAX_HOSTS_OPTION = "srvmaxhosts"
+# pymongo refuses this option for a `mongodb+srv` string only when the string carries it. As a
+# keyword it makes a Single topology, for which pymongo never calls `_make_safe_server_selector`.
+_DIRECT_CONNECTION_OPTION = "directconnection"
+_SRV_SCHEME = "mongodb+srv://"
 
 
 class UnsupportedConnectionOptionError(ValueError):
@@ -481,53 +515,41 @@ class UnsupportedAuthOptionError(UnsupportedConnectionOptionError):
     pass
 
 
-def _option_tokens(connection_string: str) -> list[str]:
-    # pymongo splits a query that has no `&` or `;` on whitespace instead, so an option can sit
-    # after a space inside what `_options` returns as one option.
-    return re.split(r"[&;\s]", connection_string.partition("?")[2])
-
-
-def _sets_unsupported_auth_option(connection_string: str) -> bool:
-    # URI option names are case-insensitive and pymongo percent-decodes the values, so compare
-    # the decoded forms. A duplicated option counts on every occurrence, not only the one that wins.
-    for option in _option_tokens(connection_string):
+def _client_arguments(connection_string: str) -> tuple[str, dict[str, Any]]:
+    """The string without its options, and the allowed options as keyword arguments. Raises when
+    the string names a file that has no replacement, an authentication mechanism other than a
+    username and password, or `directConnection=true` on a `mongodb+srv` string."""
+    # pymongo reads everything after the first `?` as options, so the address it gets has none.
+    address, _, query = connection_string.partition("?")
+    options: dict[str, Any] = {}
+    for option in re.split(r"[&;]", query) if query else []:
         key, _, value = option.partition("=")
-        key = unquote_plus(key).lower()
-        if key == _AUTH_MECHANISM_PROPERTIES_OPTION:
-            return True
-        if key == _AUTH_MECHANISM_OPTION and unquote_plus(value).upper() not in _PASSWORD_AUTH_MECHANISMS:
-            return True
-    # Check again with the parser `MongoClient` uses, so that a difference between the loop above
-    # and pymongo cannot let a mechanism through. The DNS TXT record of a mongodb+srv host cannot
-    # add either option, because pymongo accepts only authSource, replicaSet and loadBalanced there.
-    query = connection_string.partition("?")[2]
-    if not query:
-        return False
-    parsed = split_options(query, validate=False, warn=False, normalize=True)
-    if _AUTH_MECHANISM_PROPERTIES_OPTION in parsed:
-        return True
-    mechanism = parsed.get(_AUTH_MECHANISM_OPTION)
-    return mechanism is not None and str(mechanism).upper() not in _PASSWORD_AUTH_MECHANISMS
-
-
-def _checked_connection_string(connection_string: str) -> str:
-    """The string without `tlsCAFile`. Raises when it names a file that has no replacement, or an
-    authentication mechanism other than a username and password."""
-    options = _options(connection_string)
-    kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
-    if len(kept) == len(options):
-        checked = connection_string
-    else:
-        base = connection_string.partition("?")[0]
-        checked = f"{base}?{'&'.join(kept)}" if kept else base
-    # Check the string `MongoClient` receives, not the input. Removing `tlsCAFile` can leave one
-    # option, which pymongo then splits on whitespace into several. A `tlsCAFile` still present was
-    # hidden behind whitespace, so the strip missed it and pymongo would open that path.
-    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS | {_CA_FILE_OPTION} for option in _option_tokens(checked)):
-        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
-    if _sets_unsupported_auth_option(checked):
-        raise UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR)
-    return checked
+        key = key.lower()
+        if key in _UNSUPPORTED_FILE_OPTIONS:
+            raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
+        # A repeated option is checked on every occurrence, not only on the one that is kept.
+        if key == _AUTH_MECHANISM_PROPERTIES_OPTION or (
+            key == _AUTH_MECHANISM_OPTION and unquote_plus(value).upper() not in _PASSWORD_AUTH_MECHANISMS
+        ):
+            raise UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR)
+        name = _ALLOWED_CLIENT_OPTIONS.get(key)
+        if name is None:
+            continue
+        raw = value if key == _READ_PREFERENCE_TAGS_OPTION else unquote_plus(value)
+        # pymongo drops an option with an invalid value from the string and the client still opens,
+        # but it raises for the same value as a keyword. The validated value is not passed on,
+        # because pymongo validates keywords again and a timeout comes back in seconds, not ms.
+        try:
+            _, validated = validate(name, [raw] if key == _READ_PREFERENCE_TAGS_OPTION else raw)
+        except (ValueError, TypeError, ConfigurationError):
+            continue
+        if key == _DIRECT_CONNECTION_OPTION and validated and address.startswith(_SRV_SCHEME):
+            raise ConfigurationError(f"Cannot specify directConnection=true with {_SRV_SCHEME} URIs")
+        if key == _READ_PREFERENCE_TAGS_OPTION:
+            options.setdefault(name, []).append(raw)
+        else:
+            options[name] = validated if key == _SRV_MAX_HOSTS_OPTION else raw
+    return address, options
 
 
 def _check_single_seed(seeds: Sequence[tuple[str, Any]], team_id: int) -> None:
@@ -557,15 +579,17 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
     certificate a private CA signs (AWS DocumentDB)."""
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
     log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
+    address, options = _client_arguments(connection_string)
     kwargs: dict[str, Any] = {
         "serverSelectionTimeoutMS": SERVER_SELECTION_TIMEOUT_MS,
-        **connection_timeouts(connection_string),
+        **_CONNECTION_TIMEOUT_DEFAULTS,
+        **options,
         "tls": True,
         "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
         "event_listeners": [_OutboundHostPolicy(team_id)],
-        # `connect=false` in the string would defer the SRV lookup to the first operation, and
-        # `_check_single_seed` would then check the SRV name instead of the hosts it resolves to.
+        # With `connect` false (pymongo's default on a FaaS host) the SRV lookup waits for the first
+        # operation, and `_check_single_seed` would then check the SRV name instead of its hosts.
         "connect": True,
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
@@ -585,16 +609,21 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # substitutes U+FFFD for the bad bytes so the batch still decodes.
         "unicode_decode_error_handler": "replace",
     }
-    checked_connection_string = _checked_connection_string(connection_string)
-    if checked_connection_string.startswith("mongodb+srv://"):
+    if address.startswith("mongodb+srv://"):
         # pymongo's own parser, which makes no DNS lookup, gives the exact name it will resolve. A
         # generic URL parser reads some strings differently, such as a `#` in the password.
-        srv_name = _validate_uri(checked_connection_string, validate=False, warn=True, normalize=False)["fqdn"]
+        srv_name = _validate_uri(address, validate=False, warn=True, normalize=False)["fqdn"]
         _refuse_oob_domain(srv_name or "", team_id)
     # The client's monitor dials the seed as soon as the client opens, so check before it exists.
     # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
-    _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)
-    client: MongoClient = MongoClient(checked_connection_string, **kwargs)
+    seeds = parse_uri(
+        address,
+        warn=True,
+        srv_service_name=options.get("srvServiceName"),
+        srv_max_hosts=options.get("srvMaxHosts"),
+    )["nodelist"]
+    _check_single_seed(seeds, team_id)
+    client: MongoClient = MongoClient(address, **kwargs)
     try:
         # The client makes its own SRV lookup, which can answer with other hosts than the one above.
         _check_single_seed(list(client.topology_description.server_descriptions()), team_id)

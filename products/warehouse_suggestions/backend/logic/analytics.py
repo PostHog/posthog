@@ -11,6 +11,7 @@ from posthog.event_usage import report_user_or_team_action
 
 from ..facade.enums import WarehouseSuggestionKind
 from ..models import WarehouseSuggestion
+from .suggestions import deprecate_choice
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -87,6 +88,7 @@ def _properties(suggestion: WarehouseSuggestion, now: datetime, *, is_system: bo
         else None,
         "is_system": is_system,
         "has_assignee": suggestion.assignee_id is not None,
+        "deprecate_choice": deprecate_choice(suggestion.kind, suggestion.created_asset),
     }
 
 

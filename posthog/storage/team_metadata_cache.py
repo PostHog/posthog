@@ -66,7 +66,10 @@ from posthog.storage.hypercache_manager import (
 )
 
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    REQUEST_LIST_FIELDS,
+    TeamFeatureFlagPolicyConfig,
+)
 from products.feature_flags.backend.models.team_feature_flags_config import (
     CACHED_SETTING_DEFAULTS,
     TeamFeatureFlagsConfig,
@@ -159,21 +162,25 @@ def _serialize_team_field(field: str, value: Any) -> Any:
 MISSING_KEY_DEFAULTS: dict[str, Any] = {
     "flags_blocked_hosts": [],
     "flags_blocked_ips": [],
+    "flags_allowed_hosts": [],
+    "flags_allowed_ips": [],
     "realtime_cohort_level": RealtimeCohortLevel.OFF.value,
     **CACHED_SETTING_DEFAULTS,
 }
 
 
-def _load_request_blocklists(team_ids: list[int]) -> dict[int, dict[str, list[str]]]:
-    """Map each team id to its request blocklist cache fields, with empty lists when it has no policy row."""
-    blocklists: dict[int, dict[str, list[str]]] = {
-        team_id: {"flags_blocked_hosts": [], "flags_blocked_ips": []} for team_id in team_ids
+def _load_request_lists(team_ids: list[int]) -> dict[int, dict[str, list[str]]]:
+    """Map each team id to its request list cache fields, with empty lists when it has no policy row."""
+    request_lists: dict[int, dict[str, list[str]]] = {
+        team_id: {f"flags_{field}": [] for field in REQUEST_LIST_FIELDS} for team_id in team_ids
     }
-    for team_id, blocked_hosts, blocked_ips in TeamFeatureFlagPolicyConfig.objects.filter(
-        team_id__in=team_ids
-    ).values_list("team_id", "blocked_hosts", "blocked_ips"):
-        blocklists[team_id] = {"flags_blocked_hosts": blocked_hosts, "flags_blocked_ips": blocked_ips}
-    return blocklists
+    for team_id, *values in TeamFeatureFlagPolicyConfig.objects.filter(team_id__in=team_ids).values_list(
+        "team_id", *REQUEST_LIST_FIELDS
+    ):
+        request_lists[team_id] = {
+            f"flags_{field}": value for field, value in zip(REQUEST_LIST_FIELDS, values, strict=True)
+        }
+    return request_lists
 
 
 def _load_cached_flag_settings(team_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -206,7 +213,7 @@ def _load_realtime_cohort_levels(team_ids: list[int]) -> dict[int, str]:
 def _serialize_team_to_metadata(
     team: Team,
     flag_settings: dict[str, Any] | None = None,
-    request_blocklist: dict[str, list[str]] | None = None,
+    request_lists: dict[str, list[str]] | None = None,
     realtime_cohort_level: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -216,7 +223,7 @@ def _serialize_team_to_metadata(
         team: Team object with organization and project already loaded
         flag_settings: Pre-fetched entry from _load_cached_flag_settings, to let batch callers
             avoid an N+1 query. If None, this looks it up itself.
-        request_blocklist: Pre-fetched entry from _load_request_blocklists. If None, this
+        request_lists: Pre-fetched entry from _load_request_lists. If None, this
             looks it up itself.
         realtime_cohort_level: Pre-fetched entry from _load_realtime_cohort_levels. If None,
             this looks it up itself.
@@ -236,9 +243,9 @@ def _serialize_team_to_metadata(
         flag_settings = _load_cached_flag_settings([team.id])[team.id]
     metadata.update(flag_settings)
 
-    if request_blocklist is None:
-        request_blocklist = _load_request_blocklists([team.id])[team.id]
-    metadata.update(request_blocklist)
+    if request_lists is None:
+        request_lists = _load_request_lists([team.id])[team.id]
+    metadata.update(request_lists)
 
     if realtime_cohort_level is None:
         realtime_cohort_level = _load_realtime_cohort_levels([team.id])[team.id]
@@ -262,13 +269,13 @@ def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
         Dict mapping team_id -> metadata dict
     """
     flag_settings_by_team_id = _load_cached_flag_settings([team.id for team in teams])
-    blocklist_by_team_id = _load_request_blocklists([team.id for team in teams])
+    request_lists_by_team_id = _load_request_lists([team.id for team in teams])
     level_by_team_id = _load_realtime_cohort_levels([team.id for team in teams])
     return {
         team.id: _serialize_team_to_metadata(
             team,
             flag_settings=flag_settings_by_team_id[team.id],
-            request_blocklist=blocklist_by_team_id[team.id],
+            request_lists=request_lists_by_team_id[team.id],
             realtime_cohort_level=level_by_team_id[team.id],
         )
         for team in teams

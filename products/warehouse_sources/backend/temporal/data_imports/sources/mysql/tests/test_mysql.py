@@ -18,6 +18,10 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
@@ -3213,6 +3217,16 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error != raw
         assert error == source.get_non_retryable_errors()[raw]
+
+    def test_ssh_gateway_closed_before_banner_is_mapped_not_leaked(self, source, mocker):
+        # Its message matches no non-retryable pattern, so the loop below would fall through to the
+        # generic SSH tunnel text without the type check.
+        mocker.patch.object(source, "get_schemas", side_effect=SSHGatewayClosedBeforeBannerError())
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
 
     def test_ssh_forward_failed_error_is_mapped_not_leaked(self, source, mocker):
         # `_SSH_FORWARD_FAILED_ERROR` is kept out of `get_non_retryable_errors` (it stays
