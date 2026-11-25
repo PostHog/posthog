@@ -17,18 +17,22 @@ from products.warehouse_sources.backend.facade.contracts import (
     UploadReadSettings,
 )
 from products.warehouse_sources.backend.file_uploads import (
+    InvalidUploadError,
+    UploadLocation,
     is_safe_upload_filename,
     parse_hosted_upload,
     sanitize_upload_filename,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
+    delete_upload_if_unused as _delete_upload_if_unused,
     upload_in_use as _upload_in_use,
 )
 
 __all__ = [
     "can_replace_file",
     "create_file_upload_source",
+    "discard_unused_upload",
     "has_file_upload_source",
     "hosted_upload_in_use",
     "is_safe_upload_filename",
@@ -93,3 +97,12 @@ def hosted_upload_in_use(team_id: int, url_pattern: str, exclude_table_id: UUID)
     """Whether a file upload source, or another table, still reads the team's uploaded file at `url_pattern`."""
     hosted = parse_hosted_upload(team_id, url_pattern)
     return hosted is not None and _upload_in_use(hosted, exclude_table_id=str(exclude_table_id))
+
+
+def discard_unused_upload(team_id: int, upload: UploadedFileRef) -> None:
+    """Best-effort delete of an upload that no source or table reads, such as one a refused save stored."""
+    try:
+        location = UploadLocation(team_id=team_id, upload_id=upload.upload_id, filename=upload.filename)
+    except InvalidUploadError:
+        return
+    _delete_upload_if_unused(location)
