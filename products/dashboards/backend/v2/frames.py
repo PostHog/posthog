@@ -13,6 +13,7 @@ import json
 import hashlib
 import datetime as dt
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -20,7 +21,7 @@ import orjson
 from pydantic import ValidationError
 from rest_framework.utils.encoders import JSONEncoder
 
-from posthog.schema import ChartDisplayType, TrendsQuery
+from posthog.schema import ChartDisplayType, MetricsQuery, TrendsQuery
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
@@ -29,6 +30,7 @@ from posthog.hogql_queries.utils.result_series import get_series_key
 
 from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameFieldType, FrameMeta
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
+from products.metrics.backend.facade.api import metrics_query_interval
 
 # Trends displays that draw one value per interval. The others show one number per series.
 _TIME_SERIES_DISPLAYS = {
@@ -41,7 +43,7 @@ _TIME_SERIES_DISPLAYS = {
     ChartDisplayType.ACTIONS_UNSTACKED_BAR,
 }
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
-_LEGEND_LABEL = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
+_LEGEND_LABEL = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 _TIME_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
@@ -100,7 +102,7 @@ def _frames(
     if kind == "HogQLQuery":
         return hogql_frames(result, pivot=not as_table)
     if kind == "MetricsQuery":
-        return metrics_frames(result)
+        return metrics_frames(source, result)
     if kind == "TrendsQuery":
         try:
             return trends_frames(TrendsQuery.model_validate(source), result)
@@ -206,9 +208,7 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
                 name=f"{name} (previous)" if is_previous else name,
                 labels=_trends_series_labels(series, index),
                 fields=[
-                    FrameField(
-                        name="time", type="time", values=[_wall_clock_ms(day, timezone) for day in series["days"]]
-                    ),
+                    FrameField(name="time", type="time", values=_wall_clock_ms(series["days"], timezone)),
                     FrameField(name="value", type="number", values=list(series["data"])),
                 ],
                 meta=previous if is_previous else current,
@@ -267,12 +267,20 @@ def _readable_breakdown(label: str) -> str:
 # Metrics (builder, SQL and PromQL), ported from PR #138426.
 
 
-def metrics_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
+def metrics_frames(query: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
     series_list = result.get("results")
     if not isinstance(series_list, list):
         return None
-    # The runner can coarsen the query's interval and the response does not say to what, so no interval is given.
     meta = _meta(result.get("resolved_date_range"), None, previous=False)
+    if meta.date_from and meta.date_to:
+        # The runner coarsens an interval that would give too many buckets, so the frame names the one it ran.
+        try:
+            interval = metrics_query_interval(
+                query=MetricsQuery.model_validate(query), date_from=meta.date_from, date_to=meta.date_to
+            )
+        except (ValidationError, ValueError):
+            interval = None
+        meta = replace(meta, interval=interval)
     # Same naming as the metrics chart (metricsSeries.ts formatSeriesNames).
     several_clauses = len({series.get("clause") for series in series_list if series.get("clause")}) > 1
     frames: list[Frame] = []
@@ -362,13 +370,14 @@ def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Optional[Frame]:
         if label_bytes > MAX_STREAM_LABEL_BYTES:
             return None
         for nanoseconds, line in values:
-            rows.append((int(nanoseconds) // 1_000_000, str(line), labels))
+            rows.append((int(nanoseconds), str(line), labels))
+    # Sorted on nanoseconds, so two lines in the same millisecond keep their order.
     rows.sort(key=lambda row: row[0], reverse=True)
     return Frame(
         name=None,
         labels={},
         fields=[
-            FrameField(name="time", type="time", values=[row[0] for row in rows]),
+            FrameField(name="time", type="time", values=[row[0] // 1_000_000 for row in rows]),
             FrameField(name="line", type="string", values=[row[1] for row in rows]),
             FrameField(name="labels", type="string", values=[row[2] for row in rows]),
         ],
@@ -435,15 +444,19 @@ def pivot_long(frame: Frame) -> list[Frame]:
     [time] = times
     groups: dict[tuple[Optional[str], ...], list[int]] = {}
     label_names = [field.name for field in strings]
+    # Every series repeats the time and number column names too.
+    repeated_names = sum(len(field.name.encode()) for field in (time, *numbers))
     label_bytes = 0
     for row in range(len(time.values)):
         key = tuple(None if field.values[row] is None else str(field.values[row]) for field in strings)
         if key not in groups:
             if len(groups) >= MAX_PIVOT_SERIES or (len(groups) + 1) * (len(numbers) + 1) > MAX_PIVOT_FIELDS:
                 return [frame]
-            label_bytes += sum(
-                len(name.encode()) + len((value or _NO_LABEL).encode()) for name, value in zip(label_names, key)
-            ) * (len(numbers) + 1)
+            label_bytes += (
+                sum(len(name.encode()) + len((value or _NO_LABEL).encode()) for name, value in zip(label_names, key))
+                * (len(numbers) + 1)
+                + repeated_names
+            )
             if label_bytes > MAX_PIVOT_LABEL_BYTES:
                 return [frame]
             groups[key] = []
@@ -518,13 +531,19 @@ def _is_tag(value: Any) -> bool:
     return isinstance(value, list | tuple) and bool(value) and value[0] == "__hx_tag"
 
 
+def _tag_attribute(value: Sequence[Any], key: str) -> tuple[bool, Any]:
+    # After the marker and the tag name come key/value pairs, so a value that reads "href" is never taken for a key.
+    for position in range(2, len(value) - 1, 2):
+        if value[position] == key:
+            return True, value[position + 1]
+    return False, None
+
+
 def _tag_text(value: Any) -> Optional[str]:
     if not _is_tag(value):
         return None
-    if "children" not in value:
-        return ""
-    position = value.index("children") + 1
-    return _children_text(value[position] if position < len(value) else None)
+    found, children = _tag_attribute(value, "children")
+    return _children_text(children) if found else ""
 
 
 def _children_text(children: Any) -> str:
@@ -538,9 +557,9 @@ def _children_text(children: Any) -> str:
 
 
 def _tag_href(value: Any) -> Optional[str]:
-    if _is_tag(value) and len(value) > 1 and value[1] == "a" and "href" in value:
-        position = value.index("href") + 1
-        return str(value[position]) if position < len(value) else None
+    if _is_tag(value) and len(value) > 1 and value[1] == "a":
+        found, href = _tag_attribute(value, "href")
+        return str(href) if found else None
     return None
 
 
@@ -571,9 +590,17 @@ def _datetime(value: dt.datetime | str) -> dt.datetime:
     return value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(value)
 
 
-def _wall_clock_ms(day: str, timezone: ZoneInfo) -> int:
-    # Trends buckets are wall-clock times in the project's timezone, without an offset.
-    return _epoch_ms(dt.datetime.fromisoformat(day).replace(tzinfo=timezone))
+def _wall_clock_ms(days: Sequence[str], timezone: ZoneInfo) -> list[int]:
+    # Trends buckets are wall-clock times in the project's timezone, without an offset. When the clocks go back, the
+    # repeated hour comes round a second time, so a time earlier than one already seen is the later of the two.
+    times: list[int] = []
+    latest: Optional[dt.datetime] = None
+    for day in days:
+        wall_clock = dt.datetime.fromisoformat(day)
+        repeated = latest is not None and wall_clock <= latest
+        times.append(_epoch_ms(wall_clock.replace(tzinfo=timezone, fold=1 if repeated else 0)))
+        latest = wall_clock if latest is None or wall_clock > latest else latest
+    return times
 
 
 def _epoch_ms(value: dt.datetime) -> int:
