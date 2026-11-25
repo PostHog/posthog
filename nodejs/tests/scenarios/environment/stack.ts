@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync, readFileSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import { parse, stringify } from 'yaml'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
@@ -211,7 +212,7 @@ export async function existingServices(
 }
 
 // A kept container that stops after the check above is started again by compose as it is, with the mounts of the
-// worktree that made it. Its start time shows that.
+// worktree that made it. Its start time shows that. A one-shot job, restart policy "no", runs again by design.
 export async function startTimes(
     docker: string,
     containers: string[],
@@ -220,18 +221,30 @@ export async function startTimes(
     if (containers.length === 0) {
         return new Map()
     }
-    const { stdout } = await promisify(execFile)(
-        docker,
-        [
-            'inspect',
-            '--format',
-            '{{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.StartedAt}}',
-            ...containers,
-        ],
-        { timeout: 10_000, signal }
+    const format =
+        '{{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.StartedAt}}'
+    // docker inspect prints the containers it finds and exits 1 when one of them is gone.
+    const stdout = await promisify(execFile)(docker, ['inspect', '--format', format, ...containers], {
+        timeout: 10_000,
+        signal,
+    }).then(
+        (result) => result.stdout,
+        (error: Error & { code?: unknown; stdout?: string }) => {
+            if (error.code !== 1 || signal?.aborted) {
+                throw error
+            }
+            return error.stdout ?? ''
+        }
     )
-    const lines = stdout.split('\n').filter((line) => line !== '')
+    const lines = stdout.split('\n').filter((line) => line !== '' && line.split(' ')[2] !== 'no')
     return new Map(lines.map((line) => [line.split(' ')[0], line]))
+}
+
+function startedAgain(project: string, lines: string[]): StackNotReadyError {
+    const services = [...new Set(lines.map((line) => line.split(' ')[1]))].sort()
+    return new StackNotReadyError(
+        `The dev services ${services.join(', ')} started again while the runner started the stack, so they may run with the mounts of the worktree that made them. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, then run again.`
+    )
 }
 
 export async function startStack(
@@ -244,6 +257,21 @@ export async function startStack(
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
+    // The stack stays up after the refusal below, so the next run refuses while those containers exist.
+    const flagged = path.join(stateDir, 'started-again.json')
+    if (existsSync(flagged)) {
+        const { project, lines } = parseJSON(readFileSync(flagged, 'utf8')) as { project: string; lines: string[] }
+        const now = await startTimes(
+            docker,
+            lines.map((line) => line.split(' ')[0]),
+            signal
+        )
+        const remaining = lines.filter((line) => now.has(line.split(' ')[0]))
+        if (remaining.length > 0) {
+            throw startedAgain(project, remaining)
+        }
+        rmSync(flagged)
+    }
     const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
@@ -275,12 +303,14 @@ export async function startStack(
     const started = await startTimes(docker, containers, signal)
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
-    const now = await startTimes(docker, containers, signal).catch(() => new Map<string, string>())
-    const restarted = [...started].filter(([id, line]) => now.get(id) !== line).map(([, line]) => line.split(' ')[1])
-    if (restarted.length > 0) {
-        throw new StackNotReadyError(
-            `The dev services ${[...new Set(restarted)].sort().join(', ')} started again while the runner started the stack, so they may run with the mounts of the worktree that made them. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, then run again.`
-        )
+    const now = await startTimes(docker, [...started.keys()], signal)
+    const again = [...started].flatMap(([id, line]) => {
+        const current = now.get(id)
+        return current !== undefined && current !== line ? [current] : []
+    })
+    if (again.length > 0) {
+        writeFileSync(flagged, JSON.stringify({ project, lines: again }))
+        throw startedAgain(project, again)
     }
 }
 
