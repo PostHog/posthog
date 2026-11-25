@@ -88,6 +88,8 @@ class CustomerIOImportProvider(ImportProvider):
     next_steps = (
         "Upload the opt-out preferences CSV, so people who left a single topic stay out of it.",
         "Import your automations from the Workflows page. They arrive as drafts.",
+        "Delete people in PostHog yourself if you deleted them in Customer.io and they shouldn't get email. The import "
+        "doesn't opt them out.",
         "Add your sending domain in PostHog and publish its DNS records.",
         "Run the import and upload a fresh CSV right before you stop sending from Customer.io, so late unsubscribes "
         "come over.",
