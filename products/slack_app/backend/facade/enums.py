@@ -15,11 +15,14 @@ class SlackReactionKind(LabeledStrEnum):
 
 
 class SlackUntaggedMode(LabeledStrEnum):
-    """What PostHog does with a message that does not tag it. The values match the stored mode."""
+    """What PostHog does with a message that does not tag it. The values match ``UntaggedFollowupMode``.
 
-    AUTO = "auto", "Always pick it up"
-    ASK = "ask", "Ask before picking it up"
-    NEVER = "never", "Never pick it up"
+    The labels differ from that model enum on purpose: drf-spectacular cannot tell apart two classes with
+    the same values and labels, and then names neither in the OpenAPI schema."""
+
+    AUTO = "auto", "Answer automatically"
+    ASK = "ask", "Ask first"
+    NEVER = "never", "Never answer"
 
 
 class SlackSetupEntry(LabeledStrEnum):

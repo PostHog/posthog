@@ -86,13 +86,13 @@ export interface SlackAppSettingsApi {
 }
 
 /**
- * * `auto` - Always pick it up
- * * `ask` - Ask before picking it up
- * * `never` - Never pick it up
+ * * `auto` - Answer automatically
+ * * `ask` - Ask first
+ * * `never` - Never answer
  */
-export type UntaggedQuestionModeEnumApi = (typeof UntaggedQuestionModeEnumApi)[keyof typeof UntaggedQuestionModeEnumApi]
+export type SlackUntaggedModeEnumApi = (typeof SlackUntaggedModeEnumApi)[keyof typeof SlackUntaggedModeEnumApi]
 
-export const UntaggedQuestionModeEnumApi = {
+export const SlackUntaggedModeEnumApi = {
     Auto: 'auto',
     Ask: 'ask',
     Never: 'never',
@@ -113,10 +113,10 @@ export interface SlackAppChannelSettingsApi {
     default_repository: string | null
     /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
      *
-     * * `auto` - Always pick it up
-     * * `ask` - Ask before picking it up
-     * * `never` - Never pick it up */
-    untagged_question_mode: UntaggedQuestionModeEnumApi | null
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_question_mode: SlackUntaggedModeEnumApi | null
     /**
      * Name of the person who last changed this channel's settings.
      * @nullable
@@ -148,10 +148,10 @@ export interface SlackAppChannelSettingsUpdateApi {
     default_repository: string | null
     /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
      *
-     * * `auto` - Always pick it up
-     * * `ask` - Ask before picking it up
-     * * `never` - Never pick it up */
-    untagged_question_mode: UntaggedQuestionModeEnumApi | null
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer */
+    untagged_question_mode: SlackUntaggedModeEnumApi | null
 }
 
 export interface PatchedSlackAppPersonalSettingsUpdateApi {

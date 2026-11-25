@@ -121949,14 +121949,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `auto` - Always pick it up
-     * * `ask` - Ask before picking it up
-     * * `never` - Never pick it up
+     * * `auto` - Answer automatically
+     * * `ask` - Ask first
+     * * `never` - Never answer
      */
-    export type UntaggedQuestionModeEnum = typeof UntaggedQuestionModeEnum[keyof typeof UntaggedQuestionModeEnum];
+    export type SlackUntaggedModeEnum = typeof SlackUntaggedModeEnum[keyof typeof SlackUntaggedModeEnum];
 
 
-    export const UntaggedQuestionModeEnum = {
+    export const SlackUntaggedModeEnum = {
       Auto: 'auto',
       Ask: 'ask',
       Never: 'never',
@@ -121977,10 +121977,10 @@ export namespace Schemas {
       default_repository: string | null;
       /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
        *
-       * * `auto` - Always pick it up
-       * * `ask` - Ask before picking it up
-       * * `never` - Never pick it up */
-      untagged_question_mode: UntaggedQuestionModeEnum | null;
+       * * `auto` - Answer automatically
+       * * `ask` - Ask first
+       * * `never` - Never answer */
+      untagged_question_mode: SlackUntaggedModeEnum | null;
       /**
          * Name of the person who last changed this channel's settings.
          * @nullable
@@ -122012,10 +122012,10 @@ export namespace Schemas {
       default_repository: string | null;
       /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
        *
-       * * `auto` - Always pick it up
-       * * `ask` - Ask before picking it up
-       * * `never` - Never pick it up */
-      untagged_question_mode: UntaggedQuestionModeEnum | null;
+       * * `auto` - Answer automatically
+       * * `ask` - Ask first
+       * * `never` - Never answer */
+      untagged_question_mode: SlackUntaggedModeEnum | null;
     }
 
     export interface SlackAppDefaultProject {

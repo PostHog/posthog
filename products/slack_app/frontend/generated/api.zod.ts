@@ -28,13 +28,11 @@ export const SlackAppSettingsChannelsUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['auto', 'ask', 'never'])
-                .describe(
-                    '\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up'
-                ),
+                .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'),
             zod.null(),
         ])
         .describe(
-            'What PostHog does with top-level questions in this channel that do not tag it. Null inherits.\n\n\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up'
+            'What PostHog does with top-level questions in this channel that do not tag it. Null inherits.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'
         ),
 })
 
