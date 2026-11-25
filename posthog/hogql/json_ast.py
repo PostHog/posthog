@@ -1,8 +1,7 @@
 """
 JSON AST serializer and deserializer
 
-`deserialize_ast` converts JSON strings returned by the C++ HogQL parser back into Python AST objects.
-`serialize_ast` writes Python AST objects in the same JSON form.
+Converts JSON strings returned by the C++ HogQL parser back into Python AST objects.
 
 Performance: enum-typed fields and dict-shaped fields are precomputed per class
 at import time. The hot loop uses orjson for JSON parsing and avoids
@@ -80,12 +79,6 @@ _SPECIAL_FLOATS = {"Infinity": float("inf"), "-Infinity": float("-inf"), "NaN": 
 
 
 _INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
-
-# orjson writes a dataclass as a plain object and a datetime as a string. Both would lose the tag
-# that `deserialize_ast` needs, so a value this module did not convert must fail the dump.
-_NO_IMPLICIT_ENCODING = orjson.OPT_PASSTHROUGH_DATACLASS | orjson.OPT_PASSTHROUGH_DATETIME
-
-_PLAIN_JSON_TYPES = frozenset({str, int, float, bool})
 
 
 def _parse_large_int_literal(value: str) -> int | None:
@@ -178,8 +171,7 @@ def _deserialize_node(data: Any) -> Any:
             ]
             continue
 
-        # Other dict-shaped fields: {key: child_node}. A node carries its class name as a string
-        # under `node`. An entry that is itself named `node` (`WINDOW node AS ...`) carries a child node there.
+        # Other dict-shaped fields: {key: child_node}.
         if key in _DICT_FIELDS and isinstance(value, dict) and not isinstance(value.get("node"), str):
             kwargs[key] = {k: _deserialize_node(v) for k, v in value.items()}
             continue
@@ -219,11 +211,11 @@ def _deserialize_constant_value(value: Any, value_type: str | None) -> Any:
 
 
 def _deserialize_number(value: Any) -> Any:
-    """Numeric Constants emitted as strings: non-finite floats
-    (Infinity / NaN) and integer literals too wide to round-trip
-    as a native JSON number."""
     if not isinstance(value, str):
         return value
+    # Numeric Constants emitted as strings: non-finite floats
+    # (Infinity / NaN) and integer literals too wide to round-trip
+    # as a native JSON number.
     special = _SPECIAL_FLOATS.get(value)
     if special is not None:
         return special
@@ -240,30 +232,32 @@ def _deserialize_constant_item(item: Any) -> Any:
 
 
 def serialize_ast(node: ast.AST) -> str:
-    """Serialize a Python AST object into the JSON that `deserialize_ast` reads.
-
-    Resolved types (`type` fields) are left out, because they point at database objects.
-    The reader resolves the tree again.
-    """
-    return orjson.dumps(_serialize_node(node), option=_NO_IMPLICIT_ENCODING).decode()
+    return orjson.dumps(
+        node, default=_serialize_object, option=orjson.OPT_PASSTHROUGH_DATACLASS | orjson.OPT_PASSTHROUGH_DATETIME
+    ).decode()
 
 
-_SERIALIZED_FIELDS: dict[type[ast.AST], tuple[tuple[str, bool], ...]] = {}
+def _serialize_object(value: Any) -> Any:
+    if isinstance(value, ast.AST):
+        return _serialize_node(value)
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_none=True)
+    raise TypeError(f"Cannot serialize a value of type {type(value).__name__}")
 
 
-def _serialized_fields(node_class: type[ast.AST]) -> tuple[tuple[str, bool], ...]:
-    fields = _SERIALIZED_FIELDS.get(node_class)
-    if fields is None:
-        fields = _SERIALIZED_FIELDS[node_class] = tuple(
-            (field.name, field.default is None) for field in dataclasses.fields(node_class) if field.name != "type"
-        )
-    return fields
+_SERIALIZED_FIELDS: dict[type[ast.AST], tuple[tuple[str, bool], ...]] = {
+    node_class: tuple(
+        (field.name, field.default is None) for field in dataclasses.fields(node_class) if field.name != "type"
+    )
+    for node_class in NODE_MAP.values()
+}
 
 
 def _serialize_node(node: ast.AST) -> dict[str, Any]:
     node_class = type(node)
+    enum_fields = _ENUM_FIELDS.get(node_class, {})
     data: dict[str, Any] = {"node": node_class.__name__}
-    for name, defaults_to_none in _serialized_fields(node_class):
+    for name, defaults_to_none in _SERIALIZED_FIELDS[node_class]:
         value = getattr(node, name)
         if value is None:
             if not defaults_to_none:
@@ -274,25 +268,11 @@ def _serialize_node(node: ast.AST) -> dict[str, Any]:
             data[name], value_type = _serialize_constant_value(value)
             if value_type is not None:
                 data["value_type"] = value_type
+        elif name in enum_fields and isinstance(value, Enum):
+            data[name] = value.name
         else:
-            data[name] = _serialize_value(value)
+            data[name] = value
     return data
-
-
-def _serialize_value(value: Any) -> Any:
-    if type(value) in _PLAIN_JSON_TYPES:
-        return value
-    if isinstance(value, ast.AST):
-        return _serialize_node(value)
-    if isinstance(value, list | tuple):
-        return [_serialize_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _serialize_value(item) for key, item in value.items()}
-    if isinstance(value, Enum):
-        return value.name
-    if isinstance(value, BaseModel):
-        return value.model_dump(exclude_none=True)
-    return value
 
 
 def _serialize_constant_value(value: Any) -> tuple[Any, str | None]:

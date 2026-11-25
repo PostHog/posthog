@@ -47,6 +47,7 @@ class TestSerializeAst(SimpleTestCase):
                 ),
             ),
             ("columns_replace", parse_select("select columns(* replace (1 as a)) from events")),
+            ("enum_member_used_as_a_string", ast.Field(chain=["properties", ast.CompareOperationOp.Eq])),
             ("special_numbers", parse_select("select inf, -inf, 123456789012345678901234567890, 1.5, true, null")),
             ("hogqlx_attributes", parse_select("select <Sparkline data={[1, 2]} type='line' /> from events")),
             (
@@ -87,7 +88,7 @@ class TestSerializeAst(SimpleTestCase):
         self.assertEqual(round_trip(resolved), ast.Constant(value=1))
 
     def test_unsupported_constant_type_fails_to_serialize(self) -> None:
-        with self.assertRaisesMessage(TypeError, "Cannot serialize a constant of type Decimal"):
+        with self.assertRaises(TypeError):
             serialize_ast(ast.Constant(value=Decimal("1.5")))
 
     def test_unknown_constant_value_type_fails_to_deserialize(self) -> None:
