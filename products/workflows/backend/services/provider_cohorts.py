@@ -7,6 +7,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.cohorts.backend.facade.api import (
     DescribedCohort,
     create_empty_static_cohort,
+    find_cohort_by_description_prefix,
     find_cohort_ref_by_description,
     static_cohorts_by_description_prefix,
 )
@@ -29,6 +30,18 @@ def described_static_cohorts(team_id: int, description_prefix: str) -> list[Desc
         if (ref := find_cohort_ref_by_description(team_id=team_id, description=cohort.description))
         and ref.id == cohort.id
     ]
+
+
+def customerio_segment_marker(segment_id: str) -> str:
+    # Starts the description of every cohort the workflow import makes, so importing again finds the cohort instead of
+    # making a second one. The full stop keeps segment 1 from matching segment 15.
+    return f"Imported from Customer.io segment {segment_id}."
+
+
+def has_customerio_segment_rules_cohort(team_id: int, segment_id: str) -> bool:
+    """Whether the workflow import rebuilt this segment as a cohort that keeps up with its rules."""
+    cohort = find_cohort_by_description_prefix(team_id=team_id, prefix=customerio_segment_marker(segment_id))
+    return cohort is not None and cohort.is_realtime
 
 
 def import_cohort(

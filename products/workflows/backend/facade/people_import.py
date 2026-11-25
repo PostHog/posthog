@@ -14,7 +14,9 @@ from products.workflows.backend.services.people_import import (
 )
 from products.workflows.backend.services.provider_cohorts import (
     MAX_SOURCE_NAME_LENGTH,
+    customerio_segment_marker,
     described_static_cohorts,
+    has_customerio_segment_rules_cohort,
     resend_segment_description,
 )
 from products.workflows.backend.services.provider_contacts import (
@@ -36,8 +38,10 @@ __all__ = [
     "MAX_SOURCE_NAME_LENGTH",
     "PeopleImportInvalid",
     "ProviderContactsResult",
+    "customerio_segment_marker",
     "described_static_cohorts",
     "discard_staged_contacts",
+    "has_customerio_segment_rules_cohort",
     "fail_contacts_cohort",
     "fill_contacts_cohort",
     "import_contact_chunk",

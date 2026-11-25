@@ -58,7 +58,7 @@ A real import turns each dynamic segment passed with its `conditions` into a rea
 
 A segment becomes a cohort only when every rule matches a cohort condition exactly: person attribute comparisons, such as equals, contains, exists, greater than and absolute dates. Rules on events, attribute changes, message activity, other segments, devices, relationships and relative dates ("in the last 30 days") have no exact match, so that segment is not converted and its automations get a `needs_input` note naming the rules. Creating cohorts needs the `cohort:write` scope and edit access to cohorts; the project also needs realtime cohorts and cohort triggers. When one is missing, the reason says which.
 
-If the user already has a PostHog cohort that matches a segment, pass `segment_cohorts: {"<segment id>": <cohort id>}` and the import uses it instead of creating one. A cohort trigger needs a realtime cohort. A static segment gets its own note: workflows cannot check a static cohort, so the user rebuilds it as conditions. Static segment members are never imported.
+If the user already has a PostHog cohort that matches a segment, pass `segment_cohorts: {"<segment id>": <cohort id>}` and the import uses it instead of creating one. A cohort trigger needs a realtime cohort. A static segment gets its own note: workflows cannot check a static cohort, so the user rebuilds it as conditions. The `contacts` step copies who is in each segment now, manual ones too, to a static cohort, which a broadcast can use. It leaves out a segment that already has a realtime cohort from this import, so import the automations first.
 
 ## Push notifications
 

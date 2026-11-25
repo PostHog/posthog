@@ -49,6 +49,7 @@ from products.workflows.backend.facade.enums import (
     WorkflowImportSegmentCohortStatus as SegmentCohortStatus,
     WorkflowImportSource,
 )
+from products.workflows.backend.facade.people_import import customerio_segment_marker
 from products.workflows.backend.facade.workflow_imports import (
     STATIC_SEGMENT_TYPES,
     import_content,
@@ -141,12 +142,6 @@ class _ConvertedSegments:
 MAX_COHORT_NAME_LENGTH = 400
 MAX_NEW_COHORTS_PER_IMPORT = 50
 _UNREADABLE = (ValueError, OverflowError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
-
-
-def _segment_marker(segment_id: str) -> str:
-    # Starts the description of every cohort the import makes, so importing again finds the cohort instead of
-    # making a second one. The full stop keeps segment 1 from matching segment 15.
-    return f"Imported from Customer.io segment {segment_id}."
 
 
 def _convert_segments(
@@ -254,7 +249,7 @@ class _CohortCreation:
             return self._reuse_or_create(segment_id, segment, label)
 
     def _reuse_or_create(self, segment_id: str, segment: ImportSegment, label: str) -> _SegmentOutcome:
-        existing = find_cohort_by_description_prefix(team_id=self.team.id, prefix=_segment_marker(segment_id))
+        existing = find_cohort_by_description_prefix(team_id=self.team.id, prefix=customerio_segment_marker(segment_id))
         if existing is not None:
             if not existing.is_realtime:
                 return _not_converted(
@@ -306,7 +301,7 @@ class _CohortCreation:
                 user_id=self.user.id,
                 was_impersonated=is_impersonated(self.context.request),
                 name=_cohort_name(segment_id, segment),
-                description=f"{_segment_marker(segment_id)} Made by the workflow import from the segment's rules.",
+                description=f"{customerio_segment_marker(segment_id)} Made by the workflow import from the segment's rules.",
                 filters=translated.filters,
             )
         except ValueError as error:
