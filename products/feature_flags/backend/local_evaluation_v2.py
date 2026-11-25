@@ -51,6 +51,8 @@ logger = structlog.get_logger(__name__)
 FLAG_DEFINITIONS_V2_CACHE_VALUE = "flags_with_cohorts_v2.json"
 FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET = "flag_definitions_v2_cache_expiry"
 FLAG_DEFINITIONS_V2_CACHE_TYPE = "flag_definitions_v2"
+# Each repair builds the team's legacy response again, so a run repairs at most this many teams.
+FLAG_DEFINITIONS_V2_MISS_REPAIR_LIMIT = 100
 
 
 @frozen
@@ -214,17 +216,72 @@ def update_flag_definitions_v2_cache(
     return True
 
 
-def _get_teams_with_flag_definitions_v2_queryset() -> "QuerySet[Team]":
-    """Teams that hold a config version 2 flag, and teams whose entry is still tracked."""
-    cache = flag_definitions_v2_hypercache
-    tracked = get_client(cache.redis_url).zrange(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, 0, -1)
-    holders = (
+def _holder_team_ids() -> "QuerySet[FeatureFlag, int]":
+    """The teams that hold a live config version 2 flag.
+
+    The partial index ``featureflag_live_v2_team_idx`` serves this query only while it repeats
+    the index condition: this lookup plus the default manager's deleted filter.
+    """
+    return (
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(**v2_config_lookup())
         .values_list("team_id", flat=True)
         .distinct()
     )
-    return Team.objects.filter(id__in={*holders, *(int(member) for member in tracked)})
+
+
+def _get_teams_with_flag_definitions_v2_queryset() -> "QuerySet[Team]":
+    """Teams that hold a config version 2 flag, and teams whose entry is still tracked."""
+    cache = flag_definitions_v2_hypercache
+    tracked = get_client(cache.redis_url).zrange(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, 0, -1)
+    return Team.objects.filter(id__in={*_holder_team_ids(), *(int(member) for member in tracked)})
+
+
+@frozen
+class MissRepairResult:
+    holders: int
+    missing: int
+    repaired: int
+    failed: int
+    skipped_by_cap: int
+    skipped_by_time: int
+
+
+def repair_missing_flag_definitions_v2_entries(
+    *, limit: int = FLAG_DEFINITIONS_V2_MISS_REPAIR_LIMIT, stop_time: float | None = None
+) -> MissRepairResult:
+    """Rebuild the entry of each team that holds a config version 2 flag and has no payload on the primary tier.
+
+    A reader takes a missing entry for "no v2 flags" and serves the legacy feed. The check reads
+    key existence only: a payload can be large, and its ETag is a separate key that can outlive it.
+    The teams past ``limit``, or left when ``stop_time`` (from ``time.monotonic()``) passes, wait
+    for the next run.
+    """
+    cache = flag_definitions_v2_hypercache
+    holder_ids = sorted(_holder_team_ids())
+    # One key per call: the keys can hash to different cluster slots.
+    missing_ids = [team_id for team_id in holder_ids if not cache.cache_client.has_key(cache.get_cache_key(team_id))]
+    selected_ids = missing_ids[:limit]
+
+    repaired = failed = attempted = 0
+    for team_id in selected_ids:
+        if stop_time is not None and time.monotonic() >= stop_time:
+            break
+        attempted += 1
+        # Not skip_if_unchanged: an ETag that outlived its payload would skip the write.
+        if update_flag_definitions_v2_cache(team_id):
+            repaired += 1
+        else:
+            failed += 1
+
+    return MissRepairResult(
+        holders=len(holder_ids),
+        missing=len(missing_ids),
+        repaired=repaired,
+        failed=failed,
+        skipped_by_cap=len(missing_ids) - len(selected_ids),
+        skipped_by_time=len(selected_ids) - attempted,
+    )
 
 
 FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(

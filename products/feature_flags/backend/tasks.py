@@ -45,6 +45,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     FLAG_DEFINITIONS_V2_CACHE_TYPE,
     FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG,
     flag_definitions_v2_hypercache,
+    repair_missing_flag_definitions_v2_entries,
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
 )
@@ -631,6 +632,43 @@ def maintain_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
             refreshed=refreshed.successful,
             refresh_failures=refreshed.failed,
             stale_entries_removed=removed_count,
+        )
+    finally:
+        django_cache.delete(lock_key)
+
+
+# Both limits stay below the 5-minute schedule, and the lock expires with the hard limit,
+# so a run that dies cannot block the next one.
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    soft_time_limit=4 * 60,
+    time_limit=4 * 60 + 30,
+)
+def repair_missing_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
+    """
+    Rebuild the flag definitions v2 entries that Redis lost. Runs every 5 minutes.
+
+    The self-heal queue only hears about legacy misses, so without this a missing v2 entry
+    waits for the hourly upkeep.
+    """
+    lock_key = "posthog:flag_definitions_v2_miss_repair:lock"
+    if not django_cache.add(lock_key, "locked", timeout=self.time_limit):
+        logger.info("Skipping flag definitions v2 miss repair - already running")
+        return
+
+    try:
+        result = repair_missing_flag_definitions_v2_entries(stop_time=time.monotonic() + self.soft_time_limit / 2)
+        logger.info(
+            "Completed flag definitions v2 miss repair",
+            holders=result.holders,
+            missing=result.missing,
+            repaired=result.repaired,
+            failed=result.failed,
+            skipped_by_cap=result.skipped_by_cap,
+            skipped_by_time=result.skipped_by_time,
         )
     finally:
         django_cache.delete(lock_key)
