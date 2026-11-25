@@ -89,7 +89,9 @@ function applySettingUpdate(
         setOriginalTemplate: (template: MessageTemplate) => void
         resetTemplate: (values?: MessageTemplate) => void
         setExternallyEdited: (externallyEdited: boolean) => void
-        setTemplateValues: (values: Partial<MessageTemplate>) => void
+        setTemplateValues: (
+            values: Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>
+        ) => void
     }
 ): void {
     const {
