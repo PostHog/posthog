@@ -201,9 +201,9 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.SSH_TUNNEL_FAILED,
             ),
             (
-                "ssh_gateway_closed_before_banner_retries_as_a_connection_failure",
+                "ssh_gateway_closed_before_banner_is_a_tunnel_failure",
                 SSHGatewayClosedBeforeBannerError(),
-                CDCErrorCategory.CONNECTION_FAILED,
+                CDCErrorCategory.SSH_TUNNEL_FAILED,
             ),
             (
                 "unrecognized_ssh_tunnel_error_falls_back_to_unknown",

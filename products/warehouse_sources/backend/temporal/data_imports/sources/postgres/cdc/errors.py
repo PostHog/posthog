@@ -100,10 +100,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
 
     # sshtunnel's own exception, not a psycopg one — must be checked before the psycopg guard below.
     if isinstance(exc, BaseSSHTunnelForwarderError):
-        # An SSH server at its limit of new connections closed this one before its banner. It is a
-        # server under load, so the run retries like any other connection that failed.
+        # The batch path retries a close before the banner because each table opens its own session,
+        # so a busy server refuses part of a burst. CDC opens one session per source, and the connect
+        # already retried in-process, so a close here points at the tunnel configuration.
         if isinstance(exc, SSHGatewayClosedBeforeBannerError):
-            return CDCErrorCategory.CONNECTION_FAILED
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
         if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None
