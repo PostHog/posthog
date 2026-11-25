@@ -506,8 +506,7 @@ export const PostHogConversionGapsInModal: Story = {
         },
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         // The section has a button with the same label, so the modal's is found by its data-attr.
         const modal = within(canvasElement.ownerDocument.body)
         await modal.findByText('CPAs from your PostHog goals: Sign ups, Purchases')
