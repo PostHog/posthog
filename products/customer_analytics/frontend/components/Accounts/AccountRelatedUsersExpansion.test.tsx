@@ -73,7 +73,7 @@ describe('AccountRelatedUsersExpansion', () => {
         cleanup()
     })
 
-    it('shows the EU member access level and asks for a reason before logging in as them here', async () => {
+    it.each([200, 503])('handles a current-user response of %s after confirming impersonation', async (probeStatus) => {
         render(
             <Provider>
                 <AccountRelatedUsersExpansion externalId="organization-1" />
@@ -99,7 +99,7 @@ describe('AccountRelatedUsersExpansion', () => {
         useMocks({
             get: {
                 '/admin/auth_check': () => [200, {}],
-                '/api/users/@me/': () => [200, { id: 1, is_impersonated: false }],
+                '/api/users/@me/': () => [probeStatus, { id: 1, is_impersonated: false }],
             },
             post: {
                 '/admin/login/user/42/': () => [200, {}],
@@ -117,9 +117,16 @@ describe('AccountRelatedUsersExpansion', () => {
             const logInButton = screen.getByText('Log in', { selector: 'button span' }).closest('button')!
             fireEvent.click(logInButton)
             expect(logInButton).toHaveAttribute('aria-disabled', 'true')
-            await waitFor(() => expect(logInButton).toHaveAttribute('aria-disabled', 'false'))
+            if (probeStatus === 503) {
+                await waitFor(() => expect(assign).toHaveBeenCalledWith('/'))
+                expect(logInButton).toHaveAttribute('aria-disabled', 'true')
+                expect(screen.getByText('Cancel').closest('button')).toHaveAttribute('aria-disabled', 'true')
+                fireEvent.click(screen.getByText('Cancel'))
+            } else {
+                await waitFor(() => expect(logInButton).toHaveAttribute('aria-disabled', 'false'))
+                expect(assign).not.toHaveBeenCalled()
+            }
             expect(screen.getByText('Log in as Alex Mercer')).toBeInTheDocument()
-            expect(assign).not.toHaveBeenCalled()
         } finally {
             Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
         }

@@ -1,6 +1,9 @@
 import { getCookie } from 'lib/api'
 
 import { usersRetrieve } from '~/generated/core/api'
+import type { UserApi } from '~/generated/core/api.schemas'
+
+import { ImpersonationSessionUncertainError } from './ImpersonationSessionUncertainError'
 
 async function ensureAdminOAuth2(): Promise<void> {
     const authCheckResponse = await fetch('/admin/auth_check', {
@@ -81,26 +84,46 @@ export interface AdminLoginAsParams {
 export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsParams): Promise<void> {
     await ensureAdminOAuth2()
 
-    const loginResponse = await fetch(`/admin/login/user/${userId}/`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        mode: 'cors',
-        headers: {
-            'X-CSRFToken': getCookie('posthog_csrftoken') as string,
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            read_only: readOnly ? 'true' : 'false',
-            reason,
-        }),
-    })
-
-    if (!loginResponse.ok) {
-        throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+    let loginResponse: Response
+    try {
+        loginResponse = await fetch(`/admin/login/user/${userId}/`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            mode: 'cors',
+            headers: {
+                'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                read_only: readOnly ? 'true' : 'false',
+                reason,
+            }),
+        })
+    } catch (error) {
+        throw new ImpersonationSessionUncertainError(
+            'Could not confirm the login result. Reload the page to continue.',
+            {
+                cause: error,
+            }
+        )
     }
 
-    const user = await usersRetrieve('@me')
+    if (!loginResponse.ok) {
+        const LoginError =
+            loginResponse.status >= 500 || loginResponse.redirected ? ImpersonationSessionUncertainError : Error
+        throw new LoginError(`django-loginas request resulted in status ${loginResponse.status}`)
+    }
+
+    let user: UserApi
+    try {
+        user = await usersRetrieve('@me')
+    } catch (error) {
+        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.', {
+            cause: error,
+        })
+    }
     if (user.id !== userId || !user.is_impersonated) {
-        throw new Error('Could not log in as this user. Check that impersonation is allowed and try again.')
+        const LoginError = user.is_impersonated ? ImpersonationSessionUncertainError : Error
+        throw new LoginError('Could not log in as this user. Check that impersonation is allowed and try again.')
     }
 }

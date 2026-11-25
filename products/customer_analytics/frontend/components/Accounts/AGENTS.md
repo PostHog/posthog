@@ -259,6 +259,7 @@ User tab changes preserve URL search and hash state and capture `TabViewed`; URL
 API-backed members use the current cloud region, including US on `app.posthog.com`. The warehouse fallback retains EU.
 For a member in this origin's region, it opens `ImpersonationReasonModal` and calls `adminLoginAs`, which runs the same server path as the PostHog Admin "Log in as user" operation, then loads the home page.
 The helper checks `/api/users/@me/` for the requested user ID and an impersonated session before returning. A refusal keeps the modal open and shows an error. `RelatedUserImpersonated` fires only after that check passes.
+An uncertain login result forces a full page load. The modal stays locked during submission and navigation so the old staff scene cannot remain interactive under a changed session.
 For a member in the other region, it links to that region's PostHog Admin log in as form, because the in-app request needs this origin's session and CSRF cookie.
 
 AccountsTable keeps the left expansion button. `AccountPinnedPropertiesExpansion` shows only the user's pinned properties in saved order.

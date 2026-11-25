@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLoginAs'
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
+import { ImpersonationSessionUncertainError } from '~/layout/navigation/ImpersonationNotice/ImpersonationSessionUncertainError'
 
 import type { AccountOrganizationMember } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
@@ -47,6 +48,10 @@ export function AccountMemberImpersonateButton({ member }: { member: AccountOrga
             window.location.assign(urls.default())
         } catch (error) {
             posthog.captureException(error as Error, { scope: 'AccountMemberImpersonateButton.logIn' })
+            if (error instanceof ImpersonationSessionUncertainError) {
+                window.location.assign(urls.default())
+                return
+            }
             lemonToast.error(error instanceof Error ? error.message : 'Could not log in as this user. Try again.')
             setIsLoggingIn(false)
         }

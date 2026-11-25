@@ -65,6 +65,25 @@ function mockMember(
     }
 }
 
+function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
+    const originalLocation = window.location
+    const reload = jest.fn()
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: { ...originalLocation, reload },
+    })
+    return {
+        reload,
+        restore: () =>
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: originalLocation,
+            }),
+    }
+}
+
 describe('impersonationNoticeLogic', () => {
     let logic: ReturnType<typeof impersonationNoticeLogic.build>
 
@@ -256,36 +275,51 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it.each([
-            { status: 403, currentUser: MOCK_DEFAULT_USER },
-            { status: 200, currentUser: MOCK_DEFAULT_USER },
-            { status: 200, currentUser: { ...MOCK_IMPERSONATED_USER, is_impersonated: false } },
-            { status: 200, currentUser: { ...MOCK_IMPERSONATED_USER, id: 456 } },
+            { status: 403, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: false },
+            { status: 200, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: false },
+            {
+                status: 200,
+                probeStatus: 200,
+                currentUser: { ...MOCK_IMPERSONATED_USER, is_impersonated: false },
+                shouldReload: false,
+            },
+            { status: 200, probeStatus: 200, currentUser: { ...MOCK_IMPERSONATED_USER, id: 456 }, shouldReload: true },
+            { status: 200, probeStatus: 503, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
+            { status: 500, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
         ])(
-            'rejects login status $status with session $currentUser.id/$currentUser.is_impersonated',
-            async ({ status, currentUser }) => {
-                logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
-
-                useMocks({
-                    get: {
-                        '/admin/auth_check': () => [200, {}],
-                        '/api/users/@me/': () => [200, currentUser],
-                    },
-                    post: {
-                        '/admin/login/user/:id/': () => [status, {}],
-                    },
-                })
-
-                await expectLogic(logic, () => {
-                    logic.actions.reImpersonate('reason', true)
-                })
-                    .toDispatchActions(['reImpersonateFailure'])
-                    .toNotHaveDispatchedActions(['loadUser'])
-                    .toFinishAllListeners()
-                    .toMatchValues({
-                        isReImpersonating: false,
+            'handles login $status and identity $probeStatus for session $currentUser.id/$currentUser.is_impersonated',
+            async ({ status, probeStatus, currentUser, shouldReload }) => {
+                const { reload, restore } = mockLocationReload()
+                try {
+                    logic.actions.setSessionExpired({
+                        email: 'test@example.com',
+                        userId: 123,
+                        isImpersonatedUntil: null,
                     })
-
-                expect(lemonToast.error).toHaveBeenCalled()
+                    useMocks({
+                        get: {
+                            '/admin/auth_check': () => [200, {}],
+                            '/api/users/@me/': () => [probeStatus, currentUser],
+                        },
+                        post: {
+                            '/admin/login/user/:id/': () => [status, {}],
+                        },
+                    })
+                    await expectLogic(logic, () => {
+                        logic.actions.reImpersonate('reason', true)
+                    })
+                        .toFinishAllListeners()
+                        .toNotHaveDispatchedActions(['loadUser'])
+                    expect(logic.values.isReImpersonating).toBe(shouldReload)
+                    if (shouldReload) {
+                        expect(reload).toHaveBeenCalled()
+                    } else {
+                        expect(reload).not.toHaveBeenCalled()
+                        expect(lemonToast.error).toHaveBeenCalled()
+                    }
+                } finally {
+                    restore()
+                }
             }
         )
 
@@ -755,25 +789,6 @@ describe('impersonationNoticeLogic', () => {
     })
 
     describe('changeUser listener', () => {
-        function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
-            const originalLocation = window.location
-            const reload = jest.fn()
-            Object.defineProperty(window, 'location', {
-                configurable: true,
-                writable: true,
-                value: { ...originalLocation, reload },
-            })
-            return {
-                reload,
-                restore: () =>
-                    Object.defineProperty(window, 'location', {
-                        configurable: true,
-                        writable: true,
-                        value: originalLocation,
-                    }),
-            }
-        }
-
         it.each([
             { readOnly: true, expected: 'true' },
             { readOnly: false, expected: 'false' },
