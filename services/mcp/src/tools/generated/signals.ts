@@ -7,6 +7,7 @@ import { SignalReportFeedbackNoteSchema, SignalReportFeedbackSentimentSchema } f
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_inboxMySettingsGet from '@/tools/signals/inboxMySettingsHooks'
 import hooks_inboxMySettingsUpdate from '@/tools/signals/inboxMySettingsHooks'
+import hooks_selfDrivingStatusGet from '@/tools/signals/selfDrivingStatusHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import {
     withPostHogUrl,
@@ -3585,20 +3586,23 @@ const selfDrivingStatusGet = (): ToolBase<
 > => ({
     name: 'self-driving-status-get',
     schema: SelfDrivingStatusGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.InboxOnboardingState>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
-        })
-        const filtered = pickResponseFields(result, [
-            'completed_at',
-            'github_optional_available',
-            'jobs',
-            'first_report',
-        ]) as typeof result
-        return filtered
-    },
+    handler: withToolHooks(
+        hooks_selfDrivingStatusGet,
+        async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.InboxOnboardingState>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
+            })
+            const filtered = pickResponseFields(result, [
+                'completed_at',
+                'github_optional_available',
+                'jobs',
+                'first_report',
+            ]) as typeof result
+            return filtered
+        }
+    ),
 })
 
 const SignalsScoutConfigCreateSchema = () => {
