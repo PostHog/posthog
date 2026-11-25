@@ -473,6 +473,7 @@ class TestConnectionRecycling:
         peers: set[int] = set()
 
         async def block(request: web.Request) -> web.Response:
+            assert request.transport is not None
             peers.add(request.transport.get_extra_info("peername")[1])
             return web.Response(body=b"x")
 
