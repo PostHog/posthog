@@ -2541,8 +2541,6 @@ export interface EmailSendingAllowanceApi {
 export interface EmailInfrastructureHealthApi {
     /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
     readonly emails_sent_at_least: number
-    /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-    readonly delivery_rate: number
     /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
     readonly bounce_rate: number
     /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
