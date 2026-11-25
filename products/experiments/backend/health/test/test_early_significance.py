@@ -168,6 +168,11 @@ class TestEarlySignificance(TestCase):
             ("ended", replace(SMALL_SIGNIFICANT_LIFT, **ENDED), Status.NOT_APPLICABLE),
             ("unreadable_results", replace(SMALL_SIGNIFICANT_LIFT, primary_metric=None), Status.NOT_CHECKED),
             (
+                "warehouse_native_unreadable_results",
+                replace(SMALL_SIGNIFICANT_LIFT, warehouse_native_exposures=True, primary_metric=None),
+                Status.NOT_APPLICABLE,
+            ),
+            (
                 "mean_metric",
                 replace(
                     SMALL_SIGNIFICANT_LIFT,
@@ -205,11 +210,19 @@ class TestEarlySignificance(TestCase):
                 },
                 [("test", 20.0, True), ("test-2", 5.0, False)],
             ),
-            # The running time estimate shows the progress, so nothing significant leaves nothing to explain.
-            ("no_significant_variant", _context([("test", 1000, 0.2, False)]), {}, []),
+            (
+                "no_significant_variant",
+                _context([("test", 1000, 0.2, False)]),
+                {
+                    ExperimentHealthValueKey.METRIC_NAME: "Checkout",
+                    ExperimentHealthValueKey.SAMPLE_COUNT: 2000,
+                    ExperimentHealthValueKey.PLANNED_SAMPLE_COUNT: 3201,
+                },
+                [("test", 20.0, False)],
+            ),
         ]
     )
-    def test_reads_every_variant_once_one_is_significant(
+    def test_reads_every_variant(
         self, _name: str, ctx: HealthContext, values: dict[ExperimentHealthValueKey, Any], rows: list[tuple]
     ) -> None:
         read_rows = early_significance_rows(ctx)

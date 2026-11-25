@@ -1,6 +1,8 @@
 import uuid
 import base64
+import socket
 import datetime
+import threading
 import contextlib
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, cast
@@ -19,10 +21,18 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
-from pymongo import DESCENDING
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
+from pymongo import DESCENDING, MongoClient, pool_shared
+from pymongo.errors import (
+    ConfigurationError,
+    CursorNotFound,
+    ExecutionTimeout,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
+
+from posthog.test.waiting import wait_until
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -50,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _id_seek_filter,
     _list_importable_collection_names,
     _make_safe_server_selector,
+    _OutboundHostPolicy,
     _process_doc_with_field_logging,
     _process_nested_value,
     _read_upper_bound,
@@ -142,6 +153,163 @@ class TestSafeServerSelector(SimpleTestCase):
         result = selector(servers)
 
         assert len(result) == 1
+
+    @parameterized.expand(
+        [
+            ("direct_connection", "mongodb://user:pw@127.0.0.1:1/db?tls=true&directConnection=true", ""),
+            ("lone_host", "mongodb://user:pw@127.0.0.1:1/db?tls=true", ""),
+            ("lone_host_repeated", "mongodb://user:pw@127.0.0.1:1,127.0.0.1:1/db?tls=true", ""),
+            ("load_balanced_from_dns", "mongodb+srv://user:pw@cluster0.example.com/db", "loadBalanced=true"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_client_refuses_an_internal_host_the_selector_never_sees(self, _name, connection_string, txt_options):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
+        resolver.return_value.get_options.return_value = txt_options
+        with (
+            patch("pymongo.synchronous.uri_parser._SrvResolver", resolver),
+            patch(f"{_MONGO_MODULE}.MongoClient") as client_class,
+        ):
+            with pytest.raises(HostNotAllowedError):
+                with mongo_client(connection_string, team_id=999):
+                    pass
+
+        # The client would start a monitor that dials the seed, so the refusal has to come first.
+        client_class.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_monitors_of_a_client_never_open_a_socket_to_a_forbidden_address(self):
+        with mongo_client("mongodb://user:pw@127.0.0.1:1,127.0.0.1:2/db?tls=true", team_id=999) as client:
+            wait_until(
+                lambda: all(
+                    isinstance(description.error, HostNotAllowedError)
+                    for description in client.topology_description.server_descriptions().values()
+                ),
+                message="the monitors never reported the host refusal",
+            )
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_pymongo_socket_path_refuses_a_forbidden_address_before_connecting(self):
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            server.setblocking(False)
+            port = server.getsockname()[1]
+            client: MongoClient = MongoClient(
+                f"mongodb://localhost:{port}/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+            )
+            try:
+                with pytest.raises(HostNotAllowedError):
+                    pool_shared._configured_socket_interface(("localhost", port), client.options.pool_options)
+            finally:
+                client.close()
+
+            with pytest.raises(BlockingIOError):
+                server.accept()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_socket_connects_to_the_address_that_was_checked(self, _mock_is_cloud):
+        real_getaddrinfo = socket.getaddrinfo
+        # The second lookup of the name answers with an address nothing listens on, so a socket
+        # that resolved the name again would fail to connect.
+        answers = iter(["127.0.0.1", "::1"])
+
+        def rebinding_getaddrinfo(host: str, *args: Any, **kwargs: Any) -> Any:
+            return real_getaddrinfo(next(answers) if host == "db.example.com" else host, *args, **kwargs)
+
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            port = server.getsockname()[1]
+            client: MongoClient = MongoClient(
+                f"mongodb://localhost:{port}/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+            )
+            try:
+                with patch("socket.getaddrinfo", rebinding_getaddrinfo):
+                    connection = pool_shared._create_connection(("db.example.com", port), client.options.pool_options)
+            finally:
+                client.close()
+
+            with connection:
+                assert connection.getpeername() == ("127.0.0.1", port)
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_socket_path_refuses_an_out_of_band_domain_without_looking_it_up(self):
+        client: MongoClient = MongoClient(
+            "mongodb://db.example.com/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+        )
+        try:
+            with patch("socket.getaddrinfo") as getaddrinfo, pytest.raises(HostNotAllowedError):
+                pool_shared._create_connection(("db.oast.fun", 27017), client.options.pool_options)
+        finally:
+            client.close()
+
+        getaddrinfo.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("plain", "mongodb+srv://user:pw@cluster.oast.fun/db"),
+            ("percent_encoded", "mongodb+srv://user:pw@cluster.oast%2efun/db"),
+            ("fragment_delimiter_in_the_password", "mongodb+srv://user:p#x@cluster.oast.fun/db"),
+            ("percent_encoded_slash", "mongodb+srv://user:pw@x%2Fy.cluster.oast.fun/db"),
+            ("percent_encoded_at_sign", "mongodb+srv://user:pw@x%40y.cluster.oast.fun/db"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_client_refuses_an_out_of_band_srv_name_without_looking_it_up(self, _name, connection_string):
+        resolver = MagicMock()
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver), pytest.raises(HostNotAllowedError):
+            with mongo_client(connection_string, team_id=999):
+                pass
+
+        resolver.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_socket_keeps_the_interface_scope_of_a_link_local_address(self, _mock_is_cloud):
+        link_local = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fe80::1", 27017, 0, 3))]
+        client: MongoClient = MongoClient(
+            "mongodb://db.example.com/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+        )
+        try:
+            with (
+                patch("socket.getaddrinfo", return_value=link_local),
+                patch(f"{_MONGO_MODULE}._pymongo_create_connection") as dial,
+            ):
+                pool_shared._create_connection(("db.example.com", 27017), client.options.pool_options)
+        finally:
+            client.close()
+
+        assert dial.call_args.args[0] == ("fe80::1%3", 27017)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_client_opens_when_the_srv_answer_lists_more_hosts_than_the_event_queue_holds(self, _mock_is_cloud):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", port) for port in range(1, 102)]
+        resolver.return_value.get_options.return_value = ""
+        opened = threading.Event()
+
+        def open_client() -> None:
+            with mongo_client("mongodb+srv://user:pw@cluster0.example.com/db", team_id=999):
+                opened.set()
+
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            thread = threading.Thread(target=open_client, daemon=True)
+            thread.start()
+            assert opened.wait(timeout=30), "the client never finished opening"
+            thread.join(timeout=30)
+
+    def test_client_checks_the_srv_hosts_even_when_the_string_defers_the_lookup(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1), ("127.0.0.1", 2)]
+        resolver.return_value.get_options.return_value = ""
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with mongo_client("mongodb+srv://user:pw@cluster0.example.com/db?connect=false", team_id=999) as client:
+                seeds = list(client.topology_description.server_descriptions())
+
+        assert seeds == [("127.0.0.1", 1), ("127.0.0.1", 2)]
 
 
 class TestProcessNestedValue(SimpleTestCase):
@@ -1521,16 +1689,67 @@ class TestConnectionTimeouts(SimpleTestCase):
         assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
 
     @parameterized.expand(
-        [("revocation_list", "tlsCRLFile=crl.pem"), ("client_certificate", "tlscertificatekeyfile=c.pem")]
+        [
+            ("revocation_list", "&tlsCRLFile=crl.pem"),
+            ("client_certificate", "&tlscertificatekeyfile=c.pem"),
+            ("oidc", "&authMechanism=MONGODB-OIDC"),
+            ("aws", "&authMechanism=MONGODB-AWS"),
+            ("x509", "&authMechanism=MONGODB-X509"),
+            ("gssapi", "&authMechanism=GSSAPI"),
+            ("plain", "&authMechanism=PLAIN"),
+            ("mechanism_in_mixed_case", "&AUTHMECHANISM=mongodb-oidc"),
+            ("mechanism_percent_encoded", "&authMechanism=MONGODB%2DOIDC"),
+            ("mechanism_repeated", "&authMechanism=SCRAM-SHA-256&authMechanism=MONGODB-OIDC"),
+            ("mechanism_properties_alone", "&authMechanismProperties=SERVICE_NAME:mongodb"),
+            ("mechanism_properties_in_mixed_case", "&AuthMechanismProperties=SERVICE_NAME:mongodb"),
+            (
+                "mechanism_properties_with_password_mechanism",
+                "&authMechanism=SCRAM-SHA-256&authMechanismProperties=SERVICE_NAME:mongodb",
+            ),
+            ("mechanism_after_a_space", " authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("mechanism_after_a_tab", "\tauthMechanism=MONGODB-OIDC;tlsCAFile=ca.pem"),
+            ("mechanism_after_a_newline", "\nauthMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("mechanism_after_a_non_breaking_space", "\xa0authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("file_option_after_a_space", " tlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
+            ("file_option_after_a_space_before_a_semicolon", " tlsCRLFile=crl.pem;tlsCAFile=ca.pem"),
+            ("file_option_after_a_newline", "\ntlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
+            ("ca_file_after_a_space", " tlsCAFile=/some/path"),
+        ]
     )
-    def test_a_file_option_with_no_replacement_stops_the_sync_before_the_client_opens(self, _name, option):
+    def test_an_unsupported_option_stops_the_sync_before_the_client_opens(self, _name, options_after_tls):
         with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
             with pytest.raises(UnsupportedConnectionOptionError) as raised:
-                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true&{option}", team_id=1):
+                # The URL sets tls=true, but the rule only matches it before `&` or the closing quote.
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true{options_after_tls}", team_id=1):
                     pass
 
         client_class.assert_not_called()
         assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("default", "authMechanism=DEFAULT"),
+            ("scram_sha_1", "authMechanism=SCRAM-SHA-1"),
+            ("scram_sha_256", "authmechanism=SCRAM-SHA-256&authSource=admin"),
+        ]
+    )
+    def test_a_password_mechanism_reaches_the_client_unchanged(self, _name, option):
+        connection_string = f"mongodb://user:pw@db.example.com/db?tls=true&{option}"
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client(connection_string, team_id=1):
+                pass
+
+        assert client_class.call_args.args[0] == connection_string
+
+    def test_a_dns_txt_record_cannot_add_an_authentication_mechanism(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("db.example.com", 27017)]
+        resolver.return_value.get_options.return_value = "authMechanism=MONGODB-OIDC"
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with pytest.raises(ConfigurationError, match="Only authSource, replicaSet, and loadBalanced"):
+                with mongo_client("mongodb+srv://user:pw@cluster.example.com/db", team_id=1):
+                    pass
 
     def test_socket_timeout_error_is_retryable(self):
         # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.

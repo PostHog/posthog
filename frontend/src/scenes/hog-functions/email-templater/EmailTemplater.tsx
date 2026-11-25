@@ -33,6 +33,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
@@ -1250,6 +1251,7 @@ function EmailTemplaterInline(): JSX.Element {
 
 export function EmailTemplater({
     saveIndicator,
+    emailKey,
     ...props
 }: EmailTemplaterLogicProps & {
     // Presentation-only slot rendered in the modal header: hosts using liveChanges surface their
@@ -1257,8 +1259,10 @@ export function EmailTemplater({
     // props so a fresh JSX element per render doesn't churn propsChanged.
     saveIndicator?: ReactNode
 }): JSX.Element {
+    const [mountKey] = useState(() => uuid())
+    const openEmailKey = emailKey ?? mountKey
     return (
-        <BindLogic logic={emailTemplaterLogic} props={props}>
+        <BindLogic key={openEmailKey} logic={emailTemplaterLogic} props={{ ...props, emailKey: openEmailKey }}>
             {/* The new editor fits the page, so the email and its style panel scroll on their own. Short windows scroll the page instead. */}
             <div className="flex flex-col flex-1 has-[[data-attr=email-document-editor]]:min-h-[38rem]">
                 {props.layout === 'inline' ? (

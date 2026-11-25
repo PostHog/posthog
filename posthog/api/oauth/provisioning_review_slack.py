@@ -57,6 +57,8 @@ WORKSPACE_CACHE_SECONDS = 60 * 60
 
 STATUS_HEADINGS = {
     ProvisioningReviewStatus.ACCEPTED: ":white_check_mark: Provisioning partner accepted",
+    ProvisioningReviewStatus.DECLINED: ":x: Provisioning partner declined",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: ":leftwards_arrow_with_hook: Provisioning partner sent back for changes",
     ProvisioningReviewStatus.REJECTED: ":no_entry: Provisioning partner blocked",
     ProvisioningReviewStatus.NEEDS_HUMAN: ":eyes: Provisioning partner needs a staff review",
     ProvisioningReviewStatus.PENDING: ":hourglass: Provisioning partner in review",
@@ -146,7 +148,12 @@ def _retry_countdown(error: Exception, retries: int) -> int:
 
 @shared_task(bind=True, ignore_result=True, max_retries=THREAD_MAX_RETRIES)
 def sync_review_slack_thread(
-    self: Task, review_id: str, status: str, previous_status: str | None = None, reason: str = ""
+    self: Task,
+    review_id: str,
+    status: str,
+    previous_status: str | None = None,
+    reason: str = "",
+    always_reply: bool = False,
 ) -> None:
     """Post the review's thread the first time it settles, then keep the first message current and reply
     with each decision. The reply describes the decision this task was queued for, which a later one may
@@ -164,7 +171,9 @@ def sync_review_slack_thread(
     if not acquired:
         raise self.retry(countdown=THREAD_RETRY_SECONDS * 2**self.request.retries)
     try:
-        _sync_review_slack_thread(review_id, status=status, previous_status=previous_status, reason=reason)
+        _sync_review_slack_thread(
+            review_id, status=status, previous_status=previous_status, reason=reason, always_reply=always_reply
+        )
     except Exception as error:
         raise self.retry(exc=error, countdown=_retry_countdown(error, self.request.retries))
     finally:
@@ -172,7 +181,9 @@ def sync_review_slack_thread(
             lock.release()
 
 
-def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: str | None, reason: str) -> None:
+def _sync_review_slack_thread(
+    review_id: str, *, status: str, previous_status: str | None, reason: str, always_reply: bool = False
+) -> None:
     review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
     if review is None or status == ProvisioningReviewStatus.PENDING:
         return
@@ -193,24 +204,31 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
         CIMDProvisioningReview.objects.filter(pk=review.pk).update(
             slack_channel_id=channel_id, slack_message_ts=message_ts
         )
-        # The post already shows the decision that made it. A later decision still updates it and replies.
-        if posted_status == status:
+        # The post already shows the decision that made it. A later decision, or a partner note, still updates
+        # it and replies, because the post shows neither the note nor the earlier status.
+        if posted_status == status and previous_status != status and not always_reply:
             return
         review.slack_channel_id, review.slack_message_ts = channel_id, message_ts
 
     client.chat_update(channel=review.slack_channel_id, ts=review.slack_message_ts, text=text, blocks=blocks)
     change = ProvisioningReviewStatus(status).label
-    reply = f"{ProvisioningReviewStatus(previous_status).label} → {change}" if previous_status else change
+    if previous_status and previous_status != status:
+        reply = f"{ProvisioningReviewStatus(previous_status).label} → {change}"
+    else:
+        reply = change
     if reason:
         reply = f"{reply}: {_escape(reason)}"
     client.chat_postMessage(channel=review.slack_channel_id, thread_ts=review.slack_message_ts, text=reply[:3000])
 
 
-def queue_review_slack_thread(review: CIMDProvisioningReview, *, previous_status: str | None) -> None:
+def queue_review_slack_thread(
+    review: CIMDProvisioningReview, *, previous_status: str | None, reply: str | None = None
+) -> None:
     # Queued without checking the bot settings: reviews settle on a Temporal worker that does not carry them,
     # and the task checks them on the Celery worker that talks to Slack.
-    args = (str(review.pk), str(review.status), previous_status, review.reason)
-    transaction.on_commit(lambda: sync_review_slack_thread.delay(*args))
+    args = (str(review.pk), str(review.status), previous_status, review.reason if reply is None else reply)
+    always_reply = reply is not None
+    transaction.on_commit(lambda: sync_review_slack_thread.delay(*args, always_reply=always_reply))
 
 
 def _workspace_id(client: SlackWebClient) -> str | None:
@@ -351,5 +369,10 @@ def block_partner_from_slack(review_id: str, *, slack_team_id: str, slack_user_i
     review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
     if review is None:
         return
-    decide_partner(review.application, accept=False, reason=f"Staff ({staff.email}, from Slack): {reason}")
+    decide_partner(
+        review.application,
+        decision=ProvisioningReviewStatus.REJECTED,
+        reason=f"Staff ({staff.email}, from Slack): {reason}",
+        actor=staff.email,
+    )
     logger.info("cimd_review_blocked_from_slack", review_id=review_id, staff_user_id=staff.pk)

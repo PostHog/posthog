@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.models.web_experiment import WebExperiment
@@ -17,9 +18,9 @@ from products.experiments.backend.presentation.web_experiments import WebExperim
 
 
 class TestWebExperiment(APIBaseTest):
-    def _create_web_experiment(self, name="Zero to Web Experiment"):
+    def _create_web_experiment(self, name="Zero to Web Experiment", project_id: int | None = None):
         return self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
+            f"/api/projects/{project_id or self.team.id}/web_experiments/",
             data={
                 "name": name,
                 "variants": {
@@ -87,7 +88,7 @@ class TestWebExperiment(APIBaseTest):
             request=ANY,
         )
 
-    @patch("products.experiments.backend.presentation.web_experiments.report_user_action")
+    @patch("products.experiments.backend.logic.web_experiments.report_user_action")
     def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
@@ -202,6 +203,10 @@ class TestWebExperiment(APIBaseTest):
         deleted_experiment.deleted = True
         deleted_experiment.save()
 
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        other_response = self._create_web_experiment("Other Project Experiment", project_id=other_project.id)
+        assert other_response.status_code == status.HTTP_201_CREATED
+
         # List experiments via API - should only show active experiment
         list_response = self.client.get(f"/api/projects/{self.team.id}/web_experiments/")
         assert list_response.status_code == status.HTTP_200_OK
@@ -232,6 +237,20 @@ class TestWebExperiment(APIBaseTest):
         response_data = detail_response.json()
         assert response_data["id"] == experiment_id
         assert response_data["name"] == "Test Experiment"
+
+    @parameterized.expand([("retrieve", "get"), ("update", "patch"), ("destroy", "delete")])
+    def test_detail_routes_do_not_find_another_projects_web_experiment(self, _name: str, method: str) -> None:
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        other_id = self._create_web_experiment("Other project experiment", project_id=other_project.id).json()["id"]
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/web_experiments/{other_id}/",
+            data={"name": "Renamed", "variants": {"control": {"rollout_percentage": 100}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert WebExperiment.objects.get(id=other_id).name == "Other project experiment"
 
     def test_list_pages_experiments_with_equal_created_at(self):
         ids = [self._create_web_experiment(f"Experiment {index}").json()["id"] for index in range(3)]
@@ -625,7 +644,7 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
         self._assert_invalid(variants, "selector")
 
     def test_validation_serializer_is_wired_to_viewset(self) -> None:
-        # Wiring guard (no DB): the ModelViewSet validates input through this serializer on
+        # Wiring guard (no DB): the viewset validates input through this serializer on
         # create/update, so the no-DB matrix above covers the real endpoint validation path.
         # If serializer_class is swapped or dropped, validation silently stops running.
         assert WebExperimentViewSet.serializer_class is WebExperimentsAPISerializer
