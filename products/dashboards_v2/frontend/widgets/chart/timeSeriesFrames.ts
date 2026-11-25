@@ -28,6 +28,9 @@ function hash(text: string): number {
  * `assigned` holds the colours given out before and is added to. A key found there keeps its colour, so a collision
  * resolved on one refresh is not resolved differently when the other key is missing from the next one.
  */
+// Series names can change on every refresh, so only this many colours are kept for keys that are no longer drawn.
+export const MAX_REMEMBERED_COLORS = 500
+
 export function stableSeriesColors(
     keys: string[],
     palette: string[],
@@ -51,6 +54,14 @@ export function stableSeriesColors(
         taken.add(slot)
         assigned.set(key, palette[slot])
         colors.set(key, palette[slot])
+    }
+    for (const key of assigned.keys()) {
+        if (assigned.size <= MAX_REMEMBERED_COLORS) {
+            break
+        }
+        if (!colors.has(key)) {
+            assigned.delete(key)
+        }
     }
     return colors
 }

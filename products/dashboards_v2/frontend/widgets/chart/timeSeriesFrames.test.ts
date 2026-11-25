@@ -1,4 +1,4 @@
-import { timeSeriesFromFrames } from './timeSeriesFrames'
+import { MAX_REMEMBERED_COLORS, stableSeriesColors, timeSeriesFromFrames } from './timeSeriesFrames'
 import type { DataFrame } from './vizTypes'
 
 const frame = (
@@ -103,5 +103,22 @@ describe('timeSeriesFromFrames', () => {
 
         expect(both.series[0].color).not.toEqual(both.series[1].color)
         expect(withoutB.series[0].color).toEqual(both.series[1].color)
+    })
+})
+
+describe('stableSeriesColors', () => {
+    it('forgets the oldest colours of series no longer drawn once it remembers too many', () => {
+        const assigned = new Map<string, string>()
+        for (let refresh = 0; refresh < 3; refresh++) {
+            stableSeriesColors(
+                Array.from({ length: MAX_REMEMBERED_COLORS }, (_, index) => `${refresh}:${index}`),
+                PALETTE,
+                assigned
+            )
+        }
+
+        expect(assigned.size).toBe(MAX_REMEMBERED_COLORS)
+        expect(assigned.has('2:0')).toBe(true)
+        expect(assigned.has('0:0')).toBe(false)
     })
 })
