@@ -305,7 +305,7 @@ export async function report(
         adapters: ADAPTERS,
         ...host?.event,
         ...(manifest.pair &&
-            status === 'invalid' && {
+            reasons.length > 0 && {
                 pair_attribution: 'unjudged',
                 pair_reason: 'the cloud run is invalid, so the pair is not judged',
             }),
@@ -369,8 +369,5 @@ export async function report(
     if (written.problem || (!kept && !written.recorded)) {
         return EXIT_CODE.writeFailed
     }
-    if (status === 'invalid' || end.exitCode === EXIT_CODE.writeFailed) {
-        return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
-    }
-    return EXIT_CODE[status]
+    return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
 }

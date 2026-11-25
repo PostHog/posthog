@@ -128,6 +128,7 @@ export type FakeCloudOptions = {
         journalsIntent?: boolean
         pairRoles?: (PairRole | undefined)[]
         controlStatus?: string
+        strayControlRunId?: boolean
     }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
@@ -513,7 +514,11 @@ export class FakeCloud implements Aws {
             const files: Record<string, string> = { 'card.log': `exit ${exitCode}\n` }
             for (const role of roles) {
                 const runnerRunId =
-                    role === 'faulted' ? card.runId : role === 'control' ? card.controlRunId! : randomUUID()
+                    role === 'faulted'
+                        ? card.runId
+                        : role === 'control' && !this.options.card?.strayControlRunId
+                          ? card.controlRunId!
+                          : randomUUID()
                 files[`run/${runnerRunId}/scorecard.json`] = this.runnerScorecard(
                     card,
                     runnerRunId,

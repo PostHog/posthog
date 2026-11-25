@@ -7,7 +7,6 @@ import { parse, stringify } from 'yaml'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
-import type { PairRole } from '../runner/pair'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { storeTokenPathOf } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
@@ -288,26 +287,31 @@ describe('cloud controller', () => {
             unknown
         >
 
-    it('exits with the published status of the faulted run when the control of a pair is worse', async () => {
-        const { controller } = prepare({
-            cards: { [PAIRED_CARD]: pairedCard() },
-            cloud: { card: { exitCode: 2, runnerStatus: 'failed', controlStatus: 'invalid' } },
-            env: api.credentials,
-        })
+    it.each([
+        ['invalid', 'passed', 'unjudged'],
+        ['failed', 'invalid', 'open'],
+    ])(
+        'keeps the exit of the worse run and the attribution of the host when the control is %s and the faulted run %s',
+        async (controlStatus, runnerStatus, attribution) => {
+            const { controller } = prepare({
+                cards: { [PAIRED_CARD]: pairedCard() },
+                cloud: { card: { exitCode: 2, runnerStatus, controlStatus } },
+                env: api.credentials,
+            })
 
-        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(1)
+            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
 
-        const leased = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
-        expect(leased).toMatchObject({ pair: true, controlRunId: expect.stringMatching(/^[0-9a-f-]{36}$/) })
-        expect(published()).toMatchObject({
-            status: 'failed',
-            status_reason: 'the card ended failed',
-            pair_role: 'faulted',
-            pair_attribution: 'unjudged',
-        })
-    })
+            const leased = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
+            expect(leased).toMatchObject({ pair: true, controlRunId: expect.stringMatching(/^[0-9a-f-]{36}$/) })
+            expect(published()).toMatchObject({
+                status: runnerStatus,
+                pair_role: 'faulted',
+                pair_attribution: attribution,
+            })
+        }
+    )
 
-    it('publishes the faulted run of a paired card, with the attribution, and exits with its status', async () => {
+    it('publishes the faulted run of a paired card with the attribution, and reads the reader across both runs', async () => {
         const { controller } = prepare({
             cards: { [PAIRED_CARD]: pairedCard() },
             cloud: { card: { exitCode: 1, runnerStatus: 'failed' } },
@@ -345,17 +349,26 @@ describe('cloud controller', () => {
         expect(published().pair_reason).toContain('the cloud run is invalid')
     })
 
-    it.each<[string, (PairRole | undefined)[], string]>([
+    it.each<[string, FakeCloudOptions['card'], string]>([
         [
             'its control alone, and names why the faulted run did not run',
-            ['control'],
+            { exitCode: 2, controlStatus: 'invalid', pairRoles: ['control'] },
             'the host uploaded 1 runner scorecards, not two: the faulted run did not run: Restart the runner, then run the card again.',
         ],
-        ['a faulted run and a scorecard of no pair', ['faulted', undefined], 'not one control and one faulted run'],
-    ])('calls a paired run invalid when the host uploaded %s', async (_story, pairRoles, reason) => {
+        [
+            'a faulted run and a scorecard of no pair',
+            { exitCode: 1, runnerStatus: 'failed', pairRoles: ['faulted', undefined] },
+            'not one control and one faulted run',
+        ],
+        [
+            'both runs, with the control under a run id the lease did not mint',
+            { exitCode: 1, runnerStatus: 'failed', strayControlRunId: true },
+            'not one control and one faulted run',
+        ],
+    ])('calls a paired run invalid when the host uploaded %s', async (_story, card, reason) => {
         const { controller } = prepare({
             cards: { [PAIRED_CARD]: pairedCard() },
-            cloud: { card: { exitCode: 1, runnerStatus: 'failed', pairRoles } },
+            cloud: { card },
             env: api.credentials,
         })
 
