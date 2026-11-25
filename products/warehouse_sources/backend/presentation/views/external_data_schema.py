@@ -211,7 +211,6 @@ def source_syncs_on_demand(source_type: str) -> bool:
     return source.syncs_on_demand is True
 
 
-PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 PARTITIONING_CONTROLS_CONTEXT_KEY = "partitioning_controls_enabled"
 
 PARTITIONING_CONTROLS_UNAVAILABLE = "Partitioning controls are not available for this project yet."
@@ -227,6 +226,8 @@ REPARTITION_REFUSAL_STATUS: dict[RepartitionRefusal, int] = {
     RepartitionRefusal.READ_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
     RepartitionRefusal.PAUSE_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
+
+PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
 
 
