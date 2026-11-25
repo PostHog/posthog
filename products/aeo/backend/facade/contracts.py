@@ -75,6 +75,8 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
+DEFAULT_MAX_ACTIVE_PROMPTS = 100
+PROMPT_LIMIT_ERROR_CODE = "prompt_limit_reached"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
@@ -418,6 +420,31 @@ class PromptVersion:
 
 class PromptNotFoundError(Exception):
     pass
+
+
+@frozen
+class PromptLimit:
+    max_active_prompts: int
+    active_prompts: int
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.max_active_prompts - self.active_prompts)
+
+
+class PromptLimitError(Exception):
+    def __init__(self, limit: PromptLimit, adding: int) -> None:
+        if limit.remaining == 0:
+            message = (
+                f"You're tracking {limit.active_prompts} prompts, and this project can track up to "
+                f"{limit.max_active_prompts}. Turn off some prompts first."
+            )
+        else:
+            message = (
+                f"This would turn on {adding} prompts, but only {limit.remaining} more fit in this project's limit "
+                f"of {limit.max_active_prompts} tracked prompts. Turn off some prompts first."
+            )
+        super().__init__(message)
 
 
 BRAND_NAME_MAX_LENGTH = 200
@@ -913,6 +940,7 @@ class SetupContext:
     websites: tuple[WebsiteCandidate, ...]
     own_domains: tuple[str, ...]
     active_prompts: int
+    max_active_prompts: int
     # Unarchived prompts that are turned off, which no run checks.
     paused_prompts: int
     keywords: int

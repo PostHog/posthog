@@ -60,12 +60,12 @@ def team(db: None) -> Team:
 
 def test_reseeding_the_same_prompt_updates_instead_of_duplicating(team: Team) -> None:
     first = upsert_prompts(team, [_candidate("Best session replay?"), _candidate("best session replay?")])
-    assert first == {"created": 1, "updated": 1, "skipped": 0}
+    assert first == {"created": 1, "updated": 1, "skipped": 0, "held_back": 0}
     AEOPrompt.objects.for_team(team.id).update(active=False)
 
     result = upsert_prompts(team, [_candidate("  best   SESSION replay?  ", topic="Session replay")])
 
-    assert result == {"created": 0, "updated": 1, "skipped": 0}
+    assert result == {"created": 0, "updated": 1, "skipped": 0, "held_back": 0}
     prompt = AEOPrompt.objects.for_team(team.id).get()
     assert (prompt.prompt, prompt.topic, prompt.active) == ("best session replay?", "Session replay", False)
     assert list(AEOPromptVersion.objects.for_team(team.id).values_list("prompt_id", "version", "text")) == [
@@ -85,7 +85,7 @@ def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:
         ],
     )
 
-    assert result == {"created": 1, "updated": 0, "skipped": 2}
+    assert result == {"created": 1, "updated": 0, "skipped": 2, "held_back": 0}
     assert [p.prompt for p in AEOPrompt.objects.for_team(team.id)] == ["What is the best web analytics tool?"]
 
 
@@ -95,5 +95,5 @@ def test_import_through_a_child_environment_lands_on_the_parent(team: Team) -> N
 
     result = upsert_prompts(child, [_candidate("best session replay?"), _candidate("Best feature flags?")])
 
-    assert result == {"created": 1, "updated": 1, "skipped": 0}
+    assert result == {"created": 1, "updated": 1, "skipped": 0, "held_back": 0}
     assert AEOPrompt.objects.for_team(team.id).count() == 2
