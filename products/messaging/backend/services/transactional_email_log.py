@@ -308,7 +308,12 @@ def get_transactional_email(
     queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
-    params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}
+    params = {
+        "message_id": str(message_id),
+        "start": queued - _CLOCK_SKEW,
+        "end": queued + _CLOCK_SKEW,
+        "untracked_reason": EMAIL_UNTRACKED_REASON,
+    }
     where = "team_id = %(team_id)s AND message_id = %(message_id)s AND created_at >= %(start)s AND created_at < %(end)s"
 
     rows = _execute(
@@ -326,7 +331,12 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT {_STATUS}, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT
+            {_STATUS},
+            status_at,
+            {EMAIL_STATUS_SHOWN_REASON} AS shown_reason,
+            max(status = 'sent' AND reason = %(untracked_reason)s) AS untracked
+        FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
         GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
@@ -335,7 +345,7 @@ def get_transactional_email(
         query_type="transactional_email_log_timeline",
     )
     timeline: list[TransactionalEmailLogEvent] = []
-    for kind, at, reason in events:
+    for kind, at, reason, _untracked in events:
         if kind not in EmailLogEventKind.values:
             continue
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
@@ -359,6 +369,7 @@ def get_transactional_email(
         # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
         # the copy itself shows whether the content was withheld.
         sensitive=bool(template and template.sensitive),
+        tracked=not any(untracked for *_, untracked in events),
     )
 
 

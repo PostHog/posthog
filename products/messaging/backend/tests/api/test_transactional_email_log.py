@@ -324,6 +324,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         relayed_body = self.client.get(self._url(f"{relayed_id}/")).json()
 
         assert (body["status"], body["reason"]) == ("sent", None)
+        assert (body["tracked"], delivered_body["tracked"], relayed_body["tracked"]) == (False, False, True)
         assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [("queued", None), ("sent", None)]
         assert [(event["kind"], event["reason"]) for event in delivered_body["timeline"]] == [
             ("queued", None),
