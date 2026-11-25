@@ -21,6 +21,20 @@ const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
 
 const OTHER_CHANGE_IN_FLIGHT = 'Wait for the current change to finish'
 
+function inFlightProps(
+    switching: boolean,
+    switchingTo: boolean | null,
+    enabled: boolean
+): { loading: boolean; disabledReason: string | undefined } {
+    return {
+        loading: switching && switchingTo === enabled,
+        disabledReason: switching && switchingTo !== enabled ? OTHER_CHANGE_IN_FLIGHT : undefined,
+    }
+}
+
+const canRetry = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
+    realtime?.state === 'needs_attention' && realtime.reason === null
+
 type RowContent = { label: JSX.Element; tooltip: JSX.Element }
 
 export type CohortRealtimeSwitchAction = 'turn_on' | 'turn_off'
@@ -187,12 +201,11 @@ export function CohortRealtimeStatus({
                         Turn on realtime
                     </LemonButton>
                 )}
-                {realtime?.state === 'needs_attention' && realtime.reason === null && switchAction !== null && (
+                {canRetry(realtime) && switchAction !== null && (
                     <LemonButton
                         type="secondary"
                         size="xsmall"
-                        loading={switching && switchingTo === true}
-                        disabledReason={switching && switchingTo !== true ? OTHER_CHANGE_IN_FLIGHT : undefined}
+                        {...inFlightProps(switching, switchingTo, true)}
                         onClick={() => {
                             setSwitchingTo(true)
                             onSwitch(true)
@@ -207,8 +220,7 @@ export function CohortRealtimeStatus({
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
-                        loading={switching && switchingTo === false}
-                        disabledReason={switching && switchingTo !== false ? OTHER_CHANGE_IN_FLIGHT : undefined}
+                        {...inFlightProps(switching, switchingTo, false)}
                         onClick={() =>
                             LemonDialog.open({
                                 title: 'Turn off realtime for this cohort?',
