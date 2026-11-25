@@ -206,8 +206,10 @@ import type {
     SlackChannelScoutCreateResponseApi,
     SlackScoutChannelSourcesApi,
     SourceFilterCatalogListApi,
+    SourceFilterExpressionRequestApi,
     SourceFilterPreviewRequestApi,
     SourceFilterPreviewResponseApi,
+    SourceFilterValidateResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -3797,6 +3799,27 @@ export const signalsSourceConfigsFilterPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sourceFilterPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_validate/`
+}
+
+/**
+ * Check whether a filter expression can be saved as the source's filter, and where it is invalid when it cannot. Checks the expression against the source's active catalog only: reads no warehouse records and works before the source is connected or synced. An empty expression is valid. Saves nothing.
+ * @summary Validate a source filter
+ */
+export const signalsSourceConfigsFilterValidateCreate = async (
+    projectId: string,
+    sourceFilterExpressionRequestApi: SourceFilterExpressionRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterValidateResponseApi> => {
+    return apiMutator<SourceFilterValidateResponseApi>(getSignalsSourceConfigsFilterValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterExpressionRequestApi),
     })
 }
 

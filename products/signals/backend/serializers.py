@@ -717,23 +717,23 @@ class SourceFilterCatalogListSerializer(serializers.Serializer):
     )
 
 
-# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
-_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+# Wider than the expression limit, so a long expression reads back as an `expression_limit` error, not a 400.
+_SOURCE_FILTER_REQUEST_MAX_LENGTH = 16384
 
 
-class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+class SourceFilterExpressionRequestSerializer(serializers.Serializer):
     source_product = serializers.CharField(
         max_length=100,
-        help_text="Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     source_type = serializers.CharField(
         max_length=100,
-        help_text="Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     expression = serializers.CharField(
         allow_blank=True,
         trim_whitespace=False,
-        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        max_length=_SOURCE_FILTER_REQUEST_MAX_LENGTH,
         help_text=(
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
             "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
@@ -763,6 +763,10 @@ class SourceFilterPreviewRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(problem)
         # Stripped like the saved key, because the preview query matches ids exactly.
         return [scope_id.strip() for scope_id in value]
+
+
+class SourceFilterPreviewRequestSerializer(SourceFilterExpressionRequestSerializer):
+    pass
 
 
 @extend_schema_field(
@@ -852,6 +856,14 @@ class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     )
     excluded = SourceFilterPreviewRecordSerializer(
         many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
+
+
+class SourceFilterValidateResponseSerializer(FilterExpressionErrorSerializer):
+    valid = serializers.BooleanField(help_text="True when the expression can be saved as the source's filter.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the expression is invalid, as a message for people. Null when it is valid."
     )
 
 
