@@ -33,7 +33,11 @@ def alert_url(team_id: int, _configuration_id: UUID) -> str:
 
 def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
     details = [MessageDetail(label="Query", value=str(transition.source_config.get("query", "")))]
-    if transition.kind == AlertEventKind.NO_DATA:
+    # A metrics firing carries no value only when the alert fired because its series was missing, so
+    # on-call can tell a series that stopped reporting from one that reported a breaching number.
+    if transition.kind == AlertEventKind.NO_DATA or (
+        transition.kind == AlertEventKind.FIRING and transition.value is None
+    ):
         details.append(MessageDetail(label="Data", value="The query returned no series"))
     if transition.value is not None:
         details.append(MessageDetail(label="Value", value=f"{transition.value:g}"))

@@ -7,9 +7,11 @@ import {
 import {
     PlatformAlertConfigurationStatus,
     PlatformAlertStateCount,
+    configurationListRows,
     configurationStateCounts,
     configurationStatus,
     describeCondition,
+    describeGroup,
     describeInterval,
     describeOverflow,
     describeSchedule,
@@ -93,6 +95,36 @@ describe('platformAlertFormat', () => {
         ],
     ])('configurationStatus: %s', (_, overrides, expected) => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test('configurationListRows puts the groups of an open alert under it and leaves a closed alert as one row', () => {
+        const groups = [makeAlert(PlatformAlertStateApi.Firing), makeAlert(PlatformAlertStateApi.NotFiring)]
+        const open = makeConfiguration({ id: 'open', alerts: groups })
+        const closed = makeConfiguration({ id: 'closed', alerts: groups })
+        expect(configurationListRows([open, closed], ['open'])).toEqual([
+            { kind: 'alert', configuration: open },
+            { kind: 'group', configuration: open, group: groups[0] },
+            { kind: 'group', configuration: open, group: groups[1] },
+            { kind: 'alert', configuration: closed },
+        ])
+    })
+
+    test('configurationListRows keeps an open alert closed once it has one group left, as it has no toggle', () => {
+        const single = makeConfiguration({ id: 'single', alerts: [makeAlert(PlatformAlertStateApi.Firing)] })
+        expect(configurationListRows([single], ['single'])).toEqual([{ kind: 'alert', configuration: single }])
+    })
+
+    test.each<[string, Partial<PlatformAlertApi>, string]>([
+        [
+            'labels in grouping order',
+            { labels: { severity_text: 'error', service_name: 'checkout' } },
+            'service_name=checkout severity_text=error',
+        ],
+        ['no labels falls back to the key', { grouping_key: 'sha256:abc', labels: {} }, 'sha256:abc'],
+        ['no key', { grouping_key: '' }, 'Ungrouped'],
+    ])('describeGroup: %s', (_, overrides, expected) => {
+        const alert = { ...makeAlert(PlatformAlertStateApi.Firing), ...overrides }
+        expect(describeGroup(alert, ['service_name', 'severity_text'])).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

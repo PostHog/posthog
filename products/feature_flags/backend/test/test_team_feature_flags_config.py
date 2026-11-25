@@ -12,12 +12,13 @@ from products.feature_flags.backend.models.team_feature_flags_config import MAX_
 
 
 class TestTeamFeatureFlagsConfig(BaseTest):
-    def test_new_team_config_defaults_to_disabled(self):
+    def test_new_team_config_defaults(self):
         team = Team.objects.create(organization=self.organization, name="New Team")
 
         config = TeamFeatureFlagsConfig.objects.get(team=team)
         self.assertFalse(config.minimal_flag_called_events)
         self.assertEqual(config.property_matching_version, 1)
+        self.assertFalse(config.null_counts_as_not_set)
 
     def test_lazily_created_config_defaults_to_disabled(self):
         # A team without a row models a legacy team predating this extension.
@@ -26,6 +27,7 @@ class TestTeamFeatureFlagsConfig(BaseTest):
         config = get_or_create_team_extension(self.team, TeamFeatureFlagsConfig)
         self.assertFalse(config.minimal_flag_called_events)
         self.assertEqual(config.property_matching_version, 1)
+        self.assertFalse(config.null_counts_as_not_set)
 
     @parameterized.expand(
         [

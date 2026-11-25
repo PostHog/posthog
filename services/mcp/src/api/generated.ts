@@ -9964,6 +9964,8 @@ export namespace Schemas {
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
+      /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Client provided name of the query */
@@ -11834,6 +11836,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter1Response;
       schema_map: ConversionGoalFilter1SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11867,6 +11871,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter2Response;
       schema_map: ConversionGoalFilter2SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11905,6 +11911,8 @@ export namespace Schemas {
       schema_map: ConversionGoalFilter3SchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -25076,6 +25084,83 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type ResultFormatEnum = typeof ResultFormatEnum[keyof typeof ResultFormatEnum];
+
+
+    export const ResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
+    export interface FrameMeta {
+      /**
+         * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+         * @nullable
+         */
+      interval: string | null;
+      /**
+         * Start of the range the frame covers.
+         * @nullable
+         */
+      date_from: string | null;
+      /**
+         * End of the range the frame covers.
+         * @nullable
+         */
+      date_to: string | null;
+      /** Whether the frame is the compared period. Its dates are that period's dates. */
+      previous: boolean;
+    }
+
+    /**
+     * * `time` - Time
+     * * `number` - Number
+     */
+    export type FrameFieldTypeEnum = typeof FrameFieldTypeEnum[keyof typeof FrameFieldTypeEnum];
+
+
+    export const FrameFieldTypeEnum = {
+      Time: 'time',
+      Number: 'number',
+    } as const;
+
+    export interface FrameField {
+      /** Field name: 'time' for the time field, 'value' for a number field. */
+      name: string;
+      /** What the values are.
+       *
+       * * `time` - Time
+       * * `number` - Number */
+      type: FrameFieldTypeEnum;
+      /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+      values: (number | null)[];
+      /**
+         * UCUM unit of the values, e.g. 'By' or 'ms'.
+         * @nullable
+         */
+      unit: string | null;
+    }
+
+    /**
+     * Label values that identify the series within the tile.
+     */
+    export type FrameLabels = {[key: string]: string};
+
+    export interface Frame {
+      /** Series name, as the chart legend shows it. */
+      name: string;
+      /** Label values that identify the series within the tile. */
+      labels: FrameLabels;
+      /** Interval and date range of the frame. */
+      meta: FrameMeta;
+      /** A time field, then one number field. */
+      fields: FrameField[];
+    }
+
     export interface CachedTileResult {
       /** Dashboard tile ID. */
       id: number;
@@ -25088,6 +25173,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
     }
 
     export interface CachedTilesResponse {
@@ -32853,6 +32945,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter1Response;
       schema_map?: PartialConversionGoalFilter1SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -32884,6 +32977,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter2Response;
       schema_map?: PartialConversionGoalFilter2SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -32920,6 +33014,7 @@ export namespace Schemas {
       schema_map?: PartialConversionGoalFilter3SchemaMap;
       table_name?: string | null;
       timestamp_field?: string | null;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -34359,6 +34454,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties
+     */
+    export type WarehousePersonPropertyMissingRowBehaviorEnum = typeof WarehousePersonPropertyMissingRowBehaviorEnum[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnum];
+
+
+    export const WarehousePersonPropertyMissingRowBehaviorEnum = {
+      Keep: 'keep',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `tracked` - tracked
      * * `ignored` - ignored
      */
@@ -34450,6 +34557,8 @@ export namespace Schemas {
       readonly existing: number;
       /** Property updates written or produced to the ingestion pipeline. */
       readonly produced: number;
+      /** People whose mapped properties were removed after they left the source table. */
+      readonly removed: number;
       /** Changed rows skipped because no existing account, person, or group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
@@ -34491,6 +34600,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -34642,6 +34756,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -35985,6 +36104,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
       stale?: boolean;
     }
@@ -42925,8 +43051,6 @@ export namespace Schemas {
     export interface EmailInfrastructureHealth {
       /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
       readonly emails_sent_at_least: number;
-      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-      readonly delivery_rate: number;
       /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
       readonly bounce_rate: number;
       /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -54481,6 +54605,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
          * The latest error that occurred when syncing this schema.
          * @nullable
          */
@@ -60688,6 +60817,19 @@ export namespace Schemas {
       readonly version_live_since: string;
     }
 
+    export interface SuggestionsSchedule {
+      /**
+         * Roughly when the project's suggestions scout last checked its workflows. Null before its first check.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * Roughly when the scout checks next. Null before its first check, or when a custom schedule or a backoff decides it.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+    }
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
@@ -60701,6 +60843,8 @@ export namespace Schemas {
       readonly scout_status: SuggestionsScoutStatusEnum;
       /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
       readonly sample: SuggestionsSample | null;
+      /** When the project's suggestions scout last checked and checks next. Null unless the scout is running. */
+      readonly schedule: SuggestionsSchedule | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -62275,6 +62419,10 @@ export namespace Schemas {
     export const MarketingAnalyticsRecommendationsDataGapKind = {
       ConversionActionTablesNotSynced: 'conversion_action_tables_not_synced',
       PerformanceMaxSearchTermsCountPrimaryConversions: 'performance_max_search_terms_count_primary_conversions',
+      PosthogConversionsNotReady: 'posthog_conversions_not_ready',
+      PosthogConversionGoalsUnusable: 'posthog_conversion_goals_unusable',
+      PosthogCampaignsUnmatched: 'posthog_campaigns_unmatched',
+      PosthogConversionsFailed: 'posthog_conversions_failed',
     } as const;
 
     export interface MarketingAnalyticsRecommendationsDataGap {
@@ -74508,6 +74656,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsActionConversionGoalResponse;
       schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74555,6 +74705,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsEventConversionGoalResponse;
       schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74593,6 +74745,8 @@ export namespace Schemas {
       schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -80208,6 +80362,20 @@ export namespace Schemas {
       step_at_delegation?: string;
     }
 
+    /**
+     * * `this_organization` - Linked to this organization
+     * * `other_region` - Linked to an organization in another region
+     * * `not_linked` - Not linked
+     */
+    export type OrganizationLinkStateEnum = typeof OrganizationLinkStateEnum[keyof typeof OrganizationLinkStateEnum];
+
+
+    export const OrganizationLinkStateEnum = {
+      ThisOrganization: 'this_organization',
+      OtherRegion: 'other_region',
+      NotLinked: 'not_linked',
+    } as const;
+
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
@@ -80345,6 +80513,8 @@ export namespace Schemas {
      * * `not_a_partner` - Not a provisioning partner
      * * `in_review` - In review
      * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
      * * `on` - On
      * * `off` - Off
      * * `blocked` - Blocked
@@ -80356,6 +80526,8 @@ export namespace Schemas {
       NotAPartner: 'not_a_partner',
       InReview: 'in_review',
       WaitingForStaff: 'waiting_for_staff',
+      ChangesRequested: 'changes_requested',
+      Declined: 'declined',
       On: 'on',
       Off: 'off',
       Blocked: 'blocked',
@@ -80364,7 +80536,9 @@ export namespace Schemas {
     /**
      * * `pending` - Pending
      * * `accepted` - Accepted
-     * * `rejected` - Rejected
+     * * `declined` - Declined
+     * * `changes_requested` - Changes requested
+     * * `rejected` - Blocked
      * * `needs_human` - Needs staff review
      */
     export type ProvisioningReviewStatusEnum = typeof ProvisioningReviewStatusEnum[keyof typeof ProvisioningReviewStatusEnum];
@@ -80373,9 +80547,55 @@ export namespace Schemas {
     export const ProvisioningReviewStatusEnum = {
       Pending: 'pending',
       Accepted: 'accepted',
+      Declined: 'declined',
+      ChangesRequested: 'changes_requested',
       Rejected: 'rejected',
       NeedsHuman: 'needs_human',
     } as const;
+
+    /**
+     * * `registered` - Registered
+     * * `automated_review` - Automated review
+     * * `staff_decision` - PostHog staff decision
+     * * `staff_message` - Message from PostHog staff
+     * * `partner_note` - Note from the partner
+     */
+    export type PartnerReviewEventKindEnum = typeof PartnerReviewEventKindEnum[keyof typeof PartnerReviewEventKindEnum];
+
+
+    export const PartnerReviewEventKindEnum = {
+      Registered: 'registered',
+      AutomatedReview: 'automated_review',
+      StaffDecision: 'staff_decision',
+      StaffMessage: 'staff_message',
+      PartnerNote: 'partner_note',
+    } as const;
+
+    export interface PartnerReviewEvent {
+      /** When it happened. */
+      readonly at: string;
+      /** registered: the app registered for provisioning. automated_review: the automated review decided. staff_decision: PostHog staff decided. staff_message: PostHog staff changed their message. partner_note: an admin of the app's organization sent a note.
+       *
+       * * `registered` - Registered
+       * * `automated_review` - Automated review
+       * * `staff_decision` - PostHog staff decision
+       * * `staff_message` - Message from PostHog staff
+       * * `partner_note` - Note from the partner */
+      readonly kind: PartnerReviewEventKindEnum;
+      /** The review status the event left. Null for registrations and notes.
+       *
+       * * `pending` - Pending
+       * * `accepted` - Accepted
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
+       * * `needs_human` - Needs staff review */
+      readonly status: ProvisioningReviewStatusEnum | null;
+      /** What PostHog staff wrote to the app's owners, or the text of the note. Empty when there is none. */
+      readonly message: string;
+      /** The email of the admin who sent a note. Empty for every other event. */
+      readonly author: string;
+    }
 
     /**
      * The review an app went through to become a provisioning partner, as its owners see it.
@@ -80384,11 +80604,13 @@ export namespace Schemas {
      * review checks, which would teach an abusive app what to fake.
      */
     export interface PartnerReview {
-      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. changes_requested: PostHog staff asked for changes or more information, so send a review note. declined: not approved, and a review note asks for another review. rejected: provisioning is blocked, and only PostHog staff can lift it.
        *
        * * `pending` - Pending
        * * `accepted` - Accepted
-       * * `rejected` - Rejected
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
        * * `needs_human` - Needs staff review */
       readonly status: ProvisioningReviewStatusEnum;
       /** When the app registered for provisioning. */
@@ -80398,8 +80620,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly decided_at: string | null;
-      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization. */
       readonly partner_message: string;
+      /** What happened on the review, oldest first: decisions, messages from PostHog staff, and notes. */
+      readonly timeline: readonly PartnerReviewEvent[];
     }
 
     /**
@@ -80421,6 +80645,8 @@ export namespace Schemas {
        * * `not_a_partner` - Not a provisioning partner
        * * `in_review` - In review
        * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
        * * `on` - On
        * * `off` - Off
        * * `blocked` - Blocked */
@@ -80428,6 +80654,94 @@ export namespace Schemas {
       readonly provisioning_review: PartnerReview | null;
       readonly created: string;
       readonly updated: string;
+    }
+
+    /**
+     * * `none` - Public client, PKCE only
+     * * `client_secret_post` - Client secret
+     * * `private_key_jwt` - Signs with a private key
+     */
+    export type PartnerAuthenticationEnum = typeof PartnerAuthenticationEnum[keyof typeof PartnerAuthenticationEnum];
+
+
+    export const PartnerAuthenticationEnum = {
+      None: 'none',
+      ClientSecretPost: 'client_secret_post',
+      PrivateKeyJwt: 'private_key_jwt',
+    } as const;
+
+    export interface RegisteredPartnerDetails {
+      /** The app's name, as of its last metadata refresh. */
+      readonly client_name: string;
+      /** The homepage in the document saved when the review opened. Empty when it had none. */
+      readonly client_uri: string;
+      /** The app's logo, as of its last metadata refresh. */
+      readonly logo_uri: string;
+      /** The terms of service in the document saved when the review opened. Empty when it had none. */
+      readonly tos_uri: string;
+      /** The privacy policy in the document saved when the review opened. Empty when it had none. */
+      readonly policy_uri: string;
+      /** Contact emails in the document saved when the review opened. */
+      readonly contacts: readonly string[];
+      /** Where PostHog sends people after they sign in, as of the last metadata refresh. */
+      readonly redirect_uris: readonly string[];
+      /** Where the app publishes the public keys it signs with. Empty for a public client. */
+      readonly jwks_uri: string;
+      /** How the app authenticates: none (public client), client_secret_post, or private_key_jwt.
+       *
+       * * `none` - Public client, PKCE only
+       * * `client_secret_post` - Client secret
+       * * `private_key_jwt` - Signs with a private key */
+      readonly authentication: PartnerAuthenticationEnum;
+      /** Every scope the app can ask people to grant. */
+      readonly scopes: readonly string[];
+      /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
+      readonly uses_default_scopes: boolean;
+      /** Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with. */
+      readonly needs_signing_key: boolean;
+      /** Whether the app can create PostHog accounts once provisioning is on. */
+      readonly can_create_accounts: boolean;
+      /** Whether the app can create projects and resources once provisioning is on. */
+      readonly can_provision_resources: boolean;
+      /** Whether a verification token links the app to this organization, to one in another region, or to none.
+       *
+       * * `this_organization` - Linked to this organization
+       * * `other_region` - Linked to an organization in another region
+       * * `not_linked` - Not linked */
+      readonly organization_link: OrganizationLinkStateEnum;
+      /** The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none. */
+      readonly metadata_document: string;
+    }
+
+    /**
+     * One application, with what PostHog read from its metadata document.
+     */
+    export interface OrganizationOAuthApplicationDetail {
+      readonly id: string;
+      /** @maxLength 255 */
+      name?: string;
+      /** @maxLength 2048 */
+      client_id?: string;
+      readonly redirect_uris_list: readonly string[];
+      /** True if this application has been verified by PostHog */
+      is_verified?: boolean;
+      /** True when the app registered itself from a client ID metadata document (CIMD). */
+      readonly is_cimd_client: boolean;
+      /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+       *
+       * * `not_a_partner` - Not a provisioning partner
+       * * `in_review` - In review
+       * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
+       * * `on` - On
+       * * `off` - Off
+       * * `blocked` - Blocked */
+      readonly provisioning_status: PartnerProvisioningStatusEnum;
+      readonly provisioning_review: PartnerReview | null;
+      readonly created: string;
+      readonly updated: string;
+      readonly registration: RegisteredPartnerDetails;
     }
 
     export interface OrganizationPersonalAPIKeyOwner {
@@ -90199,6 +90513,14 @@ export namespace Schemas {
       results: PanelQueryCheckResult[];
     }
 
+    export interface PartnerReviewNote {
+      /**
+         * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
     export interface PassRateBucket {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
@@ -91604,6 +91926,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -93553,6 +93880,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at?: string | null;
       /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /**
          * The latest error that occurred when syncing this schema.
          * @nullable
          */
@@ -94077,6 +94409,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    export interface PatchedGroupTypeMetadataUpdateRequest {
+      /**
+         * Group type metadata updates to apply, at most 5, one per group type.
+         * @maxItems 5
+         */
+      updates?: GroupTypeMetadataUpdate[];
     }
 
     /**
@@ -97665,7 +98005,7 @@ export namespace Schemas {
       readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
-      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
       readonly flag_calls_only_in_flag_evaluations?: boolean;
@@ -104141,7 +104481,7 @@ export namespace Schemas {
       readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
-      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
       readonly flag_calls_only_in_flag_evaluations: boolean;
@@ -107141,15 +107481,33 @@ export namespace Schemas {
     }
 
     /**
+     * * `classic` - Classic
+     * * `new` - New
+     */
+    export type QueryBatchEngineEnum = typeof QueryBatchEngineEnum[keyof typeof QueryBatchEngineEnum];
+
+
+    export const QueryBatchEngineEnum = {
+      Classic: 'classic',
+      New: 'new',
+    } as const;
+
+    /**
+     * * `query` - Query
      * * `insight` - Insight
      * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL
      */
     export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
 
 
     export const QueryBatchLanguageEnum = {
+      Query: 'query',
       Insight: 'insight',
       Hogql: 'hogql',
+      Promql: 'promql',
+      Logql: 'logql',
     } as const;
 
     /**
@@ -107158,22 +107516,52 @@ export namespace Schemas {
      */
     export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
 
+    /**
+     * * `time_series` - Time series
+     * * `table` - Table
+     */
+    export type QueryBatchTargetFormatEnum = typeof QueryBatchTargetFormatEnum[keyof typeof QueryBatchTargetFormatEnum];
+
+
+    export const QueryBatchTargetFormatEnum = {
+      TimeSeries: 'time_series',
+      Table: 'table',
+    } as const;
+
     export interface QueryBatchTarget {
       /**
          * The panel's ID for this query. Not used for caching.
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+      /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
+       * * `query` - Query
        * * `insight` - Insight
-       * * `hogql` - HogQL */
+       * * `hogql` - HogQL
+       * * `promql` - PromQL
+       * * `logql` - LogQL */
       language: QueryBatchLanguageEnum;
       /**
          * The query text, read according to `language`.
          * @maxLength 200000
          */
       query: string;
+      /**
+         * The series name template the panel draws. Returned unchanged on the target's line.
+         * @maxLength 1000
+         */
+      legend?: string;
+      /** How the panel draws the result. Returned unchanged on the target's line.
+       *
+       * * `time_series` - Time series
+       * * `table` - Table */
+      format?: QueryBatchTargetFormatEnum;
+      /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+       *
+       * * `classic` - Classic
+       * * `new` - New */
+      engine?: QueryBatchEngineEnum;
     }
 
     export interface QueryBatchTime {
@@ -107200,14 +107588,25 @@ export namespace Schemas {
          */
       variables?: QueryBatchQueryVariables;
       /**
-         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
          * @maxLength 20
          */
       interval?: string;
+      /**
+         * For promql and logql targets: the most points per series. Sets the step with `interval`.
+         * @minimum 1
+         * @maximum 10000
+         */
+      maxDataPoints?: number;
       /** Serve a stale cached result at once and recompute it in the background for the next read. */
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
       cacheOnly?: boolean;
+      /**
+         * The tile this target belongs to. Only labels the query's run in the query log.
+         * @maxLength 64
+         */
+      tile?: string;
     }
 
     export interface QueryBatchRequest {
@@ -107216,6 +107615,11 @@ export namespace Schemas {
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable
@@ -122446,6 +122850,13 @@ export namespace Schemas {
          * @maxLength 16384
          */
       expression: string;
+      /**
+         * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 255
+         */
+      scope_ids?: string[] | null;
     }
 
     /**
@@ -122471,6 +122882,21 @@ export namespace Schemas {
     } as const;
 
     export interface SourceFilterPreviewResponse {
+      /**
+         * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+         * @nullable
+         */
+      error_start: number | null;
+      /**
+         * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+         * @nullable
+         */
+      error_end: number | null;
       /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
        *
        * * `ok` - ok
@@ -122490,7 +122916,7 @@ export namespace Schemas {
       catalog_version: number;
       /** The preview reads records created in this many past days. */
       lookback_days: number;
-      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
       total_count: number;
       /** Records in the window that pass the filter. */
       passing_count: number;
@@ -122985,6 +123411,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version: PropertyMatchingVersionEnum;
+      /** Whether a property whose value is null counts as not set for the is_set and is_not_set operators, as it does in insights and cohorts. False means a null value counts as set. */
+      null_counts_as_not_set: boolean;
       /**
          * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
          * @nullable
@@ -122992,12 +123420,14 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, so that setting moves it back to events as well.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
        * * `2` - Flag evaluations only */
       flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Whether ingestion keeps writing $feature_flag_called to the events table for the organization of this team while it is on mode 2. Always false on modes 0 and 1. */
+      keep_writing_flag_calls_to_events: boolean;
       /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
       feature_flag_count: number;
     }
@@ -123017,6 +123447,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version?: PropertyMatchingVersionEnum;
+      /** New value for the team's null_counts_as_not_set setting. True makes a property whose value is null count as not set for is_set and is_not_set, which changes the results of flags that use those operators on null values. Omit to leave it unchanged. */
+      null_counts_as_not_set?: boolean;
       /**
          * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
          * @minimum 1
@@ -141413,6 +141845,10 @@ export namespace Schemas {
      */
     filters_override?: string;
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat;
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string;
@@ -141421,6 +141857,14 @@ export namespace Schemas {
      */
     variables_override?: string;
     };
+
+    export type DashboardsCachedTilesRetrieveFormat = typeof DashboardsCachedTilesRetrieveFormat[keyof typeof DashboardsCachedTilesRetrieveFormat];
+
+
+    export const DashboardsCachedTilesRetrieveFormat = {
+      Frames: 'frames',
+      Json: 'json',
+    } as const;
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
@@ -144931,7 +145375,7 @@ export namespace Schemas {
 
     export type ExternalDataSchemasListParams = {
     /**
-     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
      */
     compact?: boolean;
     /**
@@ -145011,7 +145455,7 @@ export namespace Schemas {
 
     export type ExternalDataSourcesListParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean;
     /**
@@ -145034,7 +145478,7 @@ export namespace Schemas {
 
     export type ExternalDataSourcesRetrieveParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean;
     /**

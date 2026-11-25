@@ -6333,6 +6333,8 @@ export interface HogQLQueryApi {
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
+    /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
@@ -7110,6 +7112,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7206,6 +7210,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7307,6 +7313,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }

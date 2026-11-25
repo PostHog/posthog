@@ -12,7 +12,7 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.api.oauth.provisioning_review import decide_partner, settle_review
+from posthog.api.oauth.provisioning_review import decide_partner, send_partner_note, settle_review
 from posthog.api.oauth.provisioning_review_slack import (
     BLOCK_ACTION_ID,
     BLOCK_ID_PREFIX,
@@ -105,14 +105,25 @@ class TestProvisioningReviewSlack(APIBaseTest):
             patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            decide_partner(self.app, accept=False, reason="Staff: Malicious usage")
+            send_partner_note(self.app, user=self.user, note="We onboard <!channel> teams.")
+
+        note = client.chat_postMessage.call_args.kwargs
+        assert note["thread_ts"] == "1700000000.000100"
+        assert note["text"] == f"Needs staff review: {self.user.email} added a note: We onboard &lt;!channel&gt; teams."
+
+        client.reset_mock()
+        with (
+            patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            decide_partner(self.app, decision=ProvisioningReviewStatus.REJECTED, reason="Staff: Malicious usage")
 
         updated = client.chat_update.call_args.kwargs
         assert updated["ts"] == "1700000000.000100"
         assert BLOCK_ACTION_ID not in _actions(updated["blocks"])
         reply = client.chat_postMessage.call_args.kwargs
         assert reply["thread_ts"] == "1700000000.000100"
-        assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
+        assert reply["text"] == "Needs staff review → Blocked: Staff: Malicious usage"
 
     def test_a_review_settled_where_the_bot_is_not_configured_still_queues_its_thread(self, _send_email) -> None:
         with (
@@ -128,16 +139,40 @@ class TestProvisioningReviewSlack(APIBaseTest):
             )
 
         sync_task.delay.assert_called_once_with(
-            str(self.review.pk), ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.PENDING, "Not sure"
+            str(self.review.pk),
+            ProvisioningReviewStatus.NEEDS_HUMAN,
+            ProvisioningReviewStatus.PENDING,
+            "Not sure",
+            always_reply=False,
         )
+
+    def test_a_reopening_note_replies_even_when_it_starts_the_thread(self, _send_email) -> None:
+        client = _slack_client()
+
+        with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
+            _sync_review_slack_thread(
+                str(self.review.pk),
+                status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                previous_status=ProvisioningReviewStatus.DECLINED,
+                reason="admin@example.com asked for another review: We added a homepage.",
+                always_reply=True,
+            )
+
+        replies = [c.kwargs["text"] for c in client.chat_postMessage.call_args_list if "thread_ts" in c.kwargs]
+        assert replies == [
+            "Declined → Needs staff review: admin@example.com asked for another review: We added a homepage."
+        ]
 
     @parameterized.expand(
         [
-            ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, False),
-            ("later_decision", ProvisioningReviewStatus.REJECTED, True),
+            ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.PENDING, False),
+            ("later_decision", ProvisioningReviewStatus.REJECTED, ProvisioningReviewStatus.NEEDS_HUMAN, True),
+            ("partner_note", ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.NEEDS_HUMAN, True),
         ]
     )
-    def test_a_post_the_database_missed_is_reused(self, _send_email, _name, next_status, replies) -> None:
+    def test_a_post_the_database_missed_is_reused(
+        self, _send_email, _name, next_status, previous_status, replies
+    ) -> None:
         client = _slack_client()
 
         with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
@@ -152,7 +187,7 @@ class TestProvisioningReviewSlack(APIBaseTest):
             _sync_review_slack_thread(
                 str(self.review.pk),
                 status=next_status,
-                previous_status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                previous_status=previous_status,
                 reason="Staff: Malicious usage",
             )
 

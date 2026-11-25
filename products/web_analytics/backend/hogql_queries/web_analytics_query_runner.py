@@ -45,6 +45,7 @@ from posthog.hogql.property import (
     property_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -818,6 +819,14 @@ WHERE and(
         if getattr(self.query, "includeRevenue", False):
             return False
         goal = getattr(self.query, "conversionGoal", None)
+        # The built-in-only database has no flag_evaluations table and turns off the flag-call swap and union.
+        # A goal that names `$feature_flag_called` would then count only the flag calls that `events` holds.
+        if (
+            goal is not None
+            and self.conversion_goal_expr is not None
+            and names_flag_called_event(self.conversion_goal_expr)
+        ):
+            return False
         filters = [
             *(getattr(self.query, "properties", None) or []),
             *self._test_account_filters,

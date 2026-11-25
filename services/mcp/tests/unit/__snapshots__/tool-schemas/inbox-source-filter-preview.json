@@ -6,6 +6,22 @@
             "maxLength": 16384,
             "type": "string"
         },
+        "scope_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "maxLength": 255,
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
+        },
         "source_product": {
             "description": "Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
             "maxLength": 100,

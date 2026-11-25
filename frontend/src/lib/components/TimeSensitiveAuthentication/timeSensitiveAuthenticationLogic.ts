@@ -29,6 +29,12 @@ export interface ReauthenticationForm {
     token?: string
 }
 
+/** Copy that names what the user is confirming, set by a scene whose writes need a recent sign-in. */
+export interface ReauthenticationPrompt {
+    title: string
+    description: string
+}
+
 export interface TwoFAMethodsResponse {
     has_totp: boolean
     has_passkeys: boolean
@@ -60,6 +66,7 @@ export interface timeSensitiveAuthenticationLogicValues {
     reauthenticationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     reauthenticationHasErrors: boolean
     reauthenticationManualErrors: Record<string, any>
+    reauthenticationPrompt: ReauthenticationPrompt | null
     reauthenticationTouched: boolean
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
@@ -176,6 +183,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setReauthenticationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
+    setReauthenticationPrompt: (prompt: ReauthenticationPrompt | null) => {
+        prompt: ReauthenticationPrompt | null
+    }
     setReauthenticationValue: (
         key: FieldName,
         value: any
@@ -271,6 +281,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         checkPasskeysAvailable: true,
         sendSetPasswordLink: true,
         setTotpAvailable: (available: boolean) => ({ available }),
+        setReauthenticationPrompt: (prompt: ReauthenticationPrompt | null) => ({ prompt }),
     }),
     reducers({
         dismissedReauthentication: [
@@ -285,6 +296,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             false,
             {
                 setRequiresTwoFactor: (_, { value }) => value,
+            },
+        ],
+        reauthenticationPrompt: [
+            null as ReauthenticationPrompt | null,
+            {
+                setReauthenticationPrompt: (_, { prompt }) => prompt,
             },
         ],
         totpAvailable: [
