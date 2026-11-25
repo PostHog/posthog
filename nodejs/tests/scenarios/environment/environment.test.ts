@@ -658,6 +658,18 @@ describe('scenario environment', () => {
             0,
         ],
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null, null],
+        [
+            'a group whose coordinator answered an error',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        \nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\nERROR        COORDINATOR_LOAD_IN_PROGRESS\n',
+            0,
+            null,
+        ],
+        [
+            'a group with a partition whose offsets rpk could not read',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      1\nTOTAL-LAG    0\n\nTOPIC                           PARTITION  CURRENT-OFFSET  LOG-START-OFFSET  LOG-END-OFFSET  LAG  MEMBER-ID  CLIENT-ID  HOST  ERROR\ncdp_intake_transactional_email  0          -               -                 -               -    m-1        intake     host  NOT_LEADER_FOR_PARTITION\n',
+            1,
+            null,
+        ],
     ])('reads the members and lag of %s from rpk', (_name, output, members, lag) => {
         expect(membersOf(output)).toBe(members)
         expect(lagOf(output)).toBe(lag)

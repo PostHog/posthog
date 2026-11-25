@@ -220,6 +220,11 @@ export async function groupMembers(group: string, docker: string): Promise<numbe
 }
 
 export function lagOf(rpkDescribe: string): number | null {
+    // rpk still prints a TOTAL-LAG when the group or a partition answered an error, and that total leaves out
+    // the offsets it could not read.
+    if (/^ERROR\s/m.test(rpkDescribe) || /^TOPIC\s.*\sERROR\s*$/m.test(rpkDescribe)) {
+        return null
+    }
     const lag = /^TOTAL-LAG\s+(\d+)\s*$/m.exec(rpkDescribe)
     return lag ? Number(lag[1]) : null
 }

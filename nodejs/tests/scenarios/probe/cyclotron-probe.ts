@@ -27,7 +27,10 @@ export function createCyclotronProbe(
             return Number(rows[0].jobs)
         }, cyclotronUrl)
     return {
-        unfinishedJobs: async (query) => (await count(query, ['available', 'running'])) + (await unconsumedIntake()),
+        unfinishedJobs: async (query) => {
+            const unconsumed = await unconsumedIntake()
+            return unconsumed + (await count(query, ['available', 'running']))
+        },
         runningJobs: (query) => count(query, ['running']),
         counts: ({ teams, queues }) =>
             withPostgres(async (client) => {

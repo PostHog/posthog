@@ -97,6 +97,15 @@ describe('cyclotron probe', () => {
         expect(await probe.unfinishedJobs({ teams: [OURS], queues: ['hogflow', 'email'] })).toBe(unfinished)
     })
 
+    it('counts a run the intake consumer inserts between reading its lag and counting the jobs', async () => {
+        const probe = createCyclotronProbe(PROBE_URL, async () => {
+            await insert([{ team: OURS, queue: 'email', status: 'available' }])
+            return 0
+        })
+
+        expect(await probe.unfinishedJobs({ teams: [OURS], queues: ['hogflow', 'email'] })).toBe(1)
+    })
+
     it('counts only the running jobs of the teams on the queue a valve waits for', async () => {
         await insert([
             { team: OURS, queue: 'email', status: 'running' },
