@@ -92,11 +92,14 @@ export type platformAlertsLogicType = MakeLogicType<
     platformAlertsLogicMeta
 >
 
-// A wait past the timer limit fires early, and the reload arms the next one.
 export function reloadWhenSnoozeEnds(snoozeUntil: string, reload: () => void): () => () => void {
     return () => {
-        const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
-        const timer = setTimeout(reload, delay)
+        let timer: ReturnType<typeof setTimeout>
+        const arm = (): void => {
+            const wait = Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000
+            timer = wait > MAX_TIMER_DELAY_MS ? setTimeout(arm, MAX_TIMER_DELAY_MS) : setTimeout(reload, wait)
+        }
+        arm()
         return () => clearTimeout(timer)
     }
 }

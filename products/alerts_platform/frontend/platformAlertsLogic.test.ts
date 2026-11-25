@@ -63,6 +63,19 @@ describe('platformAlertsLogic', () => {
         expect(mockList).toHaveBeenCalledTimes(1)
     })
 
+    it('waits out a snooze longer than the timer limit before it reloads', async () => {
+        const inThirtyDays = dayjs().add(30, 'day')
+        logic.actions.loadConfigurationsSuccess(page([{ ...CONFIGURATION, snooze_until: inThirtyDays.toISOString() }]))
+
+        jest.advanceTimersByTime(inThirtyDays.diff(dayjs()) - 1_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).not.toHaveBeenCalled()
+
+        jest.advanceTimersByTime(2_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).toHaveBeenCalledTimes(1)
+    })
+
     it('arms no reload when no snooze is active', async () => {
         logic.actions.loadConfigurationsSuccess(
             page([{ ...CONFIGURATION, snooze_until: dayjs().subtract(1, 'minute').toISOString() }])

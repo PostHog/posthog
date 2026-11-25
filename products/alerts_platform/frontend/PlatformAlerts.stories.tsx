@@ -329,7 +329,7 @@ export const ListMuteTooltipOpen: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
     play: async ({ canvasElement }) => {
         const name = await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
-        const marker = within(name.closest('tr') as HTMLElement).getByRole('img', { name: '1 group snoozed' })
+        const marker = within(name.closest('tr') as HTMLElement).getByRole('img', { name: /^1\sgroup snoozed$/ })
         await userEvent.hover(marker)
         await within(document.body).findByText('1 group snoozed. Their notifications are on hold.')
     },
