@@ -20,6 +20,7 @@ from products.customer_analytics.backend.facade.workflow_customer_tasks import (
     WorkflowCustomerTasksDisabled,
     create_customer_task_from_workflow,
 )
+from products.customer_analytics.backend.presentation.customer_task_tags import create_customer_task_tags_field
 from products.workflows.backend.facade.api import WorkflowNotFound
 
 
@@ -44,6 +45,7 @@ class WorkflowCustomerTaskCreateSerializer(serializers.Serializer):
         help_text="PostHog user ID of the assigned project member.",
     )
     due_at = serializers.DateTimeField(required=False, allow_null=True, help_text="ISO 8601 task deadline.")
+    tags = create_customer_task_tags_field("Tag names for the task, up to 100.")
     idempotency_key = serializers.CharField(
         max_length=128, help_text="Invocation and action key from the workflow worker."
     )

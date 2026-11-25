@@ -1,5 +1,5 @@
 import { draftMessage } from '../MessageAudience/messageDrafts'
-import { prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
+import { prefilledWorkflow, templatePrefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
 import { NEW_WORKFLOW } from './workflowLogic'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
@@ -40,5 +40,133 @@ describe('workflowEmailPrefill', () => {
         expect(filled.filled).toBe(true)
         expect((filled.workflow.actions[1].config as any).inputs.email.value.from).toEqual({ integrationId: 5 })
         expect(refilled).toEqual({ workflow: filled.workflow, filled: false })
+    })
+
+    it.each([
+        [
+            'a link the email editor saved with encoded spaces',
+            '<a href="{{%20variables.link%20}}">',
+            '<a href="{{%20event.properties.link%20}}">',
+        ],
+        ['a bracket lookup', "{{ variables['order-id'] }}", "{{ event.properties['order-id'] }}"],
+        ['whitespace control', '{{-variables.name-}}', '{{-event.properties.name-}}'],
+        [
+            'a loop',
+            '{% for item in variables.items %}{{ item }}{% endfor %}',
+            '{% for item in event.properties.items %}{{ item }}{% endfor %}',
+        ],
+        [
+            'a range bound',
+            '{% for i in (1..variables.count) %}{{ i }}{% endfor %}',
+            '{% for i in (1..event.properties.count) %}{{ i }}{% endfor %}',
+        ],
+        [
+            'a property that ends in variables',
+            '{{ person.properties.variables.x }}',
+            '{{ person.properties.variables.x }}',
+        ],
+        ['a hyphenated name that ends in variables', '{{ my-variables.x }}', '{{ my-variables.x }}'],
+        ['an assignment of all variables', '{% assign data = variables %}', '{% assign data = event.properties %}'],
+        [
+            'a quoted key that names variables',
+            "{{ variables['variables.name'] }}",
+            "{{ event.properties['variables.name'] }}",
+        ],
+        [
+            'a quoted fallback link',
+            '{{ variables.link | default: "https://example.com/variables.html" }}',
+            '{{ event.properties.link | default: "https://example.com/variables.html" }}',
+        ],
+        [
+            'a fallback the email editor saved with encoded quotes',
+            '{{ variables.link | default: &quot;/variables.html&quot; }}',
+            '{{ event.properties.link | default: &quot;/variables.html&quot; }}',
+        ],
+        [
+            'a raw block, which prints its text as written',
+            '{% raw %}{{ variables.name }}{% endraw %} {{ variables.name }}',
+            '{% raw %}{{ variables.name }}{% endraw %} {{ event.properties.name }}',
+        ],
+        [
+            'a comment block',
+            '{%- comment -%}{{ variables.name }}{%- endcomment -%}{{ variables.name }}',
+            '{%- comment -%}{{ variables.name }}{%- endcomment -%}{{ event.properties.name }}',
+        ],
+        [
+            'its own assignment of variables, as the name then reads that value',
+            '{% assign variables = person.properties %}{{ variables.name }}',
+            '{% assign variables = person.properties %}{{ variables.name }}',
+        ],
+        [
+            'its own capture of variables',
+            '{% capture variables %}Hi{% endcapture %}{{ variables }}',
+            '{% capture variables %}Hi{% endcapture %}{{ variables }}',
+        ],
+        [
+            'an assignment of variables inside a raw block, which Liquid only prints',
+            '{% raw %}{% assign variables = 1 %}{% endraw %}{{ variables.name }}',
+            '{% raw %}{% assign variables = 1 %}{% endraw %}{{ event.properties.name }}',
+        ],
+        [
+            'a closing delimiter that trims whitespace',
+            '{%- assign data = variables-%}',
+            '{%- assign data = event.properties-%}',
+        ],
+        [
+            'a quoted value with an escaped quote',
+            "{% assign hint = 'don\\'t type variables.name' %}{{ variables.name }}",
+            "{% assign hint = 'don\\'t type variables.name' %}{{ event.properties.name }}",
+        ],
+        [
+            'its own assignment of variables inside a liquid tag',
+            '{% liquid\n  assign variables = person.properties\n%}{{ variables.name }}',
+            '{% liquid\n  assign variables = person.properties\n%}{{ variables.name }}',
+        ],
+        [
+            'text that names the words for variables',
+            '<p>Look for variables</p>{{ variables.name }}',
+            '<p>Look for variables</p>{{ event.properties.name }}',
+        ],
+    ])('copies a template email with %s', (_, html, expected) => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: { templating: 'liquid', email: { html } },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value.html).toBe(expected)
+    })
+
+    it('copies a template subject that reads variables when only its body assigns its own', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: {
+                templating: 'liquid',
+                email: { subject: 'Order {{ variables.id }}', html: '{% assign variables = 1 %}{{ variables }}' },
+            },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value).toMatchObject({
+            subject: 'Order {{ event.properties.id }}',
+            html: '{% assign variables = 1 %}{{ variables }}',
+        })
+    })
+
+    it('copies a sender address that reads variables when only the sender name assigns its own', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: {
+                templating: 'liquid',
+                email: {
+                    from: { integrationId: 5, email: '{{ variables.sender }}', name: '{% assign variables = 1 %}Shop' },
+                    html: '<p>Hi</p>',
+                },
+            },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value.from).toEqual({
+            integrationId: 5,
+            email: '{{ event.properties.sender }}',
+            name: '{% assign variables = 1 %}Shop',
+        })
     })
 })

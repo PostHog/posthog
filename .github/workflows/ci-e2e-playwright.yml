@@ -36,6 +36,7 @@ env:
     SECURE_COOKIES: 0
     OPT_OUT_CAPTURE: 0
     E2E_TESTING: 1
+    MCP_CATALOG_SYNC_ON_WORKER_READY: 0
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
     SITE_URL: http://localhost:8000
@@ -1139,6 +1140,8 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
+                  docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster log" >> playwright/test-results/docker-valkey-cluster.log
+                  docker inspect --format '{{.Name}} restarts={{.RestartCount}} state={{json .State}}' posthog-valkey-cluster-1 posthog-plugins-1 > playwright/test-results/docker-container-state.log 2>&1 || echo "No valkey-cluster or plugins container" >> playwright/test-results/docker-container-state.log
 
             - name: Archive test artifacts
               if: always()

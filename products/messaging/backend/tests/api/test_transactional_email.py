@@ -9,10 +9,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
+from django.core.cache import caches
 from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -23,11 +26,18 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -38,6 +48,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
+    TransactionalEmailBurstThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -851,6 +862,41 @@ class TestTransactionalEmail(APIBaseTest):
         response = getattr(client, method)(route, self._code_send(), format="json")
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [
+            (f"{route}_{name}", route, listed, third_status)
+            for route in ("template", "send_email", "send_email_key_scoped")
+            for name, listed, third_status in (
+                ("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS),
+                ("listed", True, status.HTTP_202_ACCEPTED),
+            )
+        ]
+    )
+    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
+        self, mock_post, _flag, _capture, _name, route, listed, third_status
+    ):
+        self._cdp_accepts(mock_post)
+        client = self._sender_client("secret_key")
+        other_team = self.team.id + 1
+        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
+        with (
+            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
+            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+        ):
+            try:
+                is_rate_limit_enabled.cache_clear()
+                statuses = [self._send(client, route, self.body).status_code for _ in range(3)]
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
+                is_rate_limit_enabled.cache_clear()
+
+        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
@@ -2907,6 +2953,63 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (operation, access)
+            for operation in ("update", "make_transactional", "code_send")
+            for access in ("restricted", "granted", "admin")
+        ]
+    )
+    def test_workflow_changes_follow_property_access(
+        self, mock_post, _flag, operation: str, access: PropertyAccess
+    ) -> None:
+        self.client.force_login(self.user)
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        plain_template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Receipt",
+            content={"email": {"subject": "Receipt", "html": "<p>Receipt</p>"}},
+            type="email",
+            created_by=self.user,
+        )
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        if operation == "update":
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}},
+                format="json",
+            )
+        elif operation == "make_transactional":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/{plain_template.id}/make_transactional/",
+                {},
+                format="json",
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {"to": "user@example.com", "template_key": "welcome", "subject": "Welcome", "html": "<p>Hi</p>"},
+                format="json",
+            )
+
+        self.template.refresh_from_db()
+        plain_template.refresh_from_db()
+        changed = {
+            "update": self.template.content["email"]["subject"] == "New",
+            "make_transactional": plain_template.transactional_hog_flow_id is not None,
+            "code_send": HogFlow.objects.filter(team=self.team).count() == workflows_before + 1,
+        }[operation]
+        if access == "restricted":
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+            assert "property access" in response.json()["detail"].lower()
+            assert not changed
+            mock_post.assert_not_called()
+        else:
+            assert response.status_code < 300, response.json()
+            assert changed
 
     @parameterized.expand(
         [

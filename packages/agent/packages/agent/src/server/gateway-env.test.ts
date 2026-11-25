@@ -84,4 +84,17 @@ describe("buildGatewayEnv", () => {
       expected ? "phe_run" : "oauth-token",
     );
   });
+
+  it("routes by the server's product over the internal default", () => {
+    process.env.LLM_GATEWAY_URL = "https://gateway.us.posthog.com";
+    const gatewayEnv = buildGatewayEnv(
+      config,
+      { gatewayProduct: "signals", isInternal: true },
+      logger(),
+    );
+
+    expect(gatewayEnv.anthropicBaseUrl).toBe(
+      "https://gateway.us.posthog.com/signals",
+    );
+  });
 });

@@ -221,6 +221,10 @@ class SandboxSenderNotAvailable(TransactionalEmailError):
     code = "sandbox_sender_unavailable"
 
 
+class BatchUnavailable(TransactionalEmailError):
+    code = "batch_unavailable"
+
+
 @frozen
 class EmailTracking:
     opens: bool = True
@@ -276,6 +280,31 @@ class QueuedEmail:
     # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
     scheduled_at: str | None = None
     sent_from_sandbox: bool = False
+
+
+class BatchTooLarge(Exception):
+    pass
+
+
+@frozen
+class BatchRecipient:
+    to: str
+    idempotency_key: str
+    distinct_id: str | None = None
+    message_data: dict[str, Any] = field(default_factory=dict)
+    refusal: InvalidRecipient | None = None
+
+
+@frozen
+class EmailNotQueued:
+    message_id: str
+    error: TransactionalEmailError | DeliveryUnavailable
+
+
+@frozen
+class EmailBatchSent:
+    results: tuple[QueuedEmail | EmailNotQueued, ...]
+    warnings: tuple[SendWarning, ...] = ()
 
 
 class SupabaseEmailActionType(LabeledStrEnum):

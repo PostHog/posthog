@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from typing import Literal, get_args
 
+from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 
 from posthog.errors import QueryErrorCategory, classify_query_error
@@ -31,6 +32,7 @@ class DatabaseBuildTrigger(StrEnum):
     METRIC_ACCESS = "data_catalog_metric_access"
     USAGE_ACCESS = "data_catalog_usage_access"
     USAGE_TABLE_SOURCES = "data_catalog_usage_table_sources"
+    USAGE_TOPIC_READS = "data_catalog_usage_topic_reads"
     METRIC_LINEAGE = "data_catalog_metric_lineage"
     RELATIONSHIP_TABLES = "data_catalog_relationship_tables"
     RELATIONSHIP_PROBE = "data_catalog_relationship_probe"
@@ -121,6 +123,7 @@ class MetricRunRecorder:
             return
         self._recorded = True
         METRIC_RUNS_COUNTER.labels(definition_kind=self._kind, outcome=outcome).inc()
+        trace.get_current_span().set_attribute("outcome", outcome)
 
     def observe_duration(self, seconds: float) -> None:
         METRIC_RUN_DURATION_SECONDS.labels(kind=self._kind).observe(seconds)

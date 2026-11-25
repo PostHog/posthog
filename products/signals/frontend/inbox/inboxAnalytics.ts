@@ -85,6 +85,9 @@ export const INBOX_EVENTS = {
     SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
+    // The server captures `inbox_slack_channel_scout_created` when the create succeeds.
+    SLACK_CHANNEL_SCOUT_FORM_OPENED: 'Slack channel scout form opened',
+    SLACK_CHANNEL_SCOUT_CREATE_FAILED: 'Slack channel scout create failed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -788,11 +791,24 @@ export function captureInboxReportDecisionChanged(params: {
     })
 }
 
+/** A deep-link or a step from the report page has no list row, so it carries no ranking. */
+export interface TodayReportRanking {
+    rankerId: string | null
+    personalTier: string | null
+    personalReasonShown: boolean
+}
+
+export const NO_TODAY_REPORT_RANKING: TodayReportRanking = {
+    rankerId: null,
+    personalTier: null,
+    personalReasonShown: false,
+}
+
 /**
  * What the Today home knows about a report it shows. A briefing item carries less than the Inbox's
  * `SignalReport`, so the fields it cannot fill stay null on the event.
  */
-export interface TodayReportSnapshot {
+export interface TodayReportSnapshot extends TodayReportRanking {
     reportId: string
     priority: string | null
     hasPr: boolean
@@ -814,6 +830,9 @@ function todayReportProperties(report: TodayReportSnapshot): Record<string, unkn
         has_pr: report.hasPr,
         signal_count: report.signalCount,
         source_products: report.sourceProducts,
+        ranker_id: report.rankerId,
+        personal_tier: report.personalTier,
+        personal_reason_shown: report.personalReasonShown,
     }
 }
 
@@ -933,7 +952,8 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
 export type InboxReportTagSurface = 'card' | 'detail'
 
 /**
- * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * A tag chip was clicked. On a card it adds that tag to the Tags filter or removes it, and on the
+ * report detail it sets the filter to that tag alone and opens the Reports list. The resulting query
  * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
  */
 export function captureInboxReportTagClicked(params: {
@@ -1098,6 +1118,17 @@ export function captureSignalSourceSteeringChanged(params: {
         steering_length: params.steeringLength,
         has_steering: params.steeringLength > 0,
         success: params.success,
+    })
+}
+
+export function captureSlackChannelScoutFormOpened(params: { channelCount: number }): void {
+    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_FORM_OPENED, { channel_count: params.channelCount })
+}
+
+export function captureSlackChannelScoutCreateFailed(params: { channelCount: number; status: number | null }): void {
+    captureInboxEvent(INBOX_EVENTS.SLACK_CHANNEL_SCOUT_CREATE_FAILED, {
+        channel_count: params.channelCount,
+        status: params.status,
     })
 }
 

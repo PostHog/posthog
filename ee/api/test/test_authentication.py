@@ -80,6 +80,13 @@ GITHUB_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GITHUB_SECRET": "github_secret",
 }
 
+CHATGPT_MOCK_SETTINGS = {
+    "SOCIAL_AUTH_CHATGPT_KEY": "chatgpt_key",
+    "SOCIAL_AUTH_CHATGPT_SECRET": "chatgpt_secret",
+}
+CHATGPT_ISSUER = "https://auth.openai.com"
+CHATGPT_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
 CURRENT_FOLDER = os.path.dirname(__file__)
 
 
@@ -2045,12 +2052,51 @@ class TestEEAuthenticationAPI(APILicensedTest):
             mock_request.return_value.json.return_value = userinfo
             return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
 
+    def _complete_chatgpt_login(self, email: str, email_verified: bool | None, login_query: str = "") -> HttpResponse:
+        def provider_response(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+            if url.endswith("/.well-known/openid-configuration"):
+                document: dict[str, Any] = {
+                    "issuer": CHATGPT_ISSUER,
+                    "authorization_endpoint": f"{CHATGPT_ISSUER}/api/accounts/authorize",
+                    "token_endpoint": f"{CHATGPT_ISSUER}/api/accounts/oauth/token",
+                    "jwks_uri": f"{CHATGPT_ISSUER}/.well-known/jwks.json",
+                }
+            elif url.endswith("/.well-known/jwks.json"):
+                jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(CHATGPT_SIGNING_KEY.public_key()))
+                document = {"keys": [{**jwk, "kid": "chatgpt-test-key", "alg": "RS256", "use": "sig"}]}
+            else:
+                document = {"access_token": "123", "id_token": id_token}
+            return MagicMock(json=MagicMock(return_value=document), text=json.dumps(document))
+
+        with (
+            self.settings(**CHATGPT_MOCK_SETTINGS),
+            patch("social_core.backends.base.BaseAuth.request", side_effect=provider_response),
+        ):
+            authorize_query = parse_qs(urlparse(self.client.get(f"/login/chatgpt/?{login_query}")["Location"]).query)
+            now = int(timezone.now().timestamp())
+            claims: dict[str, Any] = {
+                "iss": CHATGPT_ISSUER,
+                "aud": "chatgpt_key",
+                "sub": "chatgpt-sub-new",
+                "iat": now,
+                "exp": now + 300,
+                "nonce": authorize_query["nonce"][0],
+                "email": email,
+                "name": "New Person",
+            }
+            if email_verified is not None:
+                claims["email_verified"] = email_verified
+            id_token = jwt.encode(claims, CHATGPT_SIGNING_KEY, algorithm="RS256", headers={"kid": "chatgpt-test-key"})
+            return self.client.get(f"/complete/chatgpt/?code=2&state={authorize_query['state'][0]}")
+
     @parameterized.expand(
         [
             ("github_unverified_primary", "github", False),
             ("google_unverified", "google-oauth2", False),
+            ("chatgpt_unverified", "chatgpt", False),
             ("github_verified_primary", "github", True),
             ("google_verified", "google-oauth2", True),
+            ("chatgpt_verified", "chatgpt", True),
         ]
     )
     def test_social_login_links_an_existing_account_only_by_a_provider_verified_email(
@@ -2065,6 +2111,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 github_id=4242,
                 emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
             )
+        elif provider == "chatgpt":
+            response = self._complete_chatgpt_login(email=self.user.email, email_verified=provider_verified)
         else:
             response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
 
@@ -2086,6 +2134,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
             ("github_public_email_lookup_fails", "github", False, True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
             ("google_unverified", "google-oauth2", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
             ("google_claim_missing", "google-oauth2", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("chatgpt_unverified", "chatgpt", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("chatgpt_claim_missing", "chatgpt", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
         ]
     )
     def test_social_signup_refuses_an_email_the_provider_has_not_verified(
@@ -2107,6 +2157,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 emails_status=emails_status,
                 profile_email=email if has_public_email else None,
             )
+        elif provider == "chatgpt":
+            response = self._complete_chatgpt_login(email=email, email_verified=email_verified)
         else:
             response = self._complete_google_login(email=email, email_verified=email_verified)
 
@@ -2116,6 +2168,24 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(User.objects.filter(email=email).exists())
         self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    def test_chatgpt_signup_paused_by_a_partial_step_stores_no_openai_token(self) -> None:
+        self.client.logout()
+
+        self._complete_chatgpt_login(email="new-person@example.com", email_verified=True)
+
+        stored = json.dumps(Partial.objects.get(backend="chatgpt").data)
+        self.assertIn("new-person@example.com", stored)
+        self.assertNotIn("access_token", stored)
+        self.assertNotIn("id_token", stored)
+
+    def test_chatgpt_login_is_refused_in_demo_mode(self) -> None:
+        self.client.logout()
+
+        with self.settings(**CHATGPT_MOCK_SETTINGS, DEMO=True):
+            response = self.client.get("/login/chatgpt/")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     @parameterized.expand(
         [

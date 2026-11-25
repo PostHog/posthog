@@ -221,6 +221,7 @@ pub struct LabelCardinality {
     candidate_count: AtomicUsize,
     candidates_per_token: DashMap<u64, usize>,
     protected: HashSet<(Scope, u64)>,
+    start_window: i64,
 }
 
 impl LabelCardinality {
@@ -239,8 +240,10 @@ impl LabelCardinality {
             .collect();
         protected.insert((Scope::Attribute, key_hash(ORIGINAL_TIMESTAMP_ATTRIBUTE)));
         protected.insert((Scope::Resource, key_hash(SERVICE_NAME_RESOURCE)));
+        let start_window = clock().div_euclid(settings.window.as_secs().max(1) as i64);
         Self {
             protected,
+            start_window,
             settings,
             clock,
             new_series: DashMap::new(),
@@ -540,7 +543,10 @@ impl LabelCardinality {
         if candidate.window == window {
             return;
         }
-        self.evaluate(candidate);
+        // The process sees only part of the window it starts in, and its first rows all look new.
+        if candidate.window != self.start_window {
+            self.evaluate(candidate);
+        }
         candidate.window = window;
         candidate.keys.clear();
     }
@@ -701,10 +707,11 @@ mod tests {
     }
 
     fn detector_with(settings: Settings) -> (LabelCardinality, Arc<AtomicI64>) {
-        let now = Arc::new(AtomicI64::new(START));
+        let now = Arc::new(AtomicI64::new(START - settings.window.as_secs() as i64));
         let clock_now = Arc::clone(&now);
         let detector =
             LabelCardinality::build(settings, Arc::new(move || clock_now.load(Ordering::SeqCst)));
+        now.store(START, Ordering::SeqCst);
         (detector, now)
     }
 
@@ -831,6 +838,25 @@ mod tests {
                 rule_key("requests_total", Scope::Attribute, "user_id"),
             ])
         );
+    }
+
+    #[test]
+    fn the_window_the_process_starts_in_is_not_judged() {
+        let now = Arc::new(AtomicI64::new(START));
+        let clock_now = Arc::clone(&now);
+        let detector = LabelCardinality::build(
+            settings(Mode::Shadow),
+            Arc::new(move || clock_now.load(Ordering::SeqCst)),
+        );
+        let rows = remote_write_rows(1000, true);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+        assert!(rule_keys(&detector).is_empty());
+
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+        assert!(!rule_keys(&detector).is_empty());
     }
 
     #[test]

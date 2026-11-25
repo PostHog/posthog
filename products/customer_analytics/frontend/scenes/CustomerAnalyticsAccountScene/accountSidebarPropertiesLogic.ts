@@ -786,6 +786,8 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistPinnedPropertiesSuccess]:
                     () => actions.loadPropertyData(),
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistFollowedDefaultSuccess]:
+                    () => actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadAvailableDefinitionsSuccess]:
                     () => actions.loadPropertyData(),
             }

@@ -11,16 +11,21 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client.execute import default_settings, sync_execute
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -194,6 +199,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert results[0]["template_name"] == "Password reset"
         assert results[0]["sending_domain"] == "mail.example.com"
+
+    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    def test_send_list_follows_property_access(self, _flag, access: PropertyAccess, expected: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        message_id = self._send(10, "a@example.com", [("sent", 1, "")])
+
+        responses = [
+            self.client.get(self._url()),
+            self.client.get(self._url(f"{message_id}/")),
+            self.client.get(self._url(f"{message_id}/activity/")),
+            self.client.get(self._url("stats/")),
+        ]
+
+        assert [response.status_code == 403 for response in responses] == [expected == 403] * 4
 
     @parameterized.expand(
         [
@@ -741,10 +760,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": {"sends": 3, "converted": 2},
         }
 
-    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag):
+    def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
-            create_person(team=self.team, distinct_ids=[distinct_id])
+            if minutes_ago % 2:
+                create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             sent_at = NOW - timedelta(minutes=minutes_ago)
             self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
@@ -752,18 +772,77 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, event="purchase", distinct_id=distinct_id, timestamp=sent_at + timedelta(hours=1)
             )
         flush_persons_and_events()
-        small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
 
-        with (
-            patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries),
-            patch(
-                "products.messaging.backend.services.transactional_email_log._BATCH_QUERY_BYTES",
-                SMALL_MAX_QUERY_SIZE // 4,
-            ),
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
         ):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
+
+    def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
+        welcomed: list[str] = []
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": 0}}):
+            few = len(self._impact_query_types_after_adding_sends(welcomed, 3))
+            more = len(self._impact_query_types_after_adding_sends(welcomed, 3))
+
+        assert few > 0
+        assert more == few
+
+    def test_counts_each_send_to_one_distinct_id_that_a_single_conversion_follows(self, _flag):
+        create_person(team=self.team, distinct_ids=["repeat"])
+        for minutes_ago in (180, 120):
+            message_id = self._send(minutes_ago, "repeat@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, "repeat", "repeat@example.com", NOW - timedelta(minutes=minutes_ago))
+        _create_event(team=self.team, event="purchase", distinct_id="repeat", timestamp=NOW - timedelta(minutes=60))
+        flush_persons_and_events()
+
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": 2, "converted": 2}
+
+    def test_labels_the_message_asset_lookup_impact_runs_in_clickhouses_query_log(self, _flag):
+        self._impact_query_types_after_adding_sends([], 1)
+
+        rows = sync_execute(
+            """
+            SELECT DISTINCT JSONExtractString(log_comment, 'query_type') FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_date >= yesterday() AND current_database = currentDatabase()
+              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
+              AND arrayExists(table -> endsWith(table, '.message_assets'), tables)
+            """,
+            {"team_id": self.team.id},
+        )
+        assert rows == [("message_assets_for_invocations",)]
+
+    def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
+        for _ in range(count):
+            name = f"welcome-{len(welcomed)}"
+            welcomed.append(name)
+            create_person(team=self.team, distinct_ids=[name])
+            message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
+            _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
+        flush_persons_and_events()
+        [(since_micros,)] = sync_execute("SELECT toUnixTimestamp64Micro(now64(6))")
+
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": len(welcomed), "converted": len(welcomed)}
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            """
+            SELECT any(JSONExtractString(log_comment, 'query_type')) FROM system.query_log
+            WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
+              AND position(query, %(impact_request)s) > 0
+            GROUP BY query_id
+            """,
+            {
+                "since_micros": since_micros,
+                "impact_request": f"request:_api_projects_{self.team.id}_transactional_email_log_impact_",
+            },
+        )
+        return [query_type for (query_type,) in rows]
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
@@ -882,14 +961,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_impact_counts_conversions_only_with_query_access(self, _flag):
+    def test_counts_conversions_only_with_query_access(self, _flag):
         self._deny_member("query")
 
         funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id})
         conversions = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, "event": "purchase"})
+        results = self.client.get(self._url("results/"), {"workflow_id": self.workflow_id, "event": "purchase"})
 
         assert funnel.status_code == status.HTTP_200_OK, funnel.json()
         assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
+        assert results.status_code == status.HTTP_403_FORBIDDEN, results.json()
 
     def test_names_a_send_from_code_by_its_template_key_and_links_its_code_email(self, _flag):
         workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="order-shipped"))

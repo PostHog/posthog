@@ -17,6 +17,7 @@ import { createMissingSandboxSenderTables } from './_tests/sandbox-world'
 import {
     MAX_PENDING_AUTHORIZATION_CONNECTIONS,
     readSandboxAuthorization,
+    readSandboxAuthorizations,
     sandboxReadRouter,
 } from './sandbox-authorization'
 
@@ -107,6 +108,24 @@ describe('readSandboxAuthorization', () => {
         await change(await createMember(memberEmail, organizationId, verified))
 
         expect(await read(memberEmail)).toEqual({ ok: false, reason: 'not_member' })
+    })
+
+    it('reads each recipient of a batch on its own, in order', async () => {
+        const outsider = `outsider-${team.id}@example.com`
+        await createMember(memberEmail, organizationId, true)
+        await createMember(outsider, await createOrganization(postgres), true)
+
+        const authorizations = await readSandboxAuthorizations(postgres, {
+            teamId: team.id,
+            recipients: [outsider, memberEmail.toUpperCase(), outsider],
+            tenantName,
+        })
+
+        expect(authorizations).toMatchObject([
+            { ok: false, reason: 'not_member' },
+            { ok: true, storedAddress: memberEmail },
+            { ok: false, reason: 'not_member' },
+        ])
     })
 
     it('refuses a verified member of another organization', async () => {

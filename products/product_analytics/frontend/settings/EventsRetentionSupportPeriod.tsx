@@ -2,10 +2,13 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import {
     EventsRetentionSupportPeriodModal,
     EventsRetentionSupportPeriodModalProps,
 } from './EventsRetentionSupportPeriodModal'
+import { QuillEventsRetentionSupportPeriod } from './QuillEventsRetentionSupportPeriod'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionSupportPeriodProps extends Omit<EventsRetentionSupportPeriodModalProps, 'onClose'> {
@@ -19,6 +22,19 @@ export function EventsRetentionSupportPeriod({
     ...modalProps
 }: EventsRetentionSupportPeriodProps): JSX.Element {
     const [changing, setChanging] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillEventsRetentionSupportPeriod
+                saving={saving}
+                restrictionReason={restrictionReason}
+                changing={changing}
+                onChangingChange={setChanging}
+                {...modalProps}
+            />
+        )
+    }
 
     return (
         <>

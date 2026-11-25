@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import tempfile
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -152,6 +153,20 @@ async def _make_job(
         parent_workflow_id=parent_workflow_id,
         manually_triggered_by=manually_triggered_by,
     )
+
+
+def _rust_panic() -> BaseException:
+    # pyo3 creates PanicException at runtime, so no module exports it. delta-rs panics on a
+    # decimal buffer that is not 16-byte aligned, which gives a real one.
+    zeros = pa.array([0, 0, 0], pa.int64()).buffers()[1]
+    assert zeros is not None
+    misaligned = pa.Array.from_buffers(pa.decimal128(38, 0), 1, [None, zeros.slice(8, 16)])
+    with tempfile.TemporaryDirectory() as table_path:
+        try:
+            deltalake.write_deltalake(table_path, pa.RecordBatch.from_arrays([misaligned], names=["d"]))
+        except BaseException as panic:
+            return panic
+    raise AssertionError("delta-rs accepted a misaligned decimal buffer")
 
 
 class TestMaterializeViewManagedWarehouseActivity:
@@ -459,6 +474,30 @@ class TestFailMaterializationActivity:
         # The UI derives run duration and the log-search window from last_run_at, so a
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
+
+    # When the last attempt cannot mark the job failed, the job stays Running with nothing
+    # else watching it, so that attempt has to reach error tracking. Earlier attempts retry.
+    @pytest.mark.parametrize("attempt,expect_captured", [(1, False), (3, True)])
+    async def test_reports_when_the_last_attempt_cannot_mark_the_job_failed(
+        self, activity_environment, ateam, anode, adag, attempt, expect_captured
+    ):
+        activity_environment.info = replace(activity_environment.info, attempt=attempt)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(uuid4()),
+            error="Query failed: timeout",
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.fail_materialization.capture_exception"
+        ) as capture:
+            with pytest.raises(DataModelingJob.DoesNotExist):
+                await activity_environment.run(fail_materialization_activity, inputs)
+
+        assert capture.called is expect_captured
+        if expect_captured:
+            assert isinstance(capture.call_args.args[0], DataModelingJob.DoesNotExist)
 
     @pytest.mark.parametrize(
         "status,error",
@@ -1008,7 +1047,13 @@ class TestNodeSuspension:
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: this query was cancelled because the Trino instance running it was being replaced; please run it again\", query_id=20261119_000000_00000_abcde)",
+            "Trino restarted while it was building this model, and all 3 attempts failed. The model's query did not cause this. "
+            "The model builds again on its next scheduled run, or you can run it now. Trino query ID: 20261119_000000_00000_abcde",
             "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
+            "error 502: bad gateway",
+            "error 503: service unavailable",
+            "error 504: gateway timeout",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1060,7 +1105,10 @@ class TestNodeSuspension:
                     "error 403: b'This tenant is not admitted to the pool yet",
                     "name=CLUSTER_OUT_OF_MEMORY,",
                     "name=TOO_MANY_REQUESTS_FAILED,",
+                    "the Trino instance running it was being replaced",
+                    "Trino restarted while it was building this model",
                     "name=PAGE_TRANSPORT_TIMEOUT,",
+                    "error 503: service unavailable",
                 ]
             ),
         ],
@@ -1105,6 +1153,7 @@ class TestNodeSuspension:
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
             "ClickHouseError: Code: 32. DB::Exception: Cannot parse Int64 from String, because value is too short. "
             "(ATTEMPT_TO_READ_AFTER_EOF)",
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: runaway query\", query_id=20261119_000000_00000_abcde)",
         ],
     )
     async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
@@ -1543,7 +1592,10 @@ class TestSucceedMaterializationActivity:
 
 
 class TestPrepareQueryableTableActivity:
-    async def test_creates_warehouse_table_from_saved_query(self, activity_environment, ateam, asaved_query, ajob):
+    @pytest.mark.parametrize("incremental,expected_row_count", [(False, 100), (True, None)])
+    async def test_creates_warehouse_table_from_saved_query(
+        self, activity_environment, ateam, asaved_query, ajob, incremental, expected_row_count
+    ):
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
             job_id=str(ajob.id),
@@ -1551,6 +1603,7 @@ class TestPrepareQueryableTableActivity:
             table_uri="s3://test-bucket/test_table",
             file_uris=["s3://test-bucket/test_file.parquet"],
             row_count=100,
+            incremental=incremental,
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
@@ -1567,12 +1620,16 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             mock_prepare.assert_called_once()
             mock_create_table.assert_called_once_with(
-                str(ajob.id), str(asaved_query.id), ateam.pk, "test-bucket/queryable_folder"
+                str(ajob.id),
+                str(asaved_query.id),
+                ateam.pk,
+                "test-bucket/queryable_folder",
+                row_count=expected_row_count,
             )
         await database_sync_to_async(warehouse_table.delete)()
 
@@ -1616,7 +1673,7 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
@@ -1651,13 +1708,11 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             await database_sync_to_async(asaved_query.refresh_from_db)()
             assert asaved_query.table_id == warehouse_table.id
-            await database_sync_to_async(warehouse_table.refresh_from_db)()
-            assert warehouse_table.row_count == 250
         await database_sync_to_async(warehouse_table.delete)()
 
     @pytest.mark.parametrize(
@@ -1702,7 +1757,9 @@ class TestPrepareQueryableTableActivity:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
                 is_materialized=is_materialized, table=warehouse_table
             )
-            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+            return CreateTableResult(
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
+            )
 
         with (
             unittest.mock.patch(
@@ -1758,7 +1815,9 @@ class TestPrepareQueryableTableActivity:
             ),
             unittest.mock.patch(
                 "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query",
-                return_value=CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None),
+                return_value=CreateTableResult(
+                    table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
+                ),
             ),
             unittest.mock.patch(
                 "products.data_modeling.backend.temporal.activities.prepare_queryable_table.link_table_if_materializing",
@@ -1932,8 +1991,32 @@ class TestMaterializeViewActivity:
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
 
+    @pytest.mark.parametrize(
+        "first_column,later_column",
+        [
+            pytest.param(pa.array(["r0", "r1"]), pa.array(["r0", "r1"]), id="string"),
+            pytest.param(
+                pa.array([[1], [2]], pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                pa.array([[1, None], [2]], pa.list_(pa.field("element", pa.int64()))),
+                id="list_element_turns_nullable",
+            ),
+            pytest.param(
+                pa.array([{"a": 1}, {"a": 2}], pa.struct([pa.field("a", pa.int64(), nullable=False)])),
+                pa.array([{"a": None}, {"a": 2}], pa.struct([pa.field("a", pa.int64())])),
+                id="struct_field_turns_nullable",
+            ),
+            pytest.param(
+                pa.array(
+                    [[("k", [1])], []],
+                    pa.map_(pa.string(), pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                ),
+                pa.array([[("k", [None])], []], pa.map_(pa.string(), pa.list_(pa.int64()))),
+                id="list_element_in_a_map_value_turns_nullable",
+            ),
+        ],
+    )
     async def test_preserves_column_casing_for_non_nullable_columns_across_batches(
-        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, first_column, later_column
     ):
         # regression: ClickHouse emits NON-nullable columns for expressions, constants,
         # concat()/toString(), and non-Nullable source columns. When such a query spans more
@@ -1944,17 +2027,14 @@ class TestMaterializeViewActivity:
         # for any column containing uppercase characters. This mirrors the customer query whose
         # camelCase columns (userId, portfolioId, pHuniqueId, aumDKK, ...) are all non-nullable.
         camel_case_names = ["date", "userId", "portfolioId", "pHuniqueId", "aumDKK", "aum_ETF"]
-        non_nullable_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in camel_case_names])
 
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
-            batches = [
-                pa.RecordBatch.from_arrays(
-                    [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
-                    schema=non_nullable_schema,
-                )
-                for i in range(3)
-            ]
+            batches = []
+            for i in range(3):
+                column = first_column if i == 0 else later_column
+                schema = pa.schema([pa.field(name, column.type, nullable=False) for name in camel_case_names])
+                batches.append(pa.RecordBatch.from_arrays([column for _ in camel_case_names], schema=schema))
 
             async def async_generator():
                 for batch in batches:
@@ -2043,7 +2123,16 @@ class TestMaterializeViewActivity:
             assert empty_parquet.metadata.num_row_groups == 0
             assert empty_parquet.schema_arrow.names == ["id", "name"]
 
-    async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
+    @pytest.mark.parametrize(
+        "write_error,expected_message",
+        [
+            pytest.param(lambda: RuntimeError("boom"), "boom", id="exception"),
+            pytest.param(_rust_panic, "not aligned with the specified scalar type", id="rust_panic"),
+        ],
+    )
+    async def test_write_failure_surfaces(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, write_error, expected_message
+    ):
         # regression: a failure in a per-batch write_deltalake call must surface from the
         # activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
@@ -2061,9 +2150,11 @@ class TestMaterializeViewActivity:
 
             return async_generator()
 
+        error = write_error()
+
         def raising_write(*args, **kwargs):
             del args, kwargs
-            raise RuntimeError("boom")
+            raise error
 
         with (
             override_settings(
@@ -2083,7 +2174,7 @@ class TestMaterializeViewActivity:
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
-            with pytest.raises(RuntimeError, match="boom"):
+            with pytest.raises(Exception, match=expected_message):
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
@@ -2333,12 +2424,21 @@ class TestHogqlTableModifiers:
             ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
             ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            (
+                "Array(Variant(Int64, String))",
+                "arrayMap(x -> accurateCastOrNull(x, %(hogql_val_0)s), person_ids) AS person_ids",
+            ),
+            ("Variant(Int64, String)", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Dynamic", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Tuple(value Variant(Int64, String))", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
             ("Array(String)", None),
             ("Array(Tuple(uuid String))", None),
             ("Array(Array(UUID))", None),
+            ("Tuple(variant String, dynamic String, uuid String)", None),
+            ("Tuple(`variant` String)", None),
         ],
     )
-    async def test_applies_arrow_conversions_to_array_elements(
+    async def test_applies_arrow_conversions(
         self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
@@ -2355,7 +2455,7 @@ class TestHogqlTableModifiers:
 
         assert client.arrow_query is not None
         if expected_conversion is None:
-            assert "arrayMap(" not in client.arrow_query
+            assert client.arrow_query.startswith("SELECT [] AS person_ids FORMAT ArrowStream")
         else:
             assert expected_conversion in client.arrow_query
 
@@ -3035,6 +3135,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
 
         # The workflow gates the person-property child on this field.
         assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is True
 
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix.removeprefix(f"{bucket_name}/"))
         keys = [obj["Key"] for obj in listing.get("Contents", [])]
@@ -3045,6 +3146,27 @@ class TestMaterializeViewStagesPersonPropertyRows:
         # Only the projected columns leave the pipeline — "plan" isn't mapped by this projection.
         assert table.column_names == ["distinct_id"]
         assert table.column("distinct_id").to_pylist() == ["a", "b"]
+
+    @pytest.mark.parametrize("failing_method", ["clear", "stage_chunk"])
+    async def test_staging_failure_marks_the_full_read_incomplete(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, failing_method: str
+    ) -> None:
+        projection = [PersonPropertySourceProjection(key_column="distinct_id", columns=frozenset({"distinct_id"}))]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            self._env(bucket_name, projection),
+            unittest.mock.patch(
+                f"products.data_modeling.backend.temporal.activities.materialize_view."
+                f"PersonPropertyRowSink.{failing_method}",
+                new=unittest.mock.AsyncMock(side_effect=RuntimeError("staging failed")),
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is False
 
     async def test_unmapped_view_stages_nothing_and_leaves_the_flag_off(
         self, activity_environment, ateam, anode, ajob, adag, bucket_name, minio_client
@@ -3057,6 +3179,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
         assert result.person_property_sync_enabled is False
+        assert result.person_property_complete_table_read is False
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
         assert listing.get("Contents", []) == []
 
@@ -3145,6 +3268,42 @@ class TestMaterializeViewStagesAccountPropertyRows:
         staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
         table = pq.read_table(BytesIO(await staged_object["Body"].read()))
         assert table.column_names == ["mrr", "organization_id"]
+
+    async def test_a_rust_panic_while_reading_the_snapshot_turns_account_sync_off(
+        self, activity_environment, ateam, anode, ajob, adag, bucket_name
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+        ]
+        panic = _rust_panic()
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+            unittest.mock.patch.object(deltalake.DeltaTable, "version", side_effect=panic),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.row_count == 2
+        assert result.account_property_sync_enabled is False
+        assert result.delta_version is None
 
 
 class TestAwsStorageOptions:

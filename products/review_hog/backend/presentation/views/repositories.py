@@ -163,7 +163,19 @@ class ReviewRepositorySerializer(serializers.Serializer):
     )
     review_drafts = serializers.BooleanField(
         read_only=True,
-        help_text="Whether draft pull requests in this repository get their automatic review when they open.",
+        help_text="Whether draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready.",
+    )
+    review_pushes = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether later pushes to a ready pull request in this repository get automatic reviews, as the "
+        "push gate allows. False gives each pull request its reviews only when it opens or is marked ready.",
+    )
+    deep_review_gated_prs = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a pull request gets one Deep automatic review: instead of the Standard review when "
+        "auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds "
+        "a must-fix issue.",
     )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
@@ -200,8 +212,24 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
     )
     review_drafts = serializers.BooleanField(
         required=False,
-        help_text="True lets draft pull requests in this repository get their automatic review when they open. "
-        "False waits until they are ready for review. Omit it to keep the current value.",
+        help_text="True lets draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready. False waits until they are ready for review. Omit it to keep "
+        "the current value.",
+    )
+    deep_review_gated_prs = serializers.BooleanField(
+        required=False,
+        help_text="True gives a pull request one Deep automatic review: instead of the Standard review when "
+        "auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds "
+        "a must-fix issue. The first case works only when the repository is also added to auto-approval. Drafts keep "
+        "the Standard review. False keeps every automatic "
+        "review Standard. Omit it to keep the current value.",
+    )
+
+    review_pushes = serializers.BooleanField(
+        required=False,
+        help_text="True lets later pushes to a ready pull request in this repository get automatic reviews, as "
+        "the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the "
+        "current value.",
     )
 
     def validate_full_name(self, value: str) -> str:
@@ -454,10 +482,11 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         },
         summary="Save a repository's settings",
         description="Include a repository into this project, remove it, set or clear its exception, or turn its "
-        "draft reviews on or off. Only the "
+        "draft reviews, push reviews or Deep reviews of pull requests that need a person on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
         "takes it from that project; the response names it. Project members can only turn reviews up: include "
-        "a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.",
+        "a repository, raise its exception, or turn draft, push or Deep reviews on. Everything else needs a "
+        "project admin.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryWriteSerializer(data=request.data)
@@ -476,6 +505,8 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 selected=data.get("selected"),
                 flash_for=flash_for,
                 review_drafts=data.get("review_drafts"),
+                deep_review_gated_prs=data.get("deep_review_gated_prs"),
+                review_pushes=data.get("review_pushes"),
                 raise_only=not self.is_effective_team_admin(),
             )
         except AdminOnlyChangeError as error:

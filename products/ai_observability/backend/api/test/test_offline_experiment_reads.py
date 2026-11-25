@@ -91,6 +91,32 @@ class TestOfflineExperimentReads(APIBaseTest):
             f"offline_scorers/{definition_id or self.definition.id}/history/"
         )
 
+    @parameterized.expand(
+        [
+            ("evaluated_before_edit", -1, None, True),
+            ("updated_at_edit", -1, 0, False),
+            ("accepted_after_edit", None, None, False),
+        ]
+    )
+    def test_result_cells_and_detail_use_the_same_score_time(
+        self, _name: str, evaluated_hours: int | None, updated_hours: int | None, expected_stale: bool
+    ) -> None:
+        edit_time = self.result.accepted_at - timedelta(hours=1)
+        self.item.content_updated_at = edit_time
+        self.item.save(update_fields=["content_updated_at"])
+        self.result.evaluated_at = edit_time + timedelta(hours=evaluated_hours) if evaluated_hours is not None else None
+        self.result.score_updated_at = edit_time + timedelta(hours=updated_hours) if updated_hours is not None else None
+        self.result.save(update_fields=["evaluated_at", "score_updated_at"])
+        query = {"scorer_version_ids": str(self.version.id)}
+        cells = self.client.get(
+            self._endpoint(f"{self.experiment.id}/result_cells/"), {**query, "item_ids": str(self.item.id)}
+        )
+        items = self.client.get(self._endpoint(f"{self.experiment.id}/items/"), query)
+        detail = self.client.get(self._endpoint(f"{self.experiment.id}/items/{self.item.id}/results/"))
+        self.assertEqual(cells.data["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(items.data["results"][0]["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(detail.data["results"][0]["is_stale"], expected_stale)
+
     def _metadata_paths(self) -> list[str]:
         return [
             self._endpoint(),

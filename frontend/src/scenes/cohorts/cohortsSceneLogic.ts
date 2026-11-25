@@ -17,6 +17,8 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ActivityScope, Breadcrumb, CohortType, ExporterFormat } from '~/types'
 
+import type { RealtimeCohortsJoinStateEnumApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { realtimeCohortsJoinLogic } from 'products/cohorts/frontend/realtime/realtimeCohortsJoinLogic'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { TriggerExportProps } from '../../lib/components/ExportButton/exporter'
@@ -50,12 +52,12 @@ export interface cohortsSceneLogicValues {
     count: number
     pagination: PaginationManual
     paramsFromFilters: {
-        created_by_id?: number | undefined
+        created_by_id?: number
         limit: number
         offset: number
-        page?: number | undefined
-        search?: string | undefined
-        type?: 'dynamic' | 'static' | undefined
+        page?: number
+        search?: string
+        type?: 'dynamic' | 'static'
     }
     shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
@@ -66,6 +68,9 @@ export interface cohortsSceneLogicActions {
     startExport: (exportData: TriggerExportProps) => {
         exportData: TriggerExportProps
     } // exportsLogic
+    setJoinState: (joinState: RealtimeCohortsJoinStateEnumApi) => {
+        joinState: RealtimeCohortsJoinStateEnumApi
+    } // realtimeCohortsJoinLogic
     deleteCohort: (cohort: Partial<CohortType>) => {
         cohort: Partial<CohortType>
     }
@@ -116,12 +121,12 @@ export interface cohortsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         count: (cohorts: CountedPaginatedResponse<CohortType>) => number
         paramsFromFilters: (cohortFilters: CohortFilters) => {
-            created_by_id?: number | undefined
+            created_by_id?: number
             limit: number
             offset: number
-            page?: number | undefined
-            search?: string | undefined
-            type?: 'dynamic' | 'static' | undefined
+            page?: number
+            search?: string
+            type?: 'dynamic' | 'static'
         }
         pagination: (cohortFilters: CohortFilters, count: number) => PaginationManual
         shouldShowEmptyState: (
@@ -142,7 +147,7 @@ export type cohortsSceneLogicType = MakeLogicType<
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
     connect(() => ({
-        actions: [exportsLogic, ['startExport']],
+        actions: [exportsLogic, ['startExport'], realtimeCohortsJoinLogic, ['setJoinState']],
     })),
     actions(() => ({
         setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean, debounce: boolean = true) => ({
@@ -328,6 +333,12 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 exportCommand.export_context['columns'] = columns
             }
             actions.startExport(exportCommand)
+        },
+        setJoinState: ({ joinState }) => {
+            // The rows loaded before the project joined carry no realtime state, so their tags only show after a reload.
+            if (joinState === 'serving') {
+                actions.loadCohorts()
+            }
         },
     })),
     trackedActionToUrl(({ values }) => ({

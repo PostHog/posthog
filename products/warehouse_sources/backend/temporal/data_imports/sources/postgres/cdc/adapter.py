@@ -41,7 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     remove_table_from_publication,
     slot_exists,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
     _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
@@ -54,6 +58,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCStreamReader
 
 logger = logging.getLogger(__name__)
+
+# Both lag statements read catalog views, so a server that answers at all answers in well under this.
+LAG_CHECK_CLIENT_DEADLINE_SECONDS = 30
 _retry_logger = structlog.get_logger(__name__)
 
 
@@ -202,8 +209,11 @@ class PostgresCDCAdapter:
         return slot_exists(conn, self.parse_cdc_config(source).slot_name)
 
     def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
-        lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
-        retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
+        # The connect timeout ends at the handshake, and a server that then stops answering would hold
+        # the caller past its activity heartbeat.
+        with client_side_deadline(conn, LAG_CHECK_CLIENT_DEADLINE_SECONDS):
+            lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
+            retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
         if lag_bytes is None:
             return None
         return CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
@@ -215,9 +225,12 @@ class PostgresCDCAdapter:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
         # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
-        # the host policy raises HostNotAllowedError before any socket opens.
-        # None points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
+        # the host policy raises HostNotAllowedError before any socket opens;
+        # _connect_to_postgres replaces the OperationalError of a server without SSL
+        # with SSLRequiredError, a plain Exception. None points at a bug in our code.
+        return isinstance(
+            exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError | SSLRequiredError
+        )
 
     def customer_fixable_error_message(self, exc: BaseException) -> str | None:
         return _customer_fixable_setup_message(exc)

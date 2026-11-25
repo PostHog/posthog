@@ -49,7 +49,9 @@ ISSUE_TAGS_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=3,
 )
 ISSUE_TAGS_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
-ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
+# Alerts do not wait for tags, so this bound only has to outlast a lifecycle queue backlog
+# while the worker pool scales up.
+ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 MERGE_TARGET_TAGS_PATCH = "error-tracking-merge-target-tags-activity"
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(

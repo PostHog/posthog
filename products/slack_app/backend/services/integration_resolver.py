@@ -16,7 +16,6 @@ from products.signals.backend.facade import api as signals_facade
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_fork_context import get_pending_fork
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
@@ -226,10 +225,6 @@ def resolve_from_candidates(
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
                 return ResolutionResult(integration=target, source="thread", candidates=accessible)
-
-        for candidate in accessible:
-            if get_pending_fork(candidate.id, channel, thread_ts) is not None:
-                return ResolutionResult(integration=candidate, source="thread", candidates=accessible)
 
         report_team_id = signals_facade.report_team_id_for_slack_thread(
             team_ids=[candidate.team_id for candidate in accessible],

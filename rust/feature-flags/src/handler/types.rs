@@ -177,6 +177,7 @@ pub enum Library {
     PosthogUnity,
     PosthogGodot,
     PosthogUnreal,
+    PosthogElectron,
     /// posthog-server SDK (deprecated: users are migrating to posthog-java)
     PosthogServer,
     /// Unknown or unrecognized SDK
@@ -218,6 +219,7 @@ impl Library {
             Library::PosthogUnity => "posthog-unity",
             Library::PosthogGodot => "posthog-godot",
             Library::PosthogUnreal => "posthog-unreal",
+            Library::PosthogElectron => "posthog-electron",
             Library::PosthogServer => "posthog-server",
             Library::Other => "other",
         }
@@ -255,6 +257,7 @@ impl Library {
         Library::PosthogUnity,
         Library::PosthogGodot,
         Library::PosthogUnreal,
+        Library::PosthogElectron,
         Library::PosthogServer,
     ];
 }
@@ -379,6 +382,7 @@ mod tests {
     #[case("posthog-ruby-mcp/1.0.0", Library::PosthogRubyMcp)]
     #[case("posthog-godot/1.0.0", Library::PosthogGodot)]
     #[case("posthog-unreal/1.0.0", Library::PosthogUnreal)]
+    #[case("posthog-electron/0.1.0", Library::PosthogElectron)]
     #[case("posthog-unity/4.5.0", Library::PosthogUnity)]
     // Browser user-agents (detected as posthog-js)
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", Library::PosthogJs)]
@@ -474,6 +478,7 @@ mod tests {
     #[case(Library::PosthogRubyMcp, "posthog-ruby-mcp")]
     #[case(Library::PosthogGodot, "posthog-godot")]
     #[case(Library::PosthogUnreal, "posthog-unreal")]
+    #[case(Library::PosthogElectron, "posthog-electron")]
     #[case(Library::PosthogUnity, "posthog-unity")]
     #[case(Library::PosthogServer, "posthog-server")]
     #[case(Library::Other, "other")]
@@ -509,6 +514,7 @@ mod tests {
     #[case(Library::PosthogRubyMcp, "\"posthog-ruby-mcp\"")]
     #[case(Library::PosthogGodot, "\"posthog-godot\"")]
     #[case(Library::PosthogUnreal, "\"posthog-unreal\"")]
+    #[case(Library::PosthogElectron, "\"posthog-electron\"")]
     #[case(Library::PosthogUnity, "\"posthog-unity\"")]
     #[case(Library::PosthogServer, "\"posthog-server\"")]
     #[case(Library::Other, "\"other\"")]

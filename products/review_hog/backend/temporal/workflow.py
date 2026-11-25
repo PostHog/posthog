@@ -507,6 +507,7 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 signal_priority=inputs.signal_priority,
                 review_mode=inputs.review_mode,
+                trigger_action=inputs.trigger_action,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -624,6 +625,9 @@ class ReviewPRWorkflow:
                         zero_change_skip=meta.zero_change_skip,
                         delta_band=meta.delta_band,
                         coordinator=meta.coordinator,
+                        installation_id=inputs.installation_id,
+                        github_repo_id=inputs.github_repo_id,
+                        trigger_action=inputs.trigger_action,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -856,6 +860,8 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
                         capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
+                        installation_id=inputs.installation_id,
+                        github_repo_id=inputs.github_repo_id,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_GITHUB_POST_RETRY,
@@ -953,6 +959,8 @@ class ReviewPRWorkflow:
                     marks_ready=not inputs.answered_by_queue
                     and inputs.marks_ready
                     and inputs.requested_head_sha == head_sha,
+                    draft=meta.draft,
+                    user_id=inputs.user_id,
                 )
             )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);

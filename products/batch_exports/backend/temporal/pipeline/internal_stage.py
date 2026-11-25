@@ -22,7 +22,10 @@ from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -81,7 +84,9 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    build_select_list,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
@@ -116,15 +121,15 @@ class HogQLTableNotSupportedError(Exception):
 class CustomSchemaWithoutQueryError(Exception):
     """A custom schema stored without its HogQL query, so a run on the native events table cannot recompile it.
 
-    A schema is stored without its query when the user who saved it had restricted properties. Its stored fields
-    read the legacy String `properties`, so they cannot run on the native table either.
+    Older saves by a user with restricted properties stored the schema without its query. Its stored fields read the
+    legacy String `properties`, so they cannot run on the native table either. Saving the export again stores the
+    query and the restrictions it needs.
     """
 
     def __init__(self) -> None:
         super().__init__(
             "This export can't read the new events table because its fields were saved without their query. "
-            "This happens when the person who saved the export has restricted properties. "
-            "Ask someone without restricted properties to save the export again, or contact support."
+            "Save the export again to fix this, or contact support."
         )
 
 
@@ -455,10 +460,11 @@ async def _stage_query_results(
     if record_batch_model is not None:
         query_or_model: str | RecordBatchModel = record_batch_model
         query_parameters: dict[str, typing.Any] = {}
+        reads_recent_events = False
     else:
         if full_range[1] is None or inputs.data_interval_end is None:
             raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
-        query_or_model, query_parameters = await _get_query(
+        query_or_model, query_parameters, reads_recent_events = await _get_query(
             model_name=model_name,
             backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
@@ -490,6 +496,7 @@ async def _stage_query_results(
             s3_staging_folder_url=s3_staging_folder.url,
             num_partitions=num_partitions,
             run_id=run_id,
+            reads_recent_events=reads_recent_events,
         )
     except ClickHouseUnknownTableError as e:
         if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
@@ -568,6 +575,126 @@ async def compute_num_partitions(
     return max(min_partitions, min(n, max_partitions))
 
 
+@frozen
+class _EventsQuery:
+    query: str
+    parameters: dict[str, typing.Any]
+    reads_recent_events: bool
+
+
+async def _get_new_events_query(
+    *,
+    team_id: int,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    backfill_details: BackfillDetails | None,
+    is_workflows: bool,
+    fields: list[BatchExportField],
+    custom_schema: BatchExportSchema | None,
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any],
+    s3_function: str,
+) -> _EventsQuery:
+    """The export query on the new events tables, which `events_json_recent` serves for the ranges it holds."""
+    # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
+    # TODO: Temporary. Choose the table once up front and compile for it in `resolve_batch_exports_model` instead
+    # (see `prepare_serialized_export_query`).
+    if custom_schema is not None:
+        hogql_query = custom_schema.get("hogql_query")
+        if not hogql_query:
+            raise CustomSchemaWithoutQueryError()
+        fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
+            team_id, custom_schema, hogql_query
+        )
+
+    fields = with_inserted_at_field(fields)
+
+    filters_str = ""
+    if filters:
+        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
+        )
+
+    reads_recent_events = not is_workflows and use_distributed_events_recent_table(
+        is_backfill=backfill_details is not None, backfill_details=backfill_details, data_interval_start=full_range[0]
+    )
+    if reads_recent_events:
+        LOGGER.info("Using events_json_recent table for batch export")
+        query = native_recent_events_export_query(
+            fields,
+            filters_str,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            reads_typed_columns=bool(filters_str) or custom_schema is not None,
+            s3_function=s3_function,
+        )
+    else:
+        LOGGER.info("Using events_json table for batch export")
+        query = native_events_export_query(fields, filters_str, s3_function=s3_function)
+
+    return _EventsQuery(query=query, parameters=extra_query_parameters, reads_recent_events=reads_recent_events)
+
+
+async def _get_legacy_events_query(
+    *,
+    team_id: int,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    backfill_details: BackfillDetails | None,
+    is_workflows: bool,
+    fields: list[BatchExportField],
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any],
+    s3_function: str,
+) -> _EventsQuery:
+    """The export query on the legacy events tables."""
+    parameters = dict(extra_query_parameters)
+    is_backfill = backfill_details is not None
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
+    if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
+        LOGGER.info("Using events_recent table for 5 min batch export")
+        query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    elif (
+        use_distributed_events_recent_table(
+            is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+        )
+        and not is_workflows
+    ):
+        LOGGER.info("Using distributed_events_recent table for batch export")
+        query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
+    elif is_workflows:
+        LOGGER.info("Using workflows events query for batch export")
+        query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
+    elif is_backfill:
+        LOGGER.info("Using events_batch_export_backfill query for batch export")
+        query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
+    else:
+        LOGGER.info("Using events table for batch export")
+        query_template = EXPORT_TO_S3_FROM_EVENTS
+        parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+        )
+
+    filters_str = ""
+    if filters:
+        filters_str, parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=parameters, use_new_events_schema=False
+        )
+
+    query_fields = build_select_list(with_inserted_at_field(fields))
+    query = query_template.safe_substitute(
+        fields=query_fields,
+        filters=f"AND {filters_str}" if filters_str else "",
+        s3_function=s3_function,
+    )
+    return _EventsQuery(
+        query=query,
+        parameters=parameters,
+        reads_recent_events=query_template
+        in (EXPORT_TO_S3_FROM_EVENTS_RECENT, EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT),
+    )
+
+
 async def _get_query(
     model_name: str,
     backfill_details: BackfillDetails | None,
@@ -585,8 +712,6 @@ async def _get_query(
     is_workflows: bool = False,
     **parameters,
 ):
-    logger = LOGGER.bind(model_name=model_name)
-
     if fields is None:
         if destination_default_fields is None:
             fields = default_fields()
@@ -594,6 +719,7 @@ async def _get_query(
             fields = destination_default_fields
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+    reads_recent_events = False
 
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
@@ -639,68 +765,32 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-        # may not be able to handle the load from all batch exports
-        if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
-            logger.info("Using events_recent table for 5 min batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
-        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-        # which is a distributed table that sits in front of the `events_recent` table
-        elif (
-            use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
-            )
-            and not is_workflows
-        ):
-            logger.info("Using distributed_events_recent table for batch export")
-            query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif is_workflows:
-            logger.info("Using workflows events query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
-        elif is_backfill:
-            logger.info("Using events_batch_export_backfill query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
-        else:
-            logger.info("Using events table for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS
-            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-            parameters["lookback_days"] = lookback_days
-
-        native_source = (
-            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
-            and batch_exports_read_new_events_table()
-        )
-
-        # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
-        # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
-        # compile for it in `resolve_batch_exports_model` instead (see `prepare_serialized_export_query`).
-        if native_source and custom_schema is not None:
-            hogql_query = custom_schema.get("hogql_query")
-            if not hogql_query:
-                raise CustomSchemaWithoutQueryError()
-            fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
-                team_id, custom_schema, hogql_query
-            )
-
-        fields = with_inserted_at_field(fields)
-
-        filters_str = ""
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
-            )
-
-        if native_source:
-            query = native_events_export_query(fields, filters_str, s3_function=s3_function)
-        else:
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
-            if filters_str:
-                filters_str = f"AND {filters_str}"
-            query = query_template.safe_substitute(
-                fields=query_fields,
-                filters=filters_str,
+        if batch_exports_read_new_events_table():
+            events_query = await _get_new_events_query(
+                team_id=team_id,
+                full_range=full_range,
+                backfill_details=backfill_details,
+                is_workflows=is_workflows,
+                fields=fields,
+                custom_schema=custom_schema,
+                filters=filters,
+                extra_query_parameters=extra_query_parameters,
                 s3_function=s3_function,
             )
+        else:
+            events_query = await _get_legacy_events_query(
+                team_id=team_id,
+                full_range=full_range,
+                backfill_details=backfill_details,
+                is_workflows=is_workflows,
+                fields=fields,
+                filters=filters,
+                extra_query_parameters=extra_query_parameters,
+                s3_function=s3_function,
+            )
+        query = events_query.query
+        extra_query_parameters = events_query.parameters
+        reads_recent_events = events_query.reads_recent_events
 
     parameters["team_id"] = team_id
 
@@ -713,7 +803,7 @@ async def _get_query(
     parameters["log_comment"] = tags.to_json()
 
     parameters = {**parameters, **extra_query_parameters}
-    return query, parameters
+    return query, parameters, reads_recent_events
 
 
 def get_base_s3_staging_folder(
@@ -776,6 +866,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
     run_id: str | None = None,
+    reads_recent_events: bool = False,
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
@@ -837,15 +928,23 @@ async def _write_batch_export_record_batches_to_internal_stage(
 
     if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
         query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
+    if record_batch_size_bytes := settings.BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES:
+        query_settings["output_format_arrow_record_batch_size_bytes"] = str(record_batch_size_bytes)
 
     clickhouse_url = None
+    cluster = None
+    # The recent events tables are stored on the batch exports cluster, so a query that reads one runs there.
+    if reads_recent_events and settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL:
+        clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
+        cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
     # 5 min batch exports should query a single node, which is known to have zero replication lag
-    if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
+    elif workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
         clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
+        cluster=cluster,
         workload=workload,
         # TODO: Strict limits are available in ClickHouse 26.4
         # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size

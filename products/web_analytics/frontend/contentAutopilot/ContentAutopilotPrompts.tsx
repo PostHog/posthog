@@ -20,18 +20,15 @@ import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api
 
 import { promptsTabFilters } from './aiVisibilityFilters'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
-import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
-import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
-import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
-import { draftableOpportunity, engineLabel, isNoSearchEngine, promptSearches } from './utils'
+import { engineLabel, isNoSearchEngine, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
@@ -88,10 +85,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         useValues(contentAutopilotPromptsLogic)
     const { loadAeoPrompts, openAddPrompts, setNeedsImprovement, setPromptsPage, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
-    const { filters } = useValues(contentAutopilotFiltersLogic)
     // The topic list counts every prompt that is not archived, so an empty one means the project has no prompts yet.
     const { promptTopics } = useValues(contentAutopilotFilterBarLogic)
-    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -177,7 +172,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
-                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the last ${filters.days} days without citing your site.`
+                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the selected date range without citing your site.`
                             : 'No prompts match these filters'
                     }
                     pagination={{
@@ -245,21 +240,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
                         },
-                        ...(draftingEnabled
-                            ? [
-                                  {
-                                      key: 'draft',
-                                      render: (_: unknown, prompt: AEOPromptApi) => {
-                                          const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
-                                          return opportunity ? (
-                                              <div className="whitespace-nowrap">
-                                                  <ContentAutopilotDraftButton opportunity={opportunity} />
-                                              </div>
-                                          ) : null
-                                      },
-                                  },
-                              ]
-                            : []),
                         {
                             title: 'Active',
                             key: 'active',

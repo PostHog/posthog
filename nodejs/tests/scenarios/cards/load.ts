@@ -4,11 +4,14 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
+import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
-import { TRAFFIC } from '../generator/traffic'
+import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile } from './schema'
+import { Card, Named, Profile, stepsOf } from './schema'
+import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
@@ -17,7 +20,7 @@ export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
-export type LoadOptions = { profilePath?: string }
+export type LoadOptions = { profilePath?: string; target?: Target }
 
 export class CardError extends Error {
     constructor(
@@ -117,6 +120,29 @@ function checkIntakeVerdict(card: Card): string[] {
     ]
 }
 
+const INTAKE_TOPIC_MOVES =
+    "convergence reads each intake group's whole lag, so an intake topic that changes between cards keeps the old topic's lag"
+const REFUSED_INTAKE_SETTINGS: Record<string, string> = {
+    CDP_INTAKE_DLQ_DRAIN:
+        'the reset never seeks the drain groups and convergence never reads them, so a drain replays the dead-letter topic outside the verdict',
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: INTAKE_TOPIC_MOVES,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: INTAKE_TOPIC_MOVES,
+}
+
+function checkIntakeProfile(profile: Profile): string[] {
+    return [
+        ...Object.keys(profile.settings)
+            .filter((name) => Object.hasOwn(REFUSED_INTAKE_SETTINGS, name))
+            .map((name) => `profile.settings.${name}: ${REFUSED_INTAKE_SETTINGS[name]}`),
+        ...Object.entries(profile.replicas)
+            .filter(([role, replicas]) => role.startsWith('cdp-intake-') && (replicas ?? 1) > 1)
+            .map(
+                ([role]) =>
+                    `profile.replicas.${role}: each intake topic has one partition, so a second replica sits idle; run one`
+            ),
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -130,6 +156,107 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
             return traffic === undefined || traffic.success ? [] : problemsOf(traffic.error, `profile.traffic.${name}`)
         }),
     ]
+}
+
+// The event pipeline rate limits each workflow, and each seeded team runs one workflow per traffic kind, so a kind's
+// load splits over setup.teams workflows. A card that brings any of them near the limit would measure the limit, not
+// the queue.
+const RATE_LIMIT_SHARE = 0.8
+
+// The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
+function settingOf(profile: Profile, defaults: Settings, key: string): number {
+    const fallback = Number(defaults[key])
+    const raw = profile.settings[key]
+    return raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
+}
+
+const topScaleOf = (card: Card): number => Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+
+function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
+    const ceiling = settingOf(profile, defaults, 'CDP_RATE_LIMITER_REFILL_RATE') * RATE_LIMIT_SHARE
+    const topScale = topScaleOf(card)
+    return card.drive.traffic.flatMap(({ name }) => {
+        const kind = TRAFFIC.find((traffic) => traffic.name === name)
+        const shape = kind?.profile.safeParse(profile.traffic[name])
+        if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
+            return []
+        }
+        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
+        return perWorkflow <= ceiling
+            ? []
+            : [
+                  `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
+              ]
+    })
+}
+
+const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+
+function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
+    if ((profile.replicas['cdp-api'] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap(({ valve, target }, i) =>
+        ROLE_STOPPING_VALVES.includes(valve) && target === 'cdp-api'
+            ? [
+                  `valves.${i}.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+              ]
+            : []
+    )
+}
+
+const SES_SHARE = 0.5
+
+const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
+
+function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
+    const sendsEmail = card.drive.traffic.some(({ name }) =>
+        TRAFFIC.find((traffic) => traffic.name === name)?.deliveries.includes(EMAIL_ACTION)
+    )
+    if (profile.load === undefined || !sendsEmail) {
+        return []
+    }
+    const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
+    const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
+    const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
+    return [
+        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
+        ...(capacity >= burst
+            ? []
+            : [
+                  `profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: ${capacity} cannot hold one batch for every email replica (${replicas}) at once; raise it to ${burst} or more`,
+              ]),
+    ]
+}
+
+function checkSesRefill(
+    card: Card,
+    profile: Profile,
+    defaults: Settings,
+    claims: number | undefined,
+    tolerance: number
+): string[] {
+    if (claims === undefined) {
+        return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
+    }
+    const topScale = topScaleOf(card)
+    const peak = withoutFloatNoise(claims * topScale * (1 + tolerance))
+    const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
+    return peak <= ceiling
+        ? []
+        : [
+              `profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to ${Math.ceil(peak)} jobs a second at the ${topScale}x step, over ${ceiling}, ${SES_SHARE * 100}% of the SES limiter refill; raise it to ${Math.ceil(peak / SES_SHARE)} or more`,
+          ]
+}
+
+// Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
+function checkTrafficOnce(card: Card): string[] {
+    const listed = card.drive.traffic.map(({ name }) => name)
+    return [...new Set(listed)]
+        .filter((name) => TRAFFIC.find((traffic) => traffic.name === name)?.intake === 'event')
+        .map((name) => ({ name, times: listed.filter((listedName) => listedName === name).length }))
+        .filter(({ times }) => times > 1)
+        .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
 type ProfileRead = { profile: Profile } | { problems: string[] }
@@ -155,7 +282,7 @@ export function readProfile(file: string): ProfileRead {
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath))
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
 }
 
 export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
@@ -166,7 +293,12 @@ export function loadText(label: string, { card, profile }: { card: string; profi
     )
 }
 
-function check(cardPath: string, read: Read, profileFor: (card: Card) => ProfileRead): LoadedCard {
+function check(
+    cardPath: string,
+    read: Read,
+    profileFor: (card: Card) => ProfileRead,
+    target: Target = 'local'
+): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -181,8 +313,18 @@ function check(cardPath: string, read: Read, profileFor: (card: Card) => Profile
     const problems = [
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
+        ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, DEFINITIONS, defaults) : loaded.problems),
+        ...('profile' in loaded
+            ? [
+                  ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
+                  ...checkWorkflowRate(card, loaded.profile, defaults),
+                  ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkIntakeProfile(loaded.profile),
+                  ...targetProblems(card, loaded.profile, target),
+              ]
+            : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)

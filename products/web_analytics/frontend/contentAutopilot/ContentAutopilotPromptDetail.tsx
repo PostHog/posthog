@@ -7,7 +7,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
-import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
@@ -25,7 +24,6 @@ import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
-import { draftableOpportunity } from './utils'
 
 const TabSection = ({
     title,
@@ -66,17 +64,10 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         searchesQuery,
         sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const {
-        closePromptDetail,
-        openPromptDetail,
-        setArchiveConfirming,
-        setPromptEditing,
-        setReportTab,
-        setVisibilityMetric,
-    } = useActions(contentAutopilotPromptDetailLogic)
-    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
+    const { openPromptDetail, setArchiveConfirming, setPromptEditing, setReportTab, setVisibilityMetric } = useActions(
+        contentAutopilotPromptDetailLogic
+    )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const draftOpportunity = prompt && draftingEnabled ? draftableOpportunity(opportunityByPromptId, prompt) : null
     const backToPrompts = (): void => setWorkspaceTab('prompts')
 
     if (!promptId) {
@@ -118,9 +109,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const actions =
         prompt && !prompt.archived_at ? (
             <>
-                {draftOpportunity ? (
-                    <ContentAutopilotDraftButton opportunity={draftOpportunity} onReview={closePromptDetail} />
-                ) : null}
                 <LemonButton
                     size="small"
                     type="secondary"

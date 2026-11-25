@@ -94,6 +94,8 @@ export function SummarizeButton({
             type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
             fullWidth={fullWidth}
             center={fullWidth}
+            truncate
+            className="max-w-full"
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
@@ -136,7 +138,7 @@ export function SummarizeButton({
                     : null
             }
         >
-            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
+            {dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}
         </LemonButton>
     )
 

@@ -10,6 +10,7 @@ from requests.auth import HTTPBasicAuth
 from products.warehouse_sources.sources.freshdesk.settings import (
     FRESHDESK_ENDPOINTS,
     IGNORE_DELETED_PARENT,
+    FreshdeskChainedFanoutConfig,
     FreshdeskEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -210,22 +211,33 @@ def _chained_fanout_resource(
     team_id: int,
     job_id: str,
 ) -> Iterable[Any]:
-    """Build a solution categories -> folders -> articles chain and return the articles child."""
-    chained = config.chained_fanout
-    assert chained is not None
-    middle_config = FRESHDESK_ENDPOINTS[chained.parent_name]
-    middle_fanout = middle_config.fanout
-    if middle_fanout is None:
-        raise ValueError(f"'{chained.parent_name}' does not fan out from a top-level endpoint")
-    root_config = FRESHDESK_ENDPOINTS[middle_fanout.parent_name]
+    """Build a top-level -> fan-out -> ... -> child chain and return the child.
 
-    def _resource(
-        cfg: FreshdeskEndpointConfig,
-        params: dict[str, Any],
-        include_from_parent: list[str] | None = None,
-    ) -> EndpointResource:
+    For example solution categories -> folders -> articles, or discussion categories ->
+    forums -> topics -> comments.
+    """
+    # Walk up from the child to the top-level endpoint; the root has no link to a parent.
+    chain: list[tuple[FreshdeskEndpointConfig, Optional[FreshdeskChainedFanoutConfig]]] = []
+    current = config
+    while current.chained_fanout is not None:
+        chain.append((current, current.chained_fanout))
+        current = FRESHDESK_ENDPOINTS[current.chained_fanout.parent_name]
+    fanout = current.fanout
+    if fanout is None:
+        raise ValueError(f"'{current.name}' does not fan out from a top-level endpoint")
+    chain.append(
+        (current, FreshdeskChainedFanoutConfig(fanout.parent_name, fanout.resolve_param, fanout.resolve_field))
+    )
+    chain.append((FRESHDESK_ENDPOINTS[fanout.parent_name], None))
+    chain.reverse()
+
+    def _resource(cfg: FreshdeskEndpointConfig, link: Optional[FreshdeskChainedFanoutConfig]) -> EndpointResource:
+        params: dict[str, Any] = {"per_page": cfg.page_size}
+        if link is not None:
+            params[link.resolve_param] = {"type": "resolve", "resource": link.parent_name, "field": link.resolve_field}
         endpoint_config: Endpoint = {"path": cfg.path, "params": params, "data_selector": cfg.data_key}
-        if include_from_parent is not None:
+        is_child = cfg is config
+        if is_child:
             endpoint_config["response_actions"] = IGNORE_DELETED_PARENT
         resource: EndpointResource = {
             "name": cfg.name,
@@ -234,40 +246,15 @@ def _chained_fanout_resource(
             "endpoint": endpoint_config,
             "table_format": "delta",
         }
-        if include_from_parent is not None:
-            resource["include_from_parent"] = include_from_parent
+        if is_child:
+            # Every chained child row already carries the ids of its parents.
+            resource["include_from_parent"] = []
         return resource
 
-    root = _resource(root_config, {"per_page": root_config.page_size})
-    middle = _resource(
-        middle_config,
-        {
-            "per_page": middle_config.page_size,
-            middle_fanout.resolve_param: {
-                "type": "resolve",
-                "resource": root_config.name,
-                "field": middle_fanout.resolve_field,
-            },
-        },
-    )
-    child = _resource(
-        config,
-        {
-            "per_page": config.page_size,
-            chained.resolve_param: {
-                "type": "resolve",
-                "resource": middle_config.name,
-                "field": chained.resolve_field,
-            },
-        },
-        # Article rows already carry `folder_id` and `category_id`.
-        include_from_parent=[],
-    )
-
     return build_chained_resource(
-        resources=[root, middle, child],
+        resources=[_resource(cfg, link) for cfg, link in chain],
         child_name=endpoint,
-        parent_name=middle_config.name,
+        parent_name=chain[-2][0].name,
         parent_field_renames={},
         client_config=client_config,
         team_id=team_id,

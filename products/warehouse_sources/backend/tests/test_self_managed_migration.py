@@ -489,6 +489,20 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.action == "none"
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
 
+    def test_a_table_whose_credential_belongs_to_another_team_is_skipped(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        self._table(
+            credential=DataWarehouseCredential.objects.create(
+                access_key="AKIAOTHER", access_secret="c2VjcmV0", team=other_team
+            )
+        )
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert "has no credential" in (outcome.status.reason or "")
+        assert not ExternalDataSchema.objects.filter(team=self.team).exists()
+
     def test_status_reports_every_state(self) -> None:
         pending = self._table("pending_table")
         self._table("skipped_table", url="https://minio.example.com/exports/a.csv")

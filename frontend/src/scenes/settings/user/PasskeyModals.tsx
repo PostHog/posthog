@@ -3,13 +3,17 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { passkeySettingsLogic } from './passkeySettingsLogic'
+import { QuillPasskeyModals } from './QuillPasskeyModals'
 
 export function PasskeyModals(): JSX.Element {
     const { deleteModalId, renameModal } = useValues(passkeySettingsLogic)
     const { closeDeleteModal, deletePasskey, closeRenameModal, renamePasskey } = useActions(passkeySettingsLogic)
 
     const [renameLabel, setRenameLabel] = useState('')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (renameModal) {
@@ -23,6 +27,23 @@ export function PasskeyModals(): JSX.Element {
         }
     }
 
+    const handleDelete = (): void => {
+        if (deleteModalId) {
+            deletePasskey(deleteModalId)
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillPasskeyModals
+                renameLabel={renameLabel}
+                onRenameLabelChange={setRenameLabel}
+                onRename={handleRename}
+                onDelete={handleDelete}
+            />
+        )
+    }
+
     return (
         <>
             <LemonModal
@@ -34,11 +55,7 @@ export function PasskeyModals(): JSX.Element {
                         <LemonButton type="secondary" onClick={closeDeleteModal}>
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            status="danger"
-                            onClick={() => deleteModalId && deletePasskey(deleteModalId)}
-                        >
+                        <LemonButton type="primary" status="danger" onClick={handleDelete}>
                             Delete
                         </LemonButton>
                     </>

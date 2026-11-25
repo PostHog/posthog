@@ -114,7 +114,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-type Judged = { scalars: Record<string, number | null>; readerAtT0: number | null; reason?: string }
+type Judged = { scalars: Record<string, number | string[] | null>; readerAtT0: number | null; reason?: string }
 
 function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
     const t0Minute = minuteOf(t0)
@@ -130,6 +130,12 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
+        acu_pre_t0_above_idle: minutes
+            .filter(
+                ({ at, max, avg }) =>
+                    at < t0Minute && [max, avg].some((acu) => acu !== undefined && acu > (idleMax ?? Infinity))
+            )
+            .map(({ at }) => iso(at)),
     }
     const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
     if (before.length === 0) {
@@ -145,13 +151,11 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const pre = minutes.filter(({ at }) => at < t0Minute)
-    const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
+    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
+    const above = pre.filter(({ avg }) => avg !== undefined && avg > idleMax)
     const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
     const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
-    const unshown = pre.filter(
-        ({ max, avg }) => max === undefined && avg !== undefined && avg !== min && avg <= idleMax
-    )
+    const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
     const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
@@ -160,7 +164,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
         inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
         unshown.length > 0 &&
-            `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+            `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
         missing.length > 0 &&
             `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
