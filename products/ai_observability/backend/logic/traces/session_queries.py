@@ -99,7 +99,7 @@ def _recent_traces(read: _FactsRead) -> ast.SelectQuery:
         """
         SELECT trace_id
         FROM posthog.ai_events
-        WHERE {where}
+        WHERE {where} AND isNotNull(trace_id) AND trace_id != ''
         GROUP BY session_id, trace_id
         ORDER BY max(timestamp) DESC, trace_id DESC
         LIMIT {per_session} BY session_id

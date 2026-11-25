@@ -187,6 +187,20 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
         assert facts["busy"].first_seen == at(1)
         assert (facts["quiet"].turn_count, facts["quiet"].totals_partial) == (1, False)
 
+    def test_an_event_without_a_trace_id_brings_no_untraced_events_into_its_session(self) -> None:
+        seed(
+            self.team,
+            [
+                generation("t-1", 0, "s1"),
+                generation("", 1, "s1"),
+                generation("", 2, props={"$ai_total_cost_usd": 9}),
+            ],
+        )
+
+        facts = self._facts("s1")["s1"]
+
+        assert (facts.turn_count, facts.cost_usd, facts.last_seen) == (1, None, at(0))
+
     def test_another_teams_session_never_counts(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
         seed(other_team, [generation("t-foreign", 0, "s1")])
