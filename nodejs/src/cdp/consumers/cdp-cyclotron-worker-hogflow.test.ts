@@ -401,14 +401,22 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it.each([
-            ['a transactional email without their properties', 'distinct_A_1', false, {}],
+            ['a transactional email without their properties', 'distinct_A_1', '$transactional_email', false, {}],
+            [
+                'an email run of a push-only workflow without their devices',
+                'push_person',
+                '$transactional_email',
+                true,
+                {},
+            ],
             [
                 'a transactional push with only their device tokens',
                 'push_person',
+                '$transactional_push',
                 true,
                 { '$device_push_subscription_com.example.app:abc': 'encrypted-token' },
             ],
-        ])('attaches the person to %s', async (_name, distinctId, sendsPush, expectedProperties) => {
+        ])('attaches the person to %s', async (_name, distinctId, event, sendsPush, expectedProperties) => {
             const transactional = await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
@@ -437,7 +445,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .build()
             )
             const invocation = createSerializedHogFlowInvocation(transactional, {
-                event: { distinct_id: distinctId, properties: {} } as any,
+                event: { event, distinct_id: distinctId, properties: {} } as any,
             })
 
             const results = (await processor.processInvocations([

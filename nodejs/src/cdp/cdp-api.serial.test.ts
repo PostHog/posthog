@@ -5099,10 +5099,10 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
-        const withPushStep = (hogFlow: HogFlow): HogFlow => ({
+        const withPushStep = (hogFlow: HogFlow, keepsEmail: boolean): HogFlow => ({
             ...hogFlow,
             actions: [
-                ...hogFlow.actions,
+                ...hogFlow.actions.filter((action) => keepsEmail || action.type !== 'function_email'),
                 {
                     id: 'push',
                     name: 'push',
@@ -5116,18 +5116,26 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a workflow with another trigger', 'schedule', 'active', false],
-            ['a transactional email that is not active', 'api', 'draft', false],
-            ['a workflow that also sends a push', 'api', 'active', true],
-        ] as const)('refuses to run %s', async (_desc, trigger, status, push) => {
-            const flow = transactionalFlow(trigger, status)
-            const other = await insertHogFlow(push ? withPushStep(flow) : flow)
+            ['a workflow with another trigger', transactionalFlow('schedule', 'active')],
+            ['a transactional email that is not active', transactionalFlow('api', 'draft')],
+            ['a workflow that only sends a push', withPushStep(transactionalFlow('api', 'active'), false)],
+        ])('refuses to run %s', async (_desc, flow) => {
+            const other = await insertHogFlow(flow)
 
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
             expect(res.status).toEqual(400)
             expect(res.body).toEqual({ error: 'not_sendable' })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('sends an email whose workflow also has a push step', async () => {
+            const mixed = await insertHogFlow(withPushStep(transactionalFlow('api', 'active'), true))
+
+            const res = await send(mixed.id, { Authorization: `Bearer ${mintToken(team.id, mixed.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         it.each([
@@ -5486,13 +5494,13 @@ describe('CDP API', () => {
                     },
                 ],
                 [
-                    'the workflow also sends a push',
+                    'the workflow only sends a push',
                     400,
                     'not_sendable',
                     async () => {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
-                            `UPDATE posthog_hogflow SET actions = actions || $2::jsonb WHERE id = $1`,
+                            `UPDATE posthog_hogflow SET actions = $2::jsonb WHERE id = $1`,
                             [
                                 hogFlow.id,
                                 JSON.stringify([
