@@ -1,11 +1,7 @@
 from typing import Any
 
-from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.rate_limit import (
-    PersonalOrProjectSecretApiKeyRateThrottle,
-    ProjectSecretApiKeyTeamRateThrottle,
-    hashed_personal_api_key_for_throttling,
-)
+from posthog.auth import ProjectSecretAPIKeyAuthentication, WorkloadAccessTokenAuthentication
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 
 class _PushSendThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
@@ -17,13 +13,15 @@ class _PushSendThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
         return self._allow_request_internal(request, view, personal_api_key_only=False)
 
     def get_cache_key(self, request: Any, view: Any) -> str:
+        auth = request.successful_authenticator
+        # Only the key that authenticated counts. An unchecked value from the request would let a caller pick its bucket.
         if (
-            isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
-            or hashed_personal_api_key_for_throttling(request) is not None
+            isinstance(auth, ProjectSecretAPIKeyAuthentication)
+            or getattr(auth, "personal_api_key_hash", None) is not None
         ):
             return super().get_cache_key(request, view)
-        # A caller that is not a user, such as a workload token, has no pk, so its project is counted.
-        user_id = getattr(request.user, "pk", None)
+        # A workload token acts as an organization owner, and its sends must not spend that person's limit.
+        user_id = None if isinstance(auth, WorkloadAccessTokenAuthentication) else getattr(request.user, "pk", None)
         ident = f"user:{user_id}" if user_id is not None else f"team:{view.team_id}"
         return self.cache_format % {"scope": self.scope, "ident": ident}
 

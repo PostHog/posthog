@@ -860,7 +860,7 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             status.HTTP_429_TOO_MANY_REQUESTS,
         ]
 
-    @parameterized.expand([("session",), ("oauth",)])
+    @parameterized.expand([("session",), ("session_with_a_made_up_key",), ("oauth",), ("workload",)])
     def test_a_caller_without_a_key_is_limited_too(self, mock_post, _flag, _capture, caller):
         mock_post.side_effect = self._answer_by_key({})
         rate_limit.is_rate_limit_enabled.cache_clear()
@@ -886,18 +886,34 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
 
+        def send(number: int) -> int:
+            # A workload mints a new token whenever it likes, and anyone can add a key that is never checked.
+            if caller == "workload":
+                client.credentials(HTTP_AUTHORIZATION=f"Bearer workload-token-{number}")
+            url = (
+                f"{self.url}?personal_api_key=made-up-{number}" if caller == "session_with_a_made_up_key" else self.url
+            )
+            return client.post(
+                url, {"template_id": str(self.template.id), "recipients": self._recipients(3)}, format="json"
+            ).status_code
+
+        def authenticate_workload(authenticator: Any, request: Any) -> Any:
+            if caller != "workload":
+                return None
+            authenticator.scopes = ["transactional_push:write"]
+            authenticator.organization_id = str(self.organization.id)
+            authenticator.team_id = self.team.id
+            authenticator.policy_id = str(uuid4())
+            return (self.user, None)
+
+        if caller == "workload":
+            client = APIClient()
         with (
             override_instance_config("RATE_LIMIT_ENABLED", True),
             patch.object(TransactionalPushBurstThrottle, "rate", "3/minute"),
+            patch.object(WorkloadAccessTokenAuthentication, "authenticate", authenticate_workload),
         ):
-            answers = [
-                client.post(
-                    self.url,
-                    {"template_id": str(self.template.id), "recipients": self._recipients(3)},
-                    format="json",
-                ).status_code
-                for _ in range(2)
-            ]
+            answers = [send(number) for number in range(2)]
 
         assert answers == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
 
