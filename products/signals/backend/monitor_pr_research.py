@@ -147,7 +147,6 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         max_poll_seconds=1800,
         json_retry_prompt='Return only JSON matching the schema. In check.config, comparison is an object such as {"operator":"lte","value":0}, not a string; there is no threshold field. Preserve your observed evidence and metric, and do not invent a measurement.',
         output_schema=PRMonitoringOutput.model_json_schema(),
-        analytics_query_context=[{}],
     )
     completed = False
     error_detail: str | None = None

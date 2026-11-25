@@ -117,6 +117,13 @@ class TestTicketUpdateRequestSerializer(SimpleTestCase):
 
         assert serializer.is_valid() is expected_valid, serializer.errors
 
+    @parameterized.expand([("list", []), ("text", "Jane")])
+    def test_rejects_customer_details_that_are_not_an_object(self, _name: str, traits: object) -> None:
+        serializer = TicketUpdateRequestSerializer(Ticket(), data={"anonymous_traits": traits}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["anonymous_traits"][0].code == "invalid"
+
 
 # Patch on_commit to execute immediately in tests
 def immediate_on_commit(func):
@@ -336,6 +343,27 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
+
+    @parameterized.expand(
+        [
+            ("inbound_markers", {"name": "Jane", "email_relayed": True, "email_forwarded": True}),
+            ("malformed_stored_traits", ["x"]),
+        ]
+    )
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit, _name: str, stored: object):
+        inbound = {"email_relayed": True, "email_forwarded": True} if isinstance(stored, dict) else {}
+        self.ticket.anonymous_traits = stored
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"anonymous_traits": {"name": "Jane Doe", "email": "jane@example.net"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == {"name": "Jane Doe", "email": "jane@example.net", **inbound}
 
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
