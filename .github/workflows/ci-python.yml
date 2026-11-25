@@ -68,7 +68,6 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
-            mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
             schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
             warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
         steps:
@@ -102,7 +101,7 @@ jobs:
                   list-files: 'escape'
                   reuse-checks: Python code quality checks
                   reuse-proof-checks: |
-                      Python code quality (depot-ubuntu-24.04)
+                      Python code quality (depot-ubuntu-24.04-4)
                       lib/api.ts codegen ratchet
                       Warehouse sources checks and tests
                   reuse-blocking-labels: ci-no-reuse
@@ -114,12 +113,6 @@ jobs:
                           - 'posthog/**/*.py'
                           - 'ee/**/*.py'
                           - 'products/**/*.py'
-                      # The files the mypy cache key hashes. A change to them can leave the
-                      # restored cache stale for most modules, for example a django-stubs bump.
-                      mypy_cache_key:
-                          - 'uv.lock'
-                          - '**/pyproject.toml'
-                          - '**/mypy.ini'
                       schema_python:
                           - 'frontend/src/queries/schema.json'
                           - 'posthog/schema.py'
@@ -143,6 +136,10 @@ jobs:
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - '**/pyproject.toml'
+                        # mypy reads a root mypy.ini or .mypy.ini, and the cache-key filter
+                        # that used to list them is gone, so they belong here.
+                        - '**/mypy.ini'
+                        - '**/.mypy.ini'
                         - '**/ruff.toml'
                         - '**/.ruff.toml'
                         - 'uv.lock'
@@ -304,12 +301,14 @@ jobs:
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04)
-        # The type check is its own job, so the mypy worker count no longer sizes this runner.
-        # This one keeps the big runner wherever the type check job does, because a cold
-        # dependency set (master, the merge queue, a cache-key change) makes ty, ruff and the
-        # gated pytest suites heavier than a pull request's warm tree.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python code quality (depot-ubuntu-24.04-4)
+        # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
+        # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
+        # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s
+        # to 52 s and the `parallel:` group 64 s to 50 s (n=17 on two vCPU against n=14 on
+        # four), and the job wall 161 s to 132 s. The type check beside it is the only other
+        # job the fan-in gate waits on, so these two jobs are the workflow's wall.
+        runs-on: depot-ubuntu-24.04-4
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -573,18 +572,19 @@ jobs:
     # overlapped with the other checks on that runner (see "Run the python static
     # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
     # Two jobs get two runners, so the type check and the rest of the checks run at
-    # the same time and their walls stop adding up. The cost is one extra 2-vCPU job
+    # the same time and their walls stop adding up. The cost is one extra 4-vCPU job
     # on each pull request that touches Python.
     mypy:
         needs: changes
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 20
 
-        name: Python static typing (depot-ubuntu-24.04)
-        # Same rule as code-quality: a pull request checks a cache from master with one
-        # worker, while master, the merge queue and a dependency change run nearly cold
-        # and need the 16 GB runner for a second worker.
-        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        name: Python static typing (depot-ubuntu-24.04-4)
+        # 4 vCPU on every event, for the same reason as the job above: mypy is CPU-bound, and
+        # this job is the other half of the wall the fan-in gate waits on. Over the same runs
+        # the type check went 139 s to 102 s and the job wall 166 s to 133 s. The worker count
+        # below follows this label: the 16 GB runner fits two workers.
+        runs-on: depot-ubuntu-24.04-4
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -654,10 +654,10 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  # Each worker holds its own copy of the build graph, so the worker count follows
-                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
-                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
-                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+                  # Each worker holds its own copy of the build graph, so the worker count
+                  # follows the runner's memory. Keep this in sync with the job's runs-on: the
+                  # 16 GB depot-ubuntu-24.04-4 fits two workers, the 8 GB one fits one.
+                  MYPY_NUM_WORKERS: 2
               run: mypy --version && mypy .
 
             - name: Save mypy cache

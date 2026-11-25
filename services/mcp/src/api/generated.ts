@@ -24978,18 +24978,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `frames` - Frames
-     * * `result` - Result
-     */
-    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
-
-
-    export const CachedTileFormatEnum = {
-      Frames: 'frames',
-      Result: 'result',
-    } as const;
-
-    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25096,6 +25084,18 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type ResultFormatEnum = typeof ResultFormatEnum[keyof typeof ResultFormatEnum];
+
+
+    export const ResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
     export interface FrameMeta {
       /**
          * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -25175,9 +25175,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
     }
@@ -36106,9 +36106,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
@@ -43051,8 +43051,6 @@ export namespace Schemas {
     export interface EmailInfrastructureHealth {
       /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
       readonly emails_sent_at_least: number;
-      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-      readonly delivery_rate: number;
       /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
       readonly bounce_rate: number;
       /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -50489,7 +50487,8 @@ export namespace Schemas {
      * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
      * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `primary_metric_count` - Primary metrics of the experiment
+     * * `secondary_metric_count` - Secondary metrics of the experiment
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
      * * `metric_count` - Metrics that the calculation computes
      * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50500,6 +50499,7 @@ export namespace Schemas {
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
      * * `metric_name` - The name of a metric
@@ -50518,6 +50518,8 @@ export namespace Schemas {
      * * `forced_count` - Users or groups that a release condition with a variant override served
      * * `forced_percentage` - forced_count as a share of variant_matched_count
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+     * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50526,6 +50528,8 @@ export namespace Schemas {
      * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
      * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `cohort_count` - Cohorts that the exposure criteria filter on
+     * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
      * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -50554,6 +50558,7 @@ export namespace Schemas {
       UnservedExposedPercentage: 'unserved_exposed_percentage',
       OnlyCountMaturedUsers: 'only_count_matured_users',
       PrimaryMetricCount: 'primary_metric_count',
+      SecondaryMetricCount: 'secondary_metric_count',
       WaitingMetricCount: 'waiting_metric_count',
       MetricCount: 'metric_count',
       CompletedMetricCount: 'completed_metric_count',
@@ -50564,6 +50569,7 @@ export namespace Schemas {
       FlagRolledOut: 'flag_rolled_out',
       ShippedVariant: 'shipped_variant',
       FlagLastCalledAt: 'flag_last_called_at',
+      FlagCalled: 'flag_called',
       SinceStartHours: 'since_start_hours',
       DailyCalculationEndsAt: 'daily_calculation_ends_at',
       MetricName: 'metric_name',
@@ -50582,6 +50588,8 @@ export namespace Schemas {
       ForcedCount: 'forced_count',
       ForcedPercentage: 'forced_percentage',
       TrafficSinceAt: 'traffic_since_at',
+      HistorySinceAt: 'history_since_at',
+      ChangeCount: 'change_count',
       ChangedAt: 'changed_at',
       BeforeExposure: 'before_exposure',
       ChangedSetting: 'changed_setting',
@@ -50590,6 +50598,8 @@ export namespace Schemas {
       BeforeFilters: 'before_filters',
       AfterFilters: 'after_filters',
       FlagServiceCallPercentage: 'flag_service_call_percentage',
+      CohortCount: 'cohort_count',
+      DynamicCohortCount: 'dynamic_cohort_count',
       Event: 'event',
       EventReceived: 'event_received',
       InvalidMetricCount: 'invalid_metric_count',
@@ -50639,7 +50649,8 @@ export namespace Schemas {
        * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
        * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `primary_metric_count` - Primary metrics of the experiment
+       * * `secondary_metric_count` - Secondary metrics of the experiment
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
        * * `metric_count` - Metrics that the calculation computes
        * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50650,6 +50661,7 @@ export namespace Schemas {
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
        * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
        * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
        * * `metric_name` - The name of a metric
@@ -50668,6 +50680,8 @@ export namespace Schemas {
        * * `forced_count` - Users or groups that a release condition with a variant override served
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50676,6 +50690,8 @@ export namespace Schemas {
        * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
        * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `cohort_count` - Cohorts that the exposure criteria filter on
+       * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
        * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -50706,7 +50722,8 @@ export namespace Schemas {
        * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
        * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `primary_metric_count` - Primary metrics of the experiment
+       * * `secondary_metric_count` - Secondary metrics of the experiment
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
        * * `metric_count` - Metrics that the calculation computes
        * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50717,6 +50734,7 @@ export namespace Schemas {
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
        * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
        * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
        * * `metric_name` - The name of a metric
@@ -50735,6 +50753,8 @@ export namespace Schemas {
        * * `forced_count` - Users or groups that a release condition with a variant override served
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50743,6 +50763,8 @@ export namespace Schemas {
        * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
        * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `cohort_count` - Cohorts that the exposure criteria filter on
+       * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
        * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -94301,6 +94323,14 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedGroupTypeMetadataUpdateRequest {
+      /**
+         * Group type metadata updates to apply, at most 5, one per group type.
+         * @maxItems 5
+         */
+      updates?: GroupTypeMetadataUpdate[];
+    }
+
     /**
      * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
      *
@@ -99046,6 +99076,43 @@ export namespace Schemas {
       readonly status?: SignalSourceSyncStatusEnum | null;
       /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
       readonly filter_status?: SourceFilterRunStatus | null;
+    }
+
+    export interface SlackAppReactionChoice {
+      /**
+         * Slack emoji name, such as eyes or a custom emoji of the workspace. Colons are allowed. Null inherits.
+         * @maxLength 102
+         * @nullable
+         */
+      emoji?: string | null;
+      /**
+         * Whether PostHog adds this reaction. Null inherits.
+         * @nullable
+         */
+      enabled?: boolean | null;
+    }
+
+    export interface SlackAppReactionChoices {
+      /** Added to a message when PostHog starts on the request. */
+      working?: SlackAppReactionChoice;
+      /** Added when PostHog replies. The working reaction is removed. */
+      done?: SlackAppReactionChoice;
+      /** Added when the request fails. */
+      error?: SlackAppReactionChoice;
+      /** Added after PostHog replies to a message that says please or thanks. */
+      polite?: SlackAppReactionChoice;
+    }
+
+    export interface PatchedSlackAppPersonalSettingsUpdate {
+      /** Replaces this person's reaction choices. A reaction left out inherits the workspace choice. */
+      reactions?: SlackAppReactionChoices;
+    }
+
+    export interface PatchedSlackAppWorkspaceSettingsUpdate {
+      /** Replaces the workspace's reaction choices. A reaction left out inherits PostHog's default. */
+      reactions?: SlackAppReactionChoices;
+      /** Whether PostHog works in Slack channels shared with other organizations. */
+      external_channels_enabled?: boolean;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -107399,6 +107466,11 @@ export namespace Schemas {
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable
@@ -121900,6 +121972,72 @@ export namespace Schemas {
       channels: SlackAppChannelOption[];
     }
 
+    /**
+     * * `ask` - Asks before answering
+     * * `never` - Only answers @-mentions
+     */
+    export type SlackChannelQuestionModeEnum = typeof SlackChannelQuestionModeEnum[keyof typeof SlackChannelQuestionModeEnum];
+
+
+    export const SlackChannelQuestionModeEnum = {
+      Ask: 'ask',
+      Never: 'never',
+    } as const;
+
+    export interface SlackAppChannelSettings {
+      /** Slack channel ID. */
+      slack_channel_id: string;
+      /**
+         * ID of the Slack integration of the project that mentions in this channel route to. Null inherits.
+         * @nullable
+         */
+      default_integration_id: number | null;
+      /**
+         * Repository, as owner/name, that tasks started in this channel use. Null inherits.
+         * @nullable
+         */
+      default_repository: string | null;
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.
+       *
+       * * `ask` - Asks before answering
+       * * `never` - Only answers @-mentions */
+      untagged_question_mode: SlackChannelQuestionModeEnum | null;
+      /**
+         * First name of the person who last changed this channel's settings. Null when unknown.
+         * @nullable
+         */
+      updated_by_name: string | null;
+      /**
+         * When this channel's settings last changed.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface SlackAppChannelSettingsList {
+      /** Channels that this install's organization gave at least one setting. */
+      channels: SlackAppChannelSettings[];
+    }
+
+    export interface SlackAppChannelSettingsUpdate {
+      /**
+         * ID of the Slack integration of a project connected to this workspace. Null inherits.
+         * @nullable
+         */
+      default_integration_id: number | null;
+      /**
+         * Repository as owner/name. Null inherits.
+         * @maxLength 255
+         * @nullable
+         */
+      default_repository: string | null;
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null uses each person's mode. A channel only makes it stricter.
+       *
+       * * `ask` - Asks before answering
+       * * `never` - Only answers @-mentions */
+      untagged_question_mode: SlackChannelQuestionModeEnum | null;
+    }
+
     export interface SlackAppDefaultProject {
       /** ID of the Slack integration of the project that becomes the workspace default. */
       integration_id: number;
@@ -121921,6 +122059,36 @@ export namespace Schemas {
       results: SlackAppChannelJoinResult[];
     }
 
+    export interface SlackAppResolvedReaction {
+      /** Slack emoji name that PostHog uses. */
+      emoji: string;
+      /** Whether PostHog adds this reaction. */
+      enabled: boolean;
+    }
+
+    export interface SlackAppResolvedReactions {
+      /** The reaction when PostHog starts on a request. */
+      working: SlackAppResolvedReaction;
+      /** The reaction when PostHog replies. */
+      done: SlackAppResolvedReaction;
+      /** The reaction when the request fails. */
+      error: SlackAppResolvedReaction;
+      /** The reaction to a message that says please or thanks. */
+      polite: SlackAppResolvedReaction;
+    }
+
+    export interface SlackAppPersonalSettings {
+      /**
+         * The Slack user this person linked in this workspace. Null when they have not linked one.
+         * @nullable
+         */
+      slack_user_id: string | null;
+      /** This person's reaction choices. Null fields use the workspace choice. */
+      reactions: SlackAppReactionChoices;
+      /** The reactions PostHog adds to this person's messages, after the workspace and default fallbacks. */
+      effective_reactions: SlackAppResolvedReactions;
+    }
+
     export interface SlackAppProjectOption {
       /** ID of the Slack integration that connects this project. */
       integration_id: number;
@@ -121928,6 +122096,29 @@ export namespace Schemas {
       project_name: string;
       /** Name of the organization that owns the project. */
       organization_name: string;
+    }
+
+    export interface SlackAppWorkspaceSettings {
+      /** The workspace's reaction choices. Null fields use PostHog's defaults. */
+      reactions: SlackAppReactionChoices;
+      /** Whether PostHog works in Slack channels shared with other organizations. */
+      external_channels_enabled: boolean;
+    }
+
+    export interface SlackAppSettings {
+      /** ID of the Slack integration that these settings are for. */
+      integration_id: number;
+      /**
+         * Name of the Slack workspace, as Slack sent it at install time.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /** Whether this person can change workspace settings: the person who installed Slack, or a project admin. */
+      can_edit_workspace: boolean;
+      /** Settings for everyone in the Slack workspace. */
+      workspace: SlackAppWorkspaceSettings;
+      /** Settings for this person's own Slack messages. */
+      personal: SlackAppPersonalSettings;
     }
 
     /**

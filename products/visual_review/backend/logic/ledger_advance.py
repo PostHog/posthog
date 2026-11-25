@@ -110,6 +110,21 @@ class LandingVerdict:
     appends_entry: bool
 
 
+def publish_for_changed_identifiers(
+    repo: Repo, changed: dict[str, set[str]], open_approvals: list[BaselineApproval]
+) -> None:
+    """Publish again for the pull requests with an open approval of a changed identifier, per run type,
+    and for the pull requests whose current run applied one of those approvals.
+
+    A change of the ledger hash makes such an approval stale, which changes the verdict of those runs.
+    The caller runs this after its transaction commits and checks `commit_status.guards_stale_approvals`.
+    """
+    touched = [approval for approval in open_approvals if approval.identifier in changed.get(approval.run_type, set())]
+    holders = {(approval.pr_number, approval.run_type) for approval in touched}
+    holders |= commit_status.pull_requests_applying(repo, touched)
+    commit_status.publish_for_pull_requests(repo, holders)
+
+
 def _parents_first(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
     """The approvals of one snapshot, each stack parent before its child, otherwise in the given order."""
     remaining = list(approvals)
@@ -382,8 +397,7 @@ class _LedgerAdvancer:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
 
     def _publish_for_landed_identifiers(self) -> None:
-        """Publish again for the pull requests with an open approval of an identifier this transaction landed,
-        and for the pull requests whose current run applied one of those approvals.
+        """Publish again for the pull requests that hold or applied an open approval of a landed identifier.
 
         It runs after the commit, so no GitHub request runs under the ledger lock. The first callback of
         a transaction takes the whole buffer, so the later callbacks of that transaction do nothing.
@@ -392,12 +406,7 @@ class _LedgerAdvancer:
         if not landed or not commit_status.guards_stale_approvals(self.repo):
             return
         open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
-        touched = [
-            approval for approval in open_approvals if approval.identifier in landed.get(approval.run_type, set())
-        ]
-        holders = {(approval.pr_number, approval.run_type) for approval in touched}
-        holders |= commit_status.pull_requests_applying(self.repo, touched)
-        commit_status.publish_for_pull_requests(self.repo, holders)
+        publish_for_changed_identifiers(self.repo, landed, open_approvals)
 
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:
         """Apply the landing table to each approval, with a fixed number of queries per run type.
