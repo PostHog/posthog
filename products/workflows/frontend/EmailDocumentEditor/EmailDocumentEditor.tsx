@@ -38,7 +38,7 @@ import { buildEmailExtensions } from './emailExtensions'
 import { uploadEmailImage, uploadErrorText } from './emailMediaLibraryLogic'
 import { EmailSuggestionItem, createEmailSuggestion } from './emailSuggestionExtension'
 import { EmailVariableContext, EmailVariableOption, variableOptions as toVariableOptions } from './emailVariables'
-import { htmlSentAsWritten, renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
+import { htmlSentAsWritten, lineHeightCss, safeEmailDoc, sentEmailHtml } from './renderEmailHtml'
 
 const PLACEHOLDER = 'Write something, type / for blocks or {{ for variables'
 const NARROW_WIDTH = 900
@@ -347,7 +347,13 @@ export function EmailDocumentEditor(): JSX.Element {
     const doc = editor.getJSON()
     const sentAsWritten = htmlSentAsWritten(doc) !== null
     const page = sentAsWritten ? PAGE_FOR_HTML_AS_WRITTEN : resolvePageStyle(doc.attrs?.page)
-    const html = mode === 'preview' ? renderEmailHtml(doc) : ''
+    const html =
+        mode === 'preview'
+            ? sentEmailHtml(doc, {
+                  html: logicProps.value?.html,
+                  doc: emailDocumentFromValue(logicProps.value).document?.doc ?? convertedEmailDocument?.doc,
+              })
+            : ''
 
     const context: EmailEditorContextValue = useMemo(
         () => ({
@@ -509,8 +515,7 @@ export function EmailDocumentEditor(): JSX.Element {
                                             color: page.textColor,
                                             fontFamily: page.fontFamily,
                                             fontSize: page.fontSize,
-                                            // Unitless, because a percentage inherits as a fixed size and larger text would overlap.
-                                            lineHeight: page.lineHeight / 100,
+                                            lineHeight: lineHeightCss(page.lineHeight),
                                             padding: `${page.bodyPadding.top}px ${page.bodyPadding.right}px ${page.bodyPadding.bottom}px ${page.bodyPadding.left}px`,
                                             borderRadius: page.bodyBorderRadius || undefined,
                                             border: page.bodyBorderWidth

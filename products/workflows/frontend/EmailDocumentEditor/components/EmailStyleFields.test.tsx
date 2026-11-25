@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Editor, JSONContent } from '@tiptap/core'
 
+import { setSelectedSize } from '../emailCommands'
 import { buildEmailExtensions } from '../emailExtensions'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailVisibilityFields } from './EmailVisibilityFields'
@@ -48,6 +49,24 @@ describe('email style fields', () => {
 
         fireEvent.click(screen.getByText('Number'))
         expect(editor!.state.doc.firstChild?.childCount).toBe(3)
+    })
+
+    it('keeps each imported line height in step when the selected size changes', () => {
+        const text = (lineHeight: string | null): JSONContent => ({
+            type: 'text',
+            text: 'Big',
+            marks: [{ type: 'textStyle', attrs: { fontSize: 14, lineHeight } }],
+        })
+        open({ type: 'paragraph', content: [text('21px'), text('200%'), text('28px'), text(null)] })
+        editor!.commands.setTextSelection({ from: 1, to: 13 })
+        setSelectedSize(editor!, 40, 16)
+
+        const marks = editor!.getJSON().content![0].content!.map((node) => node.marks![0].attrs!)
+        expect(marks.map(({ fontSize, lineHeight }) => [fontSize, lineHeight])).toEqual([
+            [40, '150%'],
+            [40, '200%'],
+            [40, null],
+        ])
     })
 
     it('shows the saved color again after text that is not a color', () => {

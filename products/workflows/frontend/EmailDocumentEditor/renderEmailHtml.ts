@@ -108,6 +108,11 @@ function px(value: unknown, fallback = 0): number {
     return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
 }
 
+/** A multiple rather than a percentage, which larger text inside the block would inherit as a fixed height and overlap. */
+export function lineHeightCss(percent: unknown, fallback = 0): string {
+    return String(Math.round(px(percent, fallback) * 100) / 10000)
+}
+
 /** Letter spacing is the one length that can tighten text, so it keeps its sign. */
 function signedPx(value: unknown): number {
     const number = Number(value)
@@ -411,7 +416,7 @@ function textProperties(style: EmailBlockStyle, ctx: RenderContext, fontSize: nu
         'font-family': safeFont(style.fontFamily ?? ctx.page.fontFamily),
         'font-weight': style.fontWeight,
         'font-size': `${px(style.fontSize, fontSize)}px`,
-        'line-height': `${px(style.lineHeight, ctx.page.lineHeight)}%`,
+        'line-height': lineHeightCss(style.lineHeight, ctx.page.lineHeight),
         color: safeColor(style.color, ctx.page.textColor),
         'letter-spacing': style.letterSpacing ? `${signedPx(style.letterSpacing)}px` : undefined,
         'text-transform': style.uppercase ? 'uppercase' : undefined,
@@ -441,7 +446,7 @@ function phoneCss(node: JSONContent, phone: EmailPhoneStyle, className: string):
     }
     const textCss = css({
         'font-size': phone.fontSize ? `${px(phone.fontSize)}px !important` : undefined,
-        'line-height': phone.lineHeight ? `${px(phone.lineHeight)}% !important` : undefined,
+        'line-height': phone.lineHeight ? `${lineHeightCss(phone.lineHeight)} !important` : undefined,
     })
     if (node.type === 'emailImage') {
         const imageCss = [
@@ -714,7 +719,7 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 'vertical-align': 'top',
                 // The cell around the columns zeroes these to close the gaps between inline blocks.
                 'font-size': `${ctx.page.fontSize}px`,
-                'line-height': ctx.page.oldEditorStyles ? 'normal' : `${px(ctx.page.lineHeight)}%`,
+                'line-height': ctx.page.oldEditorStyles ? 'normal' : lineHeightCss(ctx.page.lineHeight),
                 'background-color': background,
                 'box-sizing': 'border-box',
                 padding: sides(columnPadding),
@@ -1073,6 +1078,15 @@ ${blocks}
 </td></tr></table>
 </body>
 </html>`
+}
+
+/** What a save stores and a send uses. An email nobody has edited keeps its stored html, not a new render. */
+export function sentEmailHtml(
+    doc: JSONContent,
+    saved: { html: string | null | undefined; doc: JSONContent | null | undefined }
+): string {
+    const rendered = renderEmailHtml(doc)
+    return saved.html && saved.doc && renderEmailHtml(saved.doc) === rendered ? saved.html : rendered
 }
 
 function inlineNodeText(node: JSONContent): string {

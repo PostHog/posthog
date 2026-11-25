@@ -74,6 +74,32 @@ export function setBlockAttribute(editor: Editor, pos: number, name: string, val
     }
 }
 
+/** An imported line height in pixels was worked out from its text's old size, so it keeps its share of the new one. */
+export function setSelectedSize(editor: Editor, fontSize: number | undefined, blockSize: number): void {
+    const { doc, selection } = editor.state
+    const { from, to } = selection
+    editor
+        .chain()
+        .setMark('textStyle', { fontSize: fontSize ?? null })
+        .command(({ tr }) => {
+            doc.nodesBetween(from, to, (node, pos, parent) => {
+                const mark = node.marks.find(({ type }) => type.name === 'textStyle')
+                const pixels = Number(/^([\d.]+)px$/.exec(mark?.attrs.lineHeight ?? '')?.[1])
+                if (mark && pixels) {
+                    const oldSize = mark.attrs.fontSize ?? parent?.attrs.emailStyle?.fontSize ?? blockSize
+                    const lineHeight = `${Math.round((pixels / oldSize) * 100)}%`
+                    tr.addMark(
+                        Math.max(from, pos),
+                        Math.min(to, pos + node.nodeSize),
+                        mark.type.create({ ...mark.attrs, fontSize: fontSize ?? null, lineHeight })
+                    )
+                }
+            })
+            return true
+        })
+        .run()
+}
+
 export function setPageStyle(editor: Editor, patch: Partial<EmailPageStyle>): void {
     const page = { ...editor.state.doc.attrs.page, ...patch }
     editor.view.dispatch(editor.state.tr.setDocAttribute('page', page))
