@@ -44,7 +44,8 @@ def _report(repo: Path, before_root: Path | None = None) -> upkeep.UpkeepReport:
     [
         ("For a broken survey, follow `internal-runbook`.", ["internal-runbook"]),
         ("Use the served-sibling skill.", []),
-        ("Read it with skill-get: `signals-scout-general`.", []),
+        ("Read it with skill-get: `review-hog-perspective-general`.", []),
+        ("The internal view is `signals-scout-internal-accounts`.", ["signals-scout-internal-accounts"]),
         ("The internal-runbook-extra file is something else.", []),
         ("For copy, see `writing-repo-copy`.", ["writing-repo-copy"]),
         ("Run `hogli` to lint.", []),
@@ -53,6 +54,7 @@ def _report(repo: Path, before_root: Path | None = None) -> upkeep.UpkeepReport:
         "names-an-unserved-skill",
         "names-a-served-skill",
         "names-a-store-skill",
+        "names-an-unserved-scout-skill",
         "longer-name",
         "names-a-repository-only-skill",
         "one-word-repository-skill-name",
@@ -63,7 +65,8 @@ def test_report_finds_served_skills_that_name_an_unserved_skill(tmp_path: Path, 
     _write_skill(tmp_path, "served-skill", body)
     _write_skill(tmp_path, "served-sibling")
     _write_skill(tmp_path, "internal-runbook", "Use `served-skill`.")
-    _write_skill(tmp_path, "signals-scout-general")
+    _write_skill(tmp_path, "review-hog-perspective-general")
+    _write_skill(tmp_path, "signals-scout-internal-accounts")
     for repository_skill in ("writing-repo-copy", "hogli"):
         (tmp_path / ".agents" / "skills" / repository_skill).mkdir(parents=True)
 

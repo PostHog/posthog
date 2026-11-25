@@ -65,6 +65,7 @@ Each product skill states its audience under `metadata` in its frontmatter, and 
 
 `learn` serves `customer` and `scout` skills.
 Add `feature_flag: <flag>` under `metadata` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill.
+Add `consumers: slack` when only a PostHog-run agent can use the skill. The names are `slack` and `posthog_ai`, separated by commas.
 
 The MCP server reads the served skills from `services/mcp/src/generated/served-skills.json`.
 When a header changes who gets a skill, run `hogli lint:skills -- --fix` and commit that file.

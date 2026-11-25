@@ -14,11 +14,12 @@ import yaml
 
 from . import discovery, linting, skill_audience, skill_manifest, skill_size, source_files, tool_references
 
-# Scout and ReviewHog skills are copied into each project's skill store, where an agent reads them
-# with `skill-get`. A served skill that names one is not sending the agent to `learn`. The harnesses
-# enforce these prefixes: SIGNALS_SCOUT_SKILL_PREFIX in products/signals/backend/scout_harness and
-# the REVIEW_HOG_*_PREFIX constants in products/review_hog/backend/reviewer/lazy_seed.py.
-STORE_SKILL_PREFIXES = ("signals-scout-", "review-hog-")
+# ReviewHog skills are copied into each project's skill store, where an agent reads them with
+# `skill-get`. A served skill that names one is not sending the agent to `learn`. The harness enforces
+# the prefix: the REVIEW_HOG_*_PREFIX constants in products/review_hog/backend/reviewer/lazy_seed.py.
+# Scout skills are not skipped: the scout skills written for customers are served, so one that is
+# not served is internal, and a served skill that names it is a pointer like any other.
+STORE_SKILL_PREFIXES = ("review-hog-",)
 
 HISTORY_DAYS = 90
 LARGEST_SKILLS_SHOWN = 15
