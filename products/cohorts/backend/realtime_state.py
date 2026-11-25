@@ -232,7 +232,7 @@ def _unavailable_reason(
     return None, None
 
 
-def _pending_backfill_kinds(cohort: Cohort) -> set[str]:
+def pending_backfill_kinds(cohort: Cohort) -> set[str]:
     """The backfill kinds this cohort's current filters need and that have not stamped yet.
 
     A stamped kind is finished. Its debounce key has expired, and its run has left the active statuses
@@ -444,7 +444,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     participations = _active_participations_per_cohort(
         team_id, [cohort.id for cohort in pending], statuses=ACTIVE_COHORT_BACKFILL_RUN_STATUSES
     )
-    pending_kinds = {cohort.id: _pending_backfill_kinds(cohort) for cohort in pending}
+    pending_kinds = {cohort.id: pending_backfill_kinds(cohort) for cohort in pending}
     live_runs = {
         cohort.id: _live_run_per_kind(participations.get(cohort.id, []), pending_kinds[cohort.id]) for cohort in pending
     }

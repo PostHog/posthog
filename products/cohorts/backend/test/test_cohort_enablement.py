@@ -151,8 +151,39 @@ class TestCohortEnablement(BaseTest):
                 [CohortBackfillKind.PERSON_PROPERTY],
                 "building",
             ),
+            (
+                "events_seeding_and_person_properties_unprepared",
+                [PAGEVIEW_LEAF, PERSON_LEAF],
+                {},
+                CohortBackfillRunStatus.SEEDING,
+                [CohortBackfillKind.PERSON_PROPERTY],
+                "building",
+            ),
             ("build_already_queued", [PAGEVIEW_LEAF], {}, "queued", [], "building"),
-            ("saves_trigger_no_builds_for_the_team", [PAGEVIEW_LEAF], {}, "no_trigger", [], "needs_attention"),
+            (
+                "run_blocked_on_an_operator",
+                [PAGEVIEW_LEAF],
+                {},
+                CohortBackfillRunStatus.BLOCKED,
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+            (
+                "saves_trigger_no_builds_for_the_team",
+                [PAGEVIEW_LEAF],
+                {},
+                "no_trigger",
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+            (
+                "criteria_look_back_further_than_the_plan_allows",
+                [PAGEVIEW_LEAF],
+                {},
+                "plan_history_shrank",
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
             ("refused_as_too_large_for_its_criteria", [PAGEVIEW_LEAF], {}, "too_large", [], "needs_attention"),
             (
                 "leaf_the_catalog_drops",
@@ -187,6 +218,21 @@ class TestCohortEnablement(BaseTest):
         elif blocker == "too_large":
             CohortBackfillRefusal.objects.for_team(self.team.id).create(
                 team_id=self.team.id, cohort=cohort, shape_hash=cohort.behavioral_filters_shape_hash or "", message=""
+            )
+        elif blocker == "plan_history_shrank":
+            self.enterContext(self.settings(REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=6))
+        elif blocker is not None:
+            run = CohortBackfillRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                cohort=cohort,
+                backfill_kind=CohortBackfillKind.BEHAVIORAL,
+                trigger_kind=CohortBackfillTrigger.COHORT_CREATED,
+                scope=CohortBackfillScope.COHORT,
+                status=blocker,
+                timezone="UTC",
+            )
+            CohortBackfillRunCohort.objects.for_team(self.team.id).create(
+                run=run, team_id=self.team.id, cohort=cohort, filters_shape_hash="shape", pinned_filters=cohort.filters
             )
 
         with (

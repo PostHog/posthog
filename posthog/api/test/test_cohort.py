@@ -9295,19 +9295,32 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         ]
         assert changes == [(False, True), (True, False)]
 
-    def test_turning_on_a_cohort_that_is_on_and_unprepared_prepares_it_again(self) -> None:
+    @parameterized.expand(
+        [
+            ("nothing_is_preparing_it", False, "needs_attention", ["cohort realtime retried"]),
+            ("a_build_is_queued", True, "building", []),
+        ]
+    )
+    def test_turning_on_a_cohort_that_is_on_prepares_it_again_when_nothing_is_preparing_it(
+        self, _name: str, queued: bool, state_before: str, events: list[str]
+    ) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
-        self.addCleanup(
-            get_redis_client().delete, cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL)
-        )
+        pending_key = cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL)
+        self.addCleanup(get_redis_client().delete, pending_key)
+        if queued:
+            get_redis_client().set(pending_key, CohortBackfillTrigger.COHORT_CREATED, ex=300)
         before = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            patch("posthog.api.cohort.report_user_action") as report,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self._switch(cohort, True)
 
         after = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
         assert response.status_code == 200
-        assert (before["state"], after["state"]) == ("needs_attention", "building")
+        assert (before["state"], after["state"]) == (state_before, "building")
+        assert [call.args[1] for call in report.call_args_list] == events
 
     @parameterized.expand(
         [
