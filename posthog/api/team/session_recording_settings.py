@@ -319,6 +319,12 @@ def validate_session_recording_masking_config(value) -> dict | None:
 
 
 def merge_session_recording_masking_config(requested: dict | None, existing: object) -> dict | None:
+    """Merge a masking config write into the stored config.
+
+    `None` clears the whole config. A request with any web key (including `{}`) replaces the web keys,
+    and a mobile-only request keeps the stored web keys. `mobile` merges per key, and an empty `mobile`
+    is never stored.
+    """
     if requested is None:
         return None
     # Django admin can store a scalar or list here. Treat it as empty rather than raising.
