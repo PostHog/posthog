@@ -19,15 +19,12 @@ from products.access_control.backend.models.role import RoleMembership
 
 
 def managed_users() -> QuerySet[User]:
-    """
-    The users an identity provider can see and change through SCIM. Only people: any other account,
-    such as a service account, belongs to the organization and must not be deprovisioned by a sync.
-    """
+    """Return human accounts eligible for SCIM management."""
     return User.objects.filter(type=UserType.HUMAN)
 
 
 class SCIMUserConflict(Exception):
-    """User is already SCIM-provisioned for this identity provider configuration."""
+    """The email belongs to an account that SCIM cannot provision."""
 
 
 def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
@@ -201,7 +198,6 @@ class PostHogSCIMUser(SCIMUser):
         with transaction.atomic():
             user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
-            # The address is taken by an account the identity provider does not manage.
             if user and user.type != UserType.HUMAN:
                 raise SCIMUserConflict()
 

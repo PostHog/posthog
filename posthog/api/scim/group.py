@@ -49,12 +49,7 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Return list of group members in SCIM format.
         """
-        role_memberships = (
-            RoleMembership.objects.filter(role=self.obj)
-            .valid_for_authorization()
-            .filter(user__in=managed_users())
-            .select_related("user")
-        )
+        role_memberships = self._managed_memberships(self.obj).valid_for_authorization().select_related("user")
         return [
             {
                 "value": str(rm.user.id),
@@ -137,11 +132,7 @@ class PostHogSCIMGroup(SCIMGroup):
 
     @staticmethod
     def _managed_memberships(role: Role) -> QuerySet[RoleMembership]:
-        """
-        The role memberships a group sync can see and change. A membership of an account that SCIM
-        does not manage, such as a service account, stays out of the group's member list, so a sync
-        that replaces or clears the members leaves it in place.
-        """
+        """Exclude non-human memberships so group syncs preserve them."""
         return RoleMembership.objects.filter(role=role, user__in=managed_users())
 
     @staticmethod
