@@ -4,25 +4,29 @@ const ATTRIBUTE =
 
 export type Attribute = { name: string; value: string | null; start: number; end: number }
 
-export type OpeningTag = { attributes: Attribute[]; end: number }
+export type OpeningTag = { attributes: Attribute[]; end: number; selfClosing: boolean }
 
-export const readOpeningTag = (html: string, attributesStart: number): OpeningTag => {
+export const readOpeningTag = (html: string, attributesStart: number, collect = true): OpeningTag => {
     const attributes: Attribute[] = []
+    let lastAttributeEnd = attributesStart
     for (let position = attributesStart; ; ) {
         SEPARATOR.lastIndex = position
         SEPARATOR.test(html)
         const start = SEPARATOR.lastIndex
         if (html[start] === '>') {
-            return { attributes, end: start }
+            return { attributes, end: start, selfClosing: html[start - 1] === '/' && lastAttributeEnd < start }
         }
         ATTRIBUTE.lastIndex = start
         const match = ATTRIBUTE.exec(html)
         if (!match) {
-            return { attributes, end: -1 }
+            return { attributes, end: -1, selfClosing: false }
         }
-        const value = match[2] ?? match[3] ?? (match[4] || null)
-        attributes.push({ name: match[1].toLowerCase(), value, start, end: ATTRIBUTE.lastIndex })
-        position = ATTRIBUTE.lastIndex
+        lastAttributeEnd = ATTRIBUTE.lastIndex
+        if (collect) {
+            const value = match[2] ?? match[3] ?? (match[4] || null)
+            attributes.push({ name: match[1].toLowerCase(), value, start, end: lastAttributeEnd })
+        }
+        position = lastAttributeEnd
     }
 }
 
@@ -32,6 +36,6 @@ export const readOpeningTagOrCut = (tag: string, attributesStart: number): Openi
     if (cut === -1) {
         return read
     }
-    const { attributes } = readOpeningTag(tag.slice(0, cut + 1), attributesStart)
-    return { attributes: attributes.filter(({ end }) => end <= cut), end: cut }
+    const { attributes, selfClosing } = readOpeningTag(tag.slice(0, cut + 1), attributesStart)
+    return { attributes: attributes.filter(({ end }) => end <= cut), end: cut, selfClosing }
 }

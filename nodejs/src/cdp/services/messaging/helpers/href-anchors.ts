@@ -9,7 +9,9 @@ const COMMENT_START = /<!--(?!\[if\b[^<>]*\]>)/iy
 const COMMENT_END = /(?<=--!?)>/g
 const TAG_NAME = /<(\/?)([A-Za-z][^\t\n\f\r />]*)/y
 const JAVASCRIPT_SCHEME = /^javascript:/i
-const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title']
+const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']
+const FOREIGN_ELEMENTS = ['svg', 'math']
+const CDATA_START = /<!\[CDATA\[/y
 
 const rawTextEndFinder = (html: string): ((name: string, from: number) => number) => {
     const unclosed = new Set<string>()
@@ -34,6 +36,8 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
     let open: { start: number; href: string } | null = null
     let commentsCanClose = true
     let quotesCanClose = true
+    let cdataCanClose = true
+    let foreignDepth = 0
     const rawTextEnd = rawTextEndFinder(html)
 
     for (let position = html.indexOf('<'); position !== -1; position = html.indexOf('<', position)) {
@@ -44,22 +48,37 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             position = commentsCanClose ? COMMENT_END.lastIndex : position + 1
             continue
         }
+        CDATA_START.lastIndex = position
+        if (foreignDepth > 0 && CDATA_START.test(html)) {
+            const end: number = cdataCanClose ? html.indexOf(']]>', CDATA_START.lastIndex) : -1
+            cdataCanClose = end !== -1
+            position = cdataCanClose ? end + ']]>'.length : position + 1
+            continue
+        }
         TAG_NAME.lastIndex = position
         const tagName = TAG_NAME.exec(html)
         if (!tagName) {
             position += 1
             continue
         }
+        const name = tagName[2].toLowerCase()
+        const isEndTag = tagName[1] === '/'
+        const isAnchor = name === 'a'
         const attributesStart = TAG_NAME.lastIndex
-        let tag = quotesCanClose ? readOpeningTag(html, attributesStart) : null
+        let tag = quotesCanClose ? readOpeningTag(html, attributesStart, isAnchor) : null
         if (!tag || tag.end === -1) {
             quotesCanClose = false
             const cut = html.indexOf('>', attributesStart)
             if (cut === -1) {
                 break
             }
-            const { attributes } = readOpeningTag(html.slice(position, cut + 1), attributesStart - position)
+            const { attributes, selfClosing } = readOpeningTag(
+                html.slice(position, cut + 1),
+                attributesStart - position,
+                isAnchor
+            )
             tag = {
+                selfClosing,
                 attributes: attributes
                     .filter(({ end }) => end <= cut - position)
                     .map((attribute) => ({
@@ -70,15 +89,18 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
                 end: cut,
             }
         }
-        const name = tagName[2].toLowerCase()
-        const isEndTag = tagName[1] === '/'
-        const isSelfClosed = html[tag.end - 1] === '/' && (tag.attributes.at(-1)?.end ?? attributesStart) < tag.end
-        if (!isEndTag && !isSelfClosed && RAW_TEXT_ELEMENTS.includes(name)) {
+        if (FOREIGN_ELEMENTS.includes(name) && !tag.selfClosing) {
+            foreignDepth = isEndTag ? Math.max(0, foreignDepth - 1) : foreignDepth + 1
+        }
+        if (!isEndTag && foreignDepth === 0 && RAW_TEXT_ELEMENTS.includes(name)) {
             const end = rawTextEnd(name, tag.end + 1)
             position = end === -1 ? tag.end + 1 : end
             continue
         }
-        const isAnchor = name === 'a'
+        if (isAnchor && foreignDepth > 0 && tag.selfClosing) {
+            position = tag.end + 1
+            continue
+        }
         if (isAnchor && open) {
             const end = isEndTag ? tag.end + 1 : position
             pieces.push(

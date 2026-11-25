@@ -267,6 +267,11 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/a" ses:tags="campaign:blue&quot;suffix;phl:0">a</a>',
                 ],
                 [
+                    'a self-closed SVG link before an SVG shape',
+                    '<svg><a href="https://example.com/a"/><rect width="100" height="100"/></svg>',
+                    '<svg><a href="https://example.com/a"/><rect width="100" height="100"/></svg>',
+                ],
+                [
                     'an anchor that never closes',
                     '<a href="https://example.com/a">a',
                     '<a href="https://example.com/a" ses:tags="phl:0">a',
@@ -474,6 +479,18 @@ describe('EmailTrackingService', () => {
                     `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset">x</a>`,
                     sensitiveInvocation,
                     `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset" ses:no-track>x</a>`,
+                ],
+                [
+                    'a sensitive template with a literal style tag in xmp text before a link',
+                    '<xmp><style></xmp><a href="https://example.com/reset">x</a><style>a { color: red; }</style>',
+                    sensitiveInvocation,
+                    '<xmp><style></xmp><a href="https://example.com/reset" ses:no-track>x</a><style>a { color: red; }</style>',
+                ],
+                [
+                    'a sensitive template with a literal style tag in SVG CDATA before a link',
+                    '<svg><![CDATA[<style>]]></svg><a href="https://example.com/reset">x</a><style>a { color: red; }</style>',
+                    sensitiveInvocation,
+                    '<svg><![CDATA[<style>]]></svg><a href="https://example.com/reset" ses:no-track>x</a><style>a { color: red; }</style>',
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',

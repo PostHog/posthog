@@ -77,6 +77,13 @@ describe('email link tracking benchmark', () => {
             tagged: `${"<a b='>'".repeat(32_000)}<a c="`,
         },
         {
+            shape: 'SVG CDATA sections that never close',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: `<svg>${'<![CDATA[<a href="https://example.com/x" data-ph-no-track>x</a>'.repeat(32_000)}`,
+            tagged: `<svg>${'<![CDATA[<a href="https://example.com/x" data-ph-no-track ses:no-track>x</a>'.repeat(32_000)}`,
+        },
+        {
             shape: 'style blocks that never close',
             mode: 'ses',
             end: /^<\/body>$/,
