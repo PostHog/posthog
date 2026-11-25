@@ -235,7 +235,17 @@ Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-sc
 
 ## Close out
 
-One paragraph: which measures you checked, which gates each one passed, how many `execute-sql` calls the run used, what you authored or edited, what you remembered, and what you ruled out and why.
-The harness saves it as the run summary.
+The run history shows the summary collapsed to its first two lines, so the verdict comes first: one or two sentences with the outcome and its key number ("Net revenue down 22% on 2026-11-21, 80% from the EU Pro plan; reported", or "6 measures checked in 14 queries, all within baseline").
+Then a blank line, then short bullets, so a reader knows what happened without opening the transcript:
+
+- One bullet per measure you checked: the value against both medians, and the gate it stopped at ("Orders: 1,240 vs 28-day median 1,190 and same-weekday median 1,250; within baseline").
+- One bullet per report you authored or edited: the report link and the notebook link from the tool results, the driver and its share ("[Net revenue down 22%](<report url>): the EU Pro plan carries 80% of the drop; charts and SQL in [the notebook](<notebook url>)").
+- One bullet for what you remembered (`pending:`, `noise:`, `baseline:`) and what you ruled out, with the reason: a stale source, a calendar effect, an even move.
+- One bullet with the `execute-sql` calls used, out of 40.
+
+In a dry run nothing is published, so the report bullet carries the title you would have used, the driver numbers and the dates of the three chart windows.
+A person who wants to see that report with its charts runs the scout as a private trial, which captures the report.
+Link every entity with the URL a tool returned; never assemble one.
+The harness saves the summary on the run row.
 Do not write a separate run-metadata scratchpad entry.
-"Checked 6 measures in 14 queries, all within baseline" is a real outcome.
+"6 measures checked, all within baseline" is a real outcome.
