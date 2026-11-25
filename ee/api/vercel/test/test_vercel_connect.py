@@ -1537,6 +1537,21 @@ class TestIsInstallationOrphaned(SimpleTestCase):
             )
             assert _is_installation_orphaned(installation) is orphaned
 
+    def test_a_live_installation_is_checked_with_the_cached_token(self) -> None:
+        installation_id = f"icfg_{uuid4().hex}"
+
+        with responses.RequestsMock() as vercel:
+            token_endpoint = vercel.add(
+                responses.POST,
+                VERCEL_OAUTH_TOKEN_URL,
+                json={"access_token": "cached_token", "token_type": "Bearer", "expires_in": 3600},
+            )
+            vercel.add(responses.GET, f"https://api.vercel.com/v1/installations/{installation_id}", json={})
+            get_installation_access_token(installation_id)
+
+            assert _is_installation_orphaned(OrganizationIntegration(integration_id=installation_id)) is False
+            assert token_endpoint.call_count == 1
+
     def test_a_revoked_cached_token_does_not_orphan_a_live_installation(self) -> None:
         installation_id = f"icfg_{uuid4().hex}"
         installation = OrganizationIntegration(integration_id=installation_id)
