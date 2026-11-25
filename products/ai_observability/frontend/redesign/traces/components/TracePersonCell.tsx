@@ -1,7 +1,7 @@
 import { PersonDisplay, type PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 
 import type { TracePersonApi } from '../../../generated/api.schemas'
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TraceCellValue } from './TraceCellValue'
 
 export interface TracePersonCellProps {

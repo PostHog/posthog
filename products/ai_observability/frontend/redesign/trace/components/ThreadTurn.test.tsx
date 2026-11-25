@@ -1,13 +1,33 @@
 import { cleanup, render } from '@testing-library/react'
 
+import { withTimezone } from '../../shared/testTimezone'
 import { ConversationTurn } from '../types'
 import { ThreadTurn } from './ThreadTurn'
 
 const turn: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
+    waitMs: null,
     error: null,
-    input: { kind: 'messages', messages: [] },
+    input: {
+        kind: 'messages',
+        messages: [
+            {
+                id: 'gen-1-in-0',
+                role: 'user',
+                parts: [{ kind: 'text', text: 'Add two seats.' }],
+                isInternal: false,
+                sourceNodeId: 'gen-1',
+            },
+            {
+                id: 'gen-1-in-1',
+                role: 'assistant',
+                parts: [{ kind: 'text', text: 'Checking the seat history.' }],
+                isInternal: true,
+                sourceNodeId: 'gen-1',
+            },
+        ],
+    },
     output: {
         kind: 'messages',
         messages: [
@@ -61,7 +81,7 @@ describe('ThreadTurn', () => {
     }
 
     test.each([
-        ['cuts a bubble taller than the window', turn, window.innerHeight + 1, null, 1],
+        ['cuts a bubble taller than the window', turn, window.innerHeight + 1, null, 2],
         ['shows a bubble that holds the search query in full', turn, window.innerHeight + 1, 'seats', 0],
         ['cuts a JSON side once however deep it nests', jsonTurn, window.innerHeight + 1, null, 2],
     ])('%s', (_name, shownTurn, contentHeight, highlightQuery, readMoreCount) => {
@@ -80,5 +100,65 @@ describe('ThreadTurn', () => {
         } finally {
             height.mockRestore()
         }
+    })
+
+    test('keeps message text out of autocapture', () => {
+        const { getByText } = render(<ThreadTurn turn={turn} isActive={false} onSelectMessage={() => {}} />)
+
+        expect(getByText('Add two seats.').closest('.ph-no-capture')).not.toBeNull()
+        expect(document.querySelector('.ph-no-capture [data-attr]')).toBeNull()
+    })
+
+    describe('timing', () => {
+        const timed = (waitMs: number | null, waitSlow = false): JSX.Element => (
+            <ThreadTurn turn={{ ...turn, waitMs, waitSlow }} isActive={false} onSelectMessage={() => {}} showTiming />
+        )
+
+        test('shows timing beside the user message', () => {
+            const { getByText } = render(timed(2_100))
+
+            expect(getByText(/10:15/)).toBeTruthy()
+            expect(getByText(/2\.1s/)).toBeTruthy()
+        })
+
+        test.each([true, false])('marks the wait as slow only when the turn says so: %s', (waitSlow) => {
+            const { getByText } = render(timed(2_100, waitSlow))
+
+            expect(getByText(/\ds$/).className.includes('text-warning')).toBe(waitSlow)
+        })
+
+        test("shows the clock time in the viewer's timezone", () => {
+            withTimezone('America/New_York', () => {
+                const { getByText } = render(timed(null))
+
+                expect(getByText(/6:15/)).toBeTruthy()
+            })
+        })
+
+        test('shows no wait when latency is null', () => {
+            const { getByText, queryByText } = render(timed(null))
+
+            expect(getByText(/10:15/)).toBeTruthy()
+            expect(queryByText(/\ds$/)).toBeNull()
+        })
+
+        test('shows no timing unless asked', () => {
+            const { queryByText } = render(
+                <ThreadTurn turn={{ ...turn, waitMs: 2_100 }} isActive={false} onSelectMessage={() => {}} />
+            )
+
+            expect(queryByText(/10:15/)).toBeNull()
+        })
+    })
+
+    test('conversation only hides internal messages and the toggle', () => {
+        const props = { turn, isActive: false, onSelectMessage: () => {} }
+        const { getByText, queryByText, rerender } = render(<ThreadTurn {...props} />)
+        expect(getByText('Show 1 internal message')).toBeTruthy()
+
+        rerender(<ThreadTurn {...props} conversationOnly />)
+        expect(queryByText('Show 1 internal message')).toBeNull()
+        expect(queryByText('Checking the seat history.')).toBeNull()
+        expect(getByText('Add two seats.')).toBeTruthy()
     })
 })

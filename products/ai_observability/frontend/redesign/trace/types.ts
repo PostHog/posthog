@@ -52,6 +52,12 @@ export type ThreadMessage = TraceMessageApi
 export interface ConversationTurn {
     id: string
     timestamp: string
+    /** How long the user waited for the answer, from the trace's latency; null when not shown. */
+    waitMs: number | null
+    /** Whether the wait counts as slow, as the read of the turn says. */
+    waitSlow?: boolean
+    /** How long the conversation was silent before the turn, when the read of the turn counts it as a silence. */
+    silenceBeforeMs?: number | null
     input: NodeSideContent
     output: NodeSideContent
     error: string | null
