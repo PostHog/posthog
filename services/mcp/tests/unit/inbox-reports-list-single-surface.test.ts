@@ -38,14 +38,16 @@ describe('inbox-reports-list owns the Inbox reports list operation', () => {
         expect(result.data).toMatchObject(call)
     })
 
-    // Scheduled scout runs call this tool without `view` to read the whole project, so `view` gets no default.
     it.each([
         { call: {}, expected: { sort: 'recommended', limit: 10 } },
         { call: { sort: 'priority', limit: 25 }, expected: { sort: 'priority', limit: 25 } },
-    ])('fills sort and limit but not view: $call', ({ call, expected }) => {
-        const result = GENERATED_TOOLS['inbox-reports-list']!().schema.safeParse(call)
-        expect(result.success).toBe(true)
-        expect(result.data).toMatchObject(expected)
-        expect(result.data).not.toHaveProperty('view')
-    })
+    ])(
+        'fills sort and limit, and leaves view unset so scout runs read the whole project: $call',
+        ({ call, expected }) => {
+            const result = GENERATED_TOOLS['inbox-reports-list']!().schema.safeParse(call)
+            expect(result.success).toBe(true)
+            expect(result.data).toMatchObject(expected)
+            expect(result.data).not.toHaveProperty('view')
+        }
+    )
 })
