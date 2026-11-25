@@ -43,6 +43,7 @@ export function QuillMaterializationRunActions({
         dataModelingJobsError,
         dataModelingJobsLoading,
         hasMaterializationChanges,
+        refreshModeChanged,
         savingMaterialization,
         materializationRefreshPending,
     } = useValues(materializationJobsLogic({ viewId, kind }))
@@ -95,7 +96,7 @@ export function QuillMaterializationRunActions({
         deleteReason,
         materializeReason,
         busyReason,
-        draftError,
+        saveReason,
         noScheduleReason,
         cancelReason,
         pauseReason,
@@ -116,6 +117,7 @@ export function QuillMaterializationRunActions({
         initialSyncFrequency,
         incrementalDraft,
         incrementalDraftTouched,
+        refreshModeChanged,
     })
 
     const confirmDelete = (): void =>
@@ -184,6 +186,15 @@ export function QuillMaterializationRunActions({
                     <IconRefresh />
                     Sync now
                 </Button>
+                {running && (
+                    <Button
+                        variant="outline"
+                        disabledReason={cancelReason}
+                        onClick={() => cancelDataWarehouseSavedQuery(viewId)}
+                    >
+                        Cancel run
+                    </Button>
+                )}
                 <Button
                     variant="outline"
                     disabledReason={savingMaterialization ? 'Saving materialization settings' : undefined}
@@ -194,7 +205,7 @@ export function QuillMaterializationRunActions({
                 <Button
                     variant="primary"
                     loading={savingMaterialization}
-                    disabledReason={accessReason || busyReason || draftError}
+                    disabledReason={saveReason}
                     onClick={saveMaterializationChanges}
                 >
                     Save

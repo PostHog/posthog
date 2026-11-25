@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     staged_handoff_resume_point,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import AdoptionAccessError, adoption_access_error
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
@@ -1292,6 +1293,14 @@ async def _handle_import_error(
     if isinstance(error, TemporaryHostResolutionError):
         await logger.awarning(error_msg)
         await logger.adebug("Temporary host resolution failure - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # The SSH server closed new connections because too many arrived at once. Every schema of a source
+    # opens its own session, so the server refuses some of them while it serves the others. A later
+    # attempt gets through, so this must not disable the schema or report as a bug.
+    if isinstance(error, SSHGatewayClosedBeforeBannerError):
+        await logger.awarning(error_msg)
+        await logger.adebug("SSH server closed the connection before the handshake - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # PostHog's own egress proxy throttled or refused the connection, whichever source was talking.

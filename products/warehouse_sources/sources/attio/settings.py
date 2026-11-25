@@ -2,7 +2,7 @@ from typing import Literal
 
 from products.warehouse_sources.sources.sdk import frozen
 
-FanoutTarget = Literal["lists", "objects"]
+FanoutTarget = Literal["lists", "objects", "meetings"]
 
 
 @frozen
@@ -128,6 +128,33 @@ ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {
         primary_keys=("list_id", "entry_id"),
         fanout="parent",
         fanout_targets=("lists",),
+    ),
+    # Each thread carries at most 80 comments, the oldest first.
+    "threads": AttioEndpointConfig(
+        name="threads",
+        path="/v2/threads",
+        method="GET",
+        primary_keys=("thread_id",),
+        page_size=50,
+    ),
+    "meetings": AttioEndpointConfig(
+        name="meetings",
+        path="/v2/meetings",
+        method="GET",
+        primary_keys=("meeting_id",),
+        page_size=200,
+        pagination="cursor",
+    ),
+    "call_recordings": AttioEndpointConfig(
+        name="call_recordings",
+        path="/v2/meetings/{identifier}/call_recordings",
+        method="GET",
+        primary_keys=("meeting_id", "call_recording_id"),
+        page_size=200,
+        pagination="cursor",
+        fanout="parent",
+        fanout_targets=("meetings",),
+        params=(("limit", "200"),),
     ),
 }
 
