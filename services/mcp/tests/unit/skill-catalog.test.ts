@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
+import { maxResponseBytes } from '@/lib/response-budget'
 import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import {
     formatLearnFile,
@@ -11,7 +12,7 @@ import {
     searchLearnFile,
     SkillCatalog,
 } from '@/skills/skill-catalog'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { ExecLearnCatalog, LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 
 function makeArchive(files: Record<string, string>): Uint8Array {
     return zipSync(Object.fromEntries(Object.entries(files).map(([path, content]) => [path, strToU8(content)])))
@@ -587,6 +588,45 @@ describe('SkillCatalog and exec learn', () => {
                 'Unknown skill: "missing"'
             )
             expect(invocations).toEqual([])
+        })
+
+        const deferralBody = (fill: string): string =>
+            fill.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
+
+        it.each<{ batch: string; files: Record<string, string>; command: string; retry: string; returned: string[] }>([
+            {
+                batch: 'skills',
+                files: {
+                    'big-a/SKILL.md': makeSkill('big-a', 'First large skill.', deferralBody('a')),
+                    'big-b/SKILL.md': makeSkill('big-b', 'Second large skill.', deferralBody('b')),
+                },
+                command: 'posthog:big-a posthog:big-b',
+                retry: 'learn posthog:big-b',
+                returned: ['big-a'],
+            },
+            {
+                batch: 'files',
+                files: {
+                    'big/SKILL.md': makeSkill('big', 'Large skill.', 'See the references.'),
+                    'big/references/a.md': deferralBody('a'),
+                    'big/references/b.md': deferralBody('b'),
+                },
+                command: 'posthog:big references/a.md references/b.md',
+                retry: 'learn posthog:big references/b.md',
+                returned: ['references/a.md'],
+            },
+        ])('defers whole $batch past the response budget and reports only what it returned', async (testCase) => {
+            const catalog = SkillCatalog.fromZip(makeArchive(testCase.files))
+            const invocations: { skill: string; path?: string }[] = []
+            const learn = new ExecLearnCatalog([], { posthog: catalog }, (inv) => invocations.push(inv))
+
+            const output = await learn.execute(testCase.command)
+
+            expect([
+                output.includes('bbbb'),
+                output.endsWith(`Run \`${testCase.retry}\` in a separate command.]`),
+            ]).toEqual([false, true])
+            expect(invocations.map((inv) => inv.path ?? inv.skill)).toEqual(testCase.returned)
         })
 
         it('keeps learn working when the listener throws', async () => {

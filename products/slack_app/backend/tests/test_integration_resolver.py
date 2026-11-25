@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -12,7 +13,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackChannelSettings,
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+)
 from products.slack_app.backend.services.integration_resolver import (
     UserAndIntegrationsResolution,
     load_integrations,
@@ -90,16 +96,6 @@ class TestResolveIntegration:
         thread_ts: str = "123.456",
         mapping_kind: str = "task",
     ) -> None:
-        if mapping_kind == "fork":
-            from products.slack_app.backend.services.slack_fork_context import PendingFork, store_pending_fork
-
-            store_pending_fork(
-                integration.id,
-                channel,
-                thread_ts,
-                PendingFork(source_channel="CSOURCE", source_thread_ts="100.1", is_ext_shared=True),
-            )
-            return
         if mapping_kind == "report":
             SignalReport = apps.get_model("signals", "SignalReport")
             SignalReportSlackThread = apps.get_model("signals", "SignalReportSlackThread")
@@ -134,7 +130,7 @@ class TestResolveIntegration:
 
         assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     @pytest.mark.parametrize("has_default", [False, True])
     def test_thread_mapping_wins_over_everything(self, mapping_kind, has_default):
         self._mk_thread_mapping(team=self.team_b, integration=self.integration_b, mapping_kind=mapping_kind)
@@ -157,7 +153,7 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     def test_thread_mapping_ignored_when_user_lacks_access(self, mapping_kind):
         # Thread mapping targets team_c, which the user has no membership in
         # (it's in `other_org`). The thread match must be skipped — a user
@@ -205,7 +201,7 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
-    @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
+    @pytest.mark.parametrize("mapping_kind", ["task", "report"])
     def test_thread_mapping_falls_through_when_no_sibling_for_team(self, mapping_kind):
         # The mapping points at an Integration whose team has no candidate in
         # the current lookup at all (kind drift left no replacement). Without a
@@ -358,6 +354,52 @@ class TestResolveIntegration:
 
         assert result.source == "user_default"
         assert result.integration == self.integration_b
+
+    @pytest.mark.parametrize("flag_on,expected_source", [(True, "channel_default"), (False, "user_default")])
+    def test_channel_default_wins_over_user_default_only_behind_the_flag(self, flag_on, expected_source):
+        SlackSettings.objects.create(
+            default_integration=self.integration_b, slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER
+        )
+        SlackChannelSettings.objects.create(
+            slack_workspace_id=WORKSPACE,
+            slack_channel_id="C_MOBILE",
+            organization=self.organization,
+            default_integration_id=str(self.integration_a.id),
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=flag_on):
+            result = load_integrations(
+                slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER, user=self.user, channel="C_MOBILE"
+            )
+
+        assert result.source == expected_source
+        assert result.integration == (self.integration_a if flag_on else self.integration_b)
+
+    def test_author_who_cannot_open_the_channel_project_gets_their_own_default(self):
+        SlackSettings.objects.create(
+            default_integration=self.integration_b, slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER
+        )
+        SlackChannelSettings.objects.create(
+            slack_workspace_id=WORKSPACE,
+            slack_channel_id="C_MOBILE",
+            organization=self.other_org,
+            default_integration_id=str(self.integration_c.id),
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
+        ):
+            workspace_result = load_integrations(
+                slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER, user=None, channel="C_MOBILE"
+            )
+            result = resolve_user_for_workspace(
+                workspace_result=workspace_result, slack_team_id=WORKSPACE, slack_user_id=SLACK_USER
+            )
+
+        assert workspace_result.source == "channel_default"
+        assert result.user == self.user
+        assert (result.source, result.integration) == ("user_default", self.integration_b)
 
     def test_workspace_default_used_when_no_user_row(self):
         SlackSettings.objects.create(

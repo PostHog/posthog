@@ -1,0 +1,43 @@
+.dash-WidgetCard {
+    /* Anchors the menu button of a tile without a header. */
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.dash-WidgetCard--no-background {
+    background-color: transparent;
+    box-shadow: none;
+
+    /* Without an outline the tile is hard to find while editing, so it shows one on hover. */
+    .TileGrid--editable .TileGrid__tile:hover > &,
+    .TileGrid--editable .TileGrid__tile:hover > .TileContextMenu__trigger > & {
+        box-shadow: 0 0 0 1px var(--color-border-primary);
+    }
+}
+
+.dash-WidgetCard__float-toolbar {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 1;
+}
+
+/* A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in. */
+.dash-WidgetCard > .quill-card__header {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+/* A touch screen has no hover, so a tile without a background always shows its outline while editing. */
+@media (hover: none) {
+    .TileGrid--editable .dash-WidgetCard--no-background {
+        box-shadow: 0 0 0 1px var(--color-border-primary);
+    }
+}
+
+/* Markdown headings in a text tile carry LemonMarkdown's rule underneath; a tile already frames its text. */
+.dash-WidgetCard .LemonMarkdown :is(h1, h2) {
+    padding-bottom: 0;
+    border-bottom: 0;
+}

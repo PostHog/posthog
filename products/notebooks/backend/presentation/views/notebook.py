@@ -52,6 +52,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
+from posthog.permissions import request_subject
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -60,6 +61,9 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -520,7 +524,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 if (
                     existing_notebook.deleted
                     or access_control is None
-                    or not access_control.check_access_level_for_object(existing_notebook, "viewer")
+                    or not authorization.check(
+                        resource=Resource(
+                            type=ResourceType.NOTEBOOK,
+                            id=str(existing_notebook.id),
+                            project_id=team.pk,
+                            created_by_id=existing_notebook.created_by_id,
+                        ),
+                        action=Action.VIEW,
+                        subject=request_subject(request),
+                    )
                 ):
                     raise serializers.ValidationError(
                         {"short_id": "This notebook ID is unavailable. Use a different ID."}
@@ -592,7 +605,11 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     if (
                         locked_instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
                         # org admins have full access, so skip the gate for a faster save
-                        and not (self.user_access_control and self.user_access_control.is_organization_admin)
+                        and not authorization.check(
+                            resource=Resource.organization(locked_instance.team.organization_id),
+                            action=Action.EDIT,
+                            subject=request_subject(self.context["request"]),
+                        )
                         and is_publicly_shared(locked_instance)
                     ):
                         denied_resources = denied_resources_in_notebook_edit(
@@ -945,7 +962,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return self.get_object()
 
     def _has_query_access(self) -> bool:
-        return bool(self.user_access_control.check_access_level_for_resource("query", "viewer"))
+        return authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(self.request),
+        )
 
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
@@ -2703,7 +2724,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if (
             notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
-            and not self.user_access_control.is_organization_admin
+            and not authorization.check(
+                resource=Resource.organization(self.team.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(request),
+            )
             and is_publicly_shared(notebook)
         ):
             denied_resources = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
@@ -2805,7 +2830,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if (
             notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
-            and not self.user_access_control.is_organization_admin
+            and not authorization.check(
+                resource=Resource.organization(self.team.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(request),
+            )
             and is_publicly_shared(notebook)
         ):
             denied_resources = denied_resources_in_notebook_edit(user, notebook, submitted_content)
