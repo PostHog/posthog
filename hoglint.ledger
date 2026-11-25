@@ -2854,7 +2854,6 @@ presentation-uses-facade	products.experiments.backend.presentation.views	product
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.experiment_service	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.llm_metric_templates	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.models.experiment	1
-presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.recalculation	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.running_time_calculator	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.session_buckets	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.session_context	1
