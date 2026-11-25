@@ -4,6 +4,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from prometheus_client import REGISTRY
+
+from posthog.egress.vercel.observability import normalize_vercel_endpoint
 
 from ee.vercel.client import OperationResult, VercelAPIClient
 
@@ -57,14 +60,26 @@ class TestVercelAPIClient:
     def assert_successful_request(self, mock_request, method, url, callable_func, args, expected_result, **kwargs):
         mock_response = MagicMock()
         mock_response.status_code = 204
+        mock_response.request.method = method
+        mock_response.request.url = url
         mock_request.return_value = mock_response
+        egress_labels = {
+            "installation": args[0],
+            "method": method,
+            "endpoint": normalize_vercel_endpoint(url),
+            "status_code": "204",
+            "source": "integration",
+        }
+        recorded_before = REGISTRY.get_sample_value("vercel_api_requests_total", egress_labels) or 0
 
         result = callable_func(*args)
-        assert result == expected_result
 
-        expected_kwargs = {"timeout": 30}
-        expected_kwargs.update(kwargs)
+        assert result == expected_result
+        expected_kwargs: dict = {"headers": {}, "timeout": 30, "data": None, "auth": None}
+        if "json" in kwargs:
+            expected_kwargs.update(headers={"Content-Type": "application/json"}, data=json.dumps(kwargs["json"]))
         mock_request.assert_called_once_with(method, url, **expected_kwargs)
+        assert REGISTRY.get_sample_value("vercel_api_requests_total", egress_labels) == recorded_before + 1
 
     def test_client_initialization(self):
         client = VercelAPIClient("my_token")
@@ -354,6 +369,7 @@ class TestVercelAPIClient:
             data=urlencode(expected_data),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
+            auth=None,
         )
 
     @pytest.mark.parametrize(
