@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
+    is_atlas_srv_name,
     mongo_client,
     mongo_source,
 )
@@ -105,6 +106,12 @@ _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE = (
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SRV_SCHEME_REQUIRED_MESSAGE = (
+    "Your cluster address only works in a mongodb+srv:// connection string. Change the start of "
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "your connection string from mongodb:// to mongodb+srv:// and remove any port, then try again."
 )
 
 _MONGO_SRV_RECORD_MISSING_MESSAGE = (
@@ -585,6 +592,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # This check allows an early failure for obviously invalid connection strings for non SRV connections.
             valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
+                if is_atlas_srv_name(connection_params["host"]):
+                    return False, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE
                 return False, host_errors
 
         try:

@@ -15,6 +15,8 @@ from urllib.parse import unquote_plus, urlparse
 
 import certifi
 import structlog
+import dns.resolver
+import dns.exception
 from bson import Binary, DatetimeMS, Decimal128, ObjectId, Timestamp, json_util
 from bson.binary import UuidRepresentation
 from bson.code import Code
@@ -731,6 +733,25 @@ def _parse_connection_string(connection_string: str, database_override: str | No
         "connection_string": connection_string,
         "is_srv": parsed.scheme == "mongodb+srv",
     }
+
+
+_ATLAS_HOST_SUFFIX = ".mongodb.net"
+_SRV_PROBE_TIMEOUT_SECONDS = 5
+
+
+def is_atlas_srv_name(host: str) -> bool:
+    """Whether `host` is an Atlas cluster's SRV name, which a mongodb:// URI can't connect to.
+
+    Atlas publishes only SRV and TXT records for the cluster name (cluster0.abcde.mongodb.net),
+    so a mongodb:// string that names it never resolves. Its member hosts have A records instead.
+    """
+    if not host.lower().rstrip(".").endswith(_ATLAS_HOST_SUFFIX):
+        return False
+    try:
+        dns.resolver.resolve(f"_mongodb._tcp.{host}", "SRV", lifetime=_SRV_PROBE_TIMEOUT_SECONDS)
+    except dns.exception.DNSException:
+        return False
+    return True
 
 
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:

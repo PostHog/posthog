@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+import dns.resolver
+import dns.exception
 from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_SRV_RECORD_MISSING_MESSAGE,
+    _MONGO_SRV_SCHEME_REQUIRED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
@@ -85,6 +88,35 @@ class TestMongoValidateCredentialsDatabaseName:
 
         assert ok is False
         assert err == _MONGO_NO_COLLECTIONS_MESSAGE
+
+
+_HOST_CHECK_ERROR = "Couldn't resolve the host. Check that it's spelled correctly."
+
+
+class TestMongoValidateCredentialsHostCheck:
+    @pytest.mark.parametrize(
+        "host, srv_lookup, expected_message",
+        [
+            ("cluster0.abcde.mongodb.net", None, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE),
+            ("cluster0.abcde.mongodb.net", dns.resolver.NXDOMAIN(), _HOST_CHECK_ERROR),
+            ("cluster0.abcde.mongodb.net", dns.exception.Timeout(), _HOST_CHECK_ERROR),
+            ("db.example.com", None, _HOST_CHECK_ERROR),
+        ],
+    )
+    def test_failed_host_check_points_atlas_srv_names_at_the_srv_scheme(self, host, srv_lookup, expected_message):
+        # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+        config = MongoDBSourceConfig.from_dict({"connection_string": f"mongodb://user:pass@{host}/realdb"})
+
+        with (
+            patch.object(MongoDBSource, "is_database_host_valid", return_value=(False, _HOST_CHECK_ERROR)),
+            patch("dns.resolver.resolve", side_effect=srv_lookup) as mock_resolve,
+        ):
+            ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        if not host.endswith(".mongodb.net"):
+            mock_resolve.assert_not_called()
 
 
 class TestMongoValidateCredentialsServerSelection:
