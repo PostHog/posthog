@@ -314,19 +314,21 @@ Breaker state lives in Redis, so one worker tripping the breaker is seen by all 
 
 There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is _fast, contained failure_, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
 
-## Running tests with Turbo
+## Running product tests
 
-Products use Turborepo for selective testing. Only tests affected by your changes run.
+CI runs each product's backend tests as one pytest process:
 
 ```bash
-# Run all product tests
-pnpm turbo run backend:test
-
-# Run specific product tests
-pnpm turbo run backend:test --filter=@posthog/products-visual_review
-
-# Dry-run to see what would execute
-pnpm turbo run backend:test --dry-run=json
+bash .github/scripts/run-product-tests.sh <product_dir>   # e.g. visual_review
 ```
+
+The runner starts pytest in `products/<product_dir>/` and collects every test file under it, except the paths in `.github/scripts/product-tests-owned-elsewhere.txt`, which other CI jobs run.
+Extra arguments go to pytest.
+
+Locally, `hogli test products/<product_dir>/` runs the same thing for a product that has only Python tests.
+A product that also has Jest tests keeps the per-type grouping.
+
+Turbo still decides which products a change affects.
+The `backend:test` script in each `package.json` only registers the task for that, and CI does not run it.
 
 See [architecture.md](./architecture.md) for how selective testing works.

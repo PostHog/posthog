@@ -518,15 +518,15 @@ class TestFileFolderConflictsCheck:
 
 
 # ---------------------------------------------------------------------------
-# OrphanedTestFilesCheck — ensures every product test file is reachable by
-# either backend:test or a known external runner.
+# OrphanedTestFilesCheck: every product test file runs in some CI job.
 # ---------------------------------------------------------------------------
 
 
 class TestOrphanedTestFilesCheck:
-    """Verifies the lint catches test files left behind by misconfigured scripts."""
+    """Verifies the lint catches test files that no CI job runs."""
 
     _orphan_check = OrphanedTestFilesCheck()
+    _RUNNER_SCRIPT = "bash ../../.github/scripts/run-product-tests.sh my_product"
 
     def _ctx(self, tmp_path: Path, *, scripts: dict[str, str] | None = None, name: str = "my_product") -> CheckContext:
         product_dir = tmp_path / name
@@ -548,78 +548,28 @@ class TestOrphanedTestFilesCheck:
         result = self._orphan_check.run(ctx)
         assert result.skip is True
 
-    def test_orphan_flagged_when_backend_test_missing(self, tmp_path: Path) -> None:
-        ctx = self._ctx(tmp_path)
-        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
-        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+    @pytest.mark.parametrize(
+        "name, scripts, test_file, flagged",
+        [
+            ("my_product", {"backend:test": _RUNNER_SCRIPT}, "scripts/test/test_tool.py", False),
+            ("my_product", None, "backend/api/test/test_thing.py", True),
+            # turbo-discover drops a product whose backend:test only echoes, so its tests never run.
+            ("my_product", {"backend:test": "echo 'no tests'"}, "backend/test_thing.py", True),
+            # Other jobs run the paths in product-tests-owned-elsewhere.txt.
+            ("my_product", None, "dags/tests/test_thing.py", False),
+            ("warehouse_sources", None, "sources/stripe/test_stripe.py", False),
+            ("my_product", None, "sources/stripe/test_stripe.py", True),
+        ],
+    )
+    def test_flags_test_files_no_ci_job_runs(
+        self, tmp_path: Path, name: str, scripts: dict[str, str] | None, test_file: str, flagged: bool
+    ) -> None:
+        ctx = self._ctx(tmp_path, scripts=scripts, name=name)
+        (ctx.product_dir / test_file).parent.mkdir(parents=True, exist_ok=True)
+        (ctx.product_dir / test_file).write_text("")
         result = self._orphan_check.run(ctx)
-        assert any("backend/api/test/test_thing.py" in line for line in result.lines)
-        assert result.issues
-
-    def test_no_orphans_when_backend_test_covers(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
-        )
-        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
-        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_specific_file_path_in_pytest_does_not_false_flag(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/test_max_tools.py -v"},
-        )
-        (ctx.backend_dir / "test_max_tools.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_directory_prefix_does_not_eat_unrelated_paths(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/api"},
-        )
-        (ctx.backend_dir / "api").mkdir()
-        (ctx.backend_dir / "api" / "test_covered.py").write_text("")
-        (ctx.backend_dir / "api_v2").mkdir()
-        (ctx.backend_dir / "api_v2" / "test_uncovered.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert any("api_v2/test_uncovered.py" in i for i in result.issues)
-        assert not any("api/test_covered.py" in i for i in result.issues)
-
-    def test_dags_tests_exempted_via_external_runner(self, tmp_path: Path) -> None:
-        # ci-dagster.yml runs `pytest products/**/dags`. The check should not
-        # flag test files under `dags/` even when backend:test doesn't cover them.
-        ctx = self._ctx(tmp_path, scripts={"backend:test": "pytest backend/"})
-        (ctx.product_dir / "dags" / "tests").mkdir(parents=True)
-        (ctx.product_dir / "dags" / "tests" / "test_thing.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_per_product_exemption_applied(self, tmp_path: Path) -> None:
-        # products/tasks/backend/temporal/ is covered by ci-backend.yml Temporal
-        # segment, not the product matrix.
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/tests backend/services"},
-            name="tasks",
-        )
-        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
-        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert not result.issues
-
-    def test_per_product_exemption_does_not_apply_to_other_products(self, tmp_path: Path) -> None:
-        ctx = self._ctx(
-            tmp_path,
-            scripts={"backend:test": "pytest backend/tests"},
-            name="not_tasks",
-        )
-        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
-        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
-        result = self._orphan_check.run(ctx)
-        assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
+        assert bool(result.issues) is flagged
+        assert any(test_file in issue for issue in result.issues) is flagged
 
 
 class TestBackendPackageMarker:

@@ -16,9 +16,11 @@ import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 
 from .ast_helpers import ast_parse_safe
+from .paths import REPO_ROOT
 
 
 def has_contracts_module(backend_dir: Path) -> bool:
@@ -431,57 +433,50 @@ class ProductYamlOwnersCheck(ProductCheck):
         return result
 
 
+OWNED_ELSEWHERE_LIST = REPO_ROOT / ".github" / "scripts" / "product-tests-owned-elsewhere.txt"
+
+
+def _owned_elsewhere_patterns() -> list[str]:
+    lines = (line.strip() for line in OWNED_ELSEWHERE_LIST.read_text().splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def _is_owned_elsewhere(repo_relative: str, patterns: list[str]) -> bool:
+    # Match segment by segment, so `*` stays inside one segment as in the runner's bash glob.
+    parts = repo_relative.split("/")
+    for pattern in patterns:
+        pattern_parts = pattern.split("/")
+        if len(parts) > len(pattern_parts) and all(fnmatch(p, q) for p, q in zip(parts, pattern_parts)):
+            return True
+    return False
+
+
 class OrphanedTestFilesCheck(ProductCheck):
-    """Flag pytest test files that no CI runner will pick up.
+    """Flag pytest test files that no CI job runs.
 
-    Walks the product directory for `test_*.py` / `*_test.py` and checks each
-    is reachable from either:
-      - the pytest paths listed in `backend:test`, or
-      - a known external runner via `_EXTERNAL_RUNNER_PREFIXES` (e.g. `dags/`
-        directories are picked up by ci-dagster.yml, regardless of the
-        product's package.json).
-
-    Without this check, moving a test file to (say) `products/foo/scripts/test/`
-    or forgetting to add it to `backend:test` silently strands the tests —
-    they collect cleanly when run by hand but never run in CI.
+    The product job runs every test file under the product through
+    `.github/scripts/run-product-tests.sh`, except the paths in
+    `.github/scripts/product-tests-owned-elsewhere.txt`, which other jobs run.
+    turbo-discover only builds a product job for a product whose package.json has a
+    `backend:test` task that is not a no-op. A product without one strands every test
+    file outside the owned paths: the files collect when run by hand but never run in CI.
     """
 
     label = "test file coverage"
 
-    # Directories whose test files are run by workflows other than the product
-    # matrix. Keep in sync with the workflows under `.github/workflows/` that
-    # invoke pytest against product paths.
-    _EXTERNAL_RUNNER_PREFIXES = (
-        "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
-    )
-    # Exempt paths tested outside `backend:test`, including the Temporal tests in
-    # .depot/workflows/ci-backend.yml.
-    _PRODUCT_SPECIFIC_EXEMPTIONS = {
-        # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
-        "batch_exports": ("backend/tests/temporal/",),
-        "tasks": ("backend/temporal/",),
-        # backend/temporal/ is the Temporal segment above. sources/ holds the vendor plugins, which
-        # the "Warehouse sources checks and tests" job in ci-python.yml runs.
-        "warehouse_sources": ("backend/temporal/", "sources/"),
-        "signals": ("backend/emission/",),
-        # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
-        # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
-        # invocation rather than inside the product's Django suite.
-        "stamphog": ("packages/pr-approval-agent/",),
-    }
-
     def run(self, ctx: CheckContext) -> CheckResult:
-        # Find every test file under the product.
-        test_files = sorted(
-            p.relative_to(ctx.product_dir).as_posix()
-            for pattern in ("test_*.py", "*_test.py")
-            for p in ctx.product_dir.rglob(pattern)
-            if "__pycache__" not in p.parts
-        )
+        patterns = _owned_elsewhere_patterns()
+        test_files = []
+        for path in sorted({*ctx.product_dir.rglob("test_*.py"), *ctx.product_dir.rglob("*_test.py")}):
+            if "__pycache__" in path.parts:
+                continue
+            rel = path.relative_to(ctx.product_dir).as_posix()
+            if _is_owned_elsewhere(f"products/{ctx.name}/{rel}", patterns):
+                continue
+            test_files.append(rel)
         if not test_files:
             return CheckResult(skip=True)
 
-        # Extract the pytest paths from backend:test, if present.
         package_json = ctx.product_dir / "package.json"
         scripts = {}
         if package_json.exists():
@@ -490,47 +485,18 @@ class OrphanedTestFilesCheck(ProductCheck):
             except json.JSONDecodeError:
                 pass  # PackageJsonScriptsCheck reports the invalid JSON
         test_script = scripts.get("backend:test", "")
-        base_script = test_script.split("||")[0].strip() if test_script else ""
-        if base_script.startswith("pytest"):
-            pytest_paths = _parse_pytest_paths(base_script)
-        else:
-            pytest_paths = []
+        if test_script and not _is_noop_script(test_script.split("||")[0]):
+            return CheckResult(lines=["✓ ok"])
 
-        def _covered_by(rel: str, path: str) -> bool:
-            # pytest path can be a file ("backend/test_max_tools.py") or a
-            # directory ("backend/" or "scripts/test"). Treat as a prefix
-            # match against the trailing slash to avoid "backend/" eating
-            # "backend_tools/foo.py".
-            if rel == path:
-                return True
-            return rel.startswith(path.rstrip("/") + "/")
-
-        result = CheckResult()
-        per_product = self._PRODUCT_SPECIFIC_EXEMPTIONS.get(ctx.name, ())
-        orphans = []
-        for rel in test_files:
-            if any(_covered_by(rel, p) for p in self._EXTERNAL_RUNNER_PREFIXES):
-                continue
-            if any(_covered_by(rel, p) for p in per_product):
-                continue
-            if any(_covered_by(rel, p) for p in pytest_paths):
-                continue
-            orphans.append(rel)
-
-        if orphans:
-            result.lines.append(
-                f"✗ {len(orphans)} test file(s) not reachable from backend:test or any known external runner"
-            )
-            for o in orphans:
-                result.lines.append(f"  → {o}")
-            result.issues.extend(
-                f"Test file {o} is not covered by backend:test pytest paths or a known "
-                "external runner (e.g. ci-dagster.yml for dags/). It will never run in CI"
-                for o in orphans
-            )
-            result.file = f"products/{ctx.name}/package.json"
-        else:
-            result.lines.append("✓ ok")
+        result = CheckResult(file=f"products/{ctx.name}/package.json")
+        result.lines.append(f"✗ {len(test_files)} test file(s) that no CI job runs")
+        result.lines.extend(f"  → {rel}" for rel in test_files)
+        result.issues.extend(
+            f"Test file {rel} never runs in CI: turbo-discover builds a product job only for a product "
+            "whose package.json has a backend:test task that is not a no-op. Add one "
+            f"(bash ../../.github/scripts/run-product-tests.sh {ctx.name})."
+            for rel in test_files
+        )
         return result
 
 

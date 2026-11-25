@@ -577,7 +577,7 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if _find_nearest(dir_path, "Cargo.toml"):
         return _detect_rust_test(dir_path)
 
-    # Nested standalone workspaces: Vitest, not the root turbo/pytest/Jest routing
+    # Nested standalone workspaces: Vitest, not the root product/pytest/Jest routing
     normalized = dir_path.rstrip("/")
     if _nested_vitest_root(normalized):
         return _detect_desktop_vitest(normalized)
@@ -587,20 +587,17 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if uv_project:
         return _detect_uv_project_test(normalized, uv_project)
 
-    # Product root: use Turbo pipeline (only for top-level product dirs)
+    # Product root: run what CI runs for this product (only for top-level product dirs)
     if dir_path.startswith("products/"):
         parts = PurePosixPath(dir_path.rstrip("/")).parts
-        if len(parts) == 2:
-            product_name = parts[1]
-            pkg_json = REPO_ROOT / "products" / product_name / "package.json"
-            if pkg_json.exists():
-                pkg_name = _parse_package_json_name(pkg_json)
-                if pkg_name:
-                    return TestRunConfig(
-                        test_type="turbo",
-                        command=["pnpm", "turbo", "run", "backend:test", f"--filter={pkg_name}"],
-                        description=f"Product tests via Turbo ({pkg_name})",
-                    )
+        if len(parts) == 2 and (REPO_ROOT / "products" / parts[1] / "package.json").exists():
+            return TestRunConfig(
+                test_type="product",
+                command=["bash", ".github/scripts/run-product-tests.sh", parts[1]],
+                description=f"Product tests (products/{parts[1]}, as CI runs them)",
+                env=_python_env(),
+                cwd=REPO_ROOT,
+            )
 
     # Playwright: directory is under playwright/
     if dir_path.startswith("playwright/") or dir_path == "playwright":
@@ -625,7 +622,7 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
 
     raise click.UsageError(
         f"Could not detect test type for directory: {dir_path}\n\n"
-        "Supported: Python, Jest, Playwright, Rust, Go, Product (Turbo) directories"
+        "Supported: Python, Jest, Playwright, Rust, Go, Product directories"
     )
 
 
@@ -923,7 +920,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
         "Auto-detect test type and run the correct test runner.\n\n"
         "Accepts files, directories, and pytest node IDs. Detects Python "
         "(pytest), Jest, Playwright, Rust (cargo test), Go (go test), and "
-        "product directories (Turbo) based on file extension or directory context.\n\n"
+        "product directories (the CI product runner) based on file extension or directory context.\n\n"
         "Extra arguments are passed through to the underlying test runner.\n\n"
         "Examples:\n\n"
         "\b\n"
