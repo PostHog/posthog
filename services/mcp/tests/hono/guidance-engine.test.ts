@@ -614,18 +614,16 @@ describe('Self-driving activation guidance', () => {
                 enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
             )
             if (enabled) {
+                expect(notice?.text).toContain('`self-driving-status-get` returns its setup state')
                 expect(notice?.text).toContain(
-                    'If they start setup or ask you to check it, use `self-driving-status-get`'
+                    'Agents triaged errors in this project via the MCP on 29 of the past 30 days.'
                 )
-                expect(notice?.text).toContain('Agents triaged errors in this project on 29 of the past 30 days.')
-                expect(notice?.text).toContain("Answer the customer's current question first")
+                expect(notice?.text).toContain("Answer the user's current question first")
                 expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
-                expect(notice?.text).toContain('The primary setup route connects GitHub.')
                 expect(notice?.text).not.toContain('poll')
                 expect(notice?.text).not.toContain('inbox-reports-list')
-                expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
-                    githubOptional === true
-                )
+                // The start-without-GitHub page comes from self-driving-status-get, not from the notice.
+                expect(notice?.text).not.toContain('/inbox/activate/without-github')
                 expect(notice?.text).not.toContain('api.example.com')
                 expect(notice?.text).not.toContain('self-driving-activate')
             }

@@ -299,13 +299,13 @@ describe('ToolExecutor guidance notices', () => {
             if (fails) {
                 expect(first.isError).not.toBe(true)
                 expect(first.content).toEqual(second.content)
-                expect(first.content.some((item) => item.text?.includes('[background error investigations]'))).toBe(
-                    false
-                )
+                expect(
+                    first.content.some((item) => item.text?.includes('Self-driving is not active in this project'))
+                ).toBe(false)
                 expect(capture.mock.calls[0]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
                 return
             }
-            expect(first.content[json ? 1 : 0]?.text).toContain('[background error investigations]')
+            expect(first.content[json ? 1 : 0]?.text).toContain('Self-driving is not active in this project')
             expect(first.content).toHaveLength(second.content.length + 1)
             expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
             if (json) {
