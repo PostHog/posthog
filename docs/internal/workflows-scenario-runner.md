@@ -154,18 +154,18 @@ flowchart TB
 Cards say what a run does, the Generator and Valves do it, the Judge decides, and the Scorecard keeps the result.
 The Environment holds everything that differs between a local box and a cloud slice, and the provider edge runs the same in both places, so a card never knows where it runs.
 
-| Module              | Seam                                                                                            | Owns                                                                                                                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Runner**          | `up`, `run(card)`, `down`                                                                       | The run lifecycle: reset, seed, drive with valves alongside, converge, judge, write evidence, publish. Watching dependency health and role exits during the run. The status.       |
-| **Cards**           | `load`                                                                                          | The YAML schema (zod), the checks across a card and its profile, profiles, and the card and profile hashes.                                                                        |
-| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `dependencyHealth`, `exits`, `groupLag`, `down`    | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits.      |
-| **Provider edge**   | `startProviderEdge`, `hold`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                  |
-| **Valves**          | `start`, `releaseAll`, `timeline`                                                               | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action, and the timeline of requested, applied, observed and released.             |
-| **Generator**       | `seed`, `drive`                                                                                 | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                      |
-| **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function                 | The journal, convergence, and the invariant and measurement definitions.                                                                                                           |
-| **Run target**      | `open(card, runId)`, which returns the run's `truth`, `probe`, `seed` and `offers`              | Where a run's load goes and where its evidence comes from: the local stack, or the dev deployment, where offers go to capture and the truth is the receipts the query API returns. |
-| **Cyclotron probe** | `unfinishedJobs`, `runningJobs`                                                                 | Two SQL counts against `cyclotron_jobs`. They reach past Cyclotron's seam on purpose, and the probe is the only place that does.                                                   |
-| **Scorecard**       | `scorecardOf`, `publish`                                                                        | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                  |
+| Module              | Seam                                                                                           | Owns                                                                                                                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Runner**          | `up`, `run(card)`, `down`                                                                      | The run lifecycle: reset, seed, drive with valves alongside, converge, judge, write evidence, publish. Watching dependency health and role exits during the run. The status.       |
+| **Cards**           | `load`                                                                                         | The YAML schema (zod), the checks across a card and its profile, profiles, and the card and profile hashes.                                                                        |
+| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `dependencyHealth`, `exits`, `groupLag`, `down`   | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits.      |
+| **Provider edge**   | `startEdgeProcess`, `hold`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                  |
+| **Valves**          | `start`, `releaseAll`, `timeline`                                                              | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action, and the timeline of requested, applied, observed and released.             |
+| **Generator**       | `seed`, `drive`                                                                                | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                      |
+| **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function                | The journal, convergence, and the invariant and measurement definitions.                                                                                                           |
+| **Run target**      | `open(card, runId)`, which returns the run's `truth`, `probe`, `seed` and `offers`             | Where a run's load goes and where its evidence comes from: the local stack, or the dev deployment, where offers go to capture and the truth is the receipts the query API returns. |
+| **Cyclotron probe** | `unfinishedJobs`, `runningJobs`                                                                | Two SQL counts against `cyclotron_jobs`. They reach past Cyclotron's seam on purpose, and the probe is the only place that does.                                                   |
+| **Scorecard**       | `scorecardOf`, `publish`                                                                       | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                  |
 
 **One definition per name.**
 Each valve, traffic kind, invariant and measurement is one definition that holds its name, its parameter schema and its implementation, in Valves, Generator and Judge.
@@ -310,8 +310,8 @@ The probes run in a child process of the runner, so a drive that saturates the r
 The runner sends the child its targets over IPC, so no connection string shows on the child's command line.
 When the child exits, or answers no check within 30 seconds, that check fails and the next check starts a fresh child.
 A child that the run host has no file descriptor to start fails the check with that limit, not with a lost dependency.
-The provider edge runs in the runner, and its probe is a `GET /_health` that must answer 200, over a connection the child keeps alive between checks.
-So a runner too busy to answer that request makes the edge unheard, not gone.
+The provider edge runs in a child process of its own, and its probe is a `GET /_health` that must answer 200, over a connection the child keeps alive between checks.
+So a runner whose event loop is busy does not delay the edge's answer.
 A dependency went away when both checks failed and neither the run host nor the runner's event loop explains it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard, because a host that busy can starve the probe process too.
 A check that failed because the run host ran out of local ports or file descriptors is a harness limit that names the resource, not a lost dependency.
@@ -440,7 +440,7 @@ sequenceDiagram
 | Infrastructure | The dev stack's `workflows` intent without the `nodejs` unit: Postgres, Kafka (Redpanda), Redis, ClickHouse, PersonHog, Django and its workers | A per-run namespace rendered from production's chart values at slice size, with its own Cyclotron database and Kafka |
 | Node roles     | One child process group per CDP mode, in place of the dev stack's combined `nodejs` process                                                    | One deployment per mode, as in production                                                                            |
 | Actuation      | `SIGKILL`, and `SIGSTOP` and `SIGCONT`, on a role's process group; `pg_terminate_backend` on role connections                                  | Pod kills, freezes and network faults through the cloud's failure tooling                                            |
-| Provider edge  | Inside the runner process, on port 4566                                                                                                        | The same server as its own process, in a pod                                                                         |
+| Provider edge  | A child process of the runner, on port 4566                                                                                                    | The same server as its own process, in a pod                                                                         |
 | Profile        | `synthetic` by default; a measured profile by `--profile <file>`                                                                               | A measured profile                                                                                                   |
 | Measurements   | Each role's `/_metrics`, process CPU and memory included, and latency from the journal                                                         | The same metrics; alert rules checked against a test Alertmanager                                                    |
 
@@ -491,7 +491,7 @@ Only `intake_refused` and `harness_limit` cut the drive short.
 - A refusal at intake over the card's `refused_at_intake` gate stops the drive inside its step, without waiting for the step to end.
 - An event counts as offered in its step once Kafka acknowledged it by the step's end, or by the stop when the drive stopped early, however late the generator's last timer ran. The live judge counts a transactional unit once it was sent, and the final count once cdp-api answered. A broken bar and the ramp report the step's rate from the same count, whether the live or the final judge read the break.
 - A step whose generator offered fewer than `minOffered` of its units, or had none to offer, or whose bar could not be read, stops the drive as a harness limit, except a last step that a stop ended before its planned length: `ramp_broke_by` names the `generator` that could not offer the step, or the `run_host` that could not read it.
-- A step in which the runner's event loop lagged more than 250 ms at p99 stops the drive as a harness limit with `ramp_broke_by` `runner`. The runner process also hosts the provider edge, so a busy loop answers webhooks late, slows the workers that wait on them, and would otherwise read as a product break. Host CPU cannot show it, because one saturated core leaves the host mostly idle. Each step in the scorecard's `units.steps` records the lag as `loopLagP99Ms` and the runner's own CPU time as `runnerCpuMs`.
+- A step in which the runner's event loop lagged more than 250 ms at p99 stops the drive as a harness limit with `ramp_broke_by` `runner`. The runner offers every unit and stamps when it offered it, so a busy loop offers late and skews the delivery latency the judge measures from that stamp. Host CPU cannot show it, because one saturated core leaves the host mostly idle. Each step in the scorecard's `units.steps` records the lag as `loopLagP99Ms` and the runner's own CPU time as `runnerCpuMs`.
 - The units already in flight are still journaled, and the run converges and is judged as usual. Steps after the stop are not driven and not judged.
 - Invariants are judged after convergence. A `refused_at_intake` count over its gate breaks at the step that offered the unit that took it over. Units offered at the same moment are ordered by step.
 - Each step records the deliveries its accepted units expected, how many were lost, how many the provider accepted, and how many of those it accepted more than once, with a loss rate over the expected deliveries and a duplicate rate over the accepted ones. A step whose loss rate is over 5% breaks there as `step_loss`. Smaller losses and duplicates over their gate fail the run with a status reason that gives the counts, the rate and the steps, such as `the ramp ran to its last step, but lost 1 of 60 deliveries (1.67%): 1 in the 10x step`. A delivery still unrecorded at the convergence deadline while no job is unfinished counts as lost. While a job stays unfinished, an unrecorded delivery may only be late, so the steps record no losses and, without an earlier hard failure, the ramp stops as `backlog_undrained`.
@@ -648,7 +648,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
-- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, connects to the edge over TCP, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
+- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, asks the edge's `GET /_health` for a 200, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
 - **The roles' environment.** Every role starts from `src/index.ts` with `tsx` in development mode, as its own process group, with:
   - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
   - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;
@@ -669,6 +669,18 @@ export function startProviderEdge(options: {
   region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
   feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault posts its feedback
 }): Promise<ProviderEdge>
+```
+
+```ts
+// nodejs/tests/scenarios/provider-edge/process.ts
+export function startEdgeProcess(options: EdgeProcessOptions): Promise<EdgeProcess> // the options above, without `truth`
+export type EdgeProcess = {
+  url: string
+  caCertPath?: string
+  hold(rule: FaultRule): Promise<FaultHold> // observed and release run in the edge process
+  clearFaults(): Promise<void>
+  close(): Promise<void> // resolves once the process has exited and its port is free
+}
 ```
 
 ```text
@@ -1060,11 +1072,11 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 - **Why.** One implementation and one fault model serve both the email service's Jest suites and the runner, and those suites prove the move broke nothing. A container fake would drop configuration-set, tag and header validation and emit no feedback.
 - **Cost.** Two callers share one server's behavior; moving the Jest callers onto the edge directly is a later change.
 
-### The edge runs inside the runner process
+### The edge runs in a child process of the runner
 
-- **Decision.** `Environment.up` calls `startProviderEdge` in process on port 4566, as Jest's adapter does on a free port.
-- **Why.** The local runner needs no second process to supervise; the HTTP contract is the same either way.
-- **Cost.** The cloud slice needs the edge as its own process, which comes with the cloud image.
+- **Decision.** `Environment.up` calls `startEdgeProcess` on port 4566. It forks a child that runs `startProviderEdge`, and the runner holds and clears faults over IPC, passing each `FaultRule` as plain data. The truth stays on the edge's HTTP pages. Jest suites still start the edge in process on a free port.
+- **Why.** In the runner, the edge answered on the runner's event loop. A drive that kept that loop busy delayed the edge's health check and its webhooks, so the run read the edge as unheard and ended as a harness limit.
+- **Cost.** The runner supervises a second process. An edge process that dies reads as a lost dependency, because its health check is refused.
 
 ### SNS certificates from the edge, at the real host name
 

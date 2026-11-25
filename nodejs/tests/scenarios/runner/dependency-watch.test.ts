@@ -1,7 +1,8 @@
 import { execFile } from 'child_process'
-import { readFileSync } from 'fs'
+import { mkdtempSync, readFileSync } from 'fs'
 import http from 'http'
 import net, { AddressInfo } from 'net'
+import { tmpdir } from 'os'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { promisify } from 'util'
@@ -10,7 +11,8 @@ import { defaultConfig } from '~/common/config/config'
 
 import { startProbeProcess } from '../environment/probe-process'
 import { PROBE_TIMEOUT_MS, ProbeFailure, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
-import { ProviderEdge, startProviderEdge } from '../provider-edge'
+import { WEBHOOK_HOST } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
 const POSTGRES = defaultConfig.DATABASE_URL!
@@ -30,6 +32,26 @@ const listening = async (server: net.Server): Promise<number> => {
     return (server.address() as AddressInfo).port
 }
 
+const webhookAnswerOf = (edge: EdgeProcess): Promise<string> =>
+    promisify(execFile)('curl', [
+        '--silent',
+        '--show-error',
+        '--output',
+        '/dev/null',
+        '--write-out',
+        '%{http_code}',
+        '--max-time',
+        String(PROBE_TIMEOUT_MS / 1000),
+        '--proxy',
+        edge.url,
+        '--cacert',
+        edge.caCertPath!,
+        `https://${WEBHOOK_HOST}/u/busy-runner-unit/busy-runner-action`,
+    ]).then(
+        ({ stdout }) => stdout,
+        (error: { stderr?: string }) => error.stderr?.trim() ?? String(error)
+    )
+
 const missingDatabase = (): string => {
     const url = new URL(POSTGRES)
     url.pathname = '/scenario_dependency_watch_missing'
@@ -37,7 +59,7 @@ const missingDatabase = (): string => {
 }
 
 describe('dependency watch', () => {
-    let edge: ProviderEdge
+    let edge: EdgeProcess
     let silentPort: number
     let unavailableUrl: string
     const sockets: net.Socket[] = []
@@ -45,7 +67,11 @@ describe('dependency watch', () => {
     const unavailable = http.createServer((_request, response) => response.writeHead(503).end())
 
     beforeAll(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: 'scenario-tracking-key' })
+        edge = await startEdgeProcess({
+            port: 0,
+            trackingKeys: 'scenario-tracking-key',
+            caDir: mkdtempSync(path.join(tmpdir(), 'dependency-watch-edge-')),
+        })
         silentPort = await listening(silent)
         unavailableUrl = `http://127.0.0.1:${await listening(unavailable)}`
     })
@@ -103,10 +129,24 @@ describe('dependency watch', () => {
         }
     }
 
-    it('hears Postgres from its own process, and the edge the busy runner hosts as unheard, not gone', async () => {
-        const { losses } = await watchedFromProcess(edge.url, POSTGRES, RUNNER_BLOCKS_MS)
+    it('hears the edge from its own process, and the edge answers webhooks, while the runner is busy', async () => {
+        const probes = startProbeProcess({
+            edgeUrl: edge.url,
+            postgresUrl: POSTGRES,
+            sesValkey: VALKEY,
+            only: ['provider-edge'],
+        })
+        try {
+            const webhook = webhookAnswerOf(edge)
+            const { losses } = await watching(() => probes.check(), RUNNER_BLOCKS_MS)
 
-        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['provider-edge unheard'])
+            expect({ losses: losses.map(({ name, kind }) => `${name} ${kind}`), webhook: await webhook }).toEqual({
+                losses: [],
+                webhook: '200',
+            })
+        } finally {
+            probes.close()
+        }
     }, 30_000)
 
     it('names dependencies that went away from its own process, with their step and error', async () => {
