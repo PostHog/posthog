@@ -32,6 +32,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
@@ -1327,6 +1328,50 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
         assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
+
+    @parameterized.expand(
+        [
+            (
+                "spill_threshold_above_the_cap",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=20 * 1024**3),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=4294967296"],
+            ),
+            (
+                "lower_memory_limit",
+                HogQLGlobalSettings(max_memory_usage=1024**3, max_bytes_before_external_group_by=2 * 1024**3),
+                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=536870912"],
+            ),
+            (
+                "default_settings",
+                HogQLGlobalSettings(),
+                [
+                    UNKEYED_READ_MEMORY_CAP,
+                    "max_bytes_before_external_sort=4294967296",
+                    "max_bytes_ratio_before_external_sort=0",
+                    "max_bytes_before_external_group_by=4294967296",
+                    "max_bytes_ratio_before_external_group_by=0",
+                ],
+            ),
+            (
+                "lower_spill_threshold_stays",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=512 * 1024**2),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=536870912"],
+            ),
+        ]
+    )
+    def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
+        self, _name: str, settings: HogQLGlobalSettings, expected: list[str]
+    ):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            sql, _ = prepare_and_print_ast(
+                parse_select(UNKEYED_FEATURE_PROPERTY),
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=settings,
+            )
+
+        assert [setting for setting in expected if setting not in sql] == []
 
     @parameterized.expand(
         [
