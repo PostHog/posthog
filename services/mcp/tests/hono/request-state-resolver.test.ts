@@ -290,6 +290,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         }
     })
 
+    it('times each resolution step it ran', async () => {
+        const state = await makeResolver().resolve(makeProps())
+
+        expect(Object.keys(state.stepSeconds).sort()).toEqual([
+            'ai_consent',
+            'analytics_context',
+            'api_key',
+            'available_features',
+            'distinct_id',
+            'flags',
+            'pinned_context',
+            'stored_context',
+            'tool_filter',
+        ])
+    })
+
     it('retries a failed flag evaluation within the request', async () => {
         const evaluate = vi
             .mocked(evaluateFeatureFlags)
