@@ -231,6 +231,10 @@ MAX_REFRESHES_PER_BATCH = 20
 MAX_REFRESHES_PER_SHARE = 16
 _org_refreshes: dict[Any, int] = {}
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
+# Batch-only kinds calculate in the refresh thread itself, so they get their own worker and one refresh in flight per
+# organization and user, and can't hold the shared pool that only enqueues.
+_span_refresh_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-query-batch-span-refresh")
+_span_refresh_shares: set[Any] = set()
 _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
 
 _FAILED = "The query failed."
@@ -601,6 +605,7 @@ def _refresh_all(
     queries: list[tuple[str, ResolvedQuery]],
     shares: tuple[Any, ...],
     traceparent: Optional[str],
+    span_refresh: bool = False,
 ) -> None:
     # The stale results are already in the response. The async path recomputes them for the next read, except for the
     # batch-only kinds: a Celery worker is outside the batch scope and would refuse them, so this thread recomputes those.
@@ -630,12 +635,14 @@ def _refresh_all(
                 logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
     finally:
         connections.close_all()
-        _release_refreshes(shares, len(queries))
+        _release_refreshes(shares, len(queries), span_refresh=span_refresh)
 
 
-def _release_refreshes(shares: tuple[Any, ...], count: int) -> None:
+def _release_refreshes(shares: tuple[Any, ...], count: int, *, span_refresh: bool = False) -> None:
     with _org_lock:
         _add_shares(_org_refreshes, shares, -count)
+        if span_refresh:
+            _span_refresh_shares.difference_update(shares)
     for _ in range(count):
         _refresh_slots.release()
 
@@ -1069,29 +1076,40 @@ class QueryBatch:
         # Shared per organization and user too, so one account cannot keep other organizations' panels from refreshing.
         with _org_lock:
             room = MAX_REFRESHES_PER_SHARE - max(_org_refreshes.get(key, 0) for key in self._shares)
+            span_busy = any(key in _span_refresh_shares for key in self._shares)
             queries: list[tuple[str, ResolvedQuery]] = []
-            for query in candidates[: max(0, room)]:
+            span_queries: list[tuple[str, ResolvedQuery]] = []
+            for query in candidates:
+                if len(queries) + len(span_queries) >= room:
+                    break
+                is_span = query[1].query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
+                if is_span and span_busy:
+                    continue
                 if not _refresh_slots.acquire(blocking=False):
                     break
-                queries.append(query)
-            _add_shares(_org_refreshes, self._shares, len(queries))
-        if not queries:
-            return
+                (span_queries if is_span else queries).append(query)
+            if span_queries:
+                _span_refresh_shares.update(self._shares)
+            _add_shares(_org_refreshes, self._shares, len(queries) + len(span_queries))
 
-        # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
-        refresh_all = partial(
-            _refresh_all,
-            team=self._team,
-            user=self._user,
-            dashboard_id=self._dashboard_id,
-            queries=queries,
-            shares=self._shares,
-            traceparent=self._traceparent,
-        )
-        try:
-            _refresh_pool.submit(self._context.copy().run, refresh_all)
-        except RuntimeError:
-            _release_refreshes(self._shares, len(queries))
+        for pool, group, span_refresh in ((_refresh_pool, queries, False), (_span_refresh_pool, span_queries, True)):
+            if not group:
+                continue
+            # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
+            refresh_all = partial(
+                _refresh_all,
+                team=self._team,
+                user=self._user,
+                dashboard_id=self._dashboard_id,
+                queries=group,
+                shares=self._shares,
+                traceparent=self._traceparent,
+                span_refresh=span_refresh,
+            )
+            try:
+                pool.submit(self._context.copy().run, refresh_all)
+            except RuntimeError:
+                _release_refreshes(self._shares, len(group), span_refresh=span_refresh)
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)

@@ -392,6 +392,33 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["result"]["cache"]["stale"] for line in lines], [True, True, True])
         self.assertEqual(len(refreshed), 1)
 
+    @parameterized.expand([("span_refresh_idle", False), ("span_refresh_in_flight", True)])
+    def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(self, _name: str, busy: bool) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+        span_panel = {
+            "target": {"refId": "traces", "language": "query", "query": json.dumps(query)},
+            "time": _LAST_7_DAYS,
+            "swr": True,
+        }
+        self._lines([span_panel], format="frames")
+        shares = query_batch_module._share_keys(self.team.organization_id, self.user.pk)
+        refreshed: list[str] = []
+
+        with (
+            patch.object(query_batch_module, "_span_refresh_shares", set(shares) if busy else set()),
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch(
+                "products.dashboards.backend.v2.query_batch.process_query_dict",
+                side_effect=lambda team, query, **kwargs: refreshed.append(query["kind"]),
+            ),
+        ):
+            self._lines([span_panel, _insight("$pageview", swr=True)], format="frames")
+            wait_until(lambda: query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES)
+
+        expected = ["DataTableNode"] if busy else ["DataTableNode", "TraceSpansAggregationQuery"]
+        self.assertEqual(sorted(refreshed), sorted(expected))
+
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
     def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
