@@ -12,12 +12,14 @@ export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
     close(): Promise<void>
 }
 
-type Request =
-    | { id: number; op: 'hold'; rule: FaultRule }
-    | { id: number; op: 'observed'; hold: number; ended: boolean }
-    | { id: number; op: 'end'; hold: number }
-    | { id: number; op: 'release'; hold: number }
-    | { id: number; op: 'clear' }
+type Call =
+    | { op: 'hold'; rule: FaultRule }
+    | { op: 'observed'; hold: number; ended: boolean }
+    | { op: 'end'; hold: number }
+    | { op: 'release'; hold: number }
+    | { op: 'clear' }
+
+type Request = Call & { id: number }
 
 type Started = { kind: 'started'; url: string; caCertPath?: string }
 
@@ -126,14 +128,14 @@ export async function startEdgeProcess(options: EdgeProcessOptions): Promise<Edg
     })
     child.send({ options })
 
-    const call = <T>(request: Omit<Request, 'id'>): Promise<T> => {
+    const call = <T>(request: Call): Promise<T> => {
         if (ended) {
             return Promise.reject(ended)
         }
         const id = next++
         return new Promise<T>((resolve, reject) => {
             pending.set(id, { resolve: resolve as Pending['resolve'], reject })
-            child.send({ ...request, id } as Request)
+            child.send({ ...request, id } satisfies Request)
         })
     }
 
