@@ -9021,6 +9021,14 @@ class TestFeatureFlagPropertyAccessControl(APIBaseTest):
                 400,
             ),
             ("person_property_in_super_groups", [SALARY], False, SALARY_CONDITION, None, 400, "super_groups"),
+            (
+                "person_property_named_by_a_json_number",
+                [("2024", PropertyDefinition.Type.PERSON, None)],
+                False,
+                {"key": 2024, "type": "person", "value": "1", "operator": "gt"},
+                None,
+                400,
+            ),
         ]
     )
     def test_create_rejects_properties_the_member_cannot_read(
@@ -9040,7 +9048,7 @@ class TestFeatureFlagPropertyAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == 400:
             self.assertEqual(response.json()["code"], "restricted_property")
-            self.assertIn(condition["key"], response.json()["detail"])
+            self.assertIn(str(condition["key"]), response.json()["detail"])
 
     def test_update_rejects_adding_a_property_the_member_cannot_read(self):
         restrict_properties(self, [SALARY])

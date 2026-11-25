@@ -800,13 +800,6 @@ def _group_type_indexes_for_condition_property(
     return indexes if indexes else {None}
 
 
-def _property_key_is_restricted(
-    key: str, *, is_group: bool, group_type_index: int | None, restricted: RestrictedPropertyNames
-) -> bool:
-    names = restricted.group_property_names(group_type_index) if is_group else restricted.person
-    return property_key_overlaps_restriction(key, names)
-
-
 def _redact_restricted_actual_values(
     conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
 ) -> Any:
@@ -818,12 +811,9 @@ def _redact_restricted_actual_values(
         if not isinstance(key, str):
             return False
         if prop.get("type") != "group":
-            return _property_key_is_restricted(key, is_group=False, group_type_index=None, restricted=restricted)
+            return property_key_overlaps_restriction(key, restricted.person)
         indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
-        return any(
-            _property_key_is_restricted(key, is_group=True, group_type_index=index, restricted=restricted)
-            for index in indexes
-        )
+        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
 
     redacted: list[Any] = []
     for condition in conditions:
@@ -868,34 +858,44 @@ class _TargetingPropertyFilter:
     is_group: bool
     group_type_index: int | None
 
+    def is_restricted(self, restricted: RestrictedPropertyNames) -> bool:
+        names = restricted.group_property_names(self.group_type_index) if self.is_group else restricted.person
+        return property_key_overlaps_restriction(self.key, names)
+
+
+def _targeting_property_key(value: Any) -> str | None:
+    # PropertyKeyField stores a JSON number key as a string. The flags service reads the key the same way.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) or (isinstance(value, float) and math.isfinite(value)):
+        return str(value)
+    return value if isinstance(value, str) else None
+
 
 def _targeting_property_filters(filters: Mapping[str, Any]) -> Iterator[_TargetingPropertyFilter]:
     """Each person or group property filter in the targeting of ``filters``."""
     flag_aggregation = filters.get("aggregation_group_type_index")
     for condition in _targeting_conditions(filters):
         for prop in condition["properties"]:
-            if not isinstance(prop, Mapping) or not isinstance(prop.get("key"), str):
+            if not isinstance(prop, Mapping):
+                continue
+            key = _targeting_property_key(prop.get("key"))
+            if key is None:
                 continue
             prop_type = prop.get("type")
             if prop_type == "group":
                 yield _TargetingPropertyFilter(
-                    key=prop["key"],
+                    key=key,
                     is_group=True,
                     group_type_index=_group_filter_type_index(prop, condition, flag_aggregation),
                 )
             elif prop_type in (None, "person"):
-                yield _TargetingPropertyFilter(key=prop["key"], is_group=False, group_type_index=None)
-            # Cohort and flag filters hold an id in their key, not a property name.
+                yield _TargetingPropertyFilter(key=key, is_group=False, group_type_index=None)
+            # Cohort, flag, event, and behavioral filters don't name a person or group property in `key`.
 
 
 def _unreadable_targeting_keys(filters: Mapping[str, Any], restricted: RestrictedPropertyNames) -> set[str]:
-    return {
-        prop.key
-        for prop in _targeting_property_filters(filters)
-        if _property_key_is_restricted(
-            prop.key, is_group=prop.is_group, group_type_index=prop.group_type_index, restricted=restricted
-        )
-    }
+    return {prop.key for prop in _targeting_property_filters(filters) if prop.is_restricted(restricted)}
 
 
 _NON_TARGETING_FILTER_KEYS = frozenset(
