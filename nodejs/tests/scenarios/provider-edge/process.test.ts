@@ -1,6 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { execFile, spawn } from 'child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import net from 'net'
 import { tmpdir } from 'os'
 import path from 'path'
@@ -95,10 +95,7 @@ describe('provider edge process', () => {
         await edge.close()
         edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 200 })
         const holding = edge.hold(REJECT)
-        const busyUntil = Date.now() + 1000
-        while (Date.now() < busyUntil) {
-            // the runner stays busy past the deadline while the edge answers
-        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
 
         await expect(holding).rejects.toThrow('the provider edge process did not answer add within 200 ms')
     }, 10_000)
@@ -164,9 +161,11 @@ describe('provider edge process', () => {
                 opensslRuns: false,
             })
         } finally {
-            spawn('bash', ['-c', 'kill -9 "$(cat "$0")" 2>/dev/null', pidFile]).once('exit', () =>
-                rmSync(bin, { recursive: true, force: true })
-            )
+            const pid = existsSync(pidFile) ? readFileSync(pidFile, 'utf8').trim() : ''
+            if (pid && stillRuns(pid)) {
+                process.kill(Number(pid), 'SIGKILL')
+            }
+            rmSync(bin, { recursive: true, force: true })
         }
     }, 30_000)
 
