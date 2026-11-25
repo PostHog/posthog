@@ -5598,6 +5598,10 @@ export type ExperimentHoldoutsListParams = {
 
 export type ExperimentSavedMetricsListParams = {
     /**
+     * Filter to shared metrics created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string
+    /**
      * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
      */
     event?: string
@@ -5607,6 +5611,10 @@ export type ExperimentSavedMetricsListParams = {
      */
     limit?: number
     /**
+     * Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics.
+     */
+    metric_type?: ExperimentSavedMetricsListMetricType
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
@@ -5614,7 +5622,23 @@ export type ExperimentSavedMetricsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * JSON-encoded list of tag names. Returns shared metrics carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string
 }
+
+export type ExperimentSavedMetricsListMetricType =
+    (typeof ExperimentSavedMetricsListMetricType)[keyof typeof ExperimentSavedMetricsListMetricType]
+
+export const ExperimentSavedMetricsListMetricType = {
+    Funnel: 'funnel',
+    Mean: 'mean',
+    Quantile: 'quantile',
+    Ratio: 'ratio',
+    Retention: 'retention',
+    Trend: 'trend',
+} as const
 
 export type ExperimentsListParams = {
     /**
