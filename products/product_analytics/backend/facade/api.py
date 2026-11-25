@@ -19,6 +19,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from pydantic import JsonValue
+
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
@@ -412,6 +414,13 @@ def get_or_create_saved_insight(
 def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
     """Create an insight that PostHog generates for a dashboard, with no author, and return its id."""
     return logic.create_sample_insight(team_id=team_id, name=name, description=description, query=query)
+
+
+def create_saved_insight(
+    *, team_id: int, user_id: int, name: str, description: str, query: dict[str, JsonValue]
+) -> int:
+    """Create a saved insight with a new short id, authored by this user, and return its id."""
+    return logic.create_saved_insight(team_id=team_id, user_id=user_id, name=name, description=description, query=query)
 
 
 def update_insight_description_and_query(

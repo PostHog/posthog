@@ -33,11 +33,8 @@ people per bucket and since the edit.
     static cohort, leaves its edit without counts by properties. A value that ClickHouse rejects when the query runs,
     such as text compared with a number, leaves every edit without them.
 
-An event without the flag can take the value of the actor's last event with the flag at or before it: `$feature/<key>`
-on any event, or the response of a flag call. Server SDKs mostly send errors without the flag, so this is how their
-errors get a value. Only the events of the actors with a counted event are read, from `LAST_VALUE_LOOKBACK` before the
-range start but never from before the edit, because those events carry the old value. An actor without such an event
-gets no value.
+`flag_windows/last_values.py` counts people by the last value they had, so the first rule doesn't hold there: it also
+sees the people whose events don't carry the flag. It runs one query per kind of actor.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
@@ -84,8 +81,6 @@ QUERY_MAX_THREADS = 2
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
 PROPERTY_VALUE_ERROR_CODES = frozenset({6, 41, 53, 72, 427})
-
-LAST_VALUE_LOOKBACK = timedelta(hours=1)
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
@@ -134,6 +129,8 @@ class FlagRead:
     actor: ast.Expr
     # A group flag needs the group on the event.
     has_actor: ast.Expr
+    # The event carries `$feature/<key>`.
+    carries_flag: ast.Expr
     # The event carries the flag, or loaded flags when the edit enables the flag.
     with_flag: ast.Expr
     # The event carries a value other than false.
@@ -158,17 +155,38 @@ class FlagRead:
 
 
 @frozen
-class LastValue:
-    """The flag value on the actor's last event with the flag at or before the counted event, as HogQL expressions."""
+class BucketRange:
+    """The buckets of `[start, end)`. They start at `start`, not at a multiple of the bucket since the epoch, so a range
+    that starts at an edit time does not begin with a partial bucket."""
 
-    known: ast.Expr
-    exposed: ast.Expr
+    start: datetime
+    end: datetime
+    bucket: timedelta
 
+    def __post_init__(self) -> None:
+        seconds = self.bucket.total_seconds()
+        if seconds < 1 or seconds != int(seconds):
+            raise ValueError(f"A bucket must be a whole number of seconds, got {self.bucket}")
+        if self.end <= self.start:
+            raise ValueError(f"The range must end after it starts, got {self.start} to {self.end}")
+        # HogQL caps the rows of a query, and a capped result would drop the newest buckets without an error.
+        if self.buckets > MAX_SELECT_RETURNED_ROWS:
+            raise ValueError(f"The range holds {self.buckets} buckets, more than {MAX_SELECT_RETURNED_ROWS}")
 
-@frozen
-class LastValues:
-    joins: tuple[ast.JoinExpr, ...]
-    by_edit: Mapping[str, LastValue]
+    @property
+    def buckets(self) -> int:
+        return math.ceil((self.end - self.start) / self.bucket)
+
+    def bucket_of(self, timestamp: ast.Expr) -> ast.Expr:
+        """The start of the bucket that holds `timestamp`, which must not be before the range."""
+        return parse_expr(
+            "toStartOfInterval({timestamp}, toIntervalSecond({seconds}), {start})",
+            placeholders={
+                "timestamp": timestamp,
+                "seconds": ast.Constant(value=int(self.bucket.total_seconds())),
+                "start": ast.Constant(value=self.start),
+            },
+        )
 
 
 @frozen
@@ -243,6 +261,7 @@ def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]
     return FlagRead(
         actor=actor.expr,
         has_actor=actor.present,
+        carries_flag=carries_flag,
         with_flag=with_flag,
         exposed=exposed,
         variant_key=variant_key,
@@ -302,7 +321,7 @@ def _matches_condition(team: Team, condition: WatchedCondition, end: datetime) -
     )
 
 
-def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
+def edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
     """The edits with their position in `edits`, by the group type that their flag aggregates by."""
     by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
     for index, edit in enumerate(edits):
@@ -331,17 +350,17 @@ def _reason_joins(
     """The joins that tell, for each edit with watched conditions, whether the actor of an event sent a flag call
     with a watched reason after the edit, and the column of each edit. One join per kind of actor, so the query reads
     the flag calls once for all the edits of that kind."""
-    edits_by_actor = {
+    watched_by_actor = {
         group_type_index: watched
-        for group_type_index, all_edits in _edits_by_actor(edits).items()
+        for group_type_index, all_edits in edits_by_actor(edits).items()
         if (watched := [(index, edit) for index, edit in all_edits if edit.conditions])
     }
-    if not edits_by_actor:
+    if not watched_by_actor:
         return [], {}
     calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     columns: dict[str, ast.Expr] = {}
-    for group_type_index, watched in edits_by_actor.items():
+    for group_type_index, watched in watched_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
         actor = actor_of(group_type_index)
         reasons_by_edit = {edit.id: _watched_reasons(edit) for _, edit in watched}
@@ -373,8 +392,8 @@ def _reason_joins(
                     "since": ast.Constant(value=min(edit.edited_at for _, edit in watched)),
                     "end": ast.Constant(value=end),
                     "flag_key": calls.flag_key,
-                    "flag_keys": _constants(edit.flag_key for _, edit in watched),
-                    "reasons": _constants(reason for reasons in reasons_by_edit.values() for reason in reasons),
+                    "flag_keys": constants(edit.flag_key for _, edit in watched),
+                    "reasons": constants(reason for reasons in reasons_by_edit.values() for reason in reasons),
                     "has_actor": actor.present,
                 },
             ),
@@ -413,195 +432,12 @@ def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Se
             "flag_key": calls.flag_key,
             "edit_flag_key": ast.Constant(value=edit.flag_key),
             "edited_at": ast.Constant(value=edit.edited_at),
-            "reasons": _constants(reasons),
+            "reasons": constants(reasons),
         },
     )
 
 
-def last_values(
-    team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, counted_event: str
-) -> LastValues:
-    """For each edit, the flag value on the actor's last event with the flag at or before each `counted_event` in
-    `[start, end)`, from the edit on. One join per kind of actor reads the events of every edit of that kind once."""
-    edits_by_actor = _edits_by_actor(edits)
-    if not edits_by_actor:
-        return LastValues(joins=(), by_edit={})
-    calls = FlagCalls.of(team)
-    joins: list[ast.JoinExpr] = []
-    by_edit: dict[str, LastValue] = {}
-    for group_type_index, watched in edits_by_actor.items():
-        alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
-        actor = actor_of(group_type_index)
-        # Events before an edit carry the old value, so no edit reads a value from before it.
-        since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
-        counted_actors = ast.SelectQuery(
-            select=[actor.expr],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=parse_expr(
-                "event = {counted_event} AND timestamp >= {start} AND timestamp < {end}",
-                placeholders={
-                    "counted_event": ast.Constant(value=counted_event),
-                    "start": ast.Constant(value=start),
-                    "end": ast.Constant(value=end),
-                },
-            ),
-        )
-        reads = [(index, edit, read_flag(edit, {})) for index, edit in watched]
-        flag_values = _value_scan(
-            actor_column=actor.expr,
-            table=("events",),
-            columns=[
-                _ValueColumns(index=index, edited_at=edit.edited_at, carried=read.with_flag, exposed=read.exposed)
-                for index, edit, read in reads
-            ],
-            keep=ast.Or(exprs=[read.with_flag for _, _, read in reads]),
-            present=actor.present,
-            counted_actors=counted_actors,
-            since=since,
-            end=end,
-        )
-        flag_calls = _value_scan(
-            actor_column=calls.actor_column(group_type_index),
-            table=calls.table,
-            columns=[
-                _ValueColumns(
-                    index=index,
-                    edited_at=edit.edited_at,
-                    carried=_call_carries(edit, calls),
-                    exposed=parse_expr(
-                        "isNotNull({response}) AND {response} != 'false'", placeholders={"response": calls.response}
-                    ),
-                )
-                for index, edit in watched
-            ],
-            keep=parse_expr(
-                "{only_calls} AND {flag_key} IN {flag_keys}",
-                placeholders={
-                    "only_calls": calls.only_calls,
-                    "flag_key": calls.flag_key,
-                    "flag_keys": _constants(edit.flag_key for _, edit in watched),
-                },
-            ),
-            present=actor.present,
-            counted_actors=counted_actors,
-            since=since,
-            end=end,
-        )
-        subquery = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["actor"]),
-                *[column for index, _ in watched for column in _value_changes(index)],
-            ],
-            select_from=ast.JoinExpr(
-                table=ast.SelectSetQuery.create_from_queries([flag_values, flag_calls], "UNION ALL")
-            ),
-            group_by=[ast.Field(chain=["actor"])],
-        )
-        joins.append(_join_by_actor(subquery, alias, actor))
-        for index, edit in watched:
-            values = ast.Field(chain=[alias, f"values{index}"])
-            by_edit[edit.id] = LastValue(
-                known=parse_expr(
-                    "arrayExists(x -> x.1 <= events.timestamp, {values})", placeholders={"values": values}
-                ),
-                exposed=parse_expr(
-                    "arrayLast(x -> x.1 <= events.timestamp, {values}).2 = 1", placeholders={"values": values}
-                ),
-            )
-    return LastValues(joins=tuple(joins), by_edit=by_edit)
-
-
-def _call_carries(edit: WatchedEdit, calls: FlagCalls) -> ast.Expr:
-    if {"true", "false"} & set(edit.variants):
-        # A flag call's response is text, so a variant named "true" or "false" reads the same as a boolean value.
-        return ast.Constant(value=False)
-    # A call without a response tells no value, as an event without the flag doesn't.
-    return parse_expr(
-        "{flag_key} = {key} AND isNotNull({response})",
-        placeholders={"flag_key": calls.flag_key, "key": ast.Constant(value=edit.flag_key), "response": calls.response},
-    )
-
-
-def _value_changes(index: int) -> list[ast.Alias]:
-    """The (timestamp, exposed) pairs of an actor in time order, without a pair that repeats the value before it. The
-    join copies the array to every counted event of the actor, so it holds only the changes."""
-    return [
-        ast.Alias(
-            alias=f"sorted{index}",
-            # Tuples sort by time, then by value, so of two values with the same time the exposed one is last and wins.
-            expr=parse_expr(
-                "arraySort(groupArrayIf(tuple(timestamp, {exposed}), {carried}))",
-                placeholders={
-                    "exposed": ast.Field(chain=[f"exposed{index}"]),
-                    "carried": ast.Field(chain=[f"carried{index}"]),
-                },
-            ),
-        ),
-        ast.Alias(
-            alias=f"values{index}",
-            expr=parse_expr(
-                "arrayFilter((x, i) -> i = 1 OR x.2 != {sorted}[i - 1].2, {sorted}, arrayEnumerate({sorted}))",
-                placeholders={"sorted": ast.Field(chain=[f"sorted{index}"])},
-            ),
-        ),
-    ]
-
-
-@frozen
-class _ValueColumns:
-    index: int
-    edited_at: datetime
-    carried: ast.Expr
-    exposed: ast.Expr
-
-
-def _value_scan(
-    *,
-    actor_column: ast.Expr,
-    table: tuple[str, ...],
-    columns: Sequence[_ValueColumns],
-    keep: ast.Expr,
-    present: ast.Expr,
-    counted_actors: ast.SelectQuery,
-    since: datetime,
-    end: datetime,
-) -> ast.SelectQuery:
-    """One row per row of `table` that `keep` holds for, with whether it carries the flag of each edit, and the value."""
-    return ast.SelectQuery(
-        select=[
-            ast.Alias(alias="actor", expr=actor_column),
-            ast.Field(chain=["timestamp"]),
-            *[
-                alias
-                for column in columns
-                for alias in (
-                    ast.Alias(
-                        alias=f"carried{column.index}",
-                        expr=parse_expr(
-                            "{carried} AND timestamp >= {edited_at}",
-                            placeholders={"carried": column.carried, "edited_at": ast.Constant(value=column.edited_at)},
-                        ),
-                    ),
-                    ast.Alias(alias=f"exposed{column.index}", expr=column.exposed),
-                )
-            ],
-        ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=list(table))),
-        where=parse_expr(
-            "timestamp >= {since} AND timestamp < {end} AND {present} AND {keep} AND {actor_column} IN {counted_actors}",
-            placeholders={
-                "since": ast.Constant(value=since),
-                "end": ast.Constant(value=end),
-                "present": present,
-                "keep": keep,
-                "actor_column": actor_column,
-                "counted_actors": clone_expr(counted_actors),
-            },
-        ),
-    )
-
-
-def _constants(values: Iterable[str]) -> ast.Tuple:
+def constants(values: Iterable[str]) -> ast.Tuple:
     return ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(set(values))])
 
 
@@ -671,7 +507,7 @@ def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> lis
                 max_execution_time=QUERY_TIMEOUT_SECONDS,
                 max_threads=QUERY_MAX_THREADS,
                 timeout_overflow_mode="throw",
-                # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
+                # The reason joins and the last values group by actor. On a large team the aggregation goes to disk
                 # instead of failing the counts of every edit.
                 max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
             ),
@@ -679,83 +515,96 @@ def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> lis
     return response.results or []
 
 
+def run_bucket_query(
+    team: Team,
+    per_bucket: ast.SelectQuery,
+    states_by_edit: Mapping[str, Sequence[ast.Alias]],
+    buckets: int,
+    query_type: str,
+) -> dict[str, tuple[BucketCounts, ...]]:
+    """The counts of each edit in each `bucket` of `per_bucket`, oldest first. `per_bucket` selects the bucket and one
+    `uniqState` per count of each edit."""
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["bucket"]),
+            *[
+                parse_expr(template, placeholders={"state": ast.Field(chain=[state.alias])})
+                for states in states_by_edit.values()
+                for state in states
+                for template in (IN_BUCKET, SINCE_EDIT)
+            ],
+        ],
+        select_from=ast.JoinExpr(table=per_bucket),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["bucket"]), order="ASC")],
+        # One row per bucket. HogQL adds LIMIT 100 to a query without one.
+        limit=ast.Constant(value=buckets),
+    )
+    rows_by_edit: dict[str, list[BucketCounts]] = {edit_id: [] for edit_id in states_by_edit}
+    for row in run_window_query(team, query, query_type):
+        values = iter(row[1:])
+        for edit_id, states in states_by_edit.items():
+            # Each state gives the bucket's own value, then the value since the edit.
+            pairs = [(int(next(values)), int(next(values))) for _ in states]
+            rows_by_edit[edit_id].append(
+                BucketCounts(
+                    start=row[0],
+                    in_bucket=tuple(pair[0] for pair in pairs),
+                    since_edit=tuple(pair[1] for pair in pairs),
+                )
+            )
+    return {edit_id: tuple(rows) for edit_id, rows in rows_by_edit.items()}
+
+
 @frozen
 class _BucketQuery:
     team: Team
     edits: Sequence[WatchedEdit]
     counts: Callable[[WatchedEdit, FlagRead], Sequence[ast.Expr]]
-    start: datetime
-    end: datetime
-    seconds: int
-    buckets: int
+    bucket_range: BucketRange
     query_type: str
     event: str | None
     joins: tuple[ast.JoinExpr, ...]
 
     def run(self, with_properties: bool) -> dict[str, EditCounts]:
         # Each run builds its own tree, because resolving a query can change the nodes in it.
-        reason_joins, reason_columns = _reason_joins(self.team, self.edits, self.end)
+        start, end = self.bucket_range.start, self.bucket_range.end
+        reason_joins, reason_columns = _reason_joins(self.team, self.edits, end)
         joins = [*(clone_expr(join) for join in self.joins), *reason_joins]
-        reads = [
-            read_flag(edit, _in_condition(self.team, edit, reason_columns.get(edit.id), self.end, with_properties))
+        reads = {
+            edit.id: read_flag(edit, _in_condition(self.team, edit, reason_columns.get(edit.id), end, with_properties))
             for edit in self.edits
-        ]
-        states_by_edit = [
-            _states(index, edit, read, self.counts(edit, read))
-            for index, (edit, read) in enumerate(zip(self.edits, reads))
-        ]
-        states = [state for edit_states in states_by_edit for state in edit_states]
-        # Buckets start at `start`, not at a multiple of the bucket since the epoch, so a range that starts at an edit
-        # time does not begin with a partial bucket.
-        bucket_start = parse_expr(
-            "toStartOfInterval(timestamp, toIntervalSecond({seconds}), {start})",
-            placeholders={"seconds": ast.Constant(value=self.seconds), "start": ast.Constant(value=self.start)},
-        )
+        }
+        states_by_edit = {
+            edit.id: _states(index, edit, reads[edit.id], self.counts(edit, reads[edit.id]))
+            for index, edit in enumerate(self.edits)
+        }
         where = parse_expr(
             "timestamp >= {start} AND timestamp < {end}",
-            placeholders={"start": ast.Constant(value=self.start), "end": ast.Constant(value=self.end)},
+            placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
         )
         if self.event is not None:
             where = ast.And(
                 exprs=[where, parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.event)})]
             )
         per_bucket = ast.SelectQuery(
-            select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
+            select=[
+                ast.Alias(alias="bucket", expr=self.bucket_range.bucket_of(ast.Field(chain=["timestamp"]))),
+                *[state for states in states_by_edit.values() for state in states],
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=_chain(joins)),
             where=where,
             group_by=[ast.Field(chain=["bucket"])],
         )
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["bucket"]),
-                *[
-                    parse_expr(template, placeholders={"state": ast.Field(chain=[state.alias])})
-                    for state in states
-                    for template in (IN_BUCKET, SINCE_EDIT)
-                ],
-            ],
-            select_from=ast.JoinExpr(table=per_bucket),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["bucket"]), order="ASC")],
-            # One row per bucket. HogQL adds LIMIT 100 to a query without one.
-            limit=ast.Constant(value=self.buckets),
-        )
-        rows_by_edit: dict[str, list[BucketCounts]] = {edit.id: [] for edit in self.edits}
-        for row in run_window_query(self.team, query, self.query_type):
-            values = iter(row[1:])
-            for edit, edit_states in zip(self.edits, states_by_edit):
-                # Each state gives the bucket's own value, then the value since the edit.
-                pairs = [(int(next(values)), int(next(values))) for _ in edit_states]
-                rows_by_edit[edit.id].append(
-                    BucketCounts(
-                        start=row[0],
-                        in_bucket=tuple(pair[0] for pair in pairs),
-                        since_edit=tuple(pair[1] for pair in pairs),
-                    )
-                )
+        buckets = run_bucket_query(self.team, per_bucket, states_by_edit, self.bucket_range.buckets, self.query_type)
         return {
-            edit.id: EditCounts(matches=tuple(read.in_condition), buckets=tuple(rows_by_edit[edit.id]))
-            for edit, read in zip(self.edits, reads)
+            edit_id: EditCounts(matches=tuple(read.in_condition), buckets=buckets[edit_id])
+            for edit_id, read in reads.items()
         }
+
+
+def check_edit_ids(edits: Sequence[WatchedEdit]) -> None:
+    if len({edit.id for edit in edits}) != len(edits):
+        raise ValueError("Each watched edit needs its own id")
 
 
 def counts_by_bucket(
@@ -772,17 +621,8 @@ def counts_by_bucket(
     """For each edit, the people (or groups) that each of its `counts` holds for after the edit, in each bucket of
     `[start, end)` that has events, oldest bucket first. `query_type` names the query in the query log. `event` limits
     the scan to one event name. `joins` join tables to the events, so that the counts of every edit can read them."""
-    seconds = bucket.total_seconds()
-    if seconds < 1 or seconds != int(seconds):
-        raise ValueError(f"A bucket must be a whole number of seconds, got {bucket}")
-    if end <= start:
-        raise ValueError(f"The range must end after it starts, got {start} to {end}")
-    buckets = math.ceil((end - start) / bucket)
-    # HogQL caps the rows of a query, and a capped result would drop the newest buckets without an error.
-    if buckets > MAX_SELECT_RETURNED_ROWS:
-        raise ValueError(f"The range holds {buckets} buckets, more than {MAX_SELECT_RETURNED_ROWS}")
-    if len({edit.id for edit in edits}) != len(edits):
-        raise ValueError("Each watched edit needs its own id")
+    bucket_range = BucketRange(start=start, end=end, bucket=bucket)
+    check_edit_ids(edits)
     if not edits:
         return {}
 
@@ -790,10 +630,7 @@ def counts_by_bucket(
         team=team,
         edits=edits,
         counts=counts,
-        start=start,
-        end=end,
-        seconds=int(seconds),
-        buckets=buckets,
+        bucket_range=bucket_range,
         query_type=query_type,
         event=event,
         joins=tuple(joins),

@@ -26,6 +26,8 @@ const definition: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: 'example-project-key-00000001',
     updated_at: '2026-01-02T00:00:00Z',
     team: 997,
 }
@@ -60,6 +62,7 @@ const meta: Meta<typeof AIObservabilityScorersScene> = {
                             ...definition,
                             id: 'b4f331fe-7d3b-4bbe-9f88-52e1b0a8b010',
                             name: 'Safety',
+                            updated_by_project_key_id: null,
                             kind: 'boolean',
                             config: { true_label: 'Safe', false_label: 'Unsafe' },
                         },

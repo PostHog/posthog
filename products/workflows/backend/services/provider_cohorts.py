@@ -4,7 +4,12 @@ from posthog.models import User
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.cohorts.backend.facade.api import create_empty_static_cohort, find_cohort_ref_by_description
+from products.cohorts.backend.facade.api import (
+    DescribedCohort,
+    create_empty_static_cohort,
+    find_cohort_ref_by_description,
+    static_cohorts_by_description_prefix,
+)
 from products.workflows.backend.services.resend_import.translator import SegmentCohort
 
 # Cohort names hold up to 400 characters, and the name gets a suffix such as " (from Resend)".
@@ -14,6 +19,16 @@ MAX_SOURCE_NAME_LENGTH = 380
 def resend_segment_description(segment_id: str) -> str:
     # The automation and contact imports both find a segment's cohort by this text, so it must not change.
     return f"Imported from Resend segment {segment_id}."
+
+
+def described_static_cohorts(team_id: int, description_prefix: str) -> list[DescribedCohort]:
+    """The static cohorts whose description starts with the prefix, of which an import fills the same one again."""
+    return [
+        cohort
+        for cohort in static_cohorts_by_description_prefix(team_id=team_id, prefix=description_prefix)
+        if (ref := find_cohort_ref_by_description(team_id=team_id, description=cohort.description))
+        and ref.id == cohort.id
+    ]
 
 
 def import_cohort(
