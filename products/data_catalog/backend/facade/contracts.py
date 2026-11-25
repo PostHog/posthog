@@ -1,12 +1,19 @@
 """Cross-product value contracts exposed by data_catalog."""
 
+from collections.abc import Callable
 from dataclasses import field
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 from .enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 
 @dataclass(frozen=True)
@@ -246,3 +253,23 @@ class MetricUsage:
     runs: MetricRunCounts | None
     adjusted_runs: list[AdjustedRun]
     failed_sections: list[SectionFailure]
+
+
+@frozen
+class DigestRow:
+    """One row of a project's section in the weekly data catalog email; `path` is relative to the project."""
+
+    noun: str
+    count: int
+    new_count: int
+    sample_names: list[str]
+    path: str
+
+
+@frozen
+class DigestSource:
+    """Rows a product adds to the weekly data catalog email, declared in `DIGEST_SOURCES` in `backend/facade/data_catalog_digest.py`."""
+
+    name: str
+    rows: Callable[["Team", "User", datetime], list[DigestRow]]
+    teams_with_rows: Callable[[list["Team"]], set[int]]

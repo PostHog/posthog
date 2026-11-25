@@ -51,7 +51,8 @@
                 "MODAL_TOKEN_SECRET",
                 "AWS_S3_ALLOW_UNSAFE_RENAME",
                 "COVERAGE_CORE",
-                "POSTHOG_PYTEST_HARD_EXIT"
+                "POSTHOG_PYTEST_HARD_EXIT",
+                "TEMPORAL_VERSION_CHECK_DISABLED"
             ]
         },
         "backend:lint": {
