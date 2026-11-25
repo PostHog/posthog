@@ -11,6 +11,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync, sync_to_async
 from botocore.exceptions import ClientError
 from parameterized import parameterized
@@ -54,6 +56,7 @@ from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
     DayViewportsInput,
     ExportDestination,
+    ExportPoolInput,
     ExportShardInput,
     ExportTotals,
     WriteSummaryInput,
@@ -684,13 +687,13 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         session_ids_prefix="unused",
     )
 
-    line = await export_session(MagicMock(), MagicMock(), ByteBudget(1), input, session, [], None)
+    line = await export_session(MagicMock(), asyncio.Semaphore(1), MagicMock(), ByteBudget(1), input, session, [], None)
 
     assert line.status == "expired"
 
 
 @pytest.mark.asyncio
-async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
+async def test_block_fetches_wait_for_the_shard_byte_budget_and_fetch_limit() -> None:
     now = datetime.now(UTC)
     blocks = [Block(key=f"k{i}", start_byte=0, end_byte=99) for i in range(4)]
     sessions = [
@@ -706,24 +709,30 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
     ]
     in_flight = 0
     peak = 0
+    fetching = 0
+    peak_fetching = 0
 
     async def fetch(*_: Any, **__: Any) -> bytes:
-        nonlocal in_flight, peak
+        nonlocal in_flight, peak, fetching, peak_fetching
         # A block counts from its fetch until the consumer has written it.
         in_flight += 1
         peak = max(peak, in_flight)
+        fetching += 1
+        peak_fetching = max(peak_fetching, fetching)
         await asyncio.sleep(0)
+        fetching -= 1
         return b"x" * 100
 
     client = MagicMock()
     client.fetch_block = fetch
     # Room for 3 blocks of 100 bytes across both sessions.
     budget = ByteBudget(300)
+    fetches = asyncio.Semaphore(2)
 
     async def drain(session: SessionRow) -> int:
         nonlocal in_flight
         count = 0
-        async for _ in fetch_blocks_in_order(client, session, 1, budget):
+        async for _ in fetch_blocks_in_order(client, fetches, session, 1, budget):
             # A slow write: the block stays in memory while other sessions run.
             await asyncio.sleep(0)
             await asyncio.sleep(0)
@@ -733,4 +742,26 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
 
     assert await asyncio.gather(*(drain(s) for s in sessions)) == [4, 4]
     assert peak <= 3
+    assert peak_fetching == 2
     assert budget.used == 0
+
+
+@pytest.mark.asyncio
+async def test_the_pool_wait_holds_the_shards_in_the_scaling_metric_until_their_pods_are_ready() -> None:
+    seen: list[tuple[int, float]] = []
+    ready = iter([0, 3, 4, 4])
+
+    async def ready_pods(host: str) -> int:
+        pods = next(ready)
+        seen.append((pods, activities.EXPORT_SHARDS._value.get()))
+        return pods
+
+    with (
+        override_settings(RECORDING_API_EXPORT_PODS_HOST="pool-pods"),
+        patch.object(activities, "ready_export_pods", ready_pods),
+        patch.object(activities, "EXPORT_POOL_POLL_SECONDS", 0),
+    ):
+        await ActivityEnvironment().run(activities.wait_for_export_pool, ExportPoolInput(run_id="r", shards=2))
+
+    assert seen == [(0, 2), (3, 2), (4, 2)]
+    assert activities.EXPORT_SHARDS._value.get() == 0

@@ -37,7 +37,7 @@ export function useDashboardActions(): MenuAction[] {
             { key: 'tab-appearance', label: 'All tiles', dataAttr: 'dashboard-v2-tab-appearance' },
             everyTile(activeTab.tiles),
             widgets,
-            disabledReasonFor('setTilesSetting'),
+            disabledReasonFor('setTilesAppearance'),
             onEdit
         )
         if (appearance) {
