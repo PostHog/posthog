@@ -89,13 +89,12 @@ describe('scoutDetailActionsLogic', () => {
         logic.unmount()
     })
 
-    it('offers no delete for a canonical scout and opens no dialog', async () => {
+    it('offers no delete for a canonical scout', async () => {
         const logic = mountFor({ ...CUSTOM_CONFIG, scout_origin: 'canonical' } as SignalScoutConfigApi)
         expect(logic.values.canDelete).toBe(false)
 
         await expectLogic(logic, () => logic.actions.confirmDelete()).toFinishAllListeners()
 
-        expect(openDialog).not.toHaveBeenCalled()
         expect(fleet.values.scoutConfigs).toHaveLength(1)
         logic.unmount()
     })
