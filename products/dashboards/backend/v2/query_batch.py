@@ -6,6 +6,7 @@ restrictions, and every planned entry is read in one round trip. Hits are writte
 runs them, a few at a time, and each line is written the moment its query finishes.
 """
 
+import re
 import json
 import math
 import asyncio
@@ -20,7 +21,7 @@ from queue import Empty, Queue
 from threading import BoundedSemaphore, Condition, Event, Lock, Semaphore, Thread, Timer
 from time import monotonic
 from typing import Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import connections
 from django.utils.timezone import now
@@ -210,6 +211,7 @@ _EXPERIMENT_KINDS = frozenset(
 )
 _UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
+_QUERY_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 _EXPOSED_ERRORS = (
     ExposedHogQLError,
     ExposedCHQueryError,
@@ -322,6 +324,16 @@ def _with_interval(query: dict[str, Any], interval: str) -> dict[str, Any]:
     return {**query, "interval": interval} if query.get("kind") in _INTERVAL_KINDS else query
 
 
+def _query_id_part(value: Optional[str]) -> str:
+    # The id is read back from query_log and split on `-`, so each part keeps to one safe token.
+    return _QUERY_ID_UNSAFE.sub("_", value)[:64] if value else "none"
+
+
+def query_id_for(prefix: str, item: QueryBatchInput) -> str:
+    """`<prefix>-<tile>-<refId>-<short uuid>`, unique per query, so query_log joins a run to its tile and target."""
+    return f"{prefix}-{_query_id_part(item.tile)}-{_query_id_part(item.target.ref_id)}-{uuid4().hex[:8]}"
+
+
 def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     # The limit `/query` gives the same query, so a computed miss gets the same timeout there and here.
     if is_async_query(query) or is_insight_actors_query(query) or is_insight_actors_options_query(query):
@@ -404,13 +416,22 @@ def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
 
 
 def _refresh_all(
-    *, team: Team, user: User, dashboard_id: Optional[int], queries: list[ResolvedQuery], shares: tuple[Any, ...]
+    *,
+    team: Team,
+    user: User,
+    dashboard_id: Optional[int],
+    queries: list[tuple[str, ResolvedQuery]],
+    shares: tuple[Any, ...],
+    traceparent: Optional[str],
 ) -> None:
     # The stale results are already in the response. The async path recomputes them for the next read.
     try:
-        for query in queries:
+        for query_id, query in queries:
             try:
-                with range_based_freshness():
+                with (
+                    tags_context(team_id=team.pk, client_query_id=query_id, traceparent=traceparent),
+                    range_based_freshness(),
+                ):
                     process_query_dict(
                         team,
                         query.query,
@@ -419,6 +440,7 @@ def _refresh_all(
                         limit_context=_limit_context(query.query),
                         execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                         user=user,
+                        query_id=query_id,
                         dashboard_id=dashboard_id,
                     )
             except Exception:
@@ -457,11 +479,13 @@ class QueryBatch:
         inputs: Sequence[QueryBatchInput],
         dashboard_id: Optional[int],
         client_query_id: str,
+        traceparent: Optional[str] = None,
     ) -> None:
         self._team = team
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
+        self._traceparent = traceparent
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
@@ -482,7 +506,7 @@ class QueryBatch:
         self._cancelled = False
         self._logql_cancelled = Event()
         self._admitted = False
-        self._to_refresh: list[ResolvedQuery] = []
+        self._to_refresh: list[tuple[str, ResolvedQuery]] = []
         self._lock = Lock()
         self._idle = Event()
         self._unread = Semaphore(MAX_UNREAD_LINES)
@@ -559,13 +583,15 @@ class QueryBatch:
                 continue
             self._read_chunk(inputs, resolved, chunk, plan, to_run, to_refresh, served)
 
-        self._to_refresh = [resolved[index] for index in to_refresh]
+        self._to_refresh = [
+            (query_id_for(self._client_query_id, inputs[index]), resolved[index]) for index in to_refresh
+        ]
         for index in to_run:
-            query_id = f"{self._client_query_id}-{index}"
+            query_id = query_id_for(self._client_query_id, inputs[index])
             self._jobs.append((index, query_id, resolved[index]))
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
-            self._jobs.append((index, f"{self._client_query_id}-{index}", inputs[index]))
+            self._jobs.append((index, query_id_for(self._client_query_id, inputs[index]), inputs[index]))
 
     def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
         """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
@@ -601,9 +627,7 @@ class QueryBatch:
                     return None
             return planned
 
-        with planned_cache_reads(
-            team=self._team, distinct_id=str(self._user.distinct_id), keys=chunk, plan=plan_unserved
-        ) as planned_queries:
+        with planned_cache_reads(team=self._team, user=self._user, keys=chunk, plan=plan_unserved) as planned_queries:
             for index in chunk:
                 item = inputs[index]
                 if index in duplicates:
@@ -759,7 +783,7 @@ class QueryBatch:
         # Shared per organization and user too, so one account cannot keep other organizations' panels from refreshing.
         with _org_lock:
             room = MAX_REFRESHES_PER_SHARE - max(_org_refreshes.get(key, 0) for key in self._shares)
-            queries: list[ResolvedQuery] = []
+            queries: list[tuple[str, ResolvedQuery]] = []
             for query in candidates[: max(0, room)]:
                 if not _refresh_slots.acquire(blocking=False):
                     break
@@ -776,6 +800,7 @@ class QueryBatch:
             dashboard_id=self._dashboard_id,
             queries=queries,
             shares=self._shares,
+            traceparent=self._traceparent,
         )
         try:
             _refresh_pool.submit(self._context.copy().run, refresh_all)
@@ -847,7 +872,7 @@ class QueryBatch:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
-            with tags_context(team_id=self._team.pk, client_query_id=query_id):
+            with tags_context(team_id=self._team.pk, client_query_id=query_id, traceparent=self._traceparent):
                 if isinstance(query, QueryBatchInput):
                     line = self._run_logql(index, query, self._logql_budget)
                 else:
