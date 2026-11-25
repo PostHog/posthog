@@ -1117,6 +1117,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 payload: {},
                 auto_sync_new_schemas: false,
                 auto_sync_schema_patterns: [],
+                new_column_policy: null,
             } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
@@ -1131,6 +1132,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 direct_query_enabled,
                 auto_sync_new_schemas,
                 auto_sync_schema_patterns,
+                new_column_policy,
             }) => {
                 const captureSaveOutcome = (outcome: string): void => {
                     posthog.capture('warehouse source saved', {
@@ -1189,6 +1191,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             auto_sync_schema_patterns !== undefined
                                 ? auto_sync_schema_patterns
                                 : values.source?.auto_sync_schema_patterns,
+                        new_column_policy:
+                            new_column_policy !== undefined ? new_column_policy : values.source?.new_column_policy,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     // The loader catches a rejected save and resolves anyway. Throw so that the

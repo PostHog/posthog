@@ -515,6 +515,35 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
 
         assert schema.enabled_columns == expected_enabled_columns
 
+    @parameterized.expand(
+        [
+            ("unset_without_selection", None, None, None, None),
+            ("unset_with_selection", None, None, ["id"], ["id"]),
+            ("exclude_pins_a_table_without_selection", "exclude", None, None, ["id", "total"]),
+            ("exclude_keeps_the_selection", "exclude", None, ["id"], ["id"]),
+            ("include_adds_the_column_not_the_deselected_one", "include", None, ["id"], ["id", "note"]),
+            ("table_exclude_overrides_source_include", "include", "exclude", None, ["id", "total"]),
+            ("table_include_overrides_source_exclude", "exclude", "include", ["id"], ["id", "note"]),
+        ]
+    )
+    def test_a_column_added_upstream_follows_the_new_column_policy(
+        self,
+        _name: str,
+        source_policy: str | None,
+        table_policy: str | None,
+        enabled_columns: list[str] | None,
+        expected_enabled_columns: list[str] | None,
+    ) -> None:
+        source = self._make_source(new_column_policy=source_policy)
+        schema_id = self._discover(source, _ORDERS_COLUMNS).id
+        ExternalDataSchema.objects.filter(id=schema_id).update(
+            new_column_policy=table_policy, enabled_columns=enabled_columns
+        )
+
+        schema = self._discover(source, [*_ORDERS_COLUMNS, ("note", "text", True)])
+
+        assert schema.enabled_columns == expected_enabled_columns
+
     def test_a_key_written_after_the_row_was_read_survives(self) -> None:
         source = self._make_source()
         schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="orders")

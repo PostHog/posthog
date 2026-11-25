@@ -25,11 +25,14 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     attempt_run_uuid,
+    effective_new_column_policy,
+    persist_observed_columns,
     process_incremental_value,
+    schema_metadata_column_names,
     staged_run_last_value,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource, NewColumnPolicy
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
     current_import_attempt,
@@ -79,7 +82,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _handle_null_columns_with_definitions,
     drop_internal_columns,
     evolve_pyarrow_schema,
-    merge_observed_columns_into_schema_metadata,
     normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
@@ -310,6 +312,15 @@ class PipelineV3(Generic[ResumableData]):
         # write-side drop plus observed-columns capture so the column picker has a catalog.
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
+        # Under the `include` policy a column new to the table syncs from the run that first sees it.
+        # Finalizing adds it to the selection for later runs.
+        self._columns_known_before_run: set[str] | None = None
+        if (
+            self._uses_delta_write_column_selection
+            and self._schema.enabled_columns is not None
+            and effective_new_column_policy(self._schema, self._source) == NewColumnPolicy.INCLUDE
+        ):
+            self._columns_known_before_run = set(schema_metadata_column_names(self._schema.schema_metadata)) or None
 
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
@@ -1207,9 +1218,13 @@ class PipelineV3(Generic[ResumableData]):
         if self._uses_delta_write_column_selection:
             # The loader deletes rows by the replace scope's column, so a column selection must keep it.
             replace_scope = self._resource.replace_scope
+            enabled_columns = self._schema.enabled_columns
+            if enabled_columns is not None and self._columns_known_before_run is not None:
+                known = self._columns_known_before_run
+                enabled_columns = [*enabled_columns, *(name for name in pa_table.column_names if name not in known)]
             pa_table = await observe_and_project_table(
                 pa_table,
-                self._schema.enabled_columns,
+                enabled_columns,
                 [*(self._resource.primary_keys or []), *([replace_scope.column] if replace_scope else [])],
                 self._schema.incremental_field,
                 [
@@ -1293,10 +1308,8 @@ class PipelineV3(Generic[ResumableData]):
         if self._observed_columns:
             observed = list(self._observed_columns.values())
             try:
-                await database_sync_to_async_pool(update_sync_type_config_keys)(
-                    self._schema.id,
-                    self._job.team_id,
-                    mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+                await database_sync_to_async_pool(persist_observed_columns)(
+                    self._schema.id, self._job.team_id, observed
                 )
             except Exception:
                 await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")

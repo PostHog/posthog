@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonInputSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -52,6 +52,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         setSourceConfigValue(['description'], source.description ?? '')
         setSourceConfigValue(['auto_sync_new_schemas'], source.auto_sync_new_schemas ?? false)
         setSourceConfigValue(['auto_sync_schema_patterns'], source.auto_sync_schema_patterns ?? [])
+        setSourceConfigValue(['new_column_policy'], source.new_column_policy ?? null)
         setJobInputs({
             ...buildKeaFormDefaultFromSourceDetails({ [source.source_type]: sourceFieldConfig })['payload'],
             ...source.job_inputs,
@@ -64,6 +65,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         source?.prefix,
         source?.description,
         source?.auto_sync_new_schemas,
+        source?.new_column_policy,
         setSourceConfigValue,
         // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.auto_sync_schema_patterns ?? []),
@@ -131,6 +133,32 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                                 </LemonField>
                             ) : null}
                         </div>
+                    </>
+                )}
+                {source.supports_column_selection && (
+                    <>
+                        <LemonDivider className="my-4" />
+                        <LemonField
+                            name="new_column_policy"
+                            label="New columns"
+                            help="Hold new columns back to review and mask them before they sync. Held-back columns show unselected in each table's column picker. Changing this later keeps each table's current column selection, and each table can override it."
+                        >
+                            {({ value, onChange }) => (
+                                <LemonSelect
+                                    value={value ?? null}
+                                    onChange={onChange}
+                                    options={[
+                                        {
+                                            value: null,
+                                            label: 'Sync them only on tables where all columns sync (default)',
+                                        },
+                                        { value: 'include', label: 'Always sync them' },
+                                        { value: 'exclude', label: 'Hold them back until I turn them on' },
+                                    ]}
+                                    data-attr="source-new-column-policy"
+                                />
+                            )}
+                        </LemonField>
                     </>
                 )}
                 <div className="my-4 flex flex-row justify-end gap-2">

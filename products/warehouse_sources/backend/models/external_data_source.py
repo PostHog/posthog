@@ -34,6 +34,11 @@ SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
 MIGRATION_MARKER_KEY = "self_managed_migration"
 
 
+class NewColumnPolicy(models.TextChoices):
+    INCLUDE = "include", "Include"
+    EXCLUDE = "exclude", "Exclude"
+
+
 class ExternalDataSourceManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().select_related("revenue_analytics_config")
@@ -44,6 +49,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     AccessMethod = ExternalDataSourceAccessMethod
     CreatedVia = ExternalDataSourceCreatedVia
     Status = ExternalDataSourceStatus
+    NewColumnPolicy = NewColumnPolicy
 
     # Deprecated, use `ExternalDataSchema.SyncFrequency`
     SyncFrequency = ExternalDataSchemaSyncFrequency
@@ -88,6 +94,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # schema names auto-sync; matched case-insensitively against both the qualified and bare
     # table name. Null/empty means every new schema qualifies.
     auto_sync_schema_patterns = models.JSONField(null=True, blank=True)
+    # What a table's column selection does with a column the source adds later. Null keeps the default:
+    # a table without a selection syncs it, a table with one doesn't. A table can override it.
+    new_column_policy = models.CharField(max_length=16, choices=NewColumnPolicy.choices, null=True, blank=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)

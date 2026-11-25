@@ -43,11 +43,13 @@ FIELD_EXCLUSIONS = {
 FIELD_NAME_OVERRIDES = {
     "ExternalDataSource": {
         "job_inputs": "configuration",
+        "new_column_policy": "new column policy",
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
         "live_query_enabled": "live queries",
         "masked_columns": "masked columns",
+        "new_column_policy": "new column policy",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
     },

@@ -290,6 +290,15 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
     )
+    new_column_policy = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=ExternalDataSource.NewColumnPolicy.choices,
+        help_text=(
+            "Overrides the source's `new_column_policy` for this table: `include` syncs new columns, `exclude` "
+            "leaves them out of `enabled_columns`. Null follows the source."
+        ),
+    )
     masked_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,

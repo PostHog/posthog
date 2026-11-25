@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    pin_columns_for_exclude_policy,
     request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -319,6 +320,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "`auto_sync_new_schemas` is true."
         ),
     )
+    new_column_policy = serializers.ChoiceField(
+        choices=ExternalDataSource.NewColumnPolicy.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What happens when a table of this source gets a new column. `include` syncs new columns, even on "
+            "tables where you picked the columns. `exclude` holds new columns back: they show in the column "
+            "picker unselected until you turn them on, and a table without a column selection is pinned to its "
+            "current columns. Null (default) syncs new columns only on tables without a column selection. "
+            "Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` "
+            "overrides this. Not supported for sources whose tables have a fixed schema, such as Stripe."
+        ),
+    )
     source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
     api_version = serializers.CharField(
         read_only=True,
@@ -370,6 +384,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "direct_query_enabled",
             "auto_sync_new_schemas",
             "auto_sync_schema_patterns",
+            "new_column_policy",
             "engine",
             "last_run_at",
             "schemas",
@@ -676,6 +691,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 "Auto-syncing new schemas is not supported for direct query sources, "
                 "because their schemas resolve at query time."
             )
+
+        if validated_data.get("new_column_policy") and not source_supports_column_selection(instance.source_type):
+            raise ValidationError(
+                {
+                    "new_column_policy": "This source's tables have a fixed set of columns, so it has no new-column policy."
+                }
+            )
+        new_column_policy_changed = (
+            "new_column_policy" in validated_data and validated_data["new_column_policy"] != instance.new_column_policy
+        )
 
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
@@ -1021,6 +1046,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         {"payload": {"credential_id": f"Stored credential '{stored_credential.pk}' was already used"}}
                     )
         cast(Any, updated_source)._connection_warning = connection_warning
+
+        if new_column_policy_changed:
+            pin_columns_for_exclude_policy(instance.team_id, updated_source.id)
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their

@@ -363,6 +363,38 @@ class TestMaskEventColumns:
             activity_obj._load_masked_columns(cast(Any, SimpleNamespace(name="users", masked_columns=["email"])))
 
 
+class TestProjectEventColumns:
+    @parameterized.expand(
+        [
+            ("unset_drops_unselected_columns", None, None, {"id": 1, "email": "a@example.com"}),
+            ("exclude_drops_unselected_columns", "exclude", None, {"id": 1, "email": "a@example.com"}),
+            ("include_keeps_a_new_column", "include", None, {"id": 1, "email": "a@example.com", "plan": "pro"}),
+            ("table_include_overrides_source", None, "include", {"id": 1, "email": "a@example.com", "plan": "pro"}),
+        ]
+    )
+    def test_a_column_new_to_the_table_follows_the_new_column_policy(
+        self, _name: str, source_policy: str | None, table_policy: str | None, expected_columns: dict
+    ) -> None:
+        source = _make_source()
+        source.new_column_policy = source_policy
+        activity_obj = _make_extract_activity(source)
+        schema = SimpleNamespace(
+            name="users",
+            enabled_columns=["email"],
+            incremental_field=None,
+            new_column_policy=table_policy,
+            schema_metadata={"columns": [{"name": n} for n in ("id", "email", "name")]},
+        )
+        activity_obj.pk_columns_by_table["users"] = ["id"]
+        activity_obj._load_enabled_columns(cast(Any, schema))
+
+        out = activity_obj._project_event_columns(
+            _make_event(columns={"id": 1, "email": "a@example.com", "name": "Alice", "plan": "pro"})
+        )
+
+        assert out.columns == expected_columns
+
+
 class TestSetupSelfCleansUnrunnableSchedules:
     @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")

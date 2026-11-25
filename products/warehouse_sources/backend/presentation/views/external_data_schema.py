@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
+    pin_columns_for_exclude_policy,
     request_manual_runs,
     resolve_destinations,
     resolve_sync_type,
@@ -1172,6 +1173,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "even if not listed here."
         ),
     )
+    new_column_policy = serializers.ChoiceField(
+        choices=ExternalDataSource.NewColumnPolicy.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Overrides the source's `new_column_policy` for this table. `include` syncs new columns even when "
+            "`enabled_columns` lists the columns to sync. `exclude` leaves new columns out of `enabled_columns`, "
+            "and pins a null `enabled_columns` to the table's current columns. Null (default) follows the source. "
+            "Not supported for sources whose tables have a fixed schema, such as Stripe."
+        ),
+    )
     masked_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -1303,6 +1315,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "webhook_not_registered",
             "webhook_issue",
             "enabled_columns",
+            "new_column_policy",
             "masked_columns",
             "row_filters",
             "row_filter_columns",
@@ -1734,6 +1747,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         enabled_columns_changed = "enabled_columns" in validated_data and (
             validated_data["enabled_columns"] != instance.enabled_columns
         )
+
+        if validated_data.get("new_column_policy") and not source_supports_column_selection(
+            instance.source.source_type
+        ):
+            raise ValidationError(
+                {"new_column_policy": "This table has a fixed set of columns, so it has no new-column policy."}
+            )
 
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
@@ -2551,6 +2571,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     new_cdc_table_mode=new_cdc_table_mode,
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
+
+        # A new override, a source change or a selection reset to null can each leave an `exclude` table unpinned.
+        pin_columns_for_exclude_policy(updated_instance.team_id, updated_instance.source_id, [updated_instance.id])
+        updated_instance.refresh_from_db(fields=["enabled_columns"])
 
         if request is not None:
             report_history_change(

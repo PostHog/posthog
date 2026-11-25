@@ -148,6 +148,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._attempt = 1
     pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
+    pipeline._columns_known_before_run = None
     pipeline._continues_incremental_handoff = False
     pipeline._resumed_incremental_run_uuid = None
     pipeline._sent_resumed_run_finalization = False
@@ -498,6 +499,43 @@ class TestReplaceScopeHandOff:
         [result] = projected
         assert "_file_name" in result.column_names
         assert "other" not in result.column_names
+
+    @pytest.mark.parametrize(
+        "known_before_run, expected_columns",
+        [(None, ["value"]), ({"value", "other"}, ["value", "added"])],
+        ids=["no_include_policy", "include_policy"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_column_new_to_the_table_syncs_under_the_include_policy(
+        self, known_before_run: set[str] | None, expected_columns: list[str]
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        pipeline._columns_known_before_run = known_before_run
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["value"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = None
+        table = pa.table({"value": [1], "other": [2], "added": [3]})
+
+        class _Stop(Exception):
+            pass
+
+        projected: list[pa.Table] = []
+
+        async def project(*args: Any) -> pa.Table:
+            projected.append(await _real_observe_and_project_table(*args))
+            raise _Stop
+
+        with patch(f"{_PIPELINE}.observe_and_project_table", side_effect=project), pytest.raises(_Stop):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=1)
+
+        [result] = projected
+        assert [name for name in result.column_names if name != "_ph_debug"] == expected_columns
 
 
 class TestPreWriteMaintenanceBeforeAnAppendRestore:

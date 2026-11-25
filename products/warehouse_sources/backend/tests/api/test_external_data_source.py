@@ -3969,6 +3969,7 @@ class TestExternalDataSource(APIBaseTest):
                 "direct_query_enabled",
                 "auto_sync_new_schemas",
                 "auto_sync_schema_patterns",
+                "new_column_policy",
                 "engine",
                 "last_run_at",
                 "schemas",
@@ -4022,6 +4023,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_not_registered": False,
                     "webhook_issue": None,
                     "enabled_columns": None,
+                    "new_column_policy": None,
                     "masked_columns": None,
                     "row_filters": None,
                     "row_filter_columns": None,
@@ -4292,6 +4294,53 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         self.assertTrue(source.auto_sync_new_schemas)
         self.assertEqual(source.auto_sync_schema_patterns, ["raw_*", "billing_?"])
+
+    def test_exclude_policy_pins_the_tables_without_a_column_selection(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="pg",
+            job_inputs={"host": "172.16.0.0", "port": "123", "database": "db", "user": "u", "password": "p"},
+        )
+        metadata = {"schema_metadata": {"columns": [{"name": "id"}, {"name": "email"}]}}
+        unselected, selected, overridden = (
+            ExternalDataSchema.objects.create(
+                team_id=self.team.pk, source=source, name=name, sync_type_config=metadata, **fields
+            )
+            for name, fields in (
+                ("unselected", {}),
+                ("selected", {"enabled_columns": ["id"]}),
+                ("overridden", {"new_column_policy": ExternalDataSource.NewColumnPolicy.INCLUDE}),
+            )
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"new_column_policy": "exclude"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["new_column_policy"], "exclude")
+        for schema, expected in ((unselected, ["id", "email"]), (selected, ["id"]), (overridden, None)):
+            schema.refresh_from_db()
+            self.assertEqual(schema.enabled_columns, expected, schema.name)
+
+    def test_update_source_rejects_a_new_column_policy_for_a_fixed_schema_source(self):
+        source = self._create_external_data_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"new_column_policy": "exclude"},
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "new_column_policy")
+        source.refresh_from_db()
+        self.assertIsNone(source.new_column_policy)
 
     def test_update_source_rejects_auto_sync_for_direct_query(self):
         source = ExternalDataSource.objects.create(

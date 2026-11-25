@@ -6037,6 +6037,50 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 400
         assert "Column selection is not supported" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("table_exclude_pins_columns", {"new_column_policy": "exclude"}, None, ["id", "email"]),
+            ("selection_reset_under_source_exclude", {"enabled_columns": None}, "exclude", ["id", "email"]),
+            ("table_include_leaves_no_selection", {"new_column_policy": "include"}, "exclude", None),
+        ]
+    )
+    def test_a_table_under_the_exclude_policy_is_pinned_to_its_columns(
+        self, _name: str, payload: dict, source_policy: str | None, expected_enabled_columns: list[str] | None
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, new_column_policy=source_policy
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": {"columns": [{"name": "id"}, {"name": "email"}]}},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data=payload, format="json"
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
+
+    def test_new_column_policy_rejected_for_managed_schema_source(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Payout", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"new_column_policy": "exclude"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "new_column_policy"
+
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
     def _create(
