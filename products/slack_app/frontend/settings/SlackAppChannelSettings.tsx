@@ -5,13 +5,13 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTable } from 
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { SlackAppChannelSettingsApi, UntaggedFollowupModeEnumApi } from '../generated/api.schemas'
+import type { SlackAppChannelSettingsApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
 import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 const INHERIT = 'inherit'
 
-const QUESTION_MODE_OPTIONS: { value: UntaggedFollowupModeEnumApi | typeof INHERIT; label: string }[] = [
+const QUESTION_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi | typeof INHERIT; label: string }[] = [
     { value: INHERIT, label: "Use each person's setting" },
     { value: 'auto', label: 'Answer automatically' },
     { value: 'ask', label: 'Ask first' },
