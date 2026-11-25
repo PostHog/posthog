@@ -91,7 +91,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         config = get_or_create_team_extension(other_team, TeamFeatureFlagsConfig)
         config.minimal_flag_called_events = True
         config.property_matching_version = PropertyMatchingVersion.EXPLICIT
-        config.null_counts_as_not_set = False
+        config.null_counts_as_not_set = True
         config.max_feature_flags_override = 5000
         config.save(
             update_fields=[
@@ -130,8 +130,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, True, None, 2000, 1, 0),
-                other_team.id: (True, 2, False, 5000, 5000, 1, 2),
+                self.team.id: (False, 1, False, None, 2000, 1, 0),
+                other_team.id: (True, 2, True, 5000, 5000, 1, 2),
             },
         )
 
@@ -183,8 +183,6 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         )
-        # Teams that predate null_counts_as_not_set hold False, and staff switch them over one at a time.
-        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(null_counts_as_not_set=False)
 
         with (
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,

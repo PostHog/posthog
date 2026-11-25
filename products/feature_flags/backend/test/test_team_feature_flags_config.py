@@ -4,12 +4,9 @@ from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
-from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
-from products.feature_flags.backend.local_evaluation import _get_flags_response_for_local_evaluation
 from products.feature_flags.backend.models import TeamFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import MAX_FEATURE_FLAGS_OVERRIDE_CEILING
 
@@ -21,20 +18,7 @@ class TestTeamFeatureFlagsConfig(BaseTest):
         config = TeamFeatureFlagsConfig.objects.get(team=team)
         self.assertFalse(config.minimal_flag_called_events)
         self.assertEqual(config.property_matching_version, 1)
-        self.assertTrue(config.null_counts_as_not_set)
-
-    @parameterized.expand(
-        [
-            ("team_metadata", _serialize_team_to_metadata),
-            ("flag_definitions", _get_flags_response_for_local_evaluation),
-        ]
-    )
-    def test_new_team_sends_null_counts_as_not_set_to_flag_evaluators(self, _name, build_blob):
-        _, team = Project.objects.create_with_team(
-            initiating_user=self.user, organization=self.organization, name="New project"
-        )
-
-        self.assertIs(build_blob(team)["null_counts_as_not_set"], True)
+        self.assertFalse(config.null_counts_as_not_set)
 
     def test_lazily_created_config_defaults_to_disabled(self):
         # A team without a row models a legacy team predating this extension.

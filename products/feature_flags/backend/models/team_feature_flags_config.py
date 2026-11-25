@@ -69,9 +69,9 @@ class TeamFeatureFlagsConfig(models.Model):
     )
 
     # When True, a property whose value is JSON null counts as not set for is_set and is_not_set.
-    # HogQL treats a null value the same way. Teams created before this field existed keep False.
-    # Their flag results therefore do not change. The team-creation signal below sets True for new
-    # teams. Staff can set it for an existing team through the staff team config endpoint.
+    # HogQL treats a null value the same way. False keeps the flags service's behavior for teams
+    # that already depend on a null value counting as set. Staff set it per team through the staff
+    # team config endpoint.
     null_counts_as_not_set = models.BooleanField(default=False, db_default=False)
 
     # Raises or lowers this team's flag-count cap. Null means no override, falling back to the
@@ -109,4 +109,4 @@ class TeamFeatureFlagsConfig(models.Model):
         ]
 
 
-register_team_extension_signal(TeamFeatureFlagsConfig, defaults={"null_counts_as_not_set": True}, logger=logger)
+register_team_extension_signal(TeamFeatureFlagsConfig, logger=logger)
