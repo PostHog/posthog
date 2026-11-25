@@ -9,6 +9,7 @@ import {
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
+    PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
@@ -183,6 +184,56 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
         name: Object.hasOwn(LABEL_NAMES, key) ? LABEL_NAMES[key] : key,
         value: alert.labels[key],
     }))
+}
+
+export function canExpand(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.alerts.length > 1
+}
+
+export type PlatformAlertListRow =
+    | { kind: 'alert'; configuration: PlatformAlertConfigurationApi }
+    | { kind: 'group'; configuration: PlatformAlertConfigurationApi; group: PlatformAlertApi }
+
+export function configurationListRows(
+    configurations: readonly PlatformAlertConfigurationApi[],
+    expandedIds: readonly string[]
+): PlatformAlertListRow[] {
+    return configurations.flatMap((configuration): PlatformAlertListRow[] => [
+        { kind: 'alert', configuration },
+        ...(expandedIds.includes(configuration.id) && canExpand(configuration)
+            ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
+            : []),
+    ])
+}
+
+export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly string[]): string {
+    if (!alert.grouping_key) {
+        return 'Ungrouped'
+    }
+    const labels = groupLabels(alert, groupingKeys)
+    return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
+}
+
+export type PlatformAlertMute = { kind: 'snoozed'; until: string } | { kind: 'groupsSnoozed'; count: number }
+
+function activeSnooze(snoozeUntil: string | null, now: Date): string | null {
+    return snoozeUntil && new Date(snoozeUntil) > now ? snoozeUntil : null
+}
+
+export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlertMute | null {
+    const until = activeSnooze((row.kind === 'group' ? row.group : row.configuration).snooze_until, now)
+    if (until) {
+        return { kind: 'snoozed', until }
+    }
+    if (row.kind === 'group') {
+        return null
+    }
+    const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
+    return count ? { kind: 'groupsSnoozed', count } : null
+}
+
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

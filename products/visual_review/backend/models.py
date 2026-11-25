@@ -446,6 +446,9 @@ class QuarantinedIdentifier(ProductTeamModel):
     lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
     # Empty unless visual review lifted the quarantine by itself.
     lift_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
+    # Somebody asked to tell the owning team, and no notice has taken this row yet. Notices for one
+    # repo wait until the quarantines stop coming in, so a burst posts once per team instead of once per row.
+    owner_notice_pending = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

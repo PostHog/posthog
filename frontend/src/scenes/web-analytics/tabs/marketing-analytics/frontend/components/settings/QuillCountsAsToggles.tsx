@@ -2,6 +2,8 @@ import { useId } from 'react'
 
 import { Checkbox, Field, FieldLabel } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { revenueDisabledReason } from './conversionGoalFlags'
@@ -17,6 +19,8 @@ export function QuillCountsAsToggles({
 }): JSX.Element {
     const revenueId = useId()
     const customerId = useId()
+    const adsConversionId = useId()
+    const recommendationsEnabled = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATIONS')
 
     return (
         <div className="flex flex-col gap-1">
@@ -38,6 +42,19 @@ export function QuillCountsAsToggles({
                 />
                 <FieldLabel htmlFor={customerId}>Customer</FieldLabel>
             </Field>
+            {recommendationsEnabled && (
+                <Field orientation="horizontal" className="w-fit">
+                    <Checkbox
+                        id={adsConversionId}
+                        checked={!!goal.use_in_recommendations}
+                        onCheckedChange={(use_in_recommendations: boolean) =>
+                            onChange({ ...goal, use_in_recommendations })
+                        }
+                        disabledReason={disabledReason}
+                    />
+                    <FieldLabel htmlFor={adsConversionId}>Use for recommendations</FieldLabel>
+                </Field>
+            )}
         </div>
     )
 }

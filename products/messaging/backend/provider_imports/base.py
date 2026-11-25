@@ -62,10 +62,14 @@ class ImportStepSpec:
     count_labels: tuple[tuple[str, str], ...] = ()
     # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
     requires: tuple[str, ...] = ()
+    # Starts the steps in `requires` over in a new run. Continuing a failed run would skip whoever opted out since.
+    requires_fresh: bool = False
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
     # Creates or updates people, and each of those counts as an event on the bill.
     counts_as_events: bool = False
+    # Hides the step, and refuses to start it, unless this flag is on for the team.
+    feature_flag: str | None = None
 
 
 @frozen

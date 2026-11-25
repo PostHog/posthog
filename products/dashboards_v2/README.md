@@ -17,6 +17,7 @@ A dashboard has tabs. A tab has one grid. A grid holds tiles, and nothing else.
 | Tab     | A named grid. Tabs belong to the dashboard only. A section cannot hold tabs. |
 
 The whole dashboard is one JSON tree (`Dashboard` in `frontend/dashboard/dashboardTypes.ts`).
+It has a `title` and an optional `description`, shown under the title.
 
 ## Tabs
 
@@ -28,6 +29,7 @@ A dashboard keeps at least one tab with tiles, and a link tab never becomes the 
 
 - A tab's grid has 24 columns. A row is 10px tall and the gap between tiles is 12px, so heights move in 22px steps.
 - A tile's place is in whole columns and rows.
+- A tile added to a grid scrolls into view.
 - Tiles never overlap, and no tile has an empty row above it that it could move into.
 
 ## Sections
@@ -113,6 +115,7 @@ A type has two parts, so code outside the browser can use the first without Reac
 - A `WidgetDefinition` (`frontend/widgets/widgetDefinition.ts`) is the spec plus the `Component` that renders it. The controller takes these.
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
+A tile's `description` shows in a tooltip on an info icon beside its title, and `parts.description: false` hides the icon.
 
 How the dashboard uses them:
 
@@ -125,6 +128,7 @@ A widget type can also:
 
 - add controls to its tile's header with `HeaderActions`, such as an interval picker or an "Open as insight" button;
 - replace what its footer shows with `Footer`;
+- set what its tile shows while its component suspends with `Loading`. Without it, the tile shows `WidgetLoading`, a skeleton a widget can also render itself while it loads;
 - change its tile's right-click menu: `menuActions` adds entries, and `tileActions(actions, { widget })` receives the whole list to remove, disable, reorder or add entries by `key`.
 
 A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `TileAction.key`.
@@ -151,8 +155,9 @@ The query is `{ language, query }` in one of three languages: `hogql` with a Hog
 The data and the way it is drawn are separate, so changing a chart from a line to a bar never runs its query again.
 
 - A kind of chart is a `VizSpec` (`frontend/widgets/chart/vizType.ts`): a label, a size, and a zod schema for its options. A `VizDefinition` adds the component that draws a query result.
-- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself.
-- A query result is a list of `DataFrame`s. A kind of chart only draws rows. Loading, empty and error states come from the kind of chart if it sets them, then from the `states` the host passes to `createChartWidget`, then from built-in ones. A kind of chart can also decide what counts as empty with `isEmpty`.
+- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself. `runQuery` gets `{ query, time }` and returns `{ frames, fetchedAt?, stale? }`. A query's `language` is `hogql`, `metrics`, `traces`, or `insight` for any node `/query` runs. In the request, `time` is the chart's own `config.time`, or else the range from `TimeRangeContext`, which `DashboardV2View` fills from the dashboard's `time` (default `now-7d` to `now`).
+- A query result is a list of `DataFrame`s. A kind of chart only draws rows. Loading, empty and error states come from the kind of chart if it sets them, then from the `states` the host passes to `createChartWidget`, then from built-in ones. The built-in kinds set a skeleton shaped like their chart, and a host's `states` replace the built-in kinds' states but not those of its own kinds. A kind of chart can also decide what counts as empty with `isEmpty`.
+- When a chart's time range or query changes, the tile keeps its last result on screen, faded, until the new one arrives.
 - The add menu has one "Chart" item, which starts as a line chart. The tile's "Chart type" menu switches its kind, and its "Chart options" menu sets the options that kind declares. A chart takes its size from its kind of chart.
 
 To add a kind of chart, write its spec and component in `frontend/widgets/chart/viz/<type>/`. Pass it as `extraVizTypes`, or add it to `DEFAULT_VIZ_TYPES` in `frontend/widgets/chart/createChartWidget.tsx` to ship it with dashboards v2.

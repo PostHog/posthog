@@ -206,6 +206,18 @@ export function TileGrid({
         [onPlaceTiles]
     )
 
+    // A cell that mounts after the grid did is a tile just added, which can land below the scrolled view.
+    const gridMounted = useRef(false)
+    useEffect(() => {
+        gridMounted.current = true
+    }, [])
+    const scrollToAdded = useCallback((marker: HTMLSpanElement | null): void => {
+        if (marker && gridMounted.current) {
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            marker.parentElement?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+        }
+    }, [])
+
     // A grid can leave the page while a tile from it is still carried: undo, or its section closing.
     useEffect(
         () => () => {
@@ -232,11 +244,13 @@ export function TileGrid({
                     <div key={GHOST_ID} className="DashboardV2__drop-preview" />
                 ) : (
                     <div key={tile.id} data-dv2-tile={tile.id} className="DashboardV2__tile">
+                        {/* The grid library replaces a cell's own ref with its own, so a marker inside reports the mount. */}
+                        <span ref={scrollToAdded} hidden />
                         {renderTile(tile, columnWidthPx(width, cols), setSectionRows)}
                     </div>
                 )
             ),
-        [shownTiles, width, cols, renderTile, setSectionRows]
+        [shownTiles, width, cols, renderTile, setSectionRows, scrollToAdded]
     )
 
     return (

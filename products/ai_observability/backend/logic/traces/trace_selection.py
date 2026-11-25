@@ -32,6 +32,8 @@ from posthog.utils import get_delta_mapping_for, relative_date_parse_with_delta_
 QuickFilter = Literal["errors", "feedback"]
 QUICK_FILTERS: tuple[QuickFilter, ...] = ("errors", "feedback")
 
+TraceOrder = Literal["newest_first", "oldest_first"]
+
 CAPTURE_BUFFER = timedelta(minutes=10)
 DEFAULT_WINDOW = timedelta(days=7)
 ALL_TIME_LOOKBACK = timedelta(days=365)
@@ -100,9 +102,26 @@ class TraceSelection:
     person_id: str | None = None
     group: TraceGroupScope | None = None
     quick_filter: QuickFilter | None = None
+    session_id: str | None = None
+    order: TraceOrder = "newest_first"
 
     def __post_init__(self) -> None:
         _check_filters(self.properties)
+        self._check_session_scope()
+
+    def _check_session_scope(self) -> None:
+        if self.session_id is None:
+            return
+        narrowed_by_list_filters = (
+            self.properties
+            or self.search
+            or self.person_id
+            or self.group
+            or self.quick_filter
+            or self.filter_test_accounts
+        )
+        if narrowed_by_list_filters:
+            raise InvalidTraceSelectionError("A session reads on its own. Remove the list filters.")
 
 
 @frozen
@@ -116,6 +135,8 @@ class TracePosition:
 
 
 def filters_test_accounts(team: Team, selection: TraceSelection) -> bool:
+    if selection.session_id is not None:
+        return False
     if selection.filter_test_accounts is None:
         return bool(team.test_account_filters_default_checked)
     return selection.filter_test_accounts
@@ -189,19 +210,40 @@ def _microseconds_since_epoch(moment: datetime) -> int:
     return (moment.astimezone(UTC) - _EPOCH) // timedelta(microseconds=1)
 
 
-def encode_cursor(position: TracePosition) -> str:
-    payload = json.dumps(
-        [_microseconds_since_epoch(position.first_timestamp), position.trace_id], separators=(",", ":")
-    )
+@frozen
+class CursorPoint:
+    """A place in a list ordered by a moment, with a key that breaks ties."""
+
+    moment: datetime
+    key: str
+
+
+def encode_point(point: CursorPoint, *, kind: str | None = None) -> str:
+    """A cursor for `point`. A `kind` tags it, so that a list only reads back the cursors it handed out."""
+    fields = [_microseconds_since_epoch(point.moment), point.key]
+    payload = json.dumps([kind, *fields] if kind is not None else fields, separators=(",", ":"))
     return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
 
 
-def decode_cursor(cursor: str) -> TracePosition:
+def decode_point(cursor: str, *, kind: str | None = None) -> CursorPoint:
+    """Raises `InvalidTraceCursorError` for a cursor `encode_point` did not make with the same `kind`."""
+    tag = [kind] if kind is not None else []
     try:
         payload = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-        microseconds, trace_id = payload
-        if type(microseconds) is not int or not isinstance(trace_id, str):
+        if not isinstance(payload, list) or payload[: len(tag)] != tag:
+            raise ValueError("Unexpected cursor kind")
+        microseconds, key = payload[len(tag) :]
+        if type(microseconds) is not int or not isinstance(key, str):
             raise ValueError("Unexpected cursor contents")
-        return TracePosition(trace_id=trace_id, first_timestamp=_EPOCH + timedelta(microseconds=microseconds))
+        return CursorPoint(moment=_EPOCH + timedelta(microseconds=microseconds), key=key)
     except (ValueError, TypeError, binascii.Error, OverflowError) as error:
         raise InvalidTraceCursorError("The cursor is not valid") from error
+
+
+def encode_cursor(position: TracePosition) -> str:
+    return encode_point(CursorPoint(moment=position.first_timestamp, key=position.trace_id))
+
+
+def decode_cursor(cursor: str) -> TracePosition:
+    point = decode_point(cursor)
+    return TracePosition(trace_id=point.key, first_timestamp=point.moment)

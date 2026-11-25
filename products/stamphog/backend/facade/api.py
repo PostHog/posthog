@@ -214,6 +214,12 @@ _BOT_ADMISSION = Q(output__has_key="bot_admission")
 # A silent run has no provenance dict. Its stamped trigger is the only record. Containment, not key
 # equality: equality is NULL for a run without the key, and an exclude() would then drop that run.
 _SILENT = Q(output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value})
+# A run stamped at creation keeps the mode that admitted it. In ALL mode a trigger label still starts a
+# run, stamped LABEL, and a later review_mode change must not relabel older runs either.
+_STAMPED_LABEL = Q(output__contains={"review_trigger": ReviewTrigger.LABEL.value})
+_STAMPED_ALL = Q(output__contains={"review_trigger": ReviewTrigger.ALL.value})
+# Stamps that _derive_trigger reads when the run has no provenance dict.
+_STAMPED_WITHOUT_PROVENANCE = frozenset({ReviewTrigger.REVIEWHOG_CLEAN, ReviewTrigger.LABEL, ReviewTrigger.ALL})
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
@@ -230,12 +236,13 @@ def _derive_trigger(
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read.
 
-    Of the stamped triggers only a silent one is read, because ``_SILENT`` matches it in SQL. Every
-    other trigger is derived, for the reason ``trigger_for_run`` gives.
+    A run without a provenance dict reads its stamped silent, label or all trigger, which
+    ``_filter_by_trigger`` matches in SQL. A run created before the stamp existed falls back to the
+    repo's current review_mode.
     """
     has_provenance = has_inbox_review or has_bot_admission or has_manual_review
-    if not has_provenance and stamped_trigger == ReviewTrigger.REVIEWHOG_CLEAN:
-        return ReviewTrigger.REVIEWHOG_CLEAN
+    if not has_provenance and stamped_trigger in _STAMPED_WITHOUT_PROVENANCE:
+        return ReviewTrigger(stamped_trigger)
     return derive_review_trigger(
         has_inbox_review=has_inbox_review,
         has_manual_review=has_manual_review,
@@ -262,9 +269,11 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     if trigger == ReviewTrigger.REVIEWHOG_CLEAN:
         return qs.exclude(provenance).filter(_SILENT)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        unstamped_label = ~_STAMPED_ALL & Q(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(provenance | _SILENT).filter(_STAMPED_LABEL | unstamped_label)
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(provenance | _SILENT).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        unstamped_all = ~_STAMPED_LABEL & Q(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(provenance | _SILENT).filter(_STAMPED_ALL | unstamped_all)
     return qs.none()
 
 

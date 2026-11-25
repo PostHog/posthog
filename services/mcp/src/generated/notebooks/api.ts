@@ -212,7 +212,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
