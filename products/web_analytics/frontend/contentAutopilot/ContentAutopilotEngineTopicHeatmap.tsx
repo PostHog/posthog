@@ -30,9 +30,7 @@ const HeatCell = ({ cell }: { cell: EngineTopicCell }): JSX.Element =>
             </span>
         </Tooltip>
     ) : (
-        <Tooltip
-            title={`Your brand is named in ${humanFriendlyNumber(cell.mentioned)} of ${pluralize(cell.answers, 'answer')}`}
-        >
+        <Tooltip title={`Visible in ${humanFriendlyNumber(cell.mentioned)} of ${pluralize(cell.answers, 'answer')}`}>
             <span
                 className={clsx(
                     'block rounded px-2 py-1 text-center whitespace-nowrap tabular-nums',
@@ -86,10 +84,7 @@ export const ContentAutopilotEngineTopicHeatmap = ({
     ]
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader
-                title="Mentions by engine and topic"
-                description="Share of each engine's answers that name your brand, for each topic, in this date range. A darker cell is a higher share. Failed checks are left out. Pick a topic to filter this page to it."
-            />
+            <PagePerformanceCardHeader title="Visibility by engine and topic" />
             <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-heatmap">
                 <LemonTable
                     size="small"

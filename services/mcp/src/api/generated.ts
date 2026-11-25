@@ -1359,6 +1359,8 @@ export namespace Schemas {
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
       active_prompts: number;
+      /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+      max_active_prompts: number;
       /** Unarchived prompts that are turned off. No run checks them. */
       paused_prompts: number;
       /** Keywords in the project's keyword list. */
@@ -1427,7 +1429,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
       detail?: string;
     }
 
@@ -1472,7 +1474,7 @@ export namespace Schemas {
       run_first_check?: boolean;
       /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
       only_first_run?: boolean;
-      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
     }
 
@@ -3527,6 +3529,9 @@ export namespace Schemas {
       NoEventFilter: 'no_event_filter',
       NoStartDate: 'no_start_date',
       PersonsJoin: 'persons_join',
+      RepeatedCteExpansion: 'repeated_cte_expansion',
+      CrossJoinEquality: 'cross_join_equality',
+      DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
     } as const;
 
     export interface QueryScanWarning {
@@ -36924,7 +36929,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestCreate {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestCreateVariables;
@@ -36943,7 +36948,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestInput {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestInputVariables;
@@ -43621,19 +43626,19 @@ export namespace Schemas {
 
     export interface EmitReportResponse {
       /**
-         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
          * @nullable
          */
       report_id: string | null;
       /**
-         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
          * @nullable
          */
       report_status: string | null;
       /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
       emitted: boolean;
       /**
-         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
          * @nullable
          */
       skipped_reason: string | null;
@@ -50256,6 +50261,8 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `unserved_variant_exposures` - Unserved Variant Exposures
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -50288,6 +50295,8 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       UnservedVariantExposures: 'unserved_variant_exposures',
+      EventsBillingLimit: 'events_billing_limit',
+      FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
@@ -50370,6 +50379,8 @@ export namespace Schemas {
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
      */
     export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
 
@@ -50400,6 +50411,8 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
+      EventsBillingLimit: 'events_billing_limit',
+      FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
     } as const;
 
     /**
@@ -50427,6 +50440,8 @@ export namespace Schemas {
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `unserved_variant_exposures` - Unserved Variant Exposures
+       * * `events_billing_limit` - Events Billing Limit
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
@@ -50493,7 +50508,9 @@ export namespace Schemas {
        * * `srm` - Srm
        * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-       * * `multiple_variants_share` - Multiple Variants Share */
+       * * `multiple_variants_share` - Multiple Variants Share
+       * * `events_billing_limit` - Events Billing Limit
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
       check: ExperimentHealthCheckKeyEnum;
     }
 
@@ -50541,6 +50558,10 @@ export namespace Schemas {
      * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+     * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+     * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -50611,6 +50632,10 @@ export namespace Schemas {
       FlagCalled: 'flag_called',
       SinceStartHours: 'since_start_hours',
       DailyCalculationEndsAt: 'daily_calculation_ends_at',
+      EventsBillingLimitReached: 'events_billing_limit_reached',
+      EventsBillingLimitEndsAt: 'events_billing_limit_ends_at',
+      FeatureFlagsBillingLimitReached: 'feature_flags_billing_limit_reached',
+      FeatureFlagsBillingLimitEndsAt: 'feature_flags_billing_limit_ends_at',
       MetricName: 'metric_name',
       MetricRole: 'metric_role',
       RatioSide: 'ratio_side',
@@ -50703,6 +50728,10 @@ export namespace Schemas {
        * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+       * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+       * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+       * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
        * * `metric_name` - The name of a metric
        * * `metric_role` - Whether a metric is primary or secondary
        * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -50776,6 +50805,10 @@ export namespace Schemas {
        * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+       * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+       * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+       * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
        * * `metric_name` - The name of a metric
        * * `metric_role` - Whether a metric is primary or secondary
        * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -50868,7 +50901,9 @@ export namespace Schemas {
        * * `srm` - Srm
        * * `unserved_variant_exposures` - Unserved Variant Exposures
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-       * * `multiple_variants_share` - Multiple Variants Share */
+       * * `multiple_variants_share` - Multiple Variants Share
+       * * `events_billing_limit` - Events Billing Limit
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
@@ -51312,6 +51347,8 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       UnservedVariantExposures: 'unserved_variant_exposures',
+      EventsBillingLimit: 'events_billing_limit',
+      FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -51412,6 +51449,8 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       UnservedVariantExposures: 'unserved_variant_exposures',
+      EventsBillingLimit: 'events_billing_limit',
+      FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -90652,7 +90691,7 @@ export namespace Schemas {
 
     export interface PatchedAEOPromptUpdateRequest {
       /**
-         * Turn the prompt on or off for future runs.
+         * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
          * @nullable
          */
       active?: boolean | null;
@@ -123195,6 +123234,31 @@ export namespace Schemas {
       results: SourceFilterCatalog[];
     }
 
+    export interface SourceFilterExpressionRequest {
+      /**
+         * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_product: string;
+      /**
+         * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
+         * @maxLength 100
+         */
+      source_type: string;
+      /**
+         * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+         * @maxLength 16384
+         */
+      expression: string;
+      /**
+         * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 255
+         */
+      scope_ids?: string[] | null;
+    }
+
     /**
      * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
      */
@@ -123227,16 +123291,21 @@ export namespace Schemas {
       malformed: boolean;
       /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
       field_values: SourceFilterPreviewRecordFieldValues;
+      /**
+         * For an excluded record, the conditions of the expression that the record does not pass, as written in the expression and in expression order. The conditions are the operands of a top-level AND, or the whole expression when it is one condition. A condition that reads a malformed value fails. Null for records that pass, and for every record when the expression's top level is OR or the expression has more than 8 conditions.
+         * @nullable
+         */
+      failed_conditions: string[] | null;
     }
 
     export interface SourceFilterPreviewRequest {
       /**
-         * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
          * @maxLength 100
          */
       source_product: string;
       /**
-         * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+         * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
          * @maxLength 100
          */
       source_type: string;
@@ -123323,6 +123392,33 @@ export namespace Schemas {
       passing: SourceFilterPreviewRecord[];
       /** The newest records that the filter excludes, at most 10. */
       excluded: SourceFilterPreviewRecord[];
+    }
+
+    export interface SourceFilterValidateResponse {
+      /**
+         * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+         * @nullable
+         */
+      error_start: number | null;
+      /**
+         * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+         * @nullable
+         */
+      error_end: number | null;
+      /** True when the expression can be saved as the source's filter. */
+      valid: boolean;
+      /** Catalog version the expression was checked against. */
+      catalog_version: number;
+      /**
+         * Why the expression is invalid, as a message for people. Null when it is valid.
+         * @nullable
+         */
+      error: string | null;
     }
 
     export interface SourceMappingSuggestion {
@@ -129584,10 +129680,12 @@ export namespace Schemas {
       opened: number;
       /** Sends with at least one tracked link click. */
       clicked: number;
-      /** Delivered sends nobody clicked. */
+      /** Delivered sends nobody clicked, of those that tracked clicks. */
       not_clicked: number;
       /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
+      /** Sends that went out with opens tracked and click tracking off, counted like `untracked`. They can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends. */
+      clicks_untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
       /** Clicked sends and how many converted. Null without an event. */
@@ -129615,6 +129713,13 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+    }
+
+    export interface TransactionalEmailTracking {
+      /** False when the email went out with open tracking off, so it can never record an open. */
+      opens: boolean;
+      /** False when the email went out with click tracking off, so it can never record a click. */
+      clicks: boolean;
     }
 
     export interface TransactionalEmailLogDetail {
@@ -129670,6 +129775,8 @@ export namespace Schemas {
       action_id: string;
       /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
       sensitive: boolean;
+      /** What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it. */
+      tracking: TransactionalEmailTracking;
     }
 
     export interface TransactionalEmailLogEntry {
@@ -151982,6 +152089,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.
+     */
+    type?: string;
     };
 
     export type SignalsReportChecksListParams = {

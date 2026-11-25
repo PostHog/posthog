@@ -38,7 +38,29 @@ const SETTINGS = {
     },
 }
 
-function channelsDecorator(channels: Record<string, unknown>[]): ReturnType<typeof mswDecorator> {
+const SLACK_CHANNELS = {
+    channels: [
+        { id: 'C1', name: 'support', is_private: false, is_ext_shared: false, is_member: true },
+        { id: 'C2', name: 'team-mobile', is_private: true, is_ext_shared: false, is_member: true },
+        { id: 'C3', name: 'random', is_private: false, is_ext_shared: false, is_member: true },
+        { id: 'C4', name: 'partner-acme', is_private: false, is_ext_shared: true, is_member: true },
+    ],
+    lastRefreshedAt: '2023-01-10T00:00:00Z',
+}
+
+const SLACK_INACTIVE = (): [number, Record<string, string>] => [
+    400,
+    {
+        type: 'validation_error',
+        code: 'slack_integration_inactive',
+        detail: 'Your Slack connection is no longer active. Reconnect Slack to load channels.',
+    },
+]
+
+function channelsDecorator(
+    channels: Record<string, unknown>[],
+    slackChannels: typeof SLACK_CHANNELS | typeof SLACK_INACTIVE = SLACK_CHANNELS
+): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
             '/api/environments/:team_id/integrations/': INTEGRATIONS,
@@ -49,15 +71,7 @@ function channelsDecorator(channels: Record<string, unknown>[]): ReturnType<type
                 repositories: ['hedgebox/api', 'hedgebox/mobile', 'hedgebox/web'],
                 github_connected: true,
             },
-            '/api/environments/:team_id/integrations/:id/channels': {
-                channels: [
-                    { id: 'C1', name: 'support', is_private: false, is_ext_shared: false, is_member: true },
-                    { id: 'C2', name: 'team-mobile', is_private: true, is_ext_shared: false, is_member: true },
-                    { id: 'C3', name: 'random', is_private: false, is_ext_shared: false, is_member: true },
-                    { id: 'C4', name: 'partner-acme', is_private: false, is_ext_shared: true, is_member: true },
-                ],
-                lastRefreshedAt: '2023-01-10T00:00:00Z',
-            },
+            '/api/environments/:team_id/integrations/:id/channels': slackChannels,
         },
     })
 }
@@ -104,4 +118,8 @@ export const WithChannels: Story = {
 
 export const Empty: Story = {
     decorators: [channelsDecorator([])],
+}
+
+export const SlackDisconnected: Story = {
+    decorators: [channelsDecorator([], SLACK_INACTIVE)],
 }
