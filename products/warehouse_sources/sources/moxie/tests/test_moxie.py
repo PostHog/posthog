@@ -309,6 +309,7 @@ class TestIterTimeEntries:
         halves = moxie_module._split(first_window)
         assert halves is not None
         boundary = halves[0].latest
+        assert boundary is not None
         entries = [
             # Outside the split range, so only the open-ended edge windows return them.
             _entry("before", datetime(1995, 5, 1, tzinfo=UTC)),
