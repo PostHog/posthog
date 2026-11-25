@@ -13,8 +13,6 @@ logger = structlog.get_logger(__name__)
 CURRENT_ALIAS_DEPRECATED_AT = datetime(2026, 11, 25, tzinfo=UTC)
 # RFC 9745 gives the Deprecation header a structured-field date: "@" and Unix seconds.
 CURRENT_ALIAS_DEPRECATION = f"@{int(CURRENT_ALIAS_DEPRECATED_AT.timestamp())}"
-# personal_api_keys/@current names the key that signs the request, so it is not deprecated.
-DEPRECATED_COLLECTIONS = frozenset({"projects", "environments", "organizations"})
 
 
 def add_current_alias_deprecation_headers(
@@ -32,14 +30,11 @@ def add_current_alias_deprecation_headers(
     segments = request.path.strip("/").split("/")
     if len(segments) < 3 or segments[0] != "api" or segments[2] != CURRENT_ALIAS:
         return
-    if segments[1] not in DEPRECATED_COLLECTIONS:
-        return
 
     response["Deprecation"] = CURRENT_ALIAS_DEPRECATION
     if not 200 <= response.status_code < 300:
         return
 
-    # The response is already built, so a failure here only drops the link.
     try:
         resolved_id = _resolved_alias_id(parent_kwargs, resolved_parents)
     except Exception:
