@@ -83,6 +83,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { TagIcon } from 'lib/components/TagIcon'
 import {
     IconSQL,
     IconInsightFunnels,
@@ -399,6 +400,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_tags: {
         icon: <IconList />,
         iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
+    },
+    tag: {
+        icon: <TagIcon className="size-4" />,
     },
     llm_datasets: {
         icon: <IconDocument />,

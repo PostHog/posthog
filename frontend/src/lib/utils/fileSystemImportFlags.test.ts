@@ -39,4 +39,18 @@ describe('fileSystemImportFlags', () => {
     ])('shown: $name', ({ item, enabled, expected }) => {
         expect(isFileSystemImportShown(item, flags(enabled))).toBe(expected)
     })
+
+    it.each([
+        [false, true, false],
+        [true, true, true],
+        [true, false, false],
+    ])('admin-only navigation with admin=%s and flag=%s is shown=%s', (isAdmin, enabled, expected) => {
+        expect(
+            isFileSystemImportShown(
+                { flag: 'a', requiresOrganizationAdmin: true },
+                flags(enabled ? ['a'] : []),
+                isAdmin
+            )
+        ).toBe(expected)
+    })
 })
