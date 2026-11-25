@@ -242,6 +242,17 @@ def test_tool_loop_reads_the_diff_and_derives_the_verdict_from_the_final_facts(c
     assert diff_path.exists()
 
 
+def test_each_review_gets_its_own_gateway_session(checkout: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_GATEWAY_URL", "https://gateway.example.com/v1")
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_example")
+    reviewer = OpenAIReviewer(checkout)
+
+    first, second = (reviewer._new_client(_pr(), {}, {}).default_headers["X-PostHog-Session-Id"] for _ in range(2))
+
+    assert first
+    assert first != second
+
+
 @pytest.mark.parametrize(
     "budget_spent, expected_error",
     [

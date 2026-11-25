@@ -315,6 +315,7 @@ That covers a merge-queue run whose earlier pull request merged while the run wa
 Per snapshot, the ledger's hash wins when the render matches it.
 The approved hash is used only when the render does not match the ledger.
 An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
+A stack layer approved over the picture of an open layer below it keeps applying while that layer's approval applies, so a lower layer that merges on its own does not stop the layers above it.
 The snapshot then shows as changed against the new baseline and needs a new approval.
 Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
 
@@ -349,10 +350,12 @@ A partial run posts to the gating context too, with "(partial run)" in the text.
 
 An open approval is stale when the ledger's hash for its story is none of these: the hash it was approved over, the baseline the reviewer saw, the approved hash.
 That happens when another pull request merged a different picture of the same story first, and this approval would be `conflicted` if it landed now.
+An approval made over the picture of an open lower layer of the same stack is not stale while that layer's approval is not stale.
 The approvals a run rests on are the ones finalized on it and the ones its baseline record applied, such as an earlier approval of the same pull request; a quarantined story does not count.
 The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
 A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
 Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
+When an approval closes without a ledger entry (superseded, voided, conflicted, abandoned), the pull requests whose current run applied it publish their status again, so a stack layer that counted through it turns red.
 In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
 
 Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.
@@ -377,7 +380,7 @@ A run without a ledger record is `pending` as a whole. A real change that nobody
 When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
 An approval lands only when both of these hold:
 
-- The ledger's hash for the identifier is still the one the reviewer compared against. If another pull request changed it first, the approval is `conflicted`.
+- The ledger's hash for the identifier is still the one the reviewer compared against, or the last merge-queue run applied the approval and the ledger still holds the picture the queue run read for the story. If another pull request changed it first, the approval is `conflicted`.
 - The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
 
 A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.
@@ -396,6 +399,13 @@ Full runs then report that snapshot as changed, and the merge queue stops on it.
 Fix it the same way as a wrong baseline in `yaml` mode: open a pull request that renders the story, approve the snapshot, and merge.
 A revert pull request needs an approval for the pictures it restores.
 
+### Fixing a baseline in ledger mode
+
+When the ledger holds a wrong picture for a story and the default branch renders the right one, `adopt-renders` adopts that render into the ledger without a pull request.
+Pick a full, completed observe run on the default branch whose commit the ledger has resolved, and that shows the right picture.
+Run `adopt-renders` without `--apply` first and check the table, then run it again with `--apply`.
+`repair` does not help here: it compares the ledger with the baseline file, and it only runs in `shadow` mode.
+
 ### Operating it
 
 `./manage.py visual_review_baseline_ledger <subcommand> --repo owner/name`
@@ -404,9 +414,10 @@ A revert pull request needs an approval for the pictures it restores.
 - `seed --from-ledger` starts a new position 0 at the default branch head from the ledger's current state. Use it after the default branch was rewritten, or when the ledger fell too far behind.
 - `mode` prints the mode. `mode --set shadow|ledger|yaml` switches it. `shadow` and `ledger` need a seeded ledger.
 - `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
+- `adopt-renders --run-type <type> --run <run id> --identifier <id>` adopts renders into the ledger: it sets the ledger at its newest resolved commit to what that run rendered, for each named identifier. Repeat `--identifier` for more. It only runs in `ledger` mode, and it refuses a run that is not a full default-branch run, or that is older than the ledger's newest change of a named identifier. It prints the plan with the open approvals of each identifier, and writes only with `--apply`.
 - `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
 - `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is gated by the commit status and has not finished, still has unreviewed changes, or has approved changes that are not finalized.
-- `recheck` shows the `ledger`-mode status of every open pull request head, stacked ones included and forks left out, and of every merge-queue head. It posts nothing. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type: a head without a run passes only when CI skipped that job on it, because retention may have deleted a run. A head without a run of a pull request that targets another branch gets no status: CI decided against that branch, and the push after its retarget creates a run. The same holds for a head whose pull request was retargeted after CI skipped the job. `--apply` posts the statuses, needs `--setup-check` and the commit status gate, and, behind a passing gate verdict, also turns a non-success `PostHog Visual Review / <run type>` green with "Replaced by Visual Review gate / <run type>". `--apply --only-success` posts only the greens, and only with the gate off, before the sitting. A head that already carries the same status, posted by this app, is skipped. It skips draft pull requests and pull request heads not committed within `--pushed-within-days` days (7 by default, 0 covers every open pull request), so a pass needs fewer posts. Merge-queue heads are always covered. A draft gets its status when it is marked ready for review, and a skipped old head gets it on its next push or CI re-run; until then it has no status, which blocks its merge. `--pause` sets the seconds between posts (8 by default, below GitHub's 500 writes per hour). It stops at the first refused read or post and says how many remain; run it again to go on.
+- `recheck` shows the `ledger`-mode status of every open pull request head, stacked ones included and forks left out, and of every merge-queue head. It posts nothing. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type, and `--report-check <job>` the job of that run type that reports a commit needs no run: a head without a run passes only when CI skipped the first on it and the second succeeded on it, because retention may have deleted a run, and CI also skips the job when the build fails. A head without a run of a pull request that targets another branch gets no status: CI decided against that branch, and the push after its retarget creates a run. The same holds for a head whose pull request was retargeted after CI skipped the job. `--apply` posts the statuses, needs `--setup-check`, `--report-check` and the commit status gate, and, behind a passing gate verdict, also turns a non-success `PostHog Visual Review / <run type>` green with "Replaced by Visual Review gate / <run type>". `--apply --only-success` posts only the greens, and only with the gate off, before the sitting. A head that already carries the same status, posted by this app, is skipped. It skips draft pull requests and pull request heads not committed within `--pushed-within-days` days (7 by default, 0 covers every open pull request), so a pass needs fewer posts. Merge-queue heads are always covered. A draft gets its status when it is marked ready for review, and a skipped old head gets it on its next push or CI re-run; until then it has no status, which blocks its merge. `--pause` sets the seconds between posts (8 by default, below GitHub's 500 writes per hour). It stops at the first refused read or post and says how many remain; run it again to go on.
 
 To move a repo to the ledger:
 
@@ -414,10 +425,10 @@ To move a repo to the ledger:
 2. Watch `metadata["baseline"]["comparison"]` on `shadow` runs. It counts the snapshots where the ledger verdict differs from the file verdict, and `gate_differs` says whether the gate would differ. A `shadow` run does not wait for the ledger: when its merge-base is newer than the ledger's newest commit, the run has no comparison and `metadata["baseline"]["unavailable_reason"]` says why. An approval finalized on such a run is not recorded, so the ledger misses that entry until the next `seed --replace`. Count these runs apart from real differences.
 3. Approvals made before the seed are not in the ledger. Once the pull requests that carried them have merged, run `seed --replace` once more and start counting from there.
 4. `repair`: it adds ledger entries where the ledger differs from the baseline file, so that both agree at the default branch head.
-5. `recheck --run-type storybook --setup-check "Create Visual Review run"`, and the same for each other run type with its own job name. It posts nothing and shows the status every head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
-6. Phase 1, before the sitting, with the gate still off: `recheck --apply --only-success` with the same options. It posts the greens on the gate context, which nothing requires yet, so nobody sees a yellow or red status. Run it until it posts nothing new.
-7. Phase 2, the sitting. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it, and keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8. Then `status-gate --set on`, set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` (PostHog/posthog sends the "no run needed" report only then), and `mode --set ledger`. From the gate on, its context carries only ledger verdicts, so the order inside this step does not open a gap.
-8. `recheck --apply` with the same options. It posts the verdicts phase 1 left out, skips the heads that already carry theirs, and turns a red `PostHog Visual Review / <run type>` from before the switch green.
+5. `recheck --run-type storybook --setup-check "Create Visual Review run" --report-check "Report no Visual Review run needed"`, and the same for each other run type with its own job names. It posts nothing and shows the status every head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
+6. Phase 1, before the sitting, with the gate still off: set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` a few days ahead (PostHog/posthog sends the "no run needed" report only then). With the gate off the report posts nothing, but its successful job is what `recheck` needs to pass a head without a run, so heads pushed from then on carry it. Then `recheck --apply --only-success` with the same options. It posts the greens on the gate context, which nothing requires yet, so nobody sees a yellow or red status. Run it until it posts nothing new.
+7. Phase 2, the sitting. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it, and keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8. Then `status-gate --set on` and `mode --set ledger`. From the gate on, its context carries only ledger verdicts, so the order inside this step does not open a gap.
+8. `recheck --apply` with the same options. It posts the verdicts phase 1 left out, skips the heads that already carry theirs, and turns a red `PostHog Visual Review / <run type>` from before the switch green. A head without a run whose CI ran before step 6 has no successful report and gets pending; a CI re-run or a push gives it its status.
 
 To roll the sitting back, follow the way back from `ledger` to `shadow` below. Keep the ruleset as it is until every open pull request has a run created after the switch back.
 

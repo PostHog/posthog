@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    UNSUPPORTED_AUTH_OPTION_ERROR,
     UNSUPPORTED_FILE_OPTION_ERROR,
+    UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_SRV_RECORD_MISSING_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
+    _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
     _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
     MongoDBSource,
 )
@@ -245,6 +248,11 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
             (
                 UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR),
                 _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+                False,
+            ),
+            (
+                UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR),
+                _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
                 False,
             ),
         ],

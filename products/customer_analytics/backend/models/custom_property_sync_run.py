@@ -71,6 +71,7 @@ class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     changed = models.PositiveIntegerField(default=0)
     existing = models.PositiveIntegerField(default=0)
     produced = models.PositiveIntegerField(default=0)
+    removed = models.PositiveIntegerField(default=0, db_default=0)
     skipped_missing_person = models.PositiveIntegerField(default=0)
 
     error = models.TextField(null=True, blank=True)

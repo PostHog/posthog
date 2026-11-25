@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -11,6 +12,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
@@ -60,6 +62,16 @@ class PersonSeedEstimate:
         }
 
 
+@contextmanager
+def _on_the_seeder_cluster() -> Iterator[None]:
+    # cohort-seeder scans events, flag_evaluations and person on the main offline cluster. Without this route, a
+    # project moved to the new events table sends its reads to the events cluster, which has no `events` table.
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415 — keeps posthog.schema off the backfill import path
+
+    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+        yield
+
+
 def estimate_person_seed_topic_bytes(
     team_id: int,
     person_scan_since: datetime,
@@ -80,28 +92,29 @@ def estimate_person_seed_topic_bytes(
     # holding every id in a hash table. No `readonly=True`: a configured readonly user takes
     # precedence over the offline host.
     try:
-        rows = sync_execute(
-            """
-            SELECT count()
-            FROM (
-                SELECT id
-                FROM person
-                WHERE team_id = %(team_id)s
-                  AND _timestamp >= %(person_scan_since)s
-                GROUP BY id
-                HAVING argMax(is_deleted, version) = 0
+        with _on_the_seeder_cluster():
+            rows = sync_execute(
+                """
+                SELECT count()
+                FROM (
+                    SELECT id
+                    FROM person
+                    WHERE team_id = %(team_id)s
+                      AND _timestamp >= %(person_scan_since)s
+                    GROUP BY id
+                    HAVING argMax(is_deleted, version) = 0
+                )
+                """,
+                {"team_id": team_id, "person_scan_since": person_scan_since},
+                settings={
+                    "max_execution_time": max_execution_time,
+                    "max_bytes_to_read": max_bytes_to_read,
+                    "read_overflow_mode": "throw",
+                    "optimize_aggregation_in_order": 1,
+                },
+                workload=Workload.OFFLINE,
+                team_id=team_id,
             )
-            """,
-            {"team_id": team_id, "person_scan_since": person_scan_since},
-            settings={
-                "max_execution_time": max_execution_time,
-                "max_bytes_to_read": max_bytes_to_read,
-                "read_overflow_mode": "throw",
-                "optimize_aggregation_in_order": 1,
-            },
-            workload=Workload.OFFLINE,
-            team_id=team_id,
-        )
     except ClickHouseQueryTimeOut as error:
         # `max_execution_time` is this gate's own cap, so a timeout means the same thing as the byte
         # cap: the team's person history does not fit, and a retry pays the whole scan again for the
@@ -203,16 +216,17 @@ def estimate_behavioral_scan_events(
             )
         )
     by_day: dict[date, dict[str, int]] = {}
-    for query, params in queries:
-        rows = sync_execute(
-            query,
-            params,
-            settings={"max_execution_time": _BEHAVIORAL_SCAN_ESTIMATE_MAX_SECONDS},
-            workload=Workload.OFFLINE,
-            team_id=team_id,
-        )
-        for day, event, count in rows:
-            by_day.setdefault(day, {})[event] = int(count)
+    with _on_the_seeder_cluster():
+        for query, params in queries:
+            rows = sync_execute(
+                query,
+                params,
+                settings={"max_execution_time": _BEHAVIORAL_SCAN_ESTIMATE_MAX_SECONDS},
+                workload=Workload.OFFLINE,
+                team_id=team_id,
+            )
+            for day, event, count in rows:
+                by_day.setdefault(day, {})[event] = int(count)
     peak_day = max(by_day, key=lambda day: (sum(by_day[day].values()), day), default=None)
     peak_day_events_by_name = by_day[peak_day] if peak_day is not None else {}
     return BehavioralScanEstimate(

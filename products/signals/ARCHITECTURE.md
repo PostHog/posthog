@@ -633,6 +633,7 @@ Notes:
 
 - Created on first access through `get_or_create_team_extension`. Readers treat a missing row as the field defaults.
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
+- A project that never set `autostart_enabled` and still stores `P4`, or has no row, runs on `P2` (`effective_autostart_priority` in `backend/models.py`). The API reads that threshold back. Setting the switch on such a project stores `P2`, and choosing `P4` also stores the switch as on. Other picks leave the switch null, because an explicit `true` waives the per-reviewer opt-in for trial PRs.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
 - `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
 - GitHub comments run in a separate Temporal activity on every settle, including settles after the first notification. GitHub failures cannot prevent the report notification.
@@ -641,6 +642,7 @@ Notes:
 - The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
 - A report's `source_issue` artefacts count as source issues too. Scout and user-authored reports skip research, so their writeback runs from a Celery task queued after the write commits (`source_issues.py`). A source issue gets a comment only after the team's GitHub source ingests that issue; grouping queues the writeback again when the issue's signal joins the report.
 - Grouping attaches a GitHub issue signal to the oldest open report whose `source_issue` names the same issue, before similarity matching and without the specificity check. Resolved, suppressed, failed, closed, and deleted reports do not take it.
+- Grouping records the issue of each GitHub issue signal as a `source_issue` on the report the signal opens or joins, in the assignment transaction. A scout that later files about the same issue can then find that report through `open_report_for_source_issue`.
 - See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`

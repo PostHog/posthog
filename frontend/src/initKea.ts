@@ -111,6 +111,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRelease: 'products.notebooks.appBuilder.notebookAppViewerLogic',
+    refresh: 'products.notebooks.appBuilder.notebookAppViewerLogic',
     loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
@@ -132,9 +134,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
-    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     // The AI visibility filter bar shows a retry in place of the topic filter
@@ -217,6 +216,7 @@ const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The workflow scene and the notebook node views that show the workflow render NotFound
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
     loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
+    loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {

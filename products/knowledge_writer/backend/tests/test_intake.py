@@ -27,7 +27,11 @@ from posthog.storage import object_storage
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import DocsRequest, MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
-from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
+from products.knowledge_writer.backend.feature_flags import (
+    AGENT_LAUNCH_FLAG,
+    OPEN_PULL_REQUESTS_AUTHORS_FLAG,
+    OPEN_PULL_REQUESTS_FLAG,
+)
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
     MISSING_TOOL_PATTERN,
@@ -42,6 +46,8 @@ from products.knowledge_writer.backend.logic.launch import (
     change_check_script,
 )
 from products.knowledge_writer.backend.logic.pull_requests import (
+    AUTHOR_FLAG_UNREADABLE,
+    AUTHOR_NOT_OPTED_IN,
     DRAFT_EVENT,
     LINK_BACK_START,
     OPEN_PULL_REQUESTS_OFF,
@@ -457,7 +463,12 @@ def writer_env(team, user):
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(GITHUB_REQUEST, side_effect=DocsGitHub()),
         patch(READ_ARTIFACT, side_effect=_read_uploaded_artifact),
-        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
+        patch(
+            FLAG_CHECK,
+            side_effect=lambda flag, *args, **kwargs: (
+                flag in (OPEN_PULL_REQUESTS_FLAG, OPEN_PULL_REQUESTS_AUTHORS_FLAG)
+            ),
+        ),
         patch(GROUNDING_GATEWAY, side_effect=_grounding_gateway(None)),
     ):
         yield
@@ -789,17 +800,17 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             id="human_author_is_asked_to_review_a_grounded_change_ready_for_review",
         ),
         pytest.param(
-            None,
+            "octo-person",
             {},
             OPENED,
-            (None, "no_human_author", None),
+            ("octo-person", None, None),
             NEW_PAGE_FILES,
             None,
             None,
             True,
             [GROUNDING_DID_NOT_RUN],
             (False, [], [], []),
-            id="bot_author_is_asked_nothing_and_a_failed_grounding_call_opens_a_draft",
+            id="a_failed_grounding_call_opens_a_draft",
         ),
         pytest.param(
             "octo-person",
@@ -1085,16 +1096,27 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "open_pull_requests_reply, expected_outcomes",
-    [(False, ["logged"]), (None, [])],
+    "open_pull_requests_reply, author_login, author_reply, expected_outcomes, expected_failure",
+    [
+        pytest.param(False, "octo-person", True, ["logged"], OPEN_PULL_REQUESTS_OFF, id="pull_requests_off"),
+        pytest.param(None, "octo-person", True, [], None, id="pull_requests_flag_unreadable"),
+        pytest.param(True, "octo-person", False, ["logged"], AUTHOR_NOT_OPTED_IN, id="author_not_opted_in"),
+        pytest.param(True, None, True, ["logged"], AUTHOR_NOT_OPTED_IN, id="no_human_author"),
+        pytest.param(
+            True, "octo-person", None, ["logged"], AUTHOR_FLAG_UNREADABLE, id="author_flag_unreadable_on_last_attempt"
+        ),
+    ],
 )
-def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
+def test_without_an_opted_in_author_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
     team,
     writer_env,
     django_capture_on_commit_callbacks,
     monkeypatch,
     open_pull_requests_reply,
+    author_login,
+    author_reply,
     expected_outcomes,
+    expected_failure,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
@@ -1103,15 +1125,13 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
+        started = intake.submit(
+            _verdict(suggested_page_urls=(RETENTION_PAGE,), author_login=author_login), team_id=team.id
+        )
     assert started.task_id is not None
+    flag_replies = {OPEN_PULL_REQUESTS_FLAG: open_pull_requests_reply, OPEN_PULL_REQUESTS_AUTHORS_FLAG: author_reply}
     with (
-        patch(
-            FLAG_CHECK,
-            side_effect=lambda flag, *args, **kwargs: (
-                open_pull_requests_reply if flag == OPEN_PULL_REQUESTS_FLAG else True
-            ),
-        ),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag_replies.get(flag, True)),
         patch(CREATE_PULL_REQUEST) as create_pull_request,
         patch(CAPTURE_DRAFT) as scoped_capture,
     ):
@@ -1121,11 +1141,10 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
     assert (docs_github.created_branches, docs_github.commits) == ([], [])
     capture = scoped_capture.return_value.__enter__.return_value
     assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
-    if open_pull_requests_reply is None:
+    if expected_failure is None:
         return
     assert (
-        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
-        == OPEN_PULL_REQUESTS_OFF
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == expected_failure
     )
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
     assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [RETENTION_PAGE])
