@@ -53,17 +53,36 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
 }
 
 export function useContentTileActions(id: string, widget: ContentWidget): MenuAction[] {
-    const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } =
-        useDashboardV2()
+    const {
+        dashboard,
+        activeTab,
+        widgets,
+        disabledReasonFor,
+        onEdit,
+        tileActions,
+        downloadImage,
+        downloadingImage,
+        presentTile,
+    } = useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const definition = findWidget(widgets, widget.type)
 
-    const actions: MenuAction[] = []
+    const actions: MenuAction[] = [
+        {
+            key: 'present',
+            label: 'Present',
+            dataAttr: 'dashboard-v2-tile-present',
+            group: 'view',
+            disabledReason: null,
+            onSelect: () => presentTile(id),
+        },
+    ]
     if (otherTabs.length > 0) {
         actions.push({
             key: 'move',
             label: 'Move to tab',
             dataAttr: 'dashboard-v2-tile-move-to-tab',
+            group: 'dashboard',
             disabledReason: disabledReasonFor('moveTile'),
             submenu: otherTabs.map((tab) => ({
                 key: tab.id,
@@ -77,6 +96,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
             key: 'add-to-tab',
             label: 'Also show on tab',
             dataAttr: 'dashboard-v2-tile-add-to-tab',
+            group: 'dashboard',
             disabledReason: disabledReasonFor('addToGrid'),
             submenu: otherTabs.map((tab) => {
                 // A tab already showing this widget is ticked, and picking it again takes the widget off that tab.

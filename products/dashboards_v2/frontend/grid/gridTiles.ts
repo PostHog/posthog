@@ -43,7 +43,7 @@ function scaleTiles(tiles: Tile[], from: number, to: number, sizeOf: SizeOf): Ti
     })
 }
 
-function inReadingOrder(tiles: Tile[]): Tile[] {
+export function inReadingOrder(tiles: Tile[]): Tile[] {
     return [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
 }
 
