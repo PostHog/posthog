@@ -12,7 +12,11 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
+import {
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_SERVED_SKILLS_LIST_FLAG,
+    MCP_TIME_SERIES_CHARTS_FLAG,
+} from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog, toMcpInputSchema } from '@/hono/tool-catalog'
@@ -323,6 +327,34 @@ describe('ToolExecutor', () => {
                 expect(result.content[0].text).not.toContain('call skill-list')
             }
         )
+
+        it('does not point a store miss at learn for a skill that learn does not serve', async () => {
+            const unlistedSkill = 'internal-runbook'
+            const skills = new SkillCatalog([
+                {
+                    name: unlistedSkill,
+                    description: 'A skill for a PostHog job.',
+                    files: [makeSkillFile('SKILL.md', '# Internal runbook')],
+                },
+            ])
+            const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                getCatalog: () => skills,
+            } as any)
+            const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
+            const state = makeToolExecutorState(tools as any, {
+                useSingleExec: true,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_SERVED_SKILLS_LIST_FLAG]: true },
+                context: skillMissContext(unlistedSkill, `{"detail":"Skill with name '${unlistedSkill}' not found."}`),
+            })
+
+            const result = (await skillExecutor.handleToolCall(
+                { name: 'exec', arguments: { command: `call skill-get {"skill_name":"${unlistedSkill}"}` } },
+                state
+            )) as any
+
+            expect(result.content[0].text).toContain(`No skill named "${unlistedSkill}"`)
+            expect(result.content[0].text).not.toContain('learn posthog:')
+        })
     })
 
     describe('handleToolsList', () => {

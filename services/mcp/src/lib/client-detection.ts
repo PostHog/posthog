@@ -124,6 +124,8 @@ export function resolveEffectiveClientName(
 // send `"posthog_ai"`; only PostHog Desktop renders MCP UI apps, so this is the
 // sole consumer that gates UI-apps payload emission in single-exec mode.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
+export const SLACK_CONSUMER = 'slack'
+export const POSTHOG_AI_CONSUMER = 'posthog_ai'
 
 // Claude web/desktop and Cowork are MCP Apps hosts that render interactive UI
 // (iframes), so the `render-ui` tool is meaningful for them. They send
