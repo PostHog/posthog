@@ -17,6 +17,8 @@ A cymbal version that does not know the header answers with the array described 
 | `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The resolution service can also report an item as poison, but does not yet. The code is `invalid_input`. |
 | `retry` | The resolution pool did not resolve the event, but resolved another event of the request. The code is `deadline_exceeded` when the resolution deadline passed, and `resolution_unavailable` when every attempt on a resolution pod failed. |
 
+A request with more events than `PROCESS_MAX_EVENTS_PER_REQUEST` (10000 by default) is rejected with a 413.
+
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
 When no event of the request resolved and at least one would answer `retry`, the request fails with a 500 and no event answers `retry`.

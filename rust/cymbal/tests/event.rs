@@ -899,6 +899,19 @@ async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(d
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_reject_a_request_with_more_events_than_the_limit(db: PgPool) {
+    let harness = TestHarness::new(db);
+
+    let (status, _) = harness
+        .post_body(true, json!([0, 0]), |config| {
+            config.process_max_events_per_request = 1
+        })
+        .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn item_results_carry_processing_errors_as_an_ingestion_warning(db: PgPool) {
     let harness = TestHarness::new(db);
     let mut input = make_event(vec![]);

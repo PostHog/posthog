@@ -57,6 +57,7 @@ pub enum ProcessEventsError {
     Unhandled(Arc<UnhandledError>),
     Backpressure,
     Rejected(JsonRejection),
+    TooManyEvents { events: usize, limit: usize },
 }
 
 impl From<JsonRejection> for ProcessEventsError {
@@ -85,6 +86,14 @@ impl IntoResponse for ProcessEventsError {
             )
                 .into_response(),
             ProcessEventsError::Rejected(rejection) => rejection.into_response(),
+            ProcessEventsError::TooManyEvents { events, limit } => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({
+                    "error": "Too many events in /process request",
+                    "details": format!("{events} events, the limit is {limit}"),
+                })),
+            )
+                .into_response(),
         }
     }
 }
@@ -142,6 +151,14 @@ pub async fn process_events(
     // nested past the recursion limit, fails alone.
     let Json(bodies) = Json::<Vec<Box<RawValue>>>::from_request(request, &()).await?;
     let request_items = bodies.len();
+    let limit = ctx.config.process_max_events_per_request;
+    if request_items > limit {
+        metrics::counter!(ERRORS, "cause" => "process_too_many_events").increment(1);
+        return Err(ProcessEventsError::TooManyEvents {
+            events: request_items,
+            limit,
+        });
+    }
     let mut malformed = Vec::with_capacity(request_items);
     let mut events = Vec::with_capacity(request_items);
     for body in bodies {
