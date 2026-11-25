@@ -118,7 +118,9 @@ def _claim_provisioned_team(
     """
     if base_team.is_demo or not user_can_access_team(user, base_team):
         return None
-    if Project.objects.filter(id=base_team.project_id, is_pending_deletion=True).exists():
+    if Project.objects.filter(
+        id=base_team.project_id, organization_id=base_team.organization_id, is_pending_deletion=True
+    ).exists():
         return None
 
     # The update re-checks that the row is unclaimed, so two concurrent calls with different
