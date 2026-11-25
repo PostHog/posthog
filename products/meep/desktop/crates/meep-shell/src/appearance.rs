@@ -121,20 +121,23 @@ pub fn settings_body(id: &'static str, width: Pixels, content: Div) -> AnyElemen
         .into_any_element()
 }
 
-/// Resolve an optional palette name against the window's system appearance.
 pub fn resolve(scheme: Option<&str>, appearance: WindowAppearance) -> [u32; 14] {
-    meep_ui::palettes::PRESETS
-        .iter()
-        .find(|p| Some(p.name) == scheme)
-        .map_or_else(|| system_palette(appearance), |p| p.palette)
+    let (preset, mode) = meep_ui::palettes::parse(scheme);
+    meep_ui::palettes::palette(preset, mode, system_dark(appearance))
 }
 
-/// View's palette gallery. The host chooses how an appearance change is persisted.
+fn system_dark(appearance: WindowAppearance) -> bool {
+    matches!(
+        appearance,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+    )
+}
+
 pub fn picker<V: 'static>(
     scheme: Option<&str>,
     saving: bool,
     width: Pixels,
-    select: fn(&mut V, Option<&'static str>, &mut Window, &mut Context<V>),
+    select: fn(&mut V, Option<&str>, &mut Window, &mut Context<V>),
     w: &Window,
     cx: &mut Context<V>,
 ) -> AnyElement {
@@ -147,25 +150,30 @@ pub fn picker<V: 'static>(
         },
         prelude::FluentBuilder,
     };
-    let palette = resolve(scheme, w.appearance());
-    let system = if scheme.is_none() {
-        // Name the palette the system resolved to, so the checked card and
-        // the caption agree.
-        let current = meep_ui::palettes::PRESETS
-            .iter()
-            .find(|preset| preset.palette == palette)
-            .map(|preset| preset.name);
-        ui::caption(match current {
-            Some(name) => format!("{name} · following system"),
-            None => "Following system".to_owned(),
-        })
-        .into_any_element()
-    } else {
-        settings::pill("follow-system", "Use system", cx)
-            .disabled(saving)
-            .on_click(cx.listener(move |v, _, w, cx| select(v, None, w, cx)))
-            .into_any_element()
-    };
+    use meep_ui::palettes::{self, Mode};
+    let (chosen, mode) = palettes::parse(scheme);
+    let dark = system_dark(w.appearance());
+    let palette = palettes::palette(chosen, mode, dark);
+    let view = cx.entity().downgrade();
+    let family = chosen.name;
+    let modes = Mode::ALL.map(Mode::label);
+    let mode_control = settings::segmented(
+        "appearance-mode",
+        &modes,
+        Mode::ALL.iter().position(|m| *m == mode),
+        move |index, w, cx| {
+            if saving {
+                return;
+            }
+            let next = Mode::ALL[index];
+            let Some(preset) = palettes::PRESETS.iter().find(|p| p.name == family) else {
+                return;
+            };
+            let scheme = palettes::scheme(preset, next);
+            let _ = view.update(cx, |v, cx| select(v, scheme.as_deref(), w, cx));
+        },
+    )
+    .into_any_element();
     let header = settings::header(
         "Appearance",
         "Choose the colors used throughout your workspace.",
@@ -176,8 +184,8 @@ pub fn picker<V: 'static>(
         .w_full()
         .grid_cols(if width < px(500.) { 2 } else { 3 })
         .gap(px(10.));
-    for preset in &meep_ui::palettes::PRESETS {
-        let active = preset.palette == palette;
+    for preset in &palettes::PRESETS {
+        let active = preset.name == chosen.name;
         let name = preset.name;
         let card = Button::new(name)
             .w_full()
@@ -199,7 +207,9 @@ pub fn picker<V: 'static>(
                 ui::column()
                     .size_full()
                     .gap(px(8.))
-                    .child(meep_ui::appearance::thumbnail(preset.palette))
+                    .child(meep_ui::appearance::thumbnail(palettes::palette(
+                        preset, mode, dark,
+                    )))
                     .child(
                         ui::row()
                             .w_full()
@@ -240,7 +250,13 @@ pub fn picker<V: 'static>(
                             }),
                     ),
             )
-            .on_click(cx.listener(move |v, _, w, cx| select(v, Some(name), w, cx)));
+            .on_click(cx.listener(move |v, _, w, cx| {
+                let Some(preset) = palettes::PRESETS.iter().find(|p| p.name == name) else {
+                    return;
+                };
+                let scheme = palettes::scheme(preset, mode);
+                select(v, scheme.as_deref(), w, cx)
+            }));
         grid = grid.child(
             div()
                 .min_w_0()
@@ -261,7 +277,17 @@ pub fn picker<V: 'static>(
     let body = ui::column()
         .gap_0()
         .child(header)
-        .child(settings::section("Theme", "", Some(system), true))
+        .child(settings::section(
+            "Mode",
+            if mode == Mode::System {
+                "Light or dark follows your system."
+            } else {
+                ""
+            },
+            Some(mode_control),
+            true,
+        ))
+        .child(settings::section("Theme", "", None, false))
         .child(grid)
         .child(settings::section("Preview", "", None, false))
         .child(meep_ui::appearance::preview(palette, width >= px(600.)));

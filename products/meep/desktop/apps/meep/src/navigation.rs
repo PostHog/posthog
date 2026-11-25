@@ -1047,7 +1047,7 @@ impl Desktop {
                             .child(
                                 Icon::new(Glyph::ChevronRight)
                                     .size(px(12.))
-                                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                    .text_color(rgb(ui::theme::color(ui::TERTIARY)))
                                     .rotate(meep_ui::gpui_kit::radians(
                                         std::f32::consts::FRAC_PI_2 * turn,
                                     )),
@@ -1059,8 +1059,8 @@ impl Desktop {
                             .min_w_0()
                             .truncate()
                             .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
                             .child(section.name.clone()),
                     )
                     // Only a toggle: renaming is in the section's menu.
@@ -1094,7 +1094,6 @@ impl Desktop {
             .into_any_element()
     }
     fn sidebar(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
-        let n = self.needs_count();
         // Arc's command bar: one quiet field at the top of the glass.
         let top = ui::column()
             .gap(px(ui::nav::GAP))
@@ -1126,16 +1125,6 @@ impl Desktop {
                             .child("⌘K"),
                     )
                     .on_click(cx.listener(|s, _, w, cx| s.open_sheet(Sheet::Search, w, cx))),
-            )
-            .child(
-                nav_line(
-                    "needs-you",
-                    self.page == Page::Needs && self.sheet != Some(Sheet::New),
-                )
-                .child(ui::nav::glyph(Glyph::Inbox, self.page == Page::Needs))
-                .child(ui::nav::title("Needs you"))
-                .when(n > 0, |e| e.child(badge(n)))
-                .on_click(cx.listener(|s, _, w, cx| s.go(Page::Needs, w, cx))),
             );
         let owner = cx.entity().downgrade();
         let mut tree = ui::column().gap_0().child(self.sidebar_list(w, cx));
@@ -1185,7 +1174,7 @@ impl Desktop {
                                 .child(
                                     Icon::new(Glyph::ChevronRight)
                                         .size(px(12.))
-                                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                        .text_color(rgb(ui::theme::color(ui::TERTIARY)))
                                         .rotate(meep_ui::gpui_kit::radians(
                                             std::f32::consts::FRAC_PI_2 * turn,
                                         )),
@@ -1196,8 +1185,8 @@ impl Desktop {
                                 .flex_1()
                                 .min_w_0()
                                 .text_size(px(12.))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
                                 .child("Archived"),
                         )
                         .child(
@@ -2132,7 +2121,7 @@ impl Desktop {
             SettingsPage::Appearance => {
                 fn select(
                     s: &mut Desktop,
-                    choice: Option<&'static str>,
+                    choice: Option<&str>,
                     w: &mut Window,
                     cx: &mut Context<Desktop>,
                 ) {
@@ -2572,7 +2561,7 @@ impl Render for Desktop {
                 ))
             })
             .when(can_toggle, |root| {
-                root.child(
+                root.child(self.needs_button(cx)).child(
                     meep_shell::sidebar_toggle(sidebar_visible).on_click(cx.listener(
                         |s, _, _, cx| {
                             s.sidebar_hidden = !s.sidebar_hidden;

@@ -1899,10 +1899,17 @@ pub(super) fn nav_line(id: impl Into<SharedString>, selected: bool) -> Stateful<
         .pl(px(ui::nav::PAD))
         .pr(px(ui::nav::TRAIL))
         .rounded(px(ui::nav::RADIUS))
-        .hover(|s| s.bg(ui::ink(ui::nav::HOVER & 0xff)))
+        .hover(move |s| {
+            s.bg(ui::ink(if selected {
+                SELECTED + 4
+            } else {
+                ui::nav::HOVER & 0xff
+            }))
+        })
         .active(|s| s.bg(ui::ink(ui::nav::PRESSED & 0xff)))
-        .when(selected, |el| el.bg(rgb(ui::theme::get(7))))
+        .when(selected, |el| el.bg(ui::ink(SELECTED)))
 }
+const SELECTED: u32 = 0x12;
 pub(super) fn column_name(c: Column) -> &'static str {
     match c {
         Column::Todo => "To do",

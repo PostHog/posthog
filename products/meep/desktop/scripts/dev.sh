@@ -27,6 +27,13 @@ if [ "${1:-}" = "--local" ]; then
         printf '%s\n' 'Local PostHog is not answering at http://localhost:8010.' >&2
 fi
 
+running=$(pgrep -f 'dx serve --hot-patch -p meep ' | tr '\n' ' ' || true)
+if [ -n "$running" ]; then
+    printf 'Meep already runs under dx serve (PID %s). Use that one, or stop it first: kill %s\n' \
+        "${running% }" "${running% }" >&2
+    exit 1
+fi
+
 unset RUSTC_WRAPPER
 exec dx serve --hot-patch -p meep --bin meep --platform macos \
     --features hot-reload "$@"

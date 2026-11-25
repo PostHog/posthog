@@ -7,6 +7,10 @@ impl Desktop {
     /// Open the card after a short hover; leaving the row or the card closes it after
     /// a short grace, so the pointer can cross from one to the other.
     pub(super) fn hover_topic_card(&mut self, id: TopicId, hovered: bool, cx: &mut Context<Self>) {
+        self.hover_card(Card::Topic(id), hovered, cx)
+    }
+
+    pub(super) fn hover_card(&mut self, id: Card, hovered: bool, cx: &mut Context<Self>) {
         if cx.has_active_drag() {
             self.dismiss_topic_card(cx);
             return;
@@ -57,7 +61,7 @@ impl Desktop {
     /// something to say, each opening that part.
     pub(super) fn topic_card(&self, s: &TopicState, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = s.topic.id;
-        if self.topic_card.open != Some(id) {
+        if self.topic_card.open != Some(Card::Topic(id)) {
             return None;
         }
         // The card only speaks when there is something live: work in progress, or
@@ -189,8 +193,229 @@ impl Desktop {
 /// Which topic's card is showing, and the hover that leads to it.
 #[derive(Default)]
 pub(super) struct TopicCard {
-    pub hover: Option<TopicId>,
-    pub open: Option<TopicId>,
+    pub hover: Option<Card>,
+    pub open: Option<Card>,
     pub inside: bool,
     pub epoch: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Card {
+    Topic(TopicId),
+    Needs,
+}
+
+impl Desktop {
+    pub(super) fn needs_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        use meep_shell::titlebar;
+        let n = self.needs_count();
+        let here = self.page == Page::Needs && self.sheet != Some(Sheet::New);
+        let label = match n {
+            0 => "Needs you".to_owned(),
+            n => format!("Needs you, {n} waiting"),
+        };
+        div()
+            .id("needs-you-slot")
+            .absolute()
+            .top(px(meep_shell::TRAFFIC_LIGHT_CENTER - titlebar::BUTTON / 2.))
+            .left(px(titlebar::TOGGLE_LEFT + titlebar::BUTTON + 4.))
+            .cursor_pointer()
+            .on_hover(cx.listener(move |s, hovered: &bool, _, cx| {
+                s.hover_card(Card::Needs, *hovered && n > 0, cx)
+            }))
+            .on_click(cx.listener(|s, _, w, cx| {
+                s.dismiss_topic_card(cx);
+                s.go(Page::Needs, w, cx)
+            }))
+            .child(
+                titlebar::button("needs-you", Glyph::Inbox, label)
+                    .when(here, |b| b.bg(ui::ink(0x10)))
+                    .when(n == 0, |b| b.tooltip("Needs you")),
+            )
+            .when(n > 0, |slot| {
+                slot.child(
+                    div()
+                        .absolute()
+                        .top(px(-3.))
+                        .left(px(titlebar::BUTTON - 11.))
+                        .h(px(15.))
+                        .min_w(px(15.))
+                        .px(px(4.))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(rgb(ui::theme::get(10)))
+                        .text_color(rgb(ui::theme::get(13)))
+                        .text_size(px(10.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(if n > 99 {
+                            "99+".to_owned()
+                        } else {
+                            n.to_string()
+                        }),
+                )
+            })
+            .children(self.needs_card(cx))
+    }
+
+    fn needs_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.topic_card.open != Some(Card::Needs) {
+            return None;
+        }
+        const SHOWN: usize = 8;
+        let mut card = ui::floating_surface()
+            .flex()
+            .flex_col()
+            .id("needs-hover-card")
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .w(px(340.))
+            .p(px(6.))
+            .gap(px(2.))
+            .rounded(px(10.))
+            .on_hover(cx.listener(|s, hovered: &bool, _, cx| {
+                s.topic_card.inside = *hovered;
+                s.hover_card(Card::Needs, *hovered, cx)
+            }));
+        let label = |icon: Option<&TopicIcon>, text: String| {
+            ui::row()
+                .gap(px(6.))
+                .px(px(10.))
+                .pt(px(8.))
+                .pb(px(4.))
+                .text_size(px(11.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                .children(icon.map(|i| super::topic_icon::small_sidebar_tile(i, 14.)))
+                .child(div().min_w_0().truncate().child(text))
+        };
+        let row = |key: String,
+                   glyph: Glyph,
+                   tone: u32,
+                   title: String,
+                   kind: &'static str,
+                   page: Page| {
+            ui::row()
+                .id(SharedString::from(key))
+                .h(px(30.))
+                .gap(px(8.))
+                .px(px(10.))
+                .rounded(px(6.))
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .hover(|s| s.bg(ui::ink(0x0a)))
+                .child(
+                    meep_ui::gpui_kit::component::Icon::new(glyph)
+                        .size(px(13.))
+                        .text_color(rgb(tone)),
+                )
+                .child(div().flex_1().min_w_0().truncate().child(title))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.5))
+                        .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                        .child(kind),
+                )
+                .on_click(cx.listener(move |s, _, w, cx| {
+                    cx.stop_propagation();
+                    s.dismiss_topic_card(cx);
+                    s.go(page.clone(), w, cx)
+                }))
+        };
+        let mut shown = 0;
+        let mut total = 0;
+        let problems: Vec<&String> = self
+            .needs
+            .iter()
+            .filter_map(|n| match n {
+                NeedsYouItem::Problem { title, .. } => Some(title),
+                _ => None,
+            })
+            .collect();
+        if !problems.is_empty() {
+            card = card.child(label(None, "Connections".into()));
+            let (glyph, tone, kind) = pages::attention_glyph("Problem");
+            for (i, title) in problems.into_iter().enumerate() {
+                total += 1;
+                if shown < SHOWN {
+                    shown += 1;
+                    card = card.child(row(
+                        format!("needs-card-problem-{i}"),
+                        glyph,
+                        tone,
+                        title.clone(),
+                        kind,
+                        Page::Needs,
+                    ));
+                }
+            }
+        }
+        let rest: Vec<NeedsYouItem> = self
+            .needs
+            .iter()
+            .filter(|n| !matches!(n, NeedsYouItem::Problem { .. }))
+            .cloned()
+            .collect();
+        for state in &self.states {
+            let groups = pages::attention_groups(&rest, state);
+            if groups.is_empty() {
+                continue;
+            }
+            total += groups.len();
+            if shown >= SHOWN {
+                continue;
+            }
+            let icon = state.topic.display_icon();
+            card = card.child(label(Some(&icon), state.topic.name.clone()));
+            for (i, g) in groups.into_iter().enumerate() {
+                if shown >= SHOWN {
+                    break;
+                }
+                shown += 1;
+                let a = g.latest;
+                let (glyph, tone, kind) = pages::attention_glyph(a.kind);
+                card = card.child(row(
+                    format!("needs-card-{}-{i}", state.topic.id),
+                    glyph,
+                    tone,
+                    a.title,
+                    kind,
+                    a.page,
+                ));
+            }
+        }
+        if total > shown {
+            card = card.child(
+                ui::row()
+                    .id("needs-card-more")
+                    .h(px(30.))
+                    .px(px(10.))
+                    .pl(px(31.))
+                    .rounded(px(6.))
+                    .text_size(px(12.5))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(ui::ink(0x0a)))
+                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                    .child(format!("{} more", total - shown))
+                    .on_click(cx.listener(|s, _, w, cx| {
+                        cx.stop_propagation();
+                        s.dismiss_topic_card(cx);
+                        s.go(Page::Needs, w, cx)
+                    })),
+            );
+        }
+        Some(
+            deferred(
+                div()
+                    .absolute()
+                    .top(relative(1.))
+                    .left_0()
+                    .pt(px(6.))
+                    .child(anchored().snap_to_window().child(card)),
+            )
+            .into_any_element(),
+        )
+    }
 }
