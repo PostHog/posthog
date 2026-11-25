@@ -88,10 +88,10 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def _preview(self, expression: str) -> dict:
+    def _preview(self, expression: str, **extra_body: object) -> dict:
         response = self.client.post(
             f"/api/projects/{self.team.id}/signals/source_configs/filter_preview/",
-            {"source_product": "linear", "source_type": "issue", "expression": expression},
+            {"source_product": "linear", "source_type": "issue", "expression": expression, **extra_body},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -178,6 +178,27 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         }
         assert kept_by_hogql == kept_by_emitter
 
+    @parameterized.expand(
+        [
+            ("absent_uses_saved_allowlist", {}, {"in-allowed-team"}),
+            ("null_uses_saved_allowlist", {"scope_ids": None}, {"in-allowed-team"}),
+            ("empty_reads_every_team", {"scope_ids": []}, {"in-allowed-team", "in-other-team"}),
+            ("list_replaces_saved_allowlist", {"scope_ids": [" linear-team-b "]}, {"in-other-team"}),
+        ]
+    )
+    def test_preview_reads_the_requested_team_allowlist(
+        self, _name: str, extra_body: dict[str, object], expected_ids: set[str]
+    ) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="linear", source_type="issue", config={"linear_team_ids": [_ALLOWED_TEAM]}
+        )
+        self._linear_issues([_issue("in-allowed-team"), _issue("in-other-team", linear_team="linear-team-b")])
+
+        preview = self._preview("", **extra_body)
+
+        assert preview["status"] == "ok", preview
+        assert {record["id"] for record in preview["passing"]} == expected_ids
+
     def test_preview_runs_with_the_requesters_warehouse_access(self) -> None:
         self._linear_issues([_issue("passes")])
         self.organization.available_product_features = [
@@ -247,15 +268,26 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert preview["total_count"] == 0
         assert (preview["error_code"], preview["error_start"], preview["error_end"]) == expected_error
 
-    def test_preview_is_refused_where_the_filter_cannot_be_saved(self) -> None:
-        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=False):
+    @parameterized.expand(
+        [
+            ("filter_cannot_be_saved", False, {}, "source_type"),
+            ("blank_scope_id", True, {"scope_ids": [_ALLOWED_TEAM, " "]}, "scope_ids"),
+            ("too_many_scope_ids", True, {"scope_ids": [f"team-{i}" for i in range(101)]}, "scope_ids"),
+            ("scope_id_too_long", True, {"scope_ids": ["t" * 256]}, "scope_ids__0"),
+        ]
+    )
+    def test_preview_is_refused(
+        self, _name: str, filter_writable: bool, extra_body: dict[str, object], expected_attr: str
+    ) -> None:
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=filter_writable):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/signals/source_configs/filter_preview/",
-                {"source_product": "linear", "source_type": "issue", "expression": ""},
+                {"source_product": "linear", "source_type": "issue", "expression": "", **extra_body},
                 format="json",
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_attr
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("products.signals.backend.throttles.SourceFilterPreviewBurstThrottle.rate", new="1/minute")
