@@ -72,6 +72,14 @@ import { withActionStepAt, withoutActionStep } from '../utils/actionStepEdits'
 
 const RESOURCE_TYPE = 'action'
 
+// Keep the sentence on one line: wrapped JSX splits the space before <b> into its own text node,
+// which shifts the bold phrase by a subpixel and changes the LemonUI page's snapshots.
+const MATCH_GROUPS_DESCRIPTION = (
+    <>
+        Your action will be triggered whenever <b>any of your match groups</b> are received.
+    </>
+)
+
 export interface ActionEditProps extends ActionEditLogicProps {
     actionLoading?: boolean
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
@@ -350,8 +358,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                             <div className="py-1">
                                                 <div className="font-semibold">Match groups</div>
                                                 <div className="text-secondary text-sm font-normal">
-                                                    Your action will be triggered whenever{' '}
-                                                    <b>any of your match groups</b> are received.
+                                                    {MATCH_GROUPS_DESCRIPTION}
                                                 </div>
                                             </div>
                                         ),
