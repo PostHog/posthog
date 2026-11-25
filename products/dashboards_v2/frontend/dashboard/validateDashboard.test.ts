@@ -110,6 +110,26 @@ describe('validateDashboard', () => {
             expected: [{ path: 'tabs[0].tiles[0].widget.config.query', message: expect.any(String) }],
         },
         {
+            name: 'two chart targets with the same refId',
+            document: withTiles([
+                {
+                    id: 'a',
+                    place: { x: 0, y: 0, w: 12, h: 8 },
+                    widget: {
+                        type: 'chart',
+                        config: {
+                            targets: [
+                                { refId: 'A', query: { language: 'hogql', query: 'select 1' } },
+                                { refId: 'A', query: { language: 'promql', query: 'up' } },
+                            ],
+                            viz: { type: 'line' },
+                        },
+                    },
+                },
+            ]),
+            expected: [{ path: 'tabs[0].tiles[0].widget.config.targets', message: expect.any(String) }],
+        },
+        {
             name: 'a chart type the host does not offer',
             document: withTiles([
                 {
