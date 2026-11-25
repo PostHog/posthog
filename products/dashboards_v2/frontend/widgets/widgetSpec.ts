@@ -5,7 +5,6 @@ import type { ContentWidget, SizeOf, WidgetSize } from '../dashboard/dashboardTy
 /** One entry in the add menu. A widget type can offer several, such as a chart type offering each kind of chart. */
 export interface AddMenuItem<Config = unknown> {
     label: string
-    /** Builds the new widget the add menu inserts. */
     create: () => ContentWidget<Config>
 }
 

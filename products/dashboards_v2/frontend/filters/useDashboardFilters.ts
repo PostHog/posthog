@@ -18,7 +18,6 @@ export function useDashboardFilters({ types, Bar, time }: DashboardFiltersOption
     filters?: FiltersController
     timeRange?: TimeRangeController
 } {
-    // Both hooks always run, as hooks must; an option left out only drops its part from the result.
     const filters = useFiltersController(types ?? [], Bar)
     const timeRange = useTimeRangeController(time?.ranges, time?.timezone)
     return { filters: types ? filters : undefined, timeRange: time ? timeRange : undefined }

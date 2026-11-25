@@ -4,7 +4,6 @@ import type { DashboardFilter } from '../dashboard/dashboardTypes'
 
 export interface AddFilterMenuItem<Config = unknown> {
     label: string
-    /** Builds the filter the menu adds. The dashboard gives it an id. */
     create: () => Omit<DashboardFilter<Config>, 'id'>
 }
 

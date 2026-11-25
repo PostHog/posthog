@@ -148,7 +148,6 @@ export function TileGrid({
         })
     }, [])
 
-    // A tile carried in from another grid. Only the grid under the pointer gets a value.
     const incoming: DropTarget | null = dropTarget?.grid === gridId ? dropTarget : null
     const shownTiles = useMemo(() => {
         const carried = incoming && findCarried(incoming.tileId)

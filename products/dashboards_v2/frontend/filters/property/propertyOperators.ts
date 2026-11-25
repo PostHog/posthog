@@ -52,7 +52,7 @@ const DATE = [option(PropertyOperator.IsDateAfter, 'after'), option(PropertyOper
 
 const BOOLEAN = [option(PropertyOperator.Exact, 'is'), ...SET]
 
-/** The operators that fit a property's type. An unknown type is treated as text. */
+/** An unknown type is treated as text. */
 export function operatorsFor(type: PropertyType | null | undefined): OperatorOption[] {
     switch (type) {
         case PropertyType.Numeric:

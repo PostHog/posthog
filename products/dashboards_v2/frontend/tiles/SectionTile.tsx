@@ -210,7 +210,6 @@ export function SectionCount({ count }: { count: number }): JSX.Element {
     return <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
 }
 
-/** Pushed to the end of the header, and shown only while the header is hovered or focused. */
 export function SectionActions({ children }: { children: ReactNode }): JSX.Element {
     return <CardAction className="TileHoverReveal flex items-center gap-1">{children}</CardAction>
 }

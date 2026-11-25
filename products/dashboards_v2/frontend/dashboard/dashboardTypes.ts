@@ -65,7 +65,6 @@ export interface WidgetSize {
     stackedRows?: { min: number; max: number }
 }
 
-/** A tile's content. `Config` is the widget type's own config, which its spec declares. */
 export type ContentWidget<Config = unknown> = Omit<z.infer<typeof contentWidgetSchema>, 'config'> & { config: Config }
 
 export type SectionWidget = z.infer<typeof sectionWidgetSchema>
@@ -98,7 +97,7 @@ export function isGridTab(tab: DashboardTab): tab is GridTab {
     return 'tiles' in tab
 }
 
-/** The tabs that hold tiles. A valid dashboard has at least one. */
+/** A valid dashboard has at least one. */
 export function gridTabs(dashboard: Dashboard): GridTab[] {
     return dashboard.tabs.filter(isGridTab)
 }

@@ -47,7 +47,6 @@ function isUsable(action: MenuAction): boolean {
     return action.submenu ? action.submenu.some(isUsable) : true
 }
 
-/** Whether `TileContextMenu` opens a menu for these actions. */
 export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }

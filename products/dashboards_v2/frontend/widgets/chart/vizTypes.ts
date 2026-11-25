@@ -44,7 +44,6 @@ export type RunQuery = (request: QueryRequest) => Promise<QueryResult>
 export interface VizSpec<Options = unknown> {
     /** Matches `config.viz.type` on the charts it draws. */
     type: string
-    /** The name the add menu shows. */
     label: string
     size: WidgetSize
     /** The shape of `config.viz.options`. Missing options are `{}`. */

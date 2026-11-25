@@ -72,7 +72,6 @@ export function WidgetCard({
     widgets: WidgetDefinition[]
     /** What a person can do to the tile, shown on right-click. Left out, the card has no menu. */
     actions?: MenuAction[]
-    /** Marks where the card is dragged by. */
     editable?: boolean
     /** Lets a widget that edits in place, such as text, save its config. Left out, the widget is read-only. */
     setConfig?: (config: unknown) => void

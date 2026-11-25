@@ -53,11 +53,6 @@ export const widgetQuerySchema = z.union([
     z.strictObject({ language: z.literal('logql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
-/**
- * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
- * relative ends relative, because the backend then caches the result under the same key on every reload.
- */
-/** `now-` and an amount of seconds (`s`), minutes (`m`), hours (`h`), days (`d`), weeks (`w`), months (`M`) or years (`y`). */
 export const RELATIVE_TIME = /^now-(\d+)([smhdwMy])$/
 
 const timePointSchema = z
@@ -68,6 +63,10 @@ const timePointSchema = z
         'Use now, now-<amount><s|m|h|d|w|M|y>, or an ISO 8601 time'
     )
 
+/**
+ * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
+ * relative ends relative, because the backend then caches the result under the same key on every reload.
+ */
 export const timeRangeSchema = z.strictObject({ from: timePointSchema, to: timePointSchema })
 
 export const tilePlaceSchema = z.strictObject({
@@ -100,7 +99,6 @@ export const contentWidgetSchema = z.strictObject({
     type: z.string().refine((type) => type !== 'section', 'A section needs a title and tiles'),
     title: z.string().optional(),
     description: z.string().optional(),
-    /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
     parts: contentWidgetPartsSchema.optional(),
     appearance: tileAppearanceSchema.optional(),
@@ -143,7 +141,6 @@ export const tileSchema = z.strictObject({
     },
 })
 
-/** A tab that holds a grid of tiles. */
 export const gridTabSchema = z.strictObject({
     id: z.string().min(1),
     title: z.string(),

@@ -16,7 +16,6 @@ const meta: Meta<typeof DashboardV2Unavailable> = {
 }
 export default meta
 
-/** The default view for each problem. */
 export const Defaults: StoryObj<typeof DashboardV2Unavailable> = {
     render: () => (
         <div className="grid grid-cols-2 gap-4">

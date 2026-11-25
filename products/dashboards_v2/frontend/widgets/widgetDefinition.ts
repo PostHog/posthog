@@ -32,7 +32,6 @@ export interface WidgetMenuContext<Config = unknown> {
     widget: ContentWidget<Config>
     /** Saves a new config for this widget, as one undo step. */
     setConfig: (config: Config) => void
-    /** Why the person cannot change this widget's config, or null when they can. */
     disabledReason: string | null
 }
 

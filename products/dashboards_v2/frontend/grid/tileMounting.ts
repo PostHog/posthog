@@ -88,7 +88,6 @@ export function createTileMountScheduler(): TileMountScheduler {
     const onScroll = (): void => {
         if (!scrolling) {
             scrolling = true
-            // Swap a pending idle callback for a frame callback.
             idle?.cancel()
             idle = null
             schedule()
@@ -156,7 +155,6 @@ export const TileMountContext = createContext<TileMountScheduler | null>(null)
 /** The tile being captured as an image. It and everything inside it mount, whatever the scheduler says. */
 export const CapturingTileContext = createContext<string | null>(null)
 
-/** Whether the tile around `ref` should mount its content now. */
 export function useTileMounted(ref: RefObject<Element>): boolean {
     const scheduler = useContext(TileMountContext)
     const [mounted, setMounted] = useState(scheduler === null)

@@ -1,6 +1,5 @@
 import { type Dashboard, type Tile, isGridTab, isSection } from './dashboardTypes'
 
-/** The tiles in a grid and in every section inside it. */
 export function everyTile(tiles: Tile[]): Tile[] {
     return tiles.flatMap((tile) => (isSection(tile) ? [tile, ...everyTile(tile.widget.tiles)] : [tile]))
 }

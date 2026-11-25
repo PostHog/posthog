@@ -33,7 +33,6 @@ export interface DashboardV2Controller {
      * returns the list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
      */
     tileActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
-    /** Like `tileActions`, for the dashboard menu. */
     dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /**
      * Left out, the dashboard shows no refresh button. Each refresh, from the button or the interval picked there, runs

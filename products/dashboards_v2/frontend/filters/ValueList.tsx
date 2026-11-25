@@ -12,7 +12,7 @@ export interface ValueOption {
 }
 
 export interface ValueListProps {
-    /** Returns the values that match the typed text. Left out, the person types each value. */
+    /** Left out, the person types each value. */
     load?: OptionsLoader<ValueOption>
     selected: string[]
     onChange: (selected: string[]) => void

@@ -25,7 +25,6 @@ export function ConditionEditor({
         if (!next) {
             return
         }
-        // A value carries over only to an operator that takes the same kind of value.
         const keep = next.input === option.input && next.input !== 'none'
         onChange({ id: draft.id, operator: next.operator, value: keep ? draft.value : undefined })
     }

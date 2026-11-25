@@ -62,7 +62,6 @@ function renderSectionGrid(props: SectionGridProps): JSX.Element {
     return <DashboardTileGrid {...props} />
 }
 
-/** A grid of the dashboard's tiles, wired to the dashboard it sits in. */
 export function DashboardTileGrid({
     gridId,
     tiles,
