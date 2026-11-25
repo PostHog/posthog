@@ -636,6 +636,8 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         ("", "has no `metadata.audience`"),
         ("metadata:\n  audience: staff\n", "not a known audience"),
         ("metadata:\n  audience: internal\n  feature_flag: some-flag\n", "does not serve an `internal` skill"),
+        ("metadata:\n  audience: customer\n  consumers: slack, posthog_ai\n", None),
+        ("metadata:\n  audience: customer\n  consumers: slak\n", "names `slak`, which the MCP server does not know"),
     ],
     ids=[
         "customer",
@@ -645,6 +647,8 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         "no-metadata",
         "unknown-audience",
         "internal-with-flag",
+        "known-consumers",
+        "misspelled-consumer",
     ],
 )
 def test_lint_all_requires_a_known_audience_on_every_product_skill(

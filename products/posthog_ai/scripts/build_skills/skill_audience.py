@@ -15,6 +15,9 @@ SCOUT_AUDIENCE = "scout"
 INTERNAL_AUDIENCE = "internal"
 SERVED_AUDIENCES = (CUSTOMER_AUDIENCE, SCOUT_AUDIENCE)
 AUDIENCES = (*SERVED_AUDIENCES, INTERNAL_AUDIENCE)
+# The PostHog-run agents that read skills through `learn`. The MCP server knows the same names in
+# `services/mcp/src/skills/served-skills.ts`, and it refuses the whole served list if one entry names another.
+KNOWN_CONSUMERS = ("slack", "posthog_ai")
 FIX_COMMAND = "hogli lint:skills -- --fix"
 
 
@@ -84,6 +87,12 @@ def _check_skill_audience(repo_root: Path, skills: list[skill_manifest.Discovere
             errors.append(
                 f"{label}: `feature_flag` and `consumers` limit who the MCP `learn` command serves a skill to, "
                 f"and it does not serve an `{INTERNAL_AUDIENCE}` skill. Remove them or change the audience."
+            )
+        unknown_consumers = [consumer for consumer in _consumers(metadata) if consumer not in KNOWN_CONSUMERS]
+        if unknown_consumers:
+            errors.append(
+                f"{label}: `consumers` names {', '.join(f'`{consumer}`' for consumer in unknown_consumers)}, "
+                f"which the MCP server does not know. Use: {', '.join(KNOWN_CONSUMERS)}."
             )
 
     served_file = repo_root / SERVED_SKILLS_FILE
