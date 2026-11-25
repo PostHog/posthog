@@ -149,10 +149,23 @@
     }
   ],
   "lists": [
-    {"id": "11111111-0000-4000-8000-000000000001", "name": "Newsletter", "contact_count": 1200, "_metadata": {"self": "https://api.sendgrid.com/v3/marketing/lists/11111111-0000-4000-8000-000000000001"}},
-    {"id": "11111111-0000-4000-8000-000000000002", "name": "Bêta testeurs", "contact_count": 34, "_metadata": {"self": "https://api.sendgrid.com/v3/marketing/lists/11111111-0000-4000-8000-000000000002"}}
+    {"id": "11111111-0000-4000-8000-000000000001", "name": "Newsletter", "contact_count": 6, "_metadata": {"self": "https://api.sendgrid.com/v3/marketing/lists/11111111-0000-4000-8000-000000000001"}},
+    {"id": "11111111-0000-4000-8000-000000000002", "name": "Bêta testeurs", "contact_count": 2, "_metadata": {"self": "https://api.sendgrid.com/v3/marketing/lists/11111111-0000-4000-8000-000000000002"}},
+    {"id": "11111111-0000-4000-8000-000000000003", "name": "Empty list", "contact_count": 0, "_metadata": {"self": "https://api.sendgrid.com/v3/marketing/lists/11111111-0000-4000-8000-000000000003"}}
   ],
-  "contact_count": {"contact_count": 1234, "billable_count": 1234},
+  "contact_count": {"contact_count": 7, "billable_count": 7},
+  "segments": [
+    {"id": "22222222-0000-4000-8000-000000000001", "name": "Pro plan 🦔", "contacts_count": 0, "query_version": "2", "parent_list_ids": null, "created_at": "2026-01-01T00:00:00Z"}
+  ],
+  "contacts": [
+    {"id": "c1", "email": "ada@example.com", "first_name": "Ada", "last_name": "Byron", "city": "Springfield", "segment_ids": ["22222222-0000-4000-8000-000000000001"], "list_ids": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"], "custom_fields": {"Plan": "pro", "distinct_id": "not-a-person", "$initial_os": "nope"}},
+    {"id": "c2", "email": "zoe@example.com", "first_name": "Zoë 🦔", "last_name": "O'Neil, \"Zo\"\nJr", "list_ids": ["11111111-0000-4000-8000-000000000001"], "custom_fields": {"Plan": "free"}},
+    {"id": "c3", "email": "unsubscribed@example.com", "first_name": "Una", "last_name": "", "segment_ids": ["22222222-0000-4000-8000-000000000001"], "list_ids": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"]},
+    {"id": "c4", "email": "left-updates@example.com", "first_name": "Lee", "last_name": "", "list_ids": ["11111111-0000-4000-8000-000000000001"]},
+    {"id": "c5", "email": "gone@example.com", "first_name": "Gil", "last_name": "", "list_ids": ["11111111-0000-4000-8000-000000000001"]},
+    {"id": "c6", "email": "nolist@example.com", "first_name": "Nia", "last_name": "", "list_ids": []},
+    {"id": "c7", "email": "", "first_name": "Phone only", "last_name": "", "list_ids": ["11111111-0000-4000-8000-000000000001"]}
+  ],
   "verified_senders": [
     {"id": 7, "nickname": "Hello", "from_email": "hello@example.com", "from_name": "Acme", "reply_to": "support@example.com", "reply_to_name": "Support", "address": "1 Main St", "city": "Springfield", "country": "US", "verified": true, "locked": false},
     {"id": 8, "nickname": "Unverified", "from_email": "new@example.org", "from_name": "", "reply_to": "new@example.org", "address": "1 Main St", "city": "Springfield", "country": "US", "verified": false, "locked": false}

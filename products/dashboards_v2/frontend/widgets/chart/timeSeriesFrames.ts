@@ -6,13 +6,24 @@ function fieldValues(frame: DataFrame, type: DataFrame['fields'][number]['type']
     return frame.fields.find((field) => field.type === type)?.values ?? []
 }
 
+function timeOf(label: string): number {
+    return label.trim() !== '' && Number.isFinite(Number(label)) ? Number(label) : Date.parse(label)
+}
+
+// Frames can hold different timestamps, so the merged labels are put back in time order. A label that is not a time
+// keeps its place.
+function inTimeOrder(a: string, b: string): number {
+    const difference = timeOf(a) - timeOf(b)
+    return Number.isNaN(difference) ? 0 : difference
+}
+
 /**
  * Turns frames that each hold a `time` field and a number field into one set of x-axis labels and one series per
  * frame, the shape the time-series charts take. Frames are joined on their timestamps, so a frame with no value at a
  * timestamp gets a gap there.
  */
 export function timeSeriesFromFrames(frames: DataFrame[]): { labels: string[]; series: Series[] } {
-    const labels = [...new Set(frames.flatMap((frame) => fieldValues(frame, 'time').map(String)))]
+    const labels = [...new Set(frames.flatMap((frame) => fieldValues(frame, 'time').map(String)))].sort(inTimeOrder)
     const series = frames.map((frame, index) => {
         const values = fieldValues(frame, 'number')
         const byTime = new Map(fieldValues(frame, 'time').map((time, position) => [String(time), values[position]]))

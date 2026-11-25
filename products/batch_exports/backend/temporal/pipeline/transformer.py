@@ -744,6 +744,7 @@ class CSVStreamTransformer:
         escape_char: str | None = "\\",
         line_terminator: str = "\n",
         quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
+        single_null_as_blank_line: bool = False,
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
     ):
@@ -753,6 +754,7 @@ class CSVStreamTransformer:
         self.escape_char = escape_char
         self.line_terminator = line_terminator
         self.quoting = quoting
+        self.single_null_as_blank_line = single_null_as_blank_line
         self.include_inserted_at = include_inserted_at
         self.max_file_size_bytes = max_file_size_bytes
 
@@ -798,11 +800,15 @@ class CSVStreamTransformer:
             lineterminator=self.line_terminator,
         )
 
-        rows = []
+        is_single_column = len(column_names) == 1
         for record in record_batch.select(column_names).to_pylist():
-            rows.append({k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+            if is_single_column and self.single_null_as_blank_line and record[column_names[0]] is None:
+                text_wrapper.write(self.line_terminator)
+            else:
+                writer.writerow(
+                    {k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()}
+                )
 
-        writer.writerows(rows)
         text_wrapper.flush()
 
         return buffer.getvalue()

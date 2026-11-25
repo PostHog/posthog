@@ -106,11 +106,43 @@ describe('healthCheckValues', () => {
             expected: [{ label: 'Require completed conversion or retention window', text: 'Off' }],
         },
         {
+            name: 'the primary metric count shows on its own line without the metrics that wait',
+            values: { primary_metric_count: 1, secondary_metric_count: 0 },
+            expected: [
+                { label: 'Primary metrics', text: '1' },
+                { label: 'Secondary metrics', text: '0' },
+            ],
+        },
+        {
+            name: 'the primary metric count goes with the metrics that wait',
+            values: { only_count_matured_users: true, primary_metric_count: 2, waiting_metric_count: 1 },
+            expected: [
+                { label: 'Require completed conversion or retention window', text: 'On' },
+                { label: "Primary metrics that can't count users yet", text: '1 of 2' },
+            ],
+        },
+        {
             name: 'the sample so far reads against the planned sample',
             values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
             expected: [
                 { label: 'Metric', text: 'Checkout completed' },
                 { label: 'Users so far', text: '9,602 of 14,800 planned' },
+            ],
+        },
+        {
+            name: 'a billing limit that is not reached still shows',
+            values: { events_billing_limit_reached: false },
+            expected: [{ label: 'Product analytics billing limit', text: 'Not reached' }],
+        },
+        {
+            name: 'a reached billing limit shows when it lifts as a date',
+            values: {
+                feature_flags_billing_limit_reached: true,
+                feature_flags_billing_limit_ends_at: '2026-12-01T00:00:00+00:00',
+            },
+            expected: [
+                { label: 'Feature flags billing limit', text: 'Reached' },
+                { label: 'Limited until', time: '2026-12-01T00:00:00+00:00', asDate: true },
             ],
         },
     ])('healthCheckReadings: $name', ({ values, expected }) => {

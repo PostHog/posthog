@@ -78,7 +78,7 @@ class TestMembrainPaginator:
 
 
 class TestPagination:
-    @parameterized.expand([("companies",), ("orders",)])
+    @parameterized.expand([("companies",), ("orders",), ("quotes",)])
     def test_follows_from_offsets_until_count_reached(self, endpoint: str) -> None:
         result = _driver().run(
             endpoint,
@@ -124,6 +124,7 @@ class TestPagination:
             ),
             ("activities", "/activities/", {"SortBy": "CreatedDate ASC"}),
             ("orders", "/orders/", {"SortBy": "CreatedDate ASC"}),
+            ("quotes", "/quotes/", {"SortBy": "CreatedDate ASC"}),
             # These endpoints document neither SortBy nor Include* params, so none are sent.
             ("prospects", "/prospects/", {}),
             ("opportunities", "/opportunities/", {}),
@@ -132,6 +133,8 @@ class TestPagination:
             ("tickets", "/tickets/", {}),
             ("process_container_contacts", "/processContainerContacts/", {}),
             ("order_rows", "/orderRows/", {}),
+            ("quote_rows", "/quoteRows/", {}),
+            ("flows", "/flows/", {}),
         ]
     )
     def test_documented_params_sent_per_endpoint(self, endpoint: str, path: str, expected: dict[str, str]) -> None:
@@ -150,6 +153,8 @@ class TestPagination:
             ("tickets",),
             ("process_container_contacts",),
             ("order_rows",),
+            ("quote_rows",),
+            ("flows",),
         ]
     )
     def test_unsorted_endpoints_never_save_or_load_resume_state(self, endpoint: str) -> None:
@@ -182,6 +187,8 @@ class TestBareArrayEndpoints:
             ("prospecting_processes", "/prospectingProcesses/"),
             ("ticket_processes", "/ticketProcesses/"),
             ("account_growth_processes", "/accountGrowthProcesses/"),
+            ("sales_teams", "/salesTeams/"),
+            ("flow_processes", "/flowProcesses/"),
         ]
     )
     def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str, path: str) -> None:

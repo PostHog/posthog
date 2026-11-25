@@ -43,14 +43,13 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
-    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.facade.contracts import ExperimentVersionConflict
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -71,7 +70,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
+from products.experiments.backend.test.utils import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    override_exposure_event_cutoff,
+    patch_calculation_key_version,
+)
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1922,7 +1925,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2793,7 +2796,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
@@ -5521,10 +5524,10 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            # (name, cutoff set, start_date offset from cutoff in days, custom exposure event, expected events)
             ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
             ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
-            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff_without_cutoff_set", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
             (
                 "custom_flag_called_after_cutoff",
                 True,
@@ -5537,7 +5540,7 @@ class TestExperimentService(APIBaseTest):
     def test_create_exposure_cohort_uses_resolved_exposure_event(
         self,
         name: str,
-        flag_enabled: bool,
+        cutoff_set: bool,
         start_offset_days: int,
         custom_exposure_event: str | None,
         expected_events: list[str],
@@ -5561,7 +5564,7 @@ class TestExperimentService(APIBaseTest):
             ),
         )
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             cohort = service.create_exposure_cohort(experiment)
 
         assert cohort.filters is not None

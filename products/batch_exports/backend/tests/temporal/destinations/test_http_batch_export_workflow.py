@@ -249,13 +249,15 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.parametrize("has_mutations", [True, False])
+@pytest.mark.parametrize("days_ago", [10, 0], ids=["events-json", "events-json-recent"])
 async def test_insert_into_http_activity_exports_person_properties_as_set_when_using_native_events(
-    clickhouse_client, activity_environment, http_config, has_mutations
+    clickhouse_client, activity_environment, http_config, has_mutations, days_ago
 ):
-    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=10)
+    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=days_ago, hours=1)
     interval_start = interval_end - dt.timedelta(hours=1)
+    reads_recent_table = days_ago == 0
     team_id = randint(1, 1000000)
     properties = {
         "$set": {"email": "person@example.com", "phone": None},
@@ -283,11 +285,11 @@ async def test_insert_into_http_activity_exports_person_properties_as_set_when_u
     )
     insert_inputs = HttpInsertInputs(
         team_id=team_id,
-        data_interval_start=None,
+        data_interval_start=interval_start.isoformat() if reads_recent_table else None,
         data_interval_end=interval_end.isoformat(),
         backfill_details=BackfillDetails(
             backfill_id=None,
-            start_at=None,
+            start_at=interval_start.isoformat() if reads_recent_table else None,
             end_at=interval_end.isoformat(),
         ),
         **http_config,
@@ -339,9 +341,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
     person_properties,
     expected_mutations,
 ):
-    """A recent interval reads a legacy table even on the native schema, and those tables project no
-    mutation columns. The keys come from `properties`, which a legacy table still carries.
-    """
+    """The legacy tables project no mutation columns, so the keys come from `properties`, which they still carry."""
     team_id = randint(1, 1000000)
     interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(hours=1)
     interval_start = interval_end - dt.timedelta(hours=1)
@@ -374,7 +374,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
     with (
         unittest.mock.patch(
             "products.batch_exports.backend.temporal.destinations.http_batch_export.batch_exports_read_new_events_table",
-            return_value=True,
+            return_value=False,
         ),
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
     ):

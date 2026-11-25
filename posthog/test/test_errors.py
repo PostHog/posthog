@@ -14,6 +14,7 @@ from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
     CH_TRANSIENT_ERRORS,
     CLICKHOUSE_ERROR_CODE_LOOKUP,
+    S3_ACCESS_DENIED_MESSAGE,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
@@ -92,6 +93,45 @@ class TestWrapClickhouseQueryError:
         assert clickhouse_error_message(error) == (
             "ClickHouse couldn't complete this query. Contact support and include the error code 999999."
         )
+
+    @parameterized.expand(
+        [
+            (
+                "head_request_403",
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 403: "
+                "while reading exports/part-0.parquet: The table structure cannot be extracted from a Parquet format "
+                "file. (S3_ERROR)",
+            ),
+            (
+                "get_request_access_denied",
+                "Code: 499. DB::Exception: Access Denied: while reading key: exports/part-0.parquet, "
+                "from bucket: example-bucket. (S3_ERROR)",
+            ),
+        ]
+    )
+    def test_s3_access_denied_is_exposed_and_not_retried(self, _name: str, raw_message: str) -> None:
+        raw = ServerException(raw_message, code=499)
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert str(wrapped) == S3_ACCESS_DENIED_MESSAGE
+        # PostHog's own bucket can deny too, so the denial still counts against the query SLO.
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
+        assert internal_ch_error_user_message(error_code_from_type(wrapped)) == S3_ACCESS_DENIED_MESSAGE
+
+    def test_s3_list_denial_keeps_the_generic_s3_error(self) -> None:
+        raw = ServerException(
+            "Code: 499. DB::Exception: Could not list objects in bucket 'example-bucket' with prefix 'exports/', "
+            "S3 exception: `AccessDenied`, message: 'Access Denied'. (S3_ERROR)",
+            code=499,
+        )
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
         assert internal_ch_error_user_message("other_database_error") is None

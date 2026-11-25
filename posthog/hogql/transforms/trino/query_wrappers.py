@@ -2,7 +2,8 @@ from posthog.hogql import ast
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key, positional_index
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 
 class _WindowFunctionFinder(TraversingVisitor):
@@ -27,9 +28,10 @@ class _AggregateFunctionFinder(TraversingVisitor):
 
 
 class TrinoQueryWrapperLowerer(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
         self.wrapper_index = 0
+        self.expansion_budget = budget
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
@@ -225,10 +227,10 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
             name="row_number",
             exprs=[],
             over_expr=ast.WindowExpr(
-                partition_by=[self._input_expression(expr, node.select) for expr in limit_by.exprs],
+                partition_by=[self._copied_input_expression(expr, node.select) for expr in limit_by.exprs],
                 order_by=(
                     [
-                        ast.OrderExpr(expr=self._input_expression(order.expr, node.select), order=order.order)
+                        ast.OrderExpr(expr=self._copied_input_expression(order.expr, node.select), order=order.order)
                         for order in node.order_by
                     ]
                     if node.order_by
@@ -439,6 +441,12 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
             expr = expr.expr
         return expr
 
+    def _copied_input_expression(self, expr: ast.Expr, select: list[ast.Expr]) -> ast.Expr:
+        # A shared node would make the projection and the window one alias, so the later pass could not hide the copy.
+        expression = self._input_expression(expr, select)
+        self.expansion_budget.visit(expression)
+        return clone_expr(expression, clear_types=False)
+
     def _helper_name(self, node: ast.SelectQuery, prefix: str) -> str:
         names = set(self._output_names(node))
 
@@ -487,5 +495,5 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         return value
 
 
-def lower_trino_query_wrappers(node: ast.AST) -> ast.AST:
-    return TrinoQueryWrapperLowerer().visit(node)
+def lower_trino_query_wrappers(node: ast.AST, budget: TrinoCompilationBudget) -> ast.AST:
+    return TrinoQueryWrapperLowerer(budget).visit(node)

@@ -3,11 +3,13 @@ import type { z } from 'zod'
 import type {
     contentWidgetPartsSchema,
     contentWidgetSchema,
+    dashboardDocumentSchema,
     dashboardSchema,
     dashboardTabSchema,
     gridTabSchema,
     linkTabSchema,
     sectionWidgetSchema,
+    tileAppearanceSchema,
     tilePlaceSchema,
     tileSchema,
     timeRangeSchema,
@@ -47,6 +49,8 @@ export type TimeRange = z.infer<typeof timeRangeSchema>
 
 export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
 
+export type TileAppearance = z.infer<typeof tileAppearanceSchema>
+
 export interface WidgetSize {
     w: number
     h: number
@@ -64,7 +68,7 @@ export type SectionWidget = z.infer<typeof sectionWidgetSchema>
 export type Widget = ContentWidget | SectionWidget
 
 /** A section's height follows its tiles, so `h` and `minH` only cover a new, empty one. */
-export const SECTION_SIZE: WidgetSize = { w: 24, h: 6, minW: 4, minH: 3 }
+export const SECTION_SIZE: WidgetSize = { w: 24, h: 6, minW: 8, minH: 3 }
 
 /** Looks up a content widget's size. Layout code takes it as an argument, so it never imports a widget. */
 export type SizeOf = (widget: ContentWidget) => WidgetSize
@@ -102,8 +106,14 @@ export function activeGridTab(dashboard: Dashboard, activeTabId: string | null):
 
 export type Dashboard = z.infer<typeof dashboardSchema>
 
+export type DashboardDocument = z.infer<typeof dashboardDocumentSchema>
+
 export type SectionTile = Tile & { widget: SectionWidget }
 
 export function isSection(tile: Tile): tile is SectionTile {
     return isSectionWidget(tile.widget)
+}
+
+export function widgetRef(tile: Tile): string | undefined {
+    return isSectionWidget(tile.widget) ? undefined : tile.widget.ref
 }

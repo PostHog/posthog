@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -748,6 +752,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                return False, SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
             if _SSH_GATEWAY_SESSION_ERROR in (e.value or ""):
                 return False, _SSH_GATEWAY_UNREACHABLE_ERROR
             # Other sshtunnel messages are written for a traceback reader and can carry the host it dialed.
