@@ -612,6 +612,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {},
             ),
             (
+                "established_fetch_to_a_loopback_alias_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                "let note := 'see http://localhost:3000'\nfetch('http://localtest.me/latest')",
+                {},
+                {"rule_hits": ["internal_host_reference"], "would_alert": True, "would_block": False},
+                {},
+            ),
+            (
                 "established_transformation_literal_fetch_with_a_low_ssrf_score",
                 ESTABLISHED,
                 QUIET_SCORES,

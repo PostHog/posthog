@@ -221,16 +221,15 @@ def internal_hosts(content: HogFunctionContent) -> frozenset[str]:
 
 def code_may_request_internal_host(content: HogFunctionContent) -> bool:
     """Whether the code names an internal host and can send a request there. Only code whose every request is a
-    literal `fetch` to a URL that names no internal host is known not to: a variable, an alias, a helper or a comment
-    between `fetch` and its URL can carry a host from anywhere in the code to a request. A URL in a literal's query
-    counts, because a redirect through a public host can carry the request to an internal one. Code that does not
-    parse can send anywhere."""
+    literal `fetch` to a public URL is known not to: a variable, an alias, a helper or a comment between `fetch` and
+    its URL can carry a host from anywhere in the code to a request, and a public-looking name such as `localtest.me`
+    can resolve to loopback. Code that does not parse can send anywhere."""
     if not any(_is_internal(host) for host in _hosts_in([content.hog])):
         return False
     requests = _requests_of(content)
     if requests is None:
         return True
-    return not requests.only_literal_fetches or any(_is_internal(host) for host in _hosts_in(requests.literal_urls))
+    return not requests.only_literal_fetches or not all(map(_is_literal_public_url, requests.literal_urls))
 
 
 def has_outbound_call(content: HogFunctionContent) -> bool:
