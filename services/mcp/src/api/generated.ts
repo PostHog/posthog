@@ -55185,7 +55185,7 @@ export namespace Schemas {
          * @items.maxLength 250
          */
       auto_sync_schema_patterns?: string[] | null;
-      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. Not supported for sources whose tables have a fixed schema, such as Stripe.
+      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. SQL tables without CDC get an `include` column at the next schema refresh, so rows an incremental sync reads before it lack the column. Not supported for sources whose tables have a fixed schema, such as Stripe.
        *
        * * `include` - Include
        * * `exclude` - Exclude */
@@ -94199,7 +94199,7 @@ export namespace Schemas {
          * @items.maxLength 250
          */
       auto_sync_schema_patterns?: string[] | null;
-      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. Not supported for sources whose tables have a fixed schema, such as Stripe.
+      /** What happens when a table of this source gets a new column. `include` syncs new columns, even on tables where you picked the columns. `exclude` holds new columns back: they show in the column picker unselected until you turn them on, and a table without a column selection is pinned to its current columns. Null (default) syncs new columns only on tables without a column selection. Changing `exclude` back to null keeps the pinned selections. A table's own `new_column_policy` overrides this. A pinned table has a column selection, so on a source with live queries `exclude` turns off raw SQL. SQL tables without CDC get an `include` column at the next schema refresh, so rows an incremental sync reads before it lack the column. Not supported for sources whose tables have a fixed schema, such as Stripe.
        *
        * * `include` - Include
        * * `exclude` - Exclude */
