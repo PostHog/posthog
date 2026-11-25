@@ -60,6 +60,17 @@ describe('SessionsListHost', () => {
         expect(drawer.values.position).toEqual({ index: 1, total: 2 })
     })
 
+    it('reload reads the open conversation again, so a turn the session gained shows', async () => {
+        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: 'session-a' }).url)
+        const view = render(<SessionsListHost />)
+        await view.findByText('Answer of trace-2')
+        useMocks({ get: { [SESSION_TURNS_URL]: [200, makeSessionTurnPage([1, 2, 3])] } })
+
+        fireEvent.click(view.getByText('Reload'))
+
+        await view.findByText('Answer of trace-3')
+    })
+
     it('opens a session from a click on its row', async () => {
         router.actions.push(urls.aiObservabilitySessions())
         const view = render(<SessionsListHost />)

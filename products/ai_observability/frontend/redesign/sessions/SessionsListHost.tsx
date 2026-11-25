@@ -25,7 +25,7 @@ import { OpenSessionPlaceholder } from './components/OpenSessionPlaceholder'
 import { SessionListRow } from './components/SessionListRow'
 import { sessionCellsLogic } from './sessionCellsLogic'
 import { SessionConversationHost } from './SessionConversationHost'
-import { SESSION_TURNS_LIST } from './sessionConversationLogic'
+import { SESSION_TURNS_LIST, sessionConversationLogic } from './sessionConversationLogic'
 import { SESSIONS_LIST_FILTERS, sessionsListLogic } from './sessionsListLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
@@ -92,6 +92,14 @@ export function SessionsListHost(): JSX.Element {
         [openSession]
     )
 
+    // The list's reload reads the open session's facts again, so its turns are read again with them.
+    const reloadListAndConversation = (): void => {
+        reload()
+        if (openSessionId !== null) {
+            sessionConversationLogic.findMounted(openSessionId)?.actions.reload()
+        }
+    }
+
     const stepTo = (session: SessionListItemApi | null | undefined): (() => void) | null =>
         session ? () => openSession(session) : null
 
@@ -123,7 +131,7 @@ export function SessionsListHost(): JSX.Element {
                     />
                 }
                 dateRange={<DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDateRange} size="small" />}
-                onReload={reload}
+                onReload={reloadListAndConversation}
                 reloading={state === 'loading' || refreshing}
                 data-attr={DATA_ATTR}
             />
