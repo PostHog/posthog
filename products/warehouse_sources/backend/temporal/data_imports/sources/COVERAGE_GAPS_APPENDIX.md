@@ -7685,7 +7685,7 @@ Note: Parsed the official Imperva OpenAPI specification, including statistics pa
 
 ## IncidentIo — gaps
 
-Today (26): `actions`, `alert_attributes`, `alert_sources`, `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalation_paths`, `escalations`, `follow_ups`, `incident_alerts`, `incident_participant_workloads`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedule_entries`, `schedules`, `severities`, `status_page_incidents`, `status_pages`, `teams`, `users`
+Today (30): `actions`, `alert_attributes`, `alert_sources`, `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalation_paths`, `escalations`, `follow_ups`, `incident_alerts`, `incident_participant_workloads`, `incident_roles`, `incident_statuses`, `incident_timeline_items`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `postmortem_documents`, `schedule_entries`, `schedule_overrides`, `schedules`, `severities`, `status_page_incidents`, `status_pages`, `teams`, `users`, `workflows`
 
 Diffed against: <https://api-docs.incident.io/>
 
@@ -7707,12 +7707,12 @@ Note: The Mintlify docs site serves the same 537KB SPA shell for every path (inc
 
 Re-audited 2026-11-19 against: <https://docs.incident.io/_llms/api-reference.txt>
 
-- [ ] `Incident timeline items (GET /v2/incident_timeline_items)` — chronological events per incident for response-time and activity analysis; needs incident_id so fan-out over incidents (high)
+- [x] `Incident timeline items (GET /v2/incident_timeline_items)` — chronological events per incident for response-time and activity analysis; needs incident_id so fan-out over incidents (high). Added as `incident_timeline_items` (fan-out over `incidents`). Listing an incident also returns the items on its streams, with the stream's id in `incident_id`, so the listed incident's id is kept as `parent_incident_id`.
 - [ ] `Workflow runs (GET /v2/workflow_runs)` — automation execution history, newest first (medium)
-- [ ] `Workflows (GET /v2/workflows)` — automation definitions, lookup for workflow runs (medium)
+- [x] `Workflows (GET /v2/workflows)` — automation definitions, lookup for workflow runs (medium). Added as `workflows` (one unpaginated list of the slim workflow shape).
 - [ ] `Alert routes (GET /v3/alert_routes)` — routing rules that decide which alerts page whom, lookup for alert handling (medium)
-- [ ] `Post-mortem documents (GET /v1/postmortem_documents)` — post-incident write-ups linked to incidents (medium)
-- [ ] `Schedule overrides (GET /v2/schedule_overrides)` — on-call swaps and overrides, needed to know who really was on call; needs schedule_id so fan-out over schedules (medium)
+- [x] `Post-mortem documents (GET /v1/postmortem_documents)` — post-incident write-ups linked to incidents (medium). Added as `postmortem_documents` (metadata only, full refresh: the list has no time filter).
+- [x] `Schedule overrides (GET /v2/schedule_overrides)` — on-call swaps and overrides, needed to know who really was on call; needs schedule_id so fan-out over schedules (medium). Added as `schedule_overrides` (fan-out over `schedules`).
 - [ ] `Status page components (GET /v2/status_page_components)` — components shown on status pages, lookup for status page incidents (low)
 - [ ] `Status page maintenances (GET /v2/status_page_maintenances)` — scheduled maintenance on status pages, sibling of status_page_incidents (low)
 - [ ] `Incident templates (GET /v1/incident_templates)` — templates used to create incidents, lookup (low)
@@ -9566,7 +9566,7 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (18): `Campaigns`, `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
+Today (22): `Campaigns`, `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `RefundReasons`, `Regions`, `Reservations`, `ReturnReasons`, `Returns`, `SalesChannels`, `ShippingOptions`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
@@ -9584,10 +9584,10 @@ Note: Parsed the official v2 OpenAPI root and fetched referenced path files to v
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
-- [ ] `Sales channels (GET /admin/sales-channels)` — resolve sales_channel_id carried on synced Orders, DraftOrders and Products to channel names (high)
-- [ ] `Return reasons (GET /admin/return-reasons)` — resolve return_reason_id on synced Returns and analyze why items come back (high)
-- [ ] `Refund reasons (GET /admin/refund-reasons)` — resolve refund reason IDs on payment refunds for revenue reconciliation (medium)
-- [ ] `Shipping options (GET /admin/shipping-options)` — resolve shipping option IDs on order shipping methods and compare delivery pricing (medium)
+- [x] `Sales channels (GET /admin/sales-channels)` — resolve sales_channel_id carried on synced Orders, DraftOrders and Products to channel names (high). Added as `SalesChannels`.
+- [x] `Return reasons (GET /admin/return-reasons)` — resolve return_reason_id on synced Returns and analyze why items come back (high). Added as `ReturnReasons`.
+- [x] `Refund reasons (GET /admin/refund-reasons)` — resolve refund reason IDs on payment refunds for revenue reconciliation (medium). Added as `RefundReasons` (full refresh: the list route documents no timestamp filters).
+- [x] `Shipping options (GET /admin/shipping-options)` — resolve shipping option IDs on order shipping methods and compare delivery pricing (medium). Added as `ShippingOptions`.
 - [ ] `Tax regions (GET /admin/tax-regions); Tax rates (GET /admin/tax-rates)` — explain tax amounts on orders by country and rate (medium)
 - [ ] `Users (GET /admin/users)` — resolve admin user IDs that appear as creators on orders changes, returns and notes (medium)
 - [ ] `Shipping profiles (GET /admin/shipping-profiles)` — resolve shipping_profile_id on synced Products (low)
@@ -9599,18 +9599,18 @@ Note (2026-11-19): The root OpenAPI file only holds path refs, so I fetched each
 
 ## Megaphone — **thin**
 
-Today (3): `episodes`, `networks`, `podcasts`
+Today (7): `advertisers`, `campaign_orders`, `campaigns`, `episodes`, `networks`, `podcasts`, `sponsorships`
 
 Diffed against: <https://developers.megaphone.fm/openapi.yaml>
 
-- [ ] `Campaigns (GET /api/organizations/{organization_id}/campaigns)` — ad campaigns with dates, budget and status, the core ad-sales object next to synced podcasts (high)
-- [ ] `Campaign orders (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders)` — orders per campaign with booked impressions, pacing and dates for ad delivery analysis (high)
-- [ ] `Advertisers (GET /api/organizations/{organization_id}/advertisers)` — resolve advertiser IDs on campaigns and orders (high)
+- [x] `Campaigns (GET /api/organizations/{organization_id}/campaigns)` — ad campaigns with dates, budget and status, the core ad-sales object next to synced podcasts (high) → `campaigns` (full refresh, v2 `GET /api/v2/organizations/{organization_id}/campaigns`; the legacy route stopped working on 2026-07-14)
+- [x] `Campaign orders (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders)` — orders per campaign with booked impressions, pacing and dates for ad delivery analysis (high) → `campaign_orders` (full refresh, v2 route, fan-out over `campaigns`)
+- [x] `Advertisers (GET /api/organizations/{organization_id}/advertisers)` — resolve advertiser IDs on campaigns and orders (high) → `advertisers` (full refresh, v2 route)
 - [ ] `Campaign order advertisements (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders/{order_id}/advertisements)` — ad creatives and placements per order (medium)
 - [ ] `Agencies (GET /api/organizations/{organization_id}/agencies)` — resolve agency IDs on advertisers and campaigns (medium)
 - [ ] `Promos (GET /api/organizations/{organization_id}/promos)` — house promo orders that run across shows (medium)
 - [ ] `Promo advertisements (GET /api/organizations/{organization_id}/promos/{promo_id}/advertisements)` — promo creatives and placements (low)
-- [ ] `Sponsorships (GET /api/v2/organizations/{organization_id}/sponsorships)` — sponsorship deals with sponsors for revenue analysis (medium)
+- [x] `Sponsorships (GET /api/v2/organizations/{organization_id}/sponsorships)` — sponsorship deals with sponsors for revenue analysis (medium) → `sponsorships` (full refresh, unpaginated)
 - [ ] `Sponsors (GET /api/v2/organizations/{organization_id}/sponsors)` — resolve sponsor IDs on sponsorships (low)
 - [ ] `Tags (GET /api/organizations/{organization_id}/tags)` — organization tags used to label content (low)
 
@@ -9661,10 +9661,10 @@ Note: Fetched the complete official v2 reference and extracted top-level and nes
 
 Re-audited 2026-11-19 against: <https://www.membrain.com/developers/api-documentation>
 
-- [ ] `Quotes (GET /quotes/)` — quotes attached to companies and sales projects, with ChangedFromDate filter, for quote-to-order analysis (high)
-- [ ] `Quote rows (GET /quoteRows/)` — line items per quote, the quote-side match for the synced order_rows (high)
-- [ ] `Sales teams (GET /salesTeams/)` — resolve sales team IDs on companies and users for team-level reporting (high)
-- [ ] `Flows (GET /flows/); Flow processes (GET /flowProcesses/)` — flow records and their process and stage definitions, the fifth process type next to the four we sync (medium)
+- [x] `Quotes (GET /quotes/)` — quotes attached to companies and sales projects, with ChangedFromDate filter, for quote-to-order analysis (high)
+- [x] `Quote rows (GET /quoteRows/)` — line items per quote, the quote-side match for the synced order_rows (high)
+- [x] `Sales teams (GET /salesTeams/)` — resolve sales team IDs on companies and users for team-level reporting (high)
+- [x] `Flows (GET /flows/); Flow processes (GET /flowProcesses/)` — flow records and their process and stage definitions, the fifth process type next to the four we sync (medium)
 - [ ] `Custom metrics (GET /customMetrics/); Custom metric datas (GET /customMetricDatas/)` — user-defined KPI definitions and their data points (medium)
 - [ ] `Attitudes (GET /attitudes/); Influences (GET /influences/)` — resolve contact attitude and influence IDs used in stakeholder mapping (medium)
 - [ ] `Documents (GET /documents/)` — document metadata attached to companies, prospects and projects (binary content not returned by the list) (low)
@@ -11257,14 +11257,16 @@ Note: Read the official v5 overview and each listed object reference, then check
 
 Re-audited 2026-11-19 against: <https://developer.salesforce.com/docs/marketing/pardot/guide/version5overview.html>
 
-- [ ] `Tags (GET /api/v5/objects/tags)` — lookup of tag names used to segment prospects, campaigns and other objects (high)
-- [ ] `Tagged objects (GET /api/v5/objects/tagged-objects)` — join table linking tagId to objectType and objectId, to segment prospects and assets by tag (high)
-- [ ] `Engagement Studio programs (GET /api/v5/objects/engagement-studio-programs)` — nurture programs with status, for analysis of automated campaign setup (medium)
+- [x] `Tags (GET /api/v5/objects/tags)` — lookup of tag names used to segment prospects, campaigns and other objects (high)
+- [x] `Tagged objects (GET /api/v5/objects/tagged-objects)` — join table linking tagId to objectType and objectId, to segment prospects and assets by tag (high)
+- [x] `Engagement Studio programs (GET /api/v5/objects/engagement-studio-programs)` — nurture programs with status, for analysis of automated campaign setup (medium)
 - [ ] `Form fields (GET /api/v5/objects/form-fields)` — field definitions of each synced form, to read form structure (low)
 - [ ] `Tracker domains (GET /api/v5/objects/tracker-domains)` — tracking domains for visitor and page view analysis (low)
-- [ ] `Dynamic content (GET /api/v5/objects/dynamic-contents)` — dynamic content blocks with variations for personalization analysis (low)
+- [x] `Dynamic content (GET /api/v5/objects/dynamic-contents)` — dynamic content blocks with variations for personalization analysis (low)
 
 Note (2026-11-19): Read the v5 overview page and the per-object guide pages. Each object page lists a Query GET under /api/v5/objects/. All earlier gaps are built. Excluded: exports, imports, bulk actions, files, folders, layout templates, external activities (write only), and form handler fields (config). Tag and tagged-object are the useful new join data.
+
+Note (2026-11-25): Built tags (full refresh, because objectCount changes without updatedAt), tagged objects (full refresh, because removing a tag deletes its record), Engagement Studio programs and dynamic content. The v5 dynamic content object has no variations field; the nested Engagement Studio schedule and business-hours maps are left out.
 
 ## Particle — **thin**
 
