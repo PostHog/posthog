@@ -394,16 +394,19 @@ describe('provider edge', () => {
     })
 
     it.each<[string, boolean]>([
-        ['reports a send it took even when asked after the drive ended', true],
-        ['reports no send when it took none before the drive ended', false],
+        ['reports a send it took when the drive ends while it waits', true],
+        ['reports no send when the drive ends before it took one', false],
     ])('%s', async (_story, sends) => {
         const hold = edge.hold(heldAnswerRule())
+        const drive = new AbortController()
+        const waiting = hold.accepted!(drive.signal)
         const answer = sends ? send(ALICE) : Promise.resolve(undefined)
         if (sends) {
             await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
         }
 
-        const accepted = await hold.accepted!(AbortSignal.abort())
+        drive.abort()
+        const accepted = await waiting
         await hold.release()
 
         expect({ accepted, answer: await answer }).toEqual({ accepted: sends, answer: sends ? 'sent' : undefined })

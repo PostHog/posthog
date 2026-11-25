@@ -207,14 +207,14 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 
-const stopsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
-    ROLE_STOPPING_VALVES.includes(valve) && target === EMAIL_WORKER
+const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
+    valve === roleKill.name && target === EMAIL_WORKER
 
 function checkAcceptedBoundary(card: Card): string[] {
     return card.valves.flatMap((entry, i) =>
-        entry.when?.name === 'edge_accepted' && !stopsEmailWorker(entry)
+        entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
             ? [
-                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.freeze on ${EMAIL_WORKER}`,
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill on ${EMAIL_WORKER}`,
               ]
             : []
     )
@@ -225,9 +225,9 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
         return []
     }
     return card.valves.flatMap((entry, i) =>
-        entry.when?.name === 'edge_accepted' && stopsEmailWorker(entry)
+        entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
             ? [
-                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+                  `valves.${i}.target: role.kill stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
     )

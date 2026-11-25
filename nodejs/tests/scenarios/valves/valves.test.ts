@@ -684,7 +684,7 @@ describe('valves', () => {
                                     : hold
                             )
                         }
-                        if (action.kind !== 'kill' || !running) {
+                        if (action.kind !== 'kill' || action.role !== EMAIL_WORKER || !running) {
                             return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
                         }
                         sentWhenKilled.push(edge.sent.length)
