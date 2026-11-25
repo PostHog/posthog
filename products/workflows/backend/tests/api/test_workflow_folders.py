@@ -1105,20 +1105,23 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(sorted(FileSystem.objects.filter(team=self.team).values_list("path", "type")), tree_before)
 
     def test_a_flag_off_delete_of_a_mixed_unfiled_folder_removes_what_its_preview_lists(self) -> None:
-        unfiled = self._file_a_template_in_unfiled_folders()["Unfiled"]
+        folders = self._file_a_template_in_unfiled_folders()
         FileSystem.objects.create(team=self.team, path="Unfiled/Mine", depth=2, type="folder")
-        url = f"/api/projects/{self.team.id}/file_system/{unfiled.id}/"
+        base = f"/api/projects/{self.team.id}/file_system/"
+        url = f"{base}{folders['Unfiled'].id}/"
         with patch("posthoganalytics.feature_enabled", return_value=False):
-            preview = self.client.post(f"{url}count/")
+            previews = [self.client.post(f"{url}count/"), self.client.post(f"{base}count_by_path/?path=Unfiled")]
             deleted = self.client.delete(f"{url}?recursive=true")
 
-        self.assertEqual(preview.status_code, 200, preview.content)
-        self.assertEqual([entry["path"] for entry in preview.json()["entries"]], ["Unfiled/Mine"])
+        for preview in previews:
+            self.assertEqual(preview.status_code, 200, preview.content)
+            self.assertEqual([entry["path"] for entry in preview.json()["entries"]], ["Unfiled/Mine"])
         self.assertEqual(deleted.status_code, 204, deleted.content)
         self.assertEqual(
             sorted(FileSystem.objects.filter(team=self.team).values_list("path", flat=True)),
             ["Unfiled", "Unfiled/Email templates", "Unfiled/Email templates/Synthetic email"],
         )
+        self.assertTrue(FileSystem.objects.filter(pk=folders["Unfiled/Email templates"].pk).exists())
 
     def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
         self.client.post(
