@@ -286,7 +286,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "ticket_comments": {
-        "description": "A public reply or private internal note on a support ticket.",
+        "description": "A public reply or private internal note on a support ticket. Covers the tickets that the tickets table lists, so archived tickets are left out.",
         "docs_url": "https://api-docs.withmoxie.com/api/list-ticket-comments",
         "columns": {
             "id": "Unique identifier for the comment.",
@@ -305,7 +305,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "project_notes": {
-        "description": "A private workspace note on a project.",
+        "description": "A private workspace note on a project. Covers the projects that the projects table lists.",
         "docs_url": "https://api-docs.withmoxie.com/api/search-project-notes",
         "columns": {
             "id": "Unique identifier for the note.",

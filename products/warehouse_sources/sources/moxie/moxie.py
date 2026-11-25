@@ -75,9 +75,9 @@ TIME_ENTRIES_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
 
 @frozen
 class TimeWindow:
-    # Both bounds are inclusive on the API side.
-    earliest: datetime
-    latest: datetime
+    # Both bounds are inclusive on the API side. None leaves that side open.
+    earliest: Optional[datetime]
+    latest: Optional[datetime]
 
 
 class MoxieTimeEntriesCapError(Exception):
@@ -153,6 +153,8 @@ def get_resource(endpoint: str, params: Optional[dict[str, Any]] = None) -> Endp
 
 
 def _split(window: TimeWindow) -> Optional[list[TimeWindow]]:
+    if window.earliest is None or window.latest is None:
+        return None
     half = timedelta(seconds=int((window.latest - window.earliest).total_seconds()) // 2)
     if half <= timedelta(0):
         return None
@@ -166,7 +168,8 @@ def iter_time_entries(
     """Read every time entry, in `timerStart` windows small enough to stay under the row cap.
 
     Most workspaces fit in one call with no window. Otherwise a window that reaches the cap is split
-    in half, and the halves are read in order, so adjacent windows share only their bound.
+    in half, and the halves are read in order, so adjacent windows share only their bound. Two
+    open-ended windows before and after the split range keep entries with an unusual start time.
     """
     rows = fetch(None)
     if len(rows) < TIME_ENTRIES_ROW_CAP:
@@ -174,7 +177,13 @@ def iter_time_entries(
             yield rows
         return
 
-    pending = [TimeWindow(earliest=TIME_ENTRIES_EARLIEST, latest=now + timedelta(days=366))]
+    upper = now + timedelta(days=366)
+    # A stack, so the windows run from the earliest to the latest.
+    pending = [
+        TimeWindow(earliest=upper, latest=None),
+        TimeWindow(earliest=TIME_ENTRIES_EARLIEST, latest=upper),
+        TimeWindow(earliest=None, latest=TIME_ENTRIES_EARLIEST),
+    ]
     previous_ids: set[Any] = set()
     while pending:
         window = pending.pop()
@@ -185,8 +194,8 @@ def iter_time_entries(
                 # Yielding the capped page would drop rows without a trace. This also ends a walk
                 # against a host that returns a full page for every window.
                 raise MoxieTimeEntriesCapError(
-                    f"Moxie returned {len(rows)} time entries for the one-second window starting "
-                    f"{window.earliest.isoformat()}, so some entries cannot be read"
+                    f"Moxie returned {len(rows)} time entries for a window that cannot be split "
+                    f"({window.earliest} to {window.latest}), so some entries cannot be read"
                 )
             pending.extend(reversed(halves))
             continue
@@ -311,11 +320,11 @@ def moxie_source(
         return {"client": client_config, "resource_defaults": None, "resources": [get_resource(endpoint, params)]}
 
     def fetch_time_entries(window: Optional[TimeWindow]) -> list[dict[str, Any]]:
-        params = (
-            {"earliest": format_datetime(window.earliest, "iso_z"), "latest": format_datetime(window.latest, "iso_z")}
-            if window
-            else None
-        )
+        params: dict[str, Any] = {}
+        if window is not None and window.earliest is not None:
+            params["earliest"] = format_datetime(window.earliest, "iso_z")
+        if window is not None and window.latest is not None:
+            params["latest"] = format_datetime(window.latest, "iso_z")
         return [row for batch in rest_api_resource(rest_config(params), team_id, job_id, None) for row in batch]
 
     wrap_field = config.wrap_scalar_as

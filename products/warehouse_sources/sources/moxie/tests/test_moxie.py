@@ -194,14 +194,19 @@ class TestMoxieTransport:
         assert [row["id"] for row in result.rows] == ["n1", "n2"]
         assert result.params("projectId") == [None, "p1", "p2"]
 
-    def test_fan_out_paces_every_request_and_reports_a_429(self, pacers: list[_RecordingPacer]) -> None:
+    @pytest.mark.parametrize(
+        "headers, reported", [({"Retry-After": "7"}, 7.0), ({}, None)], ids=["retry_after", "no_header"]
+    )
+    def test_fan_out_paces_every_request_and_reports_a_429(
+        self, pacers: list[_RecordingPacer], headers: dict[str, str], reported: Optional[float]
+    ) -> None:
         result = _driver().run(
             "project_notes",
             route(
                 {
                     "/action/projects/search": [ScriptedResponse(json=[{"id": "p1"}])],
                     "/action/projects/notes/search": [
-                        ScriptedResponse(status=429, headers={"Retry-After": "7"}),
+                        ScriptedResponse(status=429, headers=headers),
                         ScriptedResponse(json=[{"id": "n1", "projectId": "p1"}]),
                     ],
                 }
@@ -213,7 +218,7 @@ class TestMoxieTransport:
         assert len(pacers) == 1
         assert pacers[0].per_second * 300 < 100
         assert pacers[0].turns == len(result.requests) == 3
-        assert pacers[0].throttles == [7.0]
+        assert pacers[0].throttles == [reported]
 
     def test_time_entries_under_the_cap_take_one_unbounded_call(self) -> None:
         rows = [{"id": "e1", "timerStart": "2024-01-01T09:00:00Z"}]
@@ -228,14 +233,21 @@ class TestMoxieTransport:
         capped = [{"id": "e1"}, {"id": "e2"}]
         with mock.patch.object(moxie_module, "TIME_ENTRIES_ROW_CAP", 2):
             result = _driver().run(
-                "time_entries", [ScriptedResponse(json=capped), ScriptedResponse(json=[{"id": "e1"}])]
+                "time_entries",
+                [
+                    ScriptedResponse(json=capped),
+                    ScriptedResponse(json=[]),
+                    ScriptedResponse(json=[{"id": "e1"}]),
+                    ScriptedResponse(json=[{"id": "e2"}]),
+                ],
             )
 
         assert result.raised is None
-        assert result.rows == [{"id": "e1"}]
-        assert result.params("earliest") == [None, "2000-01-01T00:00:00Z"]
-        latest = result.params("latest")[1]
-        assert latest is not None and datetime.fromisoformat(latest) > datetime.now(UTC)
+        assert result.rows == [{"id": "e1"}, {"id": "e2"}]
+        upper = result.params("earliest")[3]
+        assert upper is not None and datetime.fromisoformat(upper) > datetime.now(UTC)
+        assert result.params("earliest") == [None, None, "2000-01-01T00:00:00Z", upper]
+        assert result.params("latest") == [None, "2000-01-01T00:00:00Z", upper, None]
 
     def test_workspace_users_flattens_nested_user_id(self) -> None:
         row = {"userType": "OWNER", "user": {"userId": 42, "firstName": "Alex"}}
@@ -274,7 +286,11 @@ def _fake_time_entries_api(
         matching = [
             entry
             for entry in entries
-            if window is None or window.earliest <= datetime.fromisoformat(entry["timerStart"]) <= window.latest
+            if window is None
+            or (
+                (window.earliest is None or window.earliest <= datetime.fromisoformat(entry["timerStart"]))
+                and (window.latest is None or datetime.fromisoformat(entry["timerStart"]) <= window.latest)
+            )
         ]
         return list(reversed(matching))[:cap]
 
@@ -294,6 +310,9 @@ class TestIterTimeEntries:
         assert halves is not None
         boundary = halves[0].latest
         entries = [
+            # Outside the split range, so only the open-ended edge windows return them.
+            _entry("before", datetime(1995, 5, 1, tzinfo=UTC)),
+            _entry("after", NOW + timedelta(days=800)),
             _entry("a", datetime(2001, 5, 1, tzinfo=UTC)),
             _entry("b", datetime(2010, 5, 1, tzinfo=UTC)),
             # On the shared bound of two windows, so both calls return it.
@@ -307,9 +326,11 @@ class TestIterTimeEntries:
             pages = list(moxie_module.iter_time_entries(fetch, NOW))
 
         ids = [row["id"] for page in pages for row in page]
-        assert sorted(ids) == ["a", "b", "c", "d", "e"]
+        assert sorted(ids) == ["a", "after", "b", "before", "c", "d", "e"]
         assert calls[0] is None
-        assert calls[1] == first_window
+        assert calls[1] == moxie_module.TimeWindow(earliest=None, latest=moxie_module.TIME_ENTRIES_EARLIEST)
+        assert calls[2] == first_window
+        assert calls[-1] == moxie_module.TimeWindow(earliest=first_window.latest, latest=None)
 
     def test_a_capped_window_that_cannot_split_fails_instead_of_dropping_rows(self) -> None:
         instant = datetime(2024, 3, 3, 12, 0, 0, tzinfo=UTC)
