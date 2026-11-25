@@ -4554,6 +4554,7 @@ export namespace Schemas {
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
+        limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         offset?: (number | null) | undefined;
@@ -18013,7 +18014,7 @@ export namespace Schemas {
          */
         available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
-         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**

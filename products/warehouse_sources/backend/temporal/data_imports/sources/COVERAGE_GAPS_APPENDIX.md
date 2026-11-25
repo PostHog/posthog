@@ -2689,10 +2689,10 @@ Note: The vendor's API repo later added more resource sections (stats, contribut
 
 Re-audited 2026-11-19 against: <https://github.com/Buzzsprout/buzzsprout-api/blob/master/README.md>
 
-- [ ] `Team (GET /api/:podcast_id/team)` — people with login access to the podcast and their roles (medium)
-- [ ] `Brand affiliations (GET /api/:podcast_id/brand_affiliations)` — sponsor and brand records linked to episodes, for sponsorship reporting (low)
-- [ ] `Podrolls (GET /api/:podcast_id/podrolls)` — podcasts recommended by this show (low)
-- [ ] `Episode transcripts (GET /api/:podcast_id/episodes/:episode_id/transcript)` — transcript text per episode for content analysis, fan-out over episodes (low)
+- [x] `Team (GET /api/:podcast_id/team)` — people with login access to the podcast and their roles (medium)
+- [x] `Brand affiliations (GET /api/:podcast_id/brand_affiliations)` — sponsor and brand records linked to episodes, for sponsorship reporting (low)
+- [x] `Podrolls (GET /api/:podcast_id/podrolls)` — podcasts recommended by this show (low)
+- [ ] `Episode transcripts (GET /api/:podcast_id/episodes/:episode_id/transcript)` — transcript text per episode for content analysis, fan-out over episodes (low) Skipped: returns only transcript status and a download link, not the text, and needs one request per episode against a 60 requests/minute limit.
 
 Note (2026-11-19): Read the README and every section file in the vendor repo (sections/\*.md) and listed each GET route. Podcasts, episodes, downloads, contributors, fan mail and listings are already synced. Excluded uploads, chapters, soundbites, insertion points, feed verifications and the MCP page as media or write-oriented. Transcripts need one request per episode and may 404 when none exists.
 
@@ -9088,8 +9088,8 @@ Today (5): `bounces`, `campaign_analytics`, `campaigns`, `lists`, `subscribers`
 
 Diffed against: <https://raw.githubusercontent.com/knadh/listmonk/master/docs/swagger/collections.yaml>
 
-- [ ] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
-- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low)
+- [x] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
+- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low). Skipped: returns one log string of the running import, not rows.
 
 Note: Parsed the official Swagger collection file. Subscribers, lists, campaigns, bounces and campaign analytics are already synced. Other routes are settings, config, health, admin and write actions. Templates takes a required no_body flag, so send no_body=true or false by choice. Import logs is only for the running import, so it is probably not worth a table.
 
@@ -12918,10 +12918,10 @@ Diffed against: <https://developers.salesloft.com/docs/api/opportunities-index/>
 - [x] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
 - [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium); skipped: `GET /v2/account_types` returns only the distinct account type names for filter pickers, with no id, no pagination and results limited to the caller's readable accounts. Accounts carry the type as a plain string (`company_type`), so there is no id to resolve and the values are derivable from the `accounts` table
 - [x] `opportunity_people` — join table linking people to opportunities (medium)
-- [ ] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
-- [ ] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium)
-- [ ] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
-- [ ] `custom_roles` — lookup resolving the role assigned to each user (low)
+- [x] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
+- [x] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium); built `conversations`. `conversations_calls` is not a table: `POST /v2/conversations/calls` only creates a dialer call and has no list endpoint
+- [x] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
+- [x] `custom_roles` — lookup resolving the role assigned to each user (low)
 
 Note: Salesloft publishes no OpenAPI file (api.salesloft.com/v2.json is auth-gated); the complete v2.0 resource list is rendered into the Docusaurus sidebar on every /docs/api/\*-index page. Excluded plumbing: webhook subscriptions, bulk jobs, external id configuration/mapping, redaction and right-to-be-forgotten, saved list views, recording settings.
 

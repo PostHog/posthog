@@ -373,7 +373,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             <div
                 ref={loadingRef}
                 className={clsx(
-                    'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
+                    'pointer-events-auto relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
                     state.loading === 'focus' ? 'border-border' : 'border-border/50'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

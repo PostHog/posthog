@@ -136,6 +136,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CodeLoopLink]: () => import('./code-canvas/CodeLoopLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
+    [Scene.ToolbarOAuthError]: () => import('./authentication/toolbar/ToolbarOAuthError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),
     [Scene.VerifyEmail]: () => import('./authentication/verify-email/VerifyEmail'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),

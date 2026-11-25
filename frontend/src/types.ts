@@ -5334,8 +5334,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
