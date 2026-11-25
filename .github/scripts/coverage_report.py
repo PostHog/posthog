@@ -249,8 +249,8 @@ def aggregate_core(artifacts_dir: Path) -> tuple[dict[str, set[int]], dict[str, 
 def repo_path_for(product: str, filename: str) -> str:
     """Map a per-product coverage filename to its repo-relative path.
 
-    turbo runs each product's backend:test with ``--cov=backend``, so coverage records
-    filenames relative to ``products/<product>/backend`` (e.g. ``api.py``,
+    The product runner runs each product from ``products/<product>/`` with ``--cov=backend``,
+    so coverage records filenames relative to ``products/<product>/backend`` (e.g. ``api.py``,
     ``migrations/0001.py``) — the ``backend/`` source root is stripped from the stored
     name. diff-cover matches against repo-relative ``git diff`` paths, so restore it.
     """

@@ -343,10 +343,9 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
-                        # Python outside backend/ — products like logs and
-                        # posthog_ai point `backend:test` at extra roots
-                        # (skills/, scripts/). Catch any .py change so the
-                        # backend job triggers when only those files move.
+                        # The product runner collects every test file under a product, not only
+                        # backend/ (logs skills/, posthog_ai scripts/). Catch any .py change so
+                        # the backend job triggers when only those files move.
                         - 'products/**/*.py'
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
@@ -355,15 +354,16 @@ jobs:
                         # match 'products/**/*.py' above, so a vendor-only diff would start this
                         # suite too. The product code the vendors build on stays under backend/.
                         - '!products/warehouse_sources/sources/**'
-                        # Each product's package.json declares the per-product
-                        # backend:test script that turbo-discover reads to
-                        # compose the Product matrix. Without this entry,
-                        # widening or fixing the script doesn't trigger
-                        # tests it controls.
+                        # Each product's package.json declares the backend:test task that
+                        # turbo-discover reads to compose the Product matrix. Without this
+                        # entry, adding or removing the task doesn't trigger the tests it gates.
                         - 'products/*/package.json'
                         # Django reads this file at startup to route each product app to its database,
                         # so a routing change reaches every test while no Python file changes.
                         - products/db_routing.yaml
+                        # The product runner and its ignore list decide which tests every product job runs.
+                        - .github/scripts/run-product-tests.sh
+                        - .github/scripts/product-tests-owned-elsewhere.txt
                         # Tests read these MCP manifests from disk. Each one is a turbo input of
                         # its reader (tasks directly, posthog_ai through feature_flags'
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
@@ -501,6 +501,9 @@ jobs:
                         - frontend/src/products.json
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
+                        # A runner change must run the full product matrix, the same as a workflow edit.
+                        - .github/scripts/run-product-tests.sh
+                        - .github/scripts/product-tests-owned-elsewhere.txt
                         - .github/new-events-schema-targets.txt
                         - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
@@ -1290,9 +1293,6 @@ jobs:
               with:
                   python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-            # Needs pnpm from the step above.
-            - name: Install turbo
-              uses: ./.depot/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
@@ -1446,12 +1446,11 @@ jobs:
             - name: Run product tests
               continue-on-error: true
               id: run-product-tests
-              # --force: discover already decided this product needs testing, skip turbo cache
-              # --log-order=stream: stream pytest output live instead of buffering until completion
-              # legs: one turbo invocation per entry, each with its own pytest-split flags
-              # (e.g. "-- --splits 3 --group 1"). A job holds several legs when a split
-              # product's last shard had budget left over for whole small products, and
-              # pytest-split flags must not leak from that shard onto its job-mates.
+              # Each leg names its products (as the turbo filters that turbo-discover emits) and the
+              # pytest-split flags of its shard (e.g. "-- --splits 3 --group 1"). A job holds several
+              # legs when a split product's last shard had budget left over for whole small products.
+              # Every product runs as its own pytest process through .github/scripts/run-product-tests.sh,
+              # so the split flags of a shard never reach its job-mates.
               env:
                   PRODUCT_LEGS: ${{ toJSON(matrix.legs) }}
                   LEGACY_FILTERS: ${{ matrix.filters }}
@@ -1474,7 +1473,7 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
-                  # --durations-path: turbo runs products from products/<name>/, so pytest-split
+                  # --durations-path: the runner starts pytest in products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
@@ -1483,7 +1482,7 @@ jobs:
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
-                  # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
+                  # The runner starts the pytest of each product in products/<name>/, so --cov=backend
                   # scopes coverage to that product and saves its data to products/<name>/.coverage. This works
                   # for bin-packed buckets (each product writes its own file) and split products, whose data
                   # the report job combines.
@@ -1492,6 +1491,7 @@ jobs:
               shell: bash
               run: |
                   set +e
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   # Enable retries only when the checkout includes retry diagnostics.
                   if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
                       export PYTEST_ADDOPTS="$PYTEST_ADDOPTS --force-reruns 1 --reruns-delay 1 -r fEsxXR"
@@ -1517,18 +1517,35 @@ jobs:
                   fi
                   for ((leg_index = 0; leg_index < leg_count; leg_index++)); do
                       leg_filters=$(jq -r ".[$leg_index].filters" <<< "$PRODUCT_LEGS")
-                      leg_args=$(jq -r ".[$leg_index].pytest_args" <<< "$PRODUCT_LEGS")
-                      echo "::group::turbo backend:test $leg_filters $leg_args"
-                      # Word splitting is intended here: both variables carry several flags.
-                      # shellcheck disable=SC2086
-                      turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
-                      exit_code=$?
-                      echo "::endgroup::"
-                      if [ $exit_code -eq 5 ]; then
-                          echo "No tests collected for this leg, this is expected when splitting tests"
-                      elif [ $exit_code -ne 0 ]; then
-                          overall=$exit_code
+                      leg_args=$(jq -r ".[$leg_index].pytest_args // \"\"" <<< "$PRODUCT_LEGS")
+                      # turbo-discover writes the split flags after turbo's "--" separator.
+                      leg_args=${leg_args#-- }
+                      products=()
+                      for filter in $leg_filters; do
+                          if [[ "$filter" != --filter=@posthog/products-* ]]; then
+                              echo "::error::Leg $leg_index has an unknown filter '$filter'"
+                              overall=1
+                              continue
+                          fi
+                          package=${filter#--filter=@posthog/products-}
+                          products+=("${package//-/_}")
+                      done
+                      if [ "${#products[@]}" -eq 0 ]; then
+                          echo "::error::Leg $leg_index names no product; refusing to pass without running tests"
+                          overall=1
+                          continue
                       fi
+                      for product in "${products[@]}"; do
+                          echo "::group::products/$product $leg_args"
+                          # Word splitting is intended here: leg_args carries several flags.
+                          # shellcheck disable=SC2086
+                          bash .github/scripts/run-product-tests.sh "$product" $leg_args
+                          exit_code=$?
+                          echo "::endgroup::"
+                          if [ $exit_code -ne 0 ]; then
+                              overall=$exit_code
+                          fi
+                      done
                   done
                   set -e
                   exit $overall
@@ -1569,8 +1586,8 @@ jobs:
             # Trunk quarantines a test, not a failure, so the gate also masks a change that breaks a quarantined test.
             # The rerun gives each failed test three more attempts. A test that fails all three is a real break, and the verdict step below then reds the shard.
             # The failed node ids come from each product's JUnit report. A failed test step whose reports list no failed test means that setup or the run itself broke, so the rerun fails.
-            # Turbo passes pytest only the variables that turbo.json declares, so the rerun goes through turbo to keep the test step's environment and working directory.
-            # The package script names whole directories, so --lf with a cache seeded from the failed ids narrows the run to those tests.
+            # The rerun calls the same product runner as the test step, so it keeps that step's working directory and flags.
+            # The runner names the whole product, so --lf with a cache seeded from the failed ids narrows the run to those tests.
             # The rerun drops sharding, coverage and --store-durations, and writes its JUnit under RUNNER_TEMP, so it changes no file that the steps below upload.
             - name: Rerun failures the quarantine masked
               id: quarantine_rerun
@@ -1590,6 +1607,7 @@ jobs:
                   if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: product-poe-default" .depot/workflows/ci-backend.yml; then
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   rerun_dir="$RUNNER_TEMP/quarantine-rerun"
                   cache_dir="$rerun_dir/pytest-cache"
                   mkdir -p "$cache_dir/v/cache"
@@ -1616,12 +1634,12 @@ jobs:
                   rerun_failed=0
                   rerun_reports=()
                   for product_dir in "${product_dirs[@]}"; do
-                      package=$(jq -r .name "$product_dir/package.json")
-                      rerun_report="$rerun_dir/junit-$(basename "$product_dir").xml"
+                      product=$(basename "$product_dir")
+                      rerun_report="$rerun_dir/junit-$product.xml"
                       rerun_reports+=("$rerun_report")
                       export PYTEST_ADDOPTS="--reuse-db --lf -o cache_dir=$cache_dir --force-reruns 2 --reruns-delay 1 -r fEsxXR --junitxml=$rerun_report $SNAPSHOT_ARGS"
-                      echo "::group::turbo backend:test --filter=$package"
-                      if ! turbo run backend:test --filter="$package" --concurrency=1 --output-logs=full --force --log-order=stream; then
+                      echo "::group::products/$product (rerun)"
+                      if ! bash .github/scripts/run-product-tests.sh "$product"; then
                           rerun_failed=1
                       fi
                       echo "::endgroup::"
@@ -1630,7 +1648,7 @@ jobs:
                       echo "::error::The rerun of the failures the quarantine masked did not pass, so the shard treats them as a real break. The rerun output above shows which test or setup step failed."
                       exit 1
                   fi
-                  # A package script that accepts pytest's exit code 5 passes when --lf selects nothing, and a test that skips exits 0, so check that every masked failure passed.
+                  # The runner accepts pytest's exit code 5, so it passes when --lf selects nothing, and a test that skips exits 0, so check that every masked failure passed.
                   if ! python .github/scripts/junit_node_ids.py unpassed --expected "$rerun_dir/failed.txt" "${rerun_reports[@]}"; then
                       echo "::error::The rerun did not pass the masked failures listed above. A test that skips or never runs does not clear its failure."
                       exit 1

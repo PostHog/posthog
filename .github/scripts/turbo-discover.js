@@ -114,7 +114,8 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 //
 // Every shard in backend CI already starts COMPOSE_PROFILES=temporal, in the django
 // job and in turbo-tests alike, so running a temporal suite here costs no extra
-// infrastructure. The product's backend:test must name its temporal path.
+// infrastructure. The product runner runs every test file under the product, temporal
+// ones included; this set only decides which products count them toward sizing.
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',

@@ -82,6 +82,9 @@ FULL_RUN_PATTERNS = (
     ".test_quarantine.json",
     # CI / Docker infrastructure
     ".depot/workflows/ci-backend.yml",
+    # The product runner and its ignore list decide what every product job runs.
+    ".github/scripts/run-product-tests.sh",
+    ".github/scripts/product-tests-owned-elsewhere.txt",
     # A new path in the events_json list has to run on the PR that adds it.
     ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",
