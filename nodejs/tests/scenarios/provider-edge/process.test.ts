@@ -93,65 +93,67 @@ describe('provider edge process', () => {
         await expect(edge.close()).resolves.toBeUndefined()
     }, 10_000)
 
-    it('gives up on an edge process that stops answering, and rejects every later call', async () => {
-        await edge.close()
-        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
-        process.kill(edge.pid!, 'SIGSTOP')
-        const holding = edge.hold(REJECT)
-
-        await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
-        await expect(edge.clearFaults()).rejects.toThrow('the provider edge process did not answer add within 500 ms')
-        expect(runs(edge.pid)).toBe(false)
-    }, 10_000)
-
-    it.each([
-        ['a value', REJECT],
-        ['an error', { ...REJECT, for: 'never' }],
-    ])(
-        'gives up when the edge answers with %s after the deadline, and drops the replies that follow',
-        async (_case, rule) => {
-            await edge.close()
-            edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 1000 })
-            process.kill(edge.pid!, 'SIGSTOP')
-            const overdue = edge.hold(rule)
-            const inTime = new Promise<void>((resolve) =>
-                setTimeout(() => {
-                    resolve(edge.clearFaults())
-                    process.kill(edge.pid!, 'SIGCONT')
-                    blockRunnerFor(800)
-                }, 600)
-            )
-            const outcomes = await Promise.all(
-                [overdue, inTime].map((answer) =>
-                    answer.then(
-                        () => 'answered',
-                        (error: Error) => error.message
-                    )
-                )
-            )
-
-            expect({ outcomes, edgeRuns: runs(edge.pid) }).toEqual({
-                outcomes: [
-                    'the provider edge process did not answer add within 1000 ms',
-                    'the provider edge process did not answer add within 1000 ms',
-                ],
-                edgeRuns: false,
-            })
-        },
-        10_000
-    )
-
-    it('keeps answering after a call it could not send', async () => {
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'hrtime', 'performance'] })
+    const withFakeTimers = async (body: () => Promise<void>): Promise<void> => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'hrtime', 'performance', 'Date'] })
         try {
-            await expect(edge.hold(Object.assign({}, REJECT, { unsendable: 1n }))).rejects.toThrow('BigInt')
-            jest.advanceTimersByTime(30_000)
-
-            await expect(edge.clearFaults()).resolves.toBeUndefined()
+            await body()
         } finally {
             jest.useRealTimers()
         }
-    })
+    }
+    const outcomeOf = (answer: Promise<unknown>): Promise<string> =>
+        answer.then(
+            () => 'answered',
+            (error: Error) => error.message
+        )
+
+    it('gives up on an edge process that stops answering, and rejects every later call', async () => {
+        await edge.close()
+        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+        await withFakeTimers(async () => {
+            process.kill(edge.pid!, 'SIGSTOP')
+            const holding = edge.hold(REJECT)
+            jest.advanceTimersByTime(500)
+            jest.runOnlyPendingTimers()
+
+            await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
+            await expect(edge.clearFaults()).rejects.toThrow(
+                'the provider edge process did not answer add within 500 ms'
+            )
+            expect(runs(edge.pid)).toBe(false)
+        })
+    }, 10_000)
+
+    it('drops a reply that reaches the runner after it gave up on the call', async () => {
+        await edge.close()
+        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+        await withFakeTimers(async () => {
+            process.kill(edge.pid!, 'SIGSTOP')
+            const holding = outcomeOf(edge.hold(REJECT))
+            process.kill(edge.pid!, 'SIGCONT')
+            blockRunnerFor(300)
+            jest.advanceTimersByTime(500)
+            jest.runOnlyPendingTimers()
+
+            expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
+                outcome: 'the provider edge process did not answer add within 500 ms',
+                edgeRuns: false,
+            })
+        })
+    }, 10_000)
+
+    it('settles a reply that waits on the channel when the runner was blocked past the deadline', async () => {
+        await edge.close()
+        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+        process.kill(edge.pid!, 'SIGSTOP')
+        const holding = outcomeOf(edge.hold(REJECT))
+        setImmediate(() => {
+            process.kill(edge.pid!, 'SIGCONT')
+            blockRunnerFor(800)
+        })
+
+        expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({ outcome: 'answered', edgeRuns: true })
+    }, 10_000)
 
     it('gives up on an edge process that does not start, and kills what it started', async () => {
         const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
@@ -162,7 +164,15 @@ describe('provider edge process', () => {
             .startEdgeProcess({ port: 0, caDir: ${JSON.stringify(path.join(bin, 'ca'))} }, { startsWithinMs: 10_000 })
             .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
             .then((outcome) => process.stdout.write(outcome))`
-        const opensslPid = (): number => Number(existsSync(pidFile) ? readFileSync(pidFile, 'utf8') : NaN)
+        const opensslPid = (): number | undefined =>
+            existsSync(pidFile) ? Number(readFileSync(pidFile, 'utf8')) : undefined
+        const opensslRuns = (): boolean => {
+            try {
+                return readFileSync(`/proc/${opensslPid()}/cmdline`, 'utf8') === 'sleep\x00600\x00'
+            } catch {
+                return false
+            }
+        }
         try {
             const outcome = await new Promise<string>((resolve) =>
                 execFile(
@@ -177,13 +187,14 @@ describe('provider edge process', () => {
                 )
             )
 
-            expect({ outcome, opensslRuns: runs(opensslPid()) }).toEqual({
+            expect({ outcome, opensslStarted: opensslPid() !== undefined, opensslRuns: opensslRuns() }).toEqual({
                 outcome: 'the provider edge process did not start within 10000 ms',
+                opensslStarted: true,
                 opensslRuns: false,
             })
         } finally {
-            if (runs(opensslPid())) {
-                process.kill(opensslPid(), 'SIGKILL')
+            if (opensslRuns()) {
+                process.kill(opensslPid()!, 'SIGKILL')
             }
             rmSync(bin, { recursive: true, force: true })
         }

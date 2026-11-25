@@ -1118,8 +1118,9 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 - **Why.** In the runner, the edge answered on the runner's event loop. A drive that kept that loop busy delayed the edge's health check and its webhooks, so the run read the edge as unheard and ended as a harness limit.
 - **Cost.** The runner supervises a second process. An edge process that dies reads as a lost dependency, because its health check is refused.
   An edge process that stays alive but stops answering IPC is bounded by deadlines: one for its start and one for each call.
-  Past a deadline, by the timer or by a reply read too late, the runner kills the edge's process group and rejects that call, every call still waiting, and every later call with the deadline's error.
-  Replies read after that settle nothing, so an edge that is only slow ends the run the same way as one that hangs.
+  When a deadline passes, the runner reads the channel once more, so a runner that was blocked past the deadline still takes a reply already waiting there.
+  Without a reply, the runner kills the edge's process group and rejects that call, every call still waiting, and every later call with the deadline's error.
+  Replies read after that settle nothing.
 
 ### SNS certificates from the edge, at the real host name
 
