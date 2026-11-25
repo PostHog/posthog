@@ -43,7 +43,7 @@ export type DriveWindow = { startedAt: number; endedAt: number }
 
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
-type Measured = { key?: string; incomplete?: true } & Value
+type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 

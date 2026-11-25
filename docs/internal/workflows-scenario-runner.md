@@ -855,8 +855,8 @@ export type JournalEntry = {
       - `email_bounced`: bounce notifications that the SES webhook answered with a 2xx.
       - `email_failed`: sends the edge refused and never accepted.
     - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when every counter matches the sink, or when no counter changed for 15 seconds. After 60 seconds it keeps the last read and marks it incomplete.
-    - Keys: `owed`, the email messages the journal owes, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift. When ClickHouse cannot be read, each counter's value is `null` and censored.
-    - The count of `$workflows_email_sent` events is not read yet. The stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
+    - Keys: `owed`, the email messages the journal owes, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift. When ClickHouse cannot be read, each counter's value is `null` and censored, and its `_unmeasured` property holds the read's last error.
+    - `email_sent_events`, the count of `$workflows_email_sent` events, is always `null` and censored for now. Its `_unmeasured` property says why: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe
@@ -996,6 +996,7 @@ Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `
 The unit is in the measurement's definition and in the evidence.
 A per-role value that may be short also carries `m_<name>_<role>_incomplete: true`. For `role_rss_max_bytes`, a scrape of that role was missed. For `role_cpu_seconds`, the role restarted, or a scrape after its last sample was missed.
 A complete value has no `_incomplete` property, so compare a flagged value with care.
+A value the run could not measure is `null` and carries `_censored: true`. When the measurement knows why, `_unmeasured` holds the reason as a string.
 
 ## Provisioning the scorecard project
 

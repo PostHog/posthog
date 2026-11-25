@@ -89,6 +89,13 @@ export async function readCounters(
     }
 }
 
+const EVENTS_UNMEASURED = {
+    key: 'email_sent_events',
+    value: null,
+    censored: true,
+    unmeasured: 'the scenario stack runs no ingestion, so no $workflows_email_sent event can be counted',
+} as const
+
 export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
     params: z.object({}).strict(),
@@ -98,7 +105,15 @@ export const counterDrift: MeasurementDefinition = {
             return []
         }
         if ('unread' in counters) {
-            return COUNTERS.map((counter) => ({ key: counter, value: null, censored: true }))
+            return [
+                ...COUNTERS.map((counter) => ({
+                    key: counter,
+                    value: null,
+                    censored: true as const,
+                    unmeasured: counters.unread,
+                })),
+                EVENTS_UNMEASURED,
+            ]
         }
         const sink = sinkCountsOf({ journal, truth })
         const incomplete = counters.incomplete ? { incomplete: true as const } : {}
@@ -109,6 +124,7 @@ export const counterDrift: MeasurementDefinition = {
                 { key: `${counter}_counted`, value: counters.counted[counter], ...incomplete },
                 { key: `${counter}_sink`, value: sink[counter] },
             ]),
+            EVENTS_UNMEASURED,
         ]
     },
 }

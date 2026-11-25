@@ -105,6 +105,7 @@ describe('counter drift', () => {
     ])('%s', (_name, read, expected) => {
         expect(driftOf(journal, truth, { counted: read })).toMatchObject({
             owed: 5,
+            email_sent_events: null,
             email_sent_sink: 2,
             email_bounced_sink: 1,
             email_failed_sink: 1,
@@ -112,17 +113,34 @@ describe('counter drift', () => {
         })
     })
 
+    it.each<[string, CounterReading, string, RegExp]>([
+        ['names the event count unmeasured on every read', { counted: counted() }, 'email_sent_events', /ingestion/],
+        ['records why the counters could not be read', { unread: 'refused' }, 'email_sent', /^refused$/],
+    ])('%s', (_name, counters, key, reason) => {
+        expect(
+            measure([{ name: 'counter_drift', params: {} }], evidence(journal, truth, counters)).find(
+                (row) => row.key === key
+            )
+        ).toEqual({
+            name: 'counter_drift',
+            unit: 'messages',
+            key,
+            value: null,
+            censored: true,
+            unmeasured: expect.stringMatching(reason),
+        })
+    })
+
     it('records each counter as unknown when the counters could not be read', () => {
         expect(
-            measure([{ name: 'counter_drift', params: {} }], evidence(journal, truth, { unread: 'refused' }))
+            measure([{ name: 'counter_drift', params: {} }], evidence(journal, truth, { unread: 'refused' })).map(
+                ({ key, value }) => [key, value]
+            )
         ).toEqual(
-            ['email_sent', 'email_delivered', 'email_bounced', 'email_failed'].map((key) => ({
-                name: 'counter_drift',
-                unit: 'messages',
+            ['email_sent', 'email_delivered', 'email_bounced', 'email_failed', 'email_sent_events'].map((key) => [
                 key,
-                value: null,
-                censored: true,
-            }))
+                null,
+            ])
         )
     })
 })
