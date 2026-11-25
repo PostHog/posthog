@@ -135,7 +135,7 @@ The development build has two separate region values:
 - `dev` remains Local development at `http://localhost:8010` and uses its existing OAuth client ID.
 - `dev-cloud` connects to `https://app.dev.posthog.dev` and uses its dedicated OAuth client ID.
 
-Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://gateway.dev.posthog.dev`.
+Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://ai-gateway.dev.posthog.dev`.
 
 ## Custom cloud
 

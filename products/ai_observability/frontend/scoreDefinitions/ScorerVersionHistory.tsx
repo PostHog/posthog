@@ -6,6 +6,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
+import { ScorerActor } from './ScorerActor'
 import { ScorerSummary } from './ScorerSummary'
 import { scorerVersionHistoryLogic } from './scorerVersionHistoryLogic'
 
@@ -81,8 +82,17 @@ export function ScorerVersionHistory({ definition }: { definition: ScoreDefiniti
                                 )}
                             </div>
                             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
-                                <span>
+                                <span className="flex items-center gap-1">
                                     Created <TZLabel time={selectedVersion.created_at} />
+                                    {(selectedVersion.created_by || selectedVersion.created_by_project_key_id) && (
+                                        <>
+                                            by{' '}
+                                            <ScorerActor
+                                                user={selectedVersion.created_by}
+                                                projectKeyId={selectedVersion.created_by_project_key_id}
+                                            />
+                                        </>
+                                    )}
                                 </span>
                                 <CopyToClipboardInline
                                     explicitValue={selectedVersion.id}

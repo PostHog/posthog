@@ -21,7 +21,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isClickTrackingEnabled, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -117,6 +117,29 @@ const SES_HEADER_VALUE_MAX_LENGTH = 870
  */
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
+
+// References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
+// thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
+export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailType['thread']): MessageHeader[] {
+    if (!thread) {
+        return []
+    }
+    const ids = [...thread.references.filter((id) => id !== thread.inReplyTo), thread.inReplyTo]
+    const [root, ...rest] = ids
+    const newest: string[] = []
+    let length = root.length
+    for (const id of rest.reverse()) {
+        if (length + 1 + id.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            break
+        }
+        length += 1 + id.length
+        newest.unshift(id)
+    }
+    return [
+        { Name: 'In-Reply-To', Value: thread.inReplyTo },
+        { Name: 'References', Value: [root, ...newest].join(' ') },
+    ]
+}
 
 function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
     return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
@@ -741,12 +764,7 @@ export class EmailService {
     ): Promise<WorkflowRunTag | null> {
         // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
         // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
-        if (
-            !trackingEnabled ||
-            invocation.state?.send?.tracking.clicks === false ||
-            isTest ||
-            isSensitiveMessage(invocation)
-        ) {
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
@@ -1624,7 +1642,9 @@ export class EmailService {
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(text ? { text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: Object.fromEntries(
+                [AUTO_SUBMITTED_HEADER, ...threadHeaders(params.thread)].map(({ Name, Value }) => [Name!, Value!])
+            ),
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1800,6 +1820,7 @@ export class EmailService {
                 trackingHeader,
                 ...messageCreatedHeaders,
                 AUTO_SUBMITTED_HEADER,
+                ...threadHeaders(params.thread),
             ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({

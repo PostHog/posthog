@@ -61,6 +61,142 @@ class TestDevices:
         assert [row["id"] for row in result.rows] == ["d1", "d2"]
 
 
+class TestSims:
+    @pytest.mark.parametrize(
+        ("product_id", "script", "expected_paths", "expected_pages"),
+        [
+            # The sandbox list is one response; only the product list pages.
+            (None, [ScriptedResponse(json={"sims": [{"_id": "s1"}, {"_id": "s2"}]})], ["/v1/sims"], [None]),
+            (
+                "31337",
+                [
+                    ScriptedResponse(json={"sims": [{"_id": "s1"}], "meta": {"total_pages": 2}}),
+                    ScriptedResponse(json={"sims": [{"_id": "s2"}], "meta": {"total_pages": 2}}),
+                ],
+                ["/v1/products/31337/sims", "/v1/products/31337/sims"],
+                ["1", "2"],
+            ),
+        ],
+    )
+    def test_lists_every_sim(self, product_id, script, expected_paths, expected_pages):
+        result = SourceDriver(ParticleSource(), _config(product_id=product_id)).run("sims", script)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("page") == expected_pages
+        assert [row["_id"] for row in result.rows] == ["s1", "s2"]
+
+
+class TestFanOut:
+    @pytest.mark.parametrize("product_id", [None, "31337"])
+    def test_sim_data_usage_reads_each_sim_and_tags_rows_with_its_iccid(self, product_id):
+        base = f"/v1/products/{product_id}" if product_id else "/v1"
+        meta = {"meta": {"total_pages": 2}} if product_id else {}
+        sims_pages = (
+            [
+                ScriptedResponse(json={"sims": [{"_id": "s1"}], **meta}),
+                ScriptedResponse(json={"sims": [{"_id": "s2"}, {"_id": "gone"}], **meta}),
+            ]
+            if product_id
+            else [ScriptedResponse(json={"sims": [{"_id": "s1"}, {"_id": "s2"}, {"_id": "gone"}]})]
+        )
+        result = SourceDriver(ParticleSource(), _config(product_id=product_id)).run(
+            "sim_data_usage",
+            route(
+                {
+                    f"{base}/sims": sims_pages,
+                    f"{base}/sims/s1/data_usage": [
+                        ScriptedResponse(
+                            json={
+                                "iccid": "s1",
+                                "usage_by_day": [
+                                    {"date": "2026-11-01", "mbs_used": 1.5, "mbs_used_cumulative": 1.5},
+                                    {"date": "2026-11-02", "mbs_used": 0.5, "mbs_used_cumulative": 2.0},
+                                ],
+                            }
+                        )
+                    ],
+                    f"{base}/sims/s2/data_usage": [ScriptedResponse(json={"iccid": "s2", "usage_by_day": []})],
+                    # Released between the listing and this read.
+                    f"{base}/sims/gone/data_usage": [ScriptedResponse(status=404, json={"ok": False})],
+                }
+            ),
+            incremental_field="date",
+        )
+
+        assert result.raised is None
+        assert [(row["iccid"], row["date"], row["mbs_used"]) for row in result.rows] == [
+            ("s1", "2026-11-01", 1.5),
+            ("s1", "2026-11-02", 0.5),
+        ]
+        assert all("_sims__id" not in row for row in result.rows)
+        assert [path for path in result.paths if path.endswith("/data_usage")] == [
+            f"{base}/sims/s1/data_usage",
+            f"{base}/sims/s2/data_usage",
+            f"{base}/sims/gone/data_usage",
+        ]
+        # The children take no paging params; only the product SIM list pages.
+        assert all(not query for query, path in zip(result.queries, result.paths) if path.endswith("/data_usage"))
+
+    @pytest.mark.parametrize("product_id", [None, "31337"])
+    def test_device_diagnostics_keeps_the_last_vitals_of_each_device(self, product_id):
+        base = f"/v1/products/{product_id}" if product_id else "/v1"
+        devices = [{"id": "d1"}, {"id": "d2"}]
+        result = SourceDriver(ParticleSource(), _config(product_id=product_id)).run(
+            "device_diagnostics",
+            route(
+                {
+                    f"{base}/devices": [
+                        ScriptedResponse(json={"devices": devices, "meta": {"total_pages": 1}})
+                        if product_id
+                        else ScriptedResponse(json=devices)
+                    ],
+                    f"{base}/diagnostics/d1/last": [
+                        ScriptedResponse(
+                            json={
+                                "diagnostics": {
+                                    "updated_at": "2026-11-24T10:00:00.000Z",
+                                    "deviceID": "d1",
+                                    "payload": {"device": {"power": {"battery": {"charge": 88}}}},
+                                }
+                            }
+                        )
+                    ],
+                    # A device that never sent vitals.
+                    f"{base}/diagnostics/d2/last": [ScriptedResponse(status=404, json={"ok": False})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["deviceID"] for row in result.rows] == ["d1"]
+        assert result.rows[0]["payload"] == {"device": {"power": {"battery": {"charge": 88}}}}
+
+
+class TestDeviceGroups:
+    def test_product_groups_are_listed(self):
+        result = SourceDriver(ParticleSource(), _config(product_id="31337")).run(
+            "device_groups",
+            [ScriptedResponse(json={"groups": [{"name": "group_a", "color": "#34495e"}, {"name": "group_b"}]})],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/products/31337/groups"]
+        assert [row["name"] for row in result.rows] == ["group_a", "group_b"]
+
+    def test_sandbox_has_no_groups_and_says_so_in_the_table_picker(self):
+        result = SourceDriver(ParticleSource(), _config()).run("device_groups", [])
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == []
+        permissions = ParticleSource().get_endpoint_permissions(
+            _config(), team_id=1, endpoints=["device_groups", "sims"]
+        )
+        assert permissions["sims"] is None
+        assert "product ID" in (permissions["device_groups"] or "")
+
+
 class TestSchemas:
     def test_events_is_webhook_only_so_it_cannot_be_switched_to_full_refresh(self):
         schemas = {s.name: s for s in ParticleSource().get_schemas(_config(), team_id=1)}
