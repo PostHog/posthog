@@ -238,6 +238,7 @@ MODELS: tuple[CatalogModel, ...] = (
         _NO_EFFORT,
         label="DeepSeek V4.1 Flash",
         cost=_DEEPSEEK_V4_1_FLASH_COST,
+        context_window=1_048_000,
     ),
     CatalogModel(
         "deepseek-ai/deepseek-v4.1-flash-1017-fast",
