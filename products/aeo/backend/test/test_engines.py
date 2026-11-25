@@ -20,6 +20,7 @@ from products.aeo.backend.engines import (
     GATEWAY_MAX_ATTEMPTS,
     MAX_WEB_SEARCHES_PER_PROMPT,
     OPENAI_MAX_OUTPUT_TOKENS,
+    AICreditsExhausted,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
@@ -541,12 +542,14 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     assert fields["target_best_position"] == 1
 
 
-def _response(status: int, retry_after: str | None = None) -> requests.Response:
+def _response(status: int, retry_after: str | None = None, denial: str | None = None) -> requests.Response:
     response = requests.Response()
     response.status_code = status
     response._content = b'{"ok": true}'
     if retry_after is not None:
         response.headers["Retry-After"] = retry_after
+    if denial is not None:
+        response.headers["X-PostHog-Denial"] = denial
     return response
 
 
@@ -555,6 +558,15 @@ def _response(status: int, retry_after: str | None = None) -> requests.Response:
         ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
         ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
         ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+        (
+            "gateway_credit_refusal",
+            [_response(402, denial="credit_bucket_exhausted:ai_credits")],
+            AICreditsExhausted,
+            1,
+            [],
+        ),
+        ("provider_payment_refusal", [_response(402)], requests.HTTPError, 1, []),
+        ("gateway_wallet_refusal", [_response(402, denial="insufficient_credits")], requests.HTTPError, 1, []),
     ]
 )
 def test_gateway_post_json_retries_throttling_and_transient_errors(

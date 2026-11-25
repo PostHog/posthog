@@ -179,6 +179,12 @@ class _SharedBackoff:
 
 GATEWAY_BACKOFF = _SharedBackoff()
 
+CREDIT_REFUSAL_DENIAL = "credit_bucket_exhausted"
+
+
+class AICreditsExhausted(Exception):
+    pass
+
 
 def gateway_request_headers(
     gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], anthropic: bool = False
@@ -192,6 +198,12 @@ def gateway_request_headers(
     return headers
 
 
+def raise_for_gateway_status(response: requests.Response) -> None:
+    if response.status_code == 402 and response.headers.get("X-PostHog-Denial", "").startswith(CREDIT_REFUSAL_DENIAL):
+        raise AICreditsExhausted(response.headers["X-PostHog-Denial"])
+    response.raise_for_status()
+
+
 def gateway_post_json(
     session: requests.Session,
     url: str,
@@ -200,14 +212,15 @@ def gateway_post_json(
     timeout: int = GATEWAY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """POST and decode JSON, retrying throttled and transient errors a bounded number of
-    times; raises requests.RequestException once the attempts run out or on any other failure."""
+    times; raises requests.RequestException once the attempts run out or on any other failure,
+    and AICreditsExhausted when the gateway refuses the team for lack of AI credits."""
     for attempt in range(GATEWAY_MAX_ATTEMPTS):
         GATEWAY_BACKOFF.wait()
         response = session.post(url, headers=headers, json=payload, timeout=timeout)
         if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
             GATEWAY_BACKOFF.pause(_retry_delay_seconds(response, attempt))
             continue
-        response.raise_for_status()
+        raise_for_gateway_status(response)
         return response.json()
     raise AssertionError("unreachable: the last attempt returns or raises")
 

@@ -75,6 +75,11 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
+
+OUT_OF_AI_CREDITS_MESSAGE = (
+    "Your organization reached its AI credit usage limit. "
+    "Increase the limits in Billing settings, or ask an org admin to do so."
+)
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
@@ -563,6 +568,10 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class OutOfAICreditsError(Exception):
+    pass
 
 
 class PromptSuggestionError(Exception):

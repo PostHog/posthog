@@ -60,6 +60,7 @@ from products.aeo.backend.brand import (
     mention_filter,
     segment_filter,
 )
+from products.aeo.backend.credits import raise_if_out_of_ai_credits
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     DEFAULT_DATE_FROM,
@@ -1238,7 +1239,9 @@ def get_keyword_modifiers(
 
 def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -> KeywordSuggestionJob:
     """Queue keyword suggestions and return the pending job. Poll get_keyword_suggestions for the result.
-    Raises KeywordLimitError when the keyword list is already full."""
+    Raises KeywordLimitError when the keyword list is already full, and OutOfAICreditsError when the organization
+    has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     if keyword_suggestions.suggestion_count(request.count, len(keyword_suggestions.existing_keywords(team_id))) == 0:
         raise KeywordLimitError(keyword_suggestions.NO_ROOM_ERROR)
     job = keyword_suggestions.create_job(team_id)
@@ -1270,7 +1273,9 @@ def get_keyword_suggestions(team_id: int, job_id: str) -> KeywordSuggestionJob:
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
-    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
+    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result.
+    Raises OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     job = suggestions.create_job(team_id)
     try:
         suggest_aeo_prompts_task.delay(
@@ -1580,7 +1585,9 @@ def get_setup_context(team_id: int) -> SetupContext:
 
 def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
     """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
-    domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
+    domain or the engines cannot be used, SetupAlreadyRunningError while another setup job is pending, and
+    OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     domain = ""
     engine_changes: dict[str, bool] = {}
     if not request.only_first_run:

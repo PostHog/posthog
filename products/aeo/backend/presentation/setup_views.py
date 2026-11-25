@@ -9,6 +9,7 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.rate_limit import AEOSetupBurstRateThrottle, AEOSetupSustainedRateThrottle
 
 from products.aeo.backend.facade.api import get_setup, get_setup_context, start_setup
@@ -19,6 +20,7 @@ from products.aeo.backend.facade.contracts import (
     SETUP_KEYWORD_COUNT,
     SETUP_PROMPT_COUNT,
     SETUP_WEBSITE_DAYS,
+    OutOfAICreditsError,
     SetupAlreadyRunningError,
     SetupContext,
     SetupJob,
@@ -227,6 +229,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             202: OpenApiResponse(response=AEOSetupJobSerializer),
             400: OpenApiResponse(description="The domain is not valid, or no chosen engine can run."),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
             409: OpenApiResponse(
                 response=AEOSetupConflictSerializer, description="A setup job is already running for the project."
             ),
@@ -256,6 +259,8 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             )
         except SetupRequestError as error:
             raise ValidationError(str(error))
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         except SetupAlreadyRunningError as error:
             return Response(
                 AEOSetupConflictSerializer(

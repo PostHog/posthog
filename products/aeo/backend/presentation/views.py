@@ -15,7 +15,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -85,6 +85,7 @@ from products.aeo.backend.facade.contracts import (
     EngineSetting,
     EngineSettingUpdate,
     InvalidDateRangeError,
+    OutOfAICreditsError,
     PageMover,
     Prompt,
     PromptAuthor,
@@ -1711,7 +1712,10 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
         description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
-        responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        responses={
+            202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
+        },
         tags=["web_analytics"],
     )
     @action(
@@ -1726,17 +1730,20 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
             )
         data = request.validated_data
-        job = start_prompt_suggestions(
-            self.team_id,
-            PromptSuggestionRequest(
-                domain=data["domain"],
-                brand=data.get("brand", ""),
-                description=data.get("description", ""),
-                competitors=tuple(data.get("competitors", [])),
-                topics=tuple(data.get("topics", [])),
-                count=data["count"],
-            ),
-        )
+        try:
+            job = start_prompt_suggestions(
+                self.team_id,
+                PromptSuggestionRequest(
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    competitors=tuple(data.get("competitors", [])),
+                    topics=tuple(data.get("topics", [])),
+                    count=data["count"],
+                ),
+            )
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         return Response(AEOPromptSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(

@@ -36,7 +36,7 @@ from posthog.models.team import Team
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
-from products.aeo.backend.engines import CitationEngine, build_check_fields
+from products.aeo.backend.engines import AICreditsExhausted, CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
 from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -122,6 +122,7 @@ def run_citation_checks(
         for prompt in prompts
     }
     stopped = False
+    out_of_credits = False
     done = 0
     superseded = 0
     pending: set[Future[PromptCheckResult]] = set(futures)
@@ -142,6 +143,7 @@ def run_citation_checks(
                         error=str(e)[:300],
                     )
                 else:
+                    out_of_credits = out_of_credits or result.out_of_credits
                     engine_failures += result.failures
                     checks.extend(result.fields_per_engine)
                     if record and result.fields_per_engine:
@@ -164,12 +166,17 @@ def run_citation_checks(
                     logger.info(
                         "aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
                     )
-            if stop is not None and not stopped and stop.is_set():
+            if not stopped and (out_of_credits or (stop is not None and stop.is_set())):
                 # Drop the queued prompts but keep draining the ones already running: their calls are
                 # paid for, and recording them keeps the next dispatch from repeating them.
                 stopped = True
                 logger.warning(
-                    "aeo_citation_run_stopped", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
+                    "aeo_citation_run_stopped",
+                    team_id=team.id,
+                    run_id=run_id,
+                    done=done,
+                    total=len(prompts),
+                    out_of_credits=out_of_credits,
                 )
                 pending = _drop_queued(pool, pending)
     except BaseException:
@@ -189,7 +196,7 @@ def run_citation_checks(
         cited=sum(1 for check in checks if check["cited"]),
         rows_written=rows_written,
         write_failures=write_failures,
-        error="stopped: the run lease was lost to a later dispatch" if stopped else None,
+        error=_stop_reason(stopped=stopped, out_of_credits=out_of_credits),
         superseded=superseded,
     )
     logger.info(
@@ -215,6 +222,7 @@ class PromptCheckResult:
     prompt: AEOPrompt
     fields_per_engine: list[dict[str, Any]]
     failures: int
+    out_of_credits: bool
 
 
 def _check_prompt(
@@ -223,21 +231,26 @@ def _check_prompt(
     """Run one prompt on every engine. Runs in a worker thread, so it must not touch the database."""
     fields_per_engine: list[dict[str, Any]] = []
     failures = 0
+    out_of_credits = False
     for engine in engines:
         trace_id = str(uuid.uuid4())
-        check = engine.run(
-            prompt.prompt,
-            trace_id=trace_id,
-            custom_properties={
-                "aeo_prompt_id": str(prompt.id),
-                "aeo_run_id": run_id,
-                "aeo_prompt_source": prompt.prompt_source,
-                "aeo_mode": engine.mode.value,
-                # No $ai_ prefix, so the gateway keeps this on the $ai_generation
-                # event, which lets usage attribute spend back to the checked team.
-                "team_id": str(team.id),
-            },
-        )
+        try:
+            check = engine.run(
+                prompt.prompt,
+                trace_id=trace_id,
+                custom_properties={
+                    "aeo_prompt_id": str(prompt.id),
+                    "aeo_run_id": run_id,
+                    "aeo_prompt_source": prompt.prompt_source,
+                    "aeo_mode": engine.mode.value,
+                    # No $ai_ prefix, so the gateway keeps this on the $ai_generation
+                    # event, which lets usage attribute spend back to the checked team.
+                    "team_id": str(team.id),
+                },
+            )
+        except AICreditsExhausted:
+            out_of_credits = True
+            break
         if check.error is not None:
             failures += 1
             logger.warning(
@@ -262,7 +275,9 @@ def _check_prompt(
                 "prompt_version": prompt.current_version,
             }
         )
-    return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
+    return PromptCheckResult(
+        prompt=prompt, fields_per_engine=fields_per_engine, failures=failures, out_of_credits=out_of_credits
+    )
 
 
 def weekly_day(prompt_id: uuid.UUID) -> int:
@@ -443,6 +458,14 @@ def select_prompts(team: Team, limit: int, *, checked_before: Optional[dt.dateti
 
 def _active_prompts(team: Team) -> QuerySet[AEOPrompt]:
     return AEOPrompt.objects.for_team(team.id).filter(active=True, archived_at__isnull=True)
+
+
+def _stop_reason(*, stopped: bool, out_of_credits: bool) -> str | None:
+    if out_of_credits:
+        return "stopped: the organization is out of AI credits"
+    if stopped:
+        return "stopped: the run lease was lost to a later dispatch"
+    return None
 
 
 def _empty_summary(team: Team, error: str) -> CitationRunSummary:
