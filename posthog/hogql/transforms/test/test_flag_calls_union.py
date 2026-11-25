@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -36,7 +37,11 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
-from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+from posthog.hogql.database.schema.flag_evaluations import (
+    FLAG_EVALUATIONS_COMPLETE_DAYS,
+    flag_evaluations_coverage_start,
+    utc_midnight,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
@@ -1986,28 +1991,48 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
 
-    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
-    def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
-        self, _name: str, mode: FlagEvaluationsMode
+    @parameterized.expand(
+        [
+            ("read_flag_evaluations", READ, None, 2),
+            ("flag_evaluations_only", ONLY, None, 1),
+            ("native_events", READ, True, 1),
+        ]
+    )
+    def test_flag_calls_from_before_the_coverage_start_are_read_only_from_events(
+        self, _name: str, mode: FlagEvaluationsMode, new_events_schema: bool | None, flag_calls: int
     ):
-        # Mode 2 writes a flag call only to flag_evaluations.
-        timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
-        if mode == READ:
-            _create_event(
-                event="$feature_flag_called",
-                distinct_id="edge",
-                team=self.team,
-                timestamp=timestamp,
-                properties={"$feature_flag": "edge-flag"},
-            )
-            flush_persons_and_events()
-        _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+        frozen = utc_midnight(datetime.now(UTC)) + timedelta(hours=12)
+        coverage_start = flag_evaluations_coverage_start(frozen)
         bound = f"distinct_id = 'edge' AND timestamp >= now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS + 3} DAY"
+        with time_machine.travel(frozen, tick=False):
+            for timestamp in (coverage_start - timedelta(hours=12), coverage_start):
+                # Mode 2 writes a flag call only to flag_evaluations.
+                if mode == READ:
+                    _create_event(
+                        event="$feature_flag_called",
+                        distinct_id="edge",
+                        team=self.team,
+                        timestamp=timestamp,
+                        properties={"$feature_flag": "edge-flag"},
+                    )
+                _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+            flush_persons_and_events()
 
-        flag_only = self._run(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}", mode)
-        mixed = self._run(f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}", mode)
+            flag_only = self._run(
+                f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}",
+                mode,
+                new_events_schema=new_events_schema,
+            )
+            mixed = self._run(
+                f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}",
+                mode,
+                new_events_schema=new_events_schema,
+            )
+            direct = self._run(
+                f"SELECT count() FROM posthog.flag_evaluations WHERE {bound}", mode, new_events_schema=new_events_schema
+            )
 
-        assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
+        assert (flag_only.results, mixed.results, direct.results) == ([(flag_calls,)], [(flag_calls,)], [(1,)])
 
     def test_inline_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self):
         fresh = _create_person(distinct_ids=["fresh"], team_id=self.team.pk)
