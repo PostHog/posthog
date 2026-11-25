@@ -53,15 +53,12 @@ from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
 )
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
@@ -391,11 +388,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
+            # (name, cutoff set, experiment start/end offsets, query start offset, expected exposures)
             ("fully_before_cutoff", True, -14, -7, -14, {"control": 3, "test": 3}),
             ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 3, "test": 3}),
             ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
-            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 3, "test": 3}),
+            ("fully_after_cutoff_without_cutoff_set", False, 7, 14, 7, {"control": 3, "test": 3}),
             ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 3, "test": 3}),
         ]
     )
@@ -403,7 +400,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_event_selected_relative_to_cutoff(
         self,
         _name,
-        new_event_enabled,
+        cutoff_set,
         start_offset_days,
         end_offset_days,
         query_start_offset_days,
@@ -465,7 +462,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=experiment.exposure_criteria,
         )
 
-        with patch_exposure_event_flag(enabled=new_event_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, expected_exposures)
