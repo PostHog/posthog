@@ -1,10 +1,13 @@
 import dataclasses
+from datetime import timedelta
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.digest import DigestBatchTotals
 
 from ...facade.contracts import DigestRow
+
+NEW_ITEMS_WINDOW = timedelta(days=7)
 
 
 class DigestOutcome(StrEnum):
@@ -90,6 +93,7 @@ class OrgBatchPageInput:
 class DigestBatchInput:
     org_ids: list[str]
     dry_run: bool = False
+    new_since: str | None = None
 
 
 @dataclasses.dataclass(frozen=False)

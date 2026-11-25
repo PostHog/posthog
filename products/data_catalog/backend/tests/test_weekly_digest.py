@@ -35,10 +35,11 @@ from products.data_catalog.backend.temporal.weekly_digest.activities import (
 )
 from products.data_catalog.backend.temporal.weekly_digest.email_context import (
     MAX_PROJECT_SECTIONS,
+    app_url,
     build_project_section,
     build_subject,
     build_template_context,
-    catalog_url,
+    catalog_path,
     pending_rows,
 )
 from products.data_catalog.backend.temporal.weekly_digest.types import (
@@ -96,7 +97,7 @@ class TestEmailContext(SimpleTestCase):
         assert build_subject(new_total, total) == expected
 
     def test_review_links_open_the_queue_filtered_to_proposed_items(self) -> None:
-        assert catalog_url(7, PendingKind.RELATIONSHIPS) == (
+        assert app_url(7, catalog_path(PendingKind.RELATIONSHIPS)) == (
             f"{settings.SITE_URL}/project/7/data-catalog"
             "?tab=relationships&filter=proposed&utm_source=data_catalog_weekly_digest&utm_medium=email"
         )
@@ -115,6 +116,7 @@ class TestEmailContext(SimpleTestCase):
         section = build_project_section(_project(review))
 
         assert "tab=relationships" in section["review_url"]
+        assert section["project_url"] == section["review_url"]
         assert section["rows"][0]["omitted_count"] == 0
         assert section["rows"][1]["omitted_count"] == 8
 
@@ -364,6 +366,34 @@ class TestBuildAndSendForOrg(APIBaseTest):
         counts = _build_and_send_for_org(str(self.organization.id))
 
         assert counts.sent == 1
+
+    def test_a_failing_catalog_read_still_sends_the_other_rows(self) -> None:
+        with (
+            patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(self._model_suggestion_source(),)),
+            patch(f"{_ACTIVITIES}.groups_visible_to", side_effect=RuntimeError("database build failed")),
+        ):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
+        assert [row["noun"] for row in sections[0]["rows"]] == ["model suggestion"]
+
+    def test_a_source_module_that_fails_to_import_keeps_the_catalog_email(self) -> None:
+        with patch(f"{_ACTIVITIES}.load_digest_sources", side_effect=ImportError("broken source module")):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+
+    def test_the_batch_counts_new_items_from_the_cutoff_the_workflow_passes(self) -> None:
+        Metric.objects.unscoped().filter(team=self.team).update(created_at=timezone.now() - timedelta(days=3))
+
+        totals = _run_digest_batch(
+            DigestBatchInput(
+                org_ids=[str(self.organization.id)], new_since=(timezone.now() - timedelta(days=1)).isoformat()
+            )
+        )
+
+        assert (totals.emails_sent, totals.emails_skipped_nothing_new) == (0, 1)
 
     @parameterized.expand([("rows", True, False), ("teams_with_rows", False, True)])
     def test_a_failing_source_keeps_the_catalog_rows(self, _name: str, rows_fail: bool, teams_fail: bool) -> None:

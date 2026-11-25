@@ -3,54 +3,38 @@ from datetime import datetime
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_catalog.backend.facade.contracts import DigestRow
 
-from .facade.enums import (
-    WarehouseSuggestionKind,
-    WarehouseSuggestionStatus,
-    WarehouseSuggestionSubjectKind,
-    WarehouseSuggestionSurface,
-)
-from .logic.access import CATALOG_KINDS, actionable_open_suggestions
+from .facade.enums import WarehouseSuggestionStatus
+from .logic.access import CATALOG_KINDS, actionable_open_suggestions, is_on_models_surface
 from .logic.flags import is_warehouse_suggestions_enabled
 from .models import WarehouseSuggestion
-from .today_highlights import APPROVER_ACCESS_LEVEL, CATALOG_SURFACE, MODEL_KINDS, MODEL_SUBJECT_KINDS, MODELS_SURFACE
+from .today_highlights import APPROVER_ACCESS_LEVEL, CATALOG_SURFACE, MODELS_SURFACE
 
 SAMPLE_SIZE = 5
-ALL_SUBJECT_KINDS = frozenset(WarehouseSuggestionSubjectKind)
 
 
 @frozen
 class DigestGroup:
     noun: str
     path: str
-    kinds: frozenset[WarehouseSuggestionKind]
-    subject_kinds: frozenset[WarehouseSuggestionSubjectKind]
-    excluded_surface: WarehouseSuggestionSurface | None = None
-    required_catalog_level: AccessControlLevel | None = None
 
 
-CATALOG_GROUP = DigestGroup(
-    noun=CATALOG_SURFACE.noun,
-    path="/data-catalog?tab=suggestions",
-    kinds=CATALOG_KINDS,
-    subject_kinds=ALL_SUBJECT_KINDS,
-    excluded_surface=WarehouseSuggestionSurface.MODELS,
-    required_catalog_level=APPROVER_ACCESS_LEVEL,
-)
-MODELS_GROUP = DigestGroup(
-    noun=MODELS_SURFACE.noun,
-    path=MODELS_SURFACE.url,
-    kinds=MODEL_KINDS,
-    subject_kinds=MODEL_SUBJECT_KINDS,
-)
+CATALOG_GROUP = DigestGroup(noun=CATALOG_SURFACE.noun, path="/data-catalog?tab=suggestions")
+MODELS_GROUP = DigestGroup(noun=MODELS_SURFACE.noun, path=MODELS_SURFACE.url)
 
 
 def suggestion_rows(team: Team, user: User, new_since: datetime) -> list[DigestRow]:
-    user_access_control = UserAccessControl(user, team)
-    groups = [group for group in (CATALOG_GROUP, MODELS_GROUP) if _can_review(user_access_control, group)]
-    rows = (_row(team, user, group, new_since) for group in groups)
+    """Runs only for teams `teams_with_open_suggestions` returned, so the organization's flag is already checked."""
+    suggestions = actionable_open_suggestions(team, user)
+    models = [suggestion for suggestion in suggestions if is_on_models_surface(suggestion)]
+    catalog = (
+        [s for s in suggestions if not is_on_models_surface(s) and s.kind in CATALOG_KINDS]
+        if UserAccessControl(user, team).check_access_level_for_resource("data_catalog", APPROVER_ACCESS_LEVEL)
+        else []
+    )
+    rows = [_row(CATALOG_GROUP, catalog, new_since), _row(MODELS_GROUP, models, new_since)]
     return [row for row in rows if row.count]
 
 
@@ -70,16 +54,7 @@ def teams_with_open_suggestions(teams: list[Team]) -> set[int]:
     )
 
 
-def _can_review(user_access_control: UserAccessControl, group: DigestGroup) -> bool:
-    if group.required_catalog_level is None:
-        return True
-    return user_access_control.check_access_level_for_resource("data_catalog", group.required_catalog_level)
-
-
-def _row(team: Team, user: User, group: DigestGroup, new_since: datetime) -> DigestRow:
-    suggestions = actionable_open_suggestions(
-        team, user, group.kinds, group.subject_kinds, excluded_surface=group.excluded_surface
-    )
+def _row(group: DigestGroup, suggestions: list[WarehouseSuggestion], new_since: datetime) -> DigestRow:
     return DigestRow(
         noun=group.noun,
         count=len(suggestions),

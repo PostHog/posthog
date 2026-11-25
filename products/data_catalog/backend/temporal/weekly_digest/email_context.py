@@ -32,14 +32,8 @@ def app_url(team_id: int, path: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}{base}?{urlencode(params)}"
 
 
-def catalog_path(kind: PendingKind | None = None) -> str:
-    if kind is None:
-        return "/data-catalog"
+def catalog_path(kind: PendingKind) -> str:
     return f"/data-catalog?{urlencode({'tab': kind.value, **PROPOSED_FILTER})}"
-
-
-def catalog_url(team_id: int, kind: PendingKind | None = None) -> str:
-    return app_url(team_id, catalog_path(kind))
 
 
 def pending_rows(groups: list[PendingGroup]) -> list[DigestRow]:
@@ -64,7 +58,7 @@ def build_project_section(project: ProjectDigest) -> dict:
     busiest = max(project.rows, key=lambda row: row.count)
     return {
         "team_name": _defanged(sanitize_display_name(project.team_name, fallback=TEAM_NAME_FALLBACK)),
-        "project_url": catalog_url(project.team_id),
+        "project_url": app_url(project.team_id, busiest.path),
         "total": project.total,
         "review_url": app_url(project.team_id, busiest.path),
         "rows": [_build_row(project.team_id, row) for row in project.rows],
