@@ -64,16 +64,13 @@ def compile_event_uuid_query(
     except pydantic.ValidationError as error:
         raise DjangoValidationError({"variables": "The query variables are invalid."}) from error
 
-    user_access_control = UserAccessControl(user=user, team=team)
     compiler = HogQLQueryExecutor(
         query=query,
         team=team,
         user=user,
-        user_access_control=user_access_control,
+        user_access_control=UserAccessControl(user=user, team=team),
         # A deletion must reach every stored row, including rows past the retention or coverage floor.
-        context=HogQLContext(
-            team_id=team.pk, user=user, user_access_control=user_access_control, apply_events_retention_floor=False
-        ),
+        context=HogQLContext(team_id=team.pk, user=user, apply_events_retention_floor=False),
         variables=parsed_variables,
         workload=Workload.OFFLINE,
         ch_user=ch_user,
