@@ -216,11 +216,11 @@ def batch_evaluate_flag_for_team(
         timeout=BATCH_FLAG_EVALUATION_TIMEOUT_SECONDS,
     )
     if response.status_code == 409:
-        error = response.json().get("error")
-        if error in ("property_matching_version_conflict", "null_counts_as_not_set_conflict"):
+        conflict_body = response.json()
+        if conflict_body.get("error") in ("property_matching_version_conflict", "null_counts_as_not_set_conflict"):
             raise PropertyMatchingVersionConflictError(
-                f"Property matching semantics changed while generating a cohort from feature flag '{flag_key}'. "
-                "Re-run cohort generation with the current matching version."
+                f"Property matching semantics changed while generating a cohort from feature flag '{flag_key}' "
+                f"({conflict_body.get('detail')}). Re-run cohort generation with the current matching settings."
             )
         raise FlagVersionConflictError(
             f"Feature flag '{flag_key}' changed while generating the cohort (expected version "

@@ -5348,6 +5348,7 @@ mod tests {
     #[derive(Debug, Clone, Copy)]
     enum NullIsSetTarget {
         PersonFilter,
+        DetailedAnalysis,
         PersonPropertyCohort,
         V2Predicate,
     }
@@ -5355,6 +5356,8 @@ mod tests {
     #[rstest::rstest]
     #[case::person_filter_on(NullIsSetTarget::PersonFilter, true, false)]
     #[case::person_filter_off(NullIsSetTarget::PersonFilter, false, true)]
+    #[case::detailed_analysis_on(NullIsSetTarget::DetailedAnalysis, true, false)]
+    #[case::detailed_analysis_off(NullIsSetTarget::DetailedAnalysis, false, true)]
     #[case::cohort_on(NullIsSetTarget::PersonPropertyCohort, true, false)]
     #[case::cohort_off(NullIsSetTarget::PersonPropertyCohort, false, true)]
     #[case::v2_on(NullIsSetTarget::V2Predicate, true, false)]
@@ -5376,7 +5379,7 @@ mod tests {
         let is_set_on_plan =
             json!([{"key": "plan", "type": "person", "operator": "is_set", "value": "is_set"}]);
         let flag = match target {
-            NullIsSetTarget::PersonFilter => {
+            NullIsSetTarget::PersonFilter | NullIsSetTarget::DetailedAnalysis => {
                 person_property_flag(1, team.id, "null_is_set", "plan", OperatorType::IsSet)
             }
             NullIsSetTarget::PersonPropertyCohort => {
@@ -5413,7 +5416,8 @@ mod tests {
             empty_group_type_cache(),
             None,
         )
-        .with_null_counts_as_not_set(null_counts_as_not_set);
+        .with_null_counts_as_not_set(null_counts_as_not_set)
+        .with_detailed_analysis(matches!(target, NullIsSetTarget::DetailedAnalysis));
 
         let response = matcher
             .evaluate_all_feature_flags(
@@ -5431,6 +5435,15 @@ mod tests {
         let details = &response.flags[&flag.key];
         assert!(!details.failed, "{target:?} must evaluate, not fail");
         assert_eq!(details.enabled, expected_enabled, "{target:?}");
+        if matches!(target, NullIsSetTarget::DetailedAnalysis) {
+            let conditions = details.conditions.as_ref().expect("analysis conditions");
+            let plan = conditions[0]
+                .properties
+                .iter()
+                .find(|p| p.key == "plan")
+                .unwrap();
+            assert_eq!(plan.matched, expected_enabled);
+        }
     }
 
     #[tokio::test]
