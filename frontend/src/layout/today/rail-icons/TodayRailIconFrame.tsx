@@ -2,7 +2,16 @@ import './TodayRailIcon.scss'
 
 import { ReactNode, useId } from 'react'
 
-export type TodayRailIconName = 'home' | 'chats' | 'analytics' | 'monitor' | 'people' | 'automate' | 'data' | 'products'
+export type TodayRailIconName =
+    | 'home'
+    | 'chats'
+    | 'analytics'
+    | 'monitor'
+    | 'people'
+    | 'release'
+    | 'automate'
+    | 'data'
+    | 'products'
 
 interface TodayRailIconFrameProps {
     name: TodayRailIconName

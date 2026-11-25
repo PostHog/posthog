@@ -786,6 +786,7 @@ describe('load', () => {
 
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
+        ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
