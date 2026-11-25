@@ -4,7 +4,10 @@ import { eventsValuesRetrieve } from '~/generated/core/api'
 
 import type { PropertyValues } from '../property/propertyFilterSpec'
 
-/** Recent values of an event property, most common first. Person properties get no suggestions, so they are typed. */
+/**
+ * Recent values of an event property, most common first. Person properties get no suggestions, so they are typed. The
+ * API can answer from a stale cache while it refreshes in the background, which `refreshing` passes on.
+ */
 export const eventPropertyValues: PropertyValues = async ({ key, source }, search, signal) => {
     if (source !== 'event') {
         return []
@@ -14,5 +17,8 @@ export const eventPropertyValues: PropertyValues = async ({ key, source }, searc
         { key, value: search || undefined },
         { signal }
     )
-    return response.results.map(({ name, count }) => ({ value: name, count }))
+    return {
+        options: response.results.map(({ name, count }) => ({ value: name, count })),
+        refreshing: response.refreshing,
+    }
 }

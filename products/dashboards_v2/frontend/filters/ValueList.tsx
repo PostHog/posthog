@@ -4,7 +4,7 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } fr
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { useSearchedOptions } from './useSearchedOptions'
+import { type OptionsLoader, useSearchedOptions } from './useSearchedOptions'
 
 export interface ValueOption {
     value: string
@@ -13,7 +13,7 @@ export interface ValueOption {
 
 export interface ValueListProps {
     /** Returns the values that match the typed text. Left out, the person types each value. */
-    load?: (search: string, signal: AbortSignal) => Promise<ValueOption[]>
+    load?: OptionsLoader<ValueOption>
     selected: string[]
     onChange: (selected: string[]) => void
 }

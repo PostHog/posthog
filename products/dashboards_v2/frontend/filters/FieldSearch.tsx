@@ -1,8 +1,15 @@
 import { useState } from 'react'
 
-import { Autocomplete, AutocompleteInput, AutocompleteItem, AutocompleteList, AutocompleteStatus } from '@posthog/quill'
+import {
+    Autocomplete,
+    AutocompleteInput,
+    AutocompleteItem,
+    AutocompleteList,
+    AutocompleteStatus,
+    Button,
+} from '@posthog/quill'
 
-import { useSearchedOptions } from './useSearchedOptions'
+import { type OptionsLoader, useSearchedOptions } from './useSearchedOptions'
 
 export interface FieldOption {
     key: string
@@ -10,7 +17,7 @@ export interface FieldOption {
 }
 
 export interface FieldSearchProps<Option extends FieldOption> {
-    load: (search: string, signal: AbortSignal) => Promise<Option[]>
+    load: OptionsLoader<Option>
     onPick: (option: Option) => void
     placeholder?: string
 }
@@ -28,7 +35,7 @@ export function FieldSearch<Option extends FieldOption>({
     placeholder = 'Search fields',
 }: FieldSearchProps<Option>): JSX.Element {
     const [search, setSearch] = useState('')
-    const { options, loading } = useSearchedOptions(load, search)
+    const { options, loading, failed, retry } = useSearchedOptions(load, search)
     const [highlighted, setHighlighted] = useState<Option | undefined>()
 
     return (
@@ -54,7 +61,16 @@ export function FieldSearch<Option extends FieldOption>({
                         }
                     }}
                 />
-                <AutocompleteStatus>{(count) => statusText(loading, count)}</AutocompleteStatus>
+                {failed ? (
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-secondary">
+                        Couldn't load fields.
+                        <Button size="sm" variant="outline" onClick={retry} data-attr="dashboard-v2-field-search-retry">
+                            Try again
+                        </Button>
+                    </div>
+                ) : (
+                    <AutocompleteStatus>{(count) => statusText(loading, count)}</AutocompleteStatus>
+                )}
                 <AutocompleteList className="max-h-72">
                     {(option: Option) => (
                         <AutocompleteItem

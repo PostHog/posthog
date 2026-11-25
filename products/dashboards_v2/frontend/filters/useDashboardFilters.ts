@@ -11,7 +11,7 @@ export interface DashboardFiltersOptions {
     types?: FilterDefinition[]
     Bar?: ComponentType<FilterBarProps>
     /** Offers a time range picker with these quick ranges. Left out, the dashboard has no picker. */
-    time?: { ranges?: QuickRange[] }
+    time?: { ranges?: QuickRange[]; timezone?: string }
 }
 
 export function useDashboardFilters({ types, Bar, time }: DashboardFiltersOptions): {
@@ -20,6 +20,6 @@ export function useDashboardFilters({ types, Bar, time }: DashboardFiltersOption
 } {
     // Both hooks always run, as hooks must; an option left out only drops its part from the result.
     const filters = useFiltersController(types ?? [], Bar)
-    const timeRange = useTimeRangeController(time?.ranges)
+    const timeRange = useTimeRangeController(time?.ranges, time?.timezone)
     return { filters: types ? filters : undefined, timeRange: time ? timeRange : undefined }
 }

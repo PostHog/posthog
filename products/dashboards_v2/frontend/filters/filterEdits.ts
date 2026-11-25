@@ -6,13 +6,15 @@ export type FilterEdit =
     | { edit: 'addFilter'; filter: Omit<DashboardFilter, 'id'> }
     | { edit: 'removeFilter'; id: string }
 
+// Random rather than counted: a viewer's value is kept by id, so a reused id would hand a removed filter's value to
+// the filter added after it.
 function newFilterId(filters: DashboardFilter[]): string {
     const taken = new Set(filters.map((filter) => filter.id))
-    let n = filters.length + 1
-    while (taken.has(`filter${n}`)) {
-        n++
-    }
-    return `filter${n}`
+    let id: string
+    do {
+        id = `filter-${Math.random().toString(36).slice(2, 10)}`
+    } while (taken.has(id))
+    return id
 }
 
 export function applyFilterEdit(dashboard: Dashboard, edit: FilterEdit): Dashboard {

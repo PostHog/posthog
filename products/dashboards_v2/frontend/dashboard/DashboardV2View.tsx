@@ -218,6 +218,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
                                                         value={time}
                                                         onChange={controller.timeRange.onChange}
                                                         ranges={controller.timeRange.ranges}
+                                                        timezone={controller.timeRange.timezone}
                                                     />
                                                 )}
                                                 <div className="min-w-0 flex-1">

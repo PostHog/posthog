@@ -39,7 +39,7 @@ function DashboardV2(): JSX.Element {
     const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, timezone } = useValues(teamLogic)
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
     const runsRealQueries =
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
@@ -58,7 +58,7 @@ function DashboardV2(): JSX.Element {
     // sample runner applies them, so a filter bar there would narrow nothing.
     const { filters, timeRange } = useDashboardFilters({
         types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
-        time: {},
+        time: { timezone },
     })
     const controller = useMemo<DashboardV2Controller>(
         () => ({

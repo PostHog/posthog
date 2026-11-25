@@ -4,7 +4,7 @@ import type { DashboardFilter } from '../dashboard/dashboardTypes'
 import { AddFilterMenu } from './AddFilterMenu'
 import type { FilterDefinition } from './filterDefinition'
 import { FilterPill } from './FilterPill'
-import { activeFirst } from './filtersContext'
+import { activeFirst, filterValue } from './filtersContext'
 import { FitRow } from './FitRow'
 
 export interface FilterBarProps {
@@ -44,7 +44,7 @@ export function FilterBar({
                     <FilterPill
                         filter={filter}
                         types={types}
-                        value={values[filter.id]}
+                        value={filterValue(values, filter.id)}
                         onChange={(value) => onValueChange(filter.id, value)}
                         onRemove={onRemove && (() => onRemove(filter.id))}
                         defaultOpen={filter.id === justAdded}

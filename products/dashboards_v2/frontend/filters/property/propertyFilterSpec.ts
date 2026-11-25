@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { FilterSpec } from '../filterSpec'
+import type { LoadedOptions } from '../useSearchedOptions'
 import type { ValueOption } from '../ValueList'
 import type { PropertyCondition } from './propertyOperators'
 
@@ -24,7 +25,7 @@ export type PropertyValues = (
     config: PropertyFilterConfig,
     search: string,
     signal: AbortSignal
-) => Promise<ValueOption[]>
+) => Promise<LoadedOptions<ValueOption>>
 
 export const PROPERTY_FILTER_TYPE = 'property'
 

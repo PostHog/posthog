@@ -1,7 +1,6 @@
 import { type DateTimeRange, type DateTimeValue, CUSTOM_RANGE } from '@posthog/quill'
 
 import { type Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { RELATIVE_TIME } from '../dashboard/dashboardSchema'
 import type { TimeRange } from '../dashboard/dashboardTypes'
@@ -20,31 +19,46 @@ export const DEFAULT_QUICK_RANGES: QuickRange[] = [
     { label: 'Last 90 days', from: 'now-90d' },
 ]
 
-// Dashboards and the query batch API write minutes as `m` and months as `M`. PostHog's date helpers swap them.
-const POSTHOG_UNIT: Record<string, string> = { m: 'M', M: 'm' }
+const UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86_400, w: 604_800 }
+const HAS_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i
 
-/** A point of a saved range as a date, resolved the way the backend resolves it. The schema rejects any other form. */
-function resolve(point: string): Dayjs {
+/**
+ * A point of a saved range as a date, resolved the way the query batch API resolves it: `now-` minus a fixed span,
+ * except months and years, which step back on the calendar in `timezone`, and an ISO time without an offset read in
+ * `timezone`. Left out, `timezone` is the browser's. The schema rejects any other form.
+ */
+function resolve(point: string, timezone?: string): Dayjs {
     const match = RELATIVE_TIME.exec(point)
-    const relative = match ? dateStringToDayJs(`-${match[1]}${POSTHOG_UNIT[match[2]] ?? match[2]}`) : null
-    return relative ?? (point === 'now' ? dayjs() : dayjs(point))
+    if (match) {
+        const amount = Number(match[1])
+        const unit = match[2]
+        if (unit === 'M' || unit === 'y') {
+            const now = timezone ? dayjs().tz(timezone) : dayjs()
+            return now.subtract(amount, unit === 'M' ? 'month' : 'year')
+        }
+        return dayjs().subtract(amount * UNIT_SECONDS[unit], 'second')
+    }
+    if (point === 'now') {
+        return dayjs()
+    }
+    return timezone && !HAS_OFFSET.test(point) ? dayjs.tz(point, timezone) : dayjs(point)
 }
 
 /** The presets as quill's picker takes them. Ids start at 1, because 0 is the picker's custom range. */
-export function pickerRanges(quick: QuickRange[]): DateTimeRange[] {
+export function pickerRanges(quick: QuickRange[], timezone?: string): DateTimeRange[] {
     return quick.map(({ label, from }, index) => ({
         id: index + 1,
         name: label,
-        rangeSetter: () => resolve(from).toDate(),
+        rangeSetter: () => resolve(from, timezone).toDate(),
     }))
 }
 
-export function toPickerValue(time: TimeRange, quick: QuickRange[]): DateTimeValue {
+export function toPickerValue(time: TimeRange, quick: QuickRange[], timezone?: string): DateTimeValue {
     const index = time.to === 'now' ? quick.findIndex((range) => range.from === time.from) : -1
     return {
-        start: resolve(time.from).toDate(),
-        end: resolve(time.to).toDate(),
-        range: index >= 0 ? pickerRanges(quick)[index] : CUSTOM_RANGE,
+        start: resolve(time.from, timezone).toDate(),
+        end: resolve(time.to, timezone).toDate(),
+        range: index >= 0 ? pickerRanges(quick, timezone)[index] : CUSTOM_RANGE,
     }
 }
 
@@ -55,10 +69,10 @@ export function fromPickerValue(value: DateTimeValue, quick: QuickRange[]): Time
         : { from: value.start.toISOString(), to: value.end.toISOString() }
 }
 
-export function describeTimeRange(time: TimeRange, quick: QuickRange[]): string {
+export function describeTimeRange(time: TimeRange, quick: QuickRange[], timezone?: string): string {
     const preset = time.to === 'now' ? quick.find((range) => range.from === time.from) : undefined
     if (preset) {
         return preset.label
     }
-    return `${resolve(time.from).format('MMM D')} – ${resolve(time.to).format('MMM D')}`
+    return `${resolve(time.from, timezone).format('MMM D')} – ${resolve(time.to, timezone).format('MMM D')}`
 }

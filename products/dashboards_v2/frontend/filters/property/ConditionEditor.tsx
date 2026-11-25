@@ -1,5 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
+import type { OptionsLoader } from '../useSearchedOptions'
 import { type ValueOption, ValueList } from '../ValueList'
 import type { OperatorOption } from './propertyOperators'
 import { TypedValue } from './TypedValue'
@@ -13,9 +14,11 @@ export function ConditionEditor({
 }: {
     options: OperatorOption[]
     draft: Draft
-    loadValues?: (search: string, signal: AbortSignal) => Promise<ValueOption[]>
+    loadValues?: OptionsLoader<ValueOption>
     onChange: (draft: Draft) => void
 }): JSX.Element {
+    // A draft made before the property's type loaded can hold an operator the type does not offer. The first offered
+    // one shows instead, and is the one a value is saved with.
     const option = options.find((candidate) => candidate.operator === draft.operator) ?? options[0]
     const pickOperator = (operator: unknown): void => {
         const next = options.find((candidate) => candidate.operator === operator)
@@ -48,7 +51,7 @@ export function ConditionEditor({
                 <ValueList
                     load={loadValues}
                     selected={Array.isArray(draft.value) ? draft.value : []}
-                    onChange={(picked) => onChange({ ...draft, value: picked })}
+                    onChange={(picked) => onChange({ ...draft, operator: option.operator, value: picked })}
                 />
             )}
             {(option.input === 'text' || option.input === 'number') && (
@@ -56,7 +59,7 @@ export function ConditionEditor({
                     key={`${draft.id}-${option.operator}`}
                     option={option}
                     value={draft.value}
-                    onChange={(next) => onChange({ ...draft, value: next })}
+                    onChange={(next) => onChange({ ...draft, operator: option.operator, value: next })}
                 />
             )}
         </>

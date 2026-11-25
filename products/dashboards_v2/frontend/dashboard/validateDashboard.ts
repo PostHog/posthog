@@ -13,7 +13,7 @@ import {
     tileSchema,
     widgetRefSchema,
 } from './dashboardSchema'
-import { type ContentWidget, GRID } from './dashboardTypes'
+import { type ContentWidget, type DashboardFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
@@ -154,6 +154,7 @@ export function validateDashboard(
     }
 
     const filterIds = new Set<string>()
+    const validFilters: Omit<DashboardFilter, 'id'>[] = []
     parsed.data.filters?.forEach((filter, index) => {
         const path = `filters[${index}]`
         if (filterIds.has(filter.id)) {
@@ -173,10 +174,10 @@ export function validateDashboard(
             problems.push(...issuesAt(`${path}.config`, config.error))
             return
         }
-        const earlier = parsed.data.filters?.slice(0, index) ?? []
-        if (hasFilterOn(earlier, filter, filters)) {
+        if (hasFilterOn(validFilters, filter, filters)) {
             problems.push({ path, message: 'Another filter already narrows this field' })
         }
+        validFilters.push(filter)
     })
 
     parsed.data.tabs.forEach((tab, index) => {
