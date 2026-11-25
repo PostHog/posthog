@@ -15,6 +15,9 @@ if TYPE_CHECKING:
         Tokenizer,
     )
 
+MAX_DIRECT_SQL_NESTING_DEPTH = 100
+_TOO_COMPLEX_ERROR = "Raw query is too complex to validate. Simplify the query and try again."
+
 
 @lru_cache(maxsize=16)
 def _tokenizer_class(dialect: str, alternate_escapes: bool = False) -> type["Tokenizer"]:
@@ -83,6 +86,24 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, s
     return [Token(kind, value) for kind, value in (classified[:-1] if is_call else classified)]
 
 
+def _ensure_nesting_within_limit(lexed: list["DialectToken"]) -> None:
+    from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
+
+    # sqlparse grouping cost grows much faster than linearly with nesting depth, so deep input
+    # is rejected before grouping. The limit matches sqlparse's own MAX_GROUPING_DEPTH.
+    openers = {TokenType.L_PAREN, TokenType.L_BRACKET, TokenType.L_BRACE, TokenType.CASE}
+    closers = {TokenType.R_PAREN, TokenType.R_BRACKET, TokenType.R_BRACE, TokenType.END}
+    depth = 0
+    for token in lexed:
+        if token.token_type in openers:
+            depth += 1
+            if depth > MAX_DIRECT_SQL_NESTING_DEPTH:
+                raise ExposedHogQLError(_TOO_COMPLEX_ERROR)
+        elif token.token_type in closers:
+            # END also closes blocks that are not counted as openers, so never go below zero.
+            depth = max(depth - 1, 0)
+
+
 def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
@@ -107,6 +128,7 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
     lexed = _single_statement_tokens(sql, dialect)
+    _ensure_nesting_within_limit(lexed)
     tokens: list[Token] = []
     for index, token in enumerate(lexed):
         is_call = index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.L_PAREN
@@ -118,7 +140,7 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
     try:
         return [group(Statement(tokens))] if tokens else []
     except (SQLParseError, RecursionError) as error:
-        raise ExposedHogQLError("Raw query is too complex to validate. Simplify the query and try again.") from error
+        raise ExposedHogQLError(_TOO_COMPLEX_ERROR) from error
 
 
 def ensure_single_direct_statement(sql: str, *, dialect: str) -> str:
