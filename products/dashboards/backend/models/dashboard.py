@@ -12,13 +12,7 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
-# The aliased names are re-exported because presentation/views/dashboard.py imports them from this module.
-from products.dashboards.backend.facade.enums import (
-    DASHBOARD_GRID_COMPACTION_MODES as DASHBOARD_GRID_COMPACTION_MODES,
-    DASHBOARD_GRID_SPACING_GAPS as DASHBOARD_GRID_SPACING_GAPS,
-    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
-    TileGroupDisplay,
-)
+from products.dashboards.backend.facade.enums import DASHBOARD_TILE_GROUP_DISPLAY_MODES, TileGroupDisplay
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

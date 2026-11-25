@@ -7,6 +7,8 @@ it, and a data type that crosses the product boundary belongs here.
 
 The layout and tile group choices, defaults and limits back the dashboard models, the
 customization rules and the API serializers in presentation, so they are defined here once.
+The other request limits that the dashboard views enforce are re-exported from
+``backend/constants.py``, because presentation reads internals only through the facade.
 """
 
 from enum import StrEnum
@@ -17,6 +19,9 @@ from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
+    MAX_GROUPS,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+    MAX_WIDGETS_BATCH_SIZE,
 )
 
 
@@ -154,8 +159,11 @@ __all__ = [
     "DASHBOARD_GRID_SPACING_GAPS",
     "DASHBOARD_TILE_GROUP_DEFAULTS",
     "DASHBOARD_TILE_GROUP_DISPLAY_MODES",
+    "MAX_GROUPS",
     "MAX_GROUP_KEY_LENGTH",
     "MAX_GROUP_TITLE_LENGTH",
+    "MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH",
+    "MAX_WIDGETS_BATCH_SIZE",
     "DashboardAccessMethod",
     "DashboardCreationMode",
     "DashboardTemplateOrdering",

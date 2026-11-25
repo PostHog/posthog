@@ -43,7 +43,7 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/frontend/widgets/widgetConfigSchemaParity.test.ts`     | FE Zod keys ↔ `widget-config-property-keys.json`                                               |
 | `posthog/openapi/enum_collisions.py`                                        | Shared enum collision logic for `find_enum_collisions` + CI                                    |
 | `products/dashboards/backend/presentation/views/dashboard.py`               | `run_widgets`, batch add, sharing serializers (generic only)                                   |
-| `products/dashboards/backend/widget_query_throttle.py`                      | Per-team burst/sustained caps on `run_widgets`                                                 |
+| `products/dashboards/backend/presentation/widget_query_throttle.py`         | Per-team burst/sustained caps on `run_widgets`                                                 |
 | `products/dashboards/backend/widget_access.py`                              | RBAC denial copy                                                                               |
 | `products/dashboards/frontend/widgets/**`                                   | Component, edit modal, registry, previews                                                      |
 | `products/dashboards/frontend/widget_types/**`                              | Catalog, `widgetConfigShared.ts` UI labels, availability                                       |
