@@ -143,6 +143,10 @@ export class SkillCatalog {
         return new SkillCatalog([...skillsByName.values()])
     }
 
+    filter(keep: (name: string) => boolean): SkillCatalog {
+        return new SkillCatalog([...this.skillsByName.values()].filter((skill) => keep(skill.name)))
+    }
+
     mapText(rewrite: (text: string) => string): SkillCatalog {
         return new SkillCatalog(
             [...this.skillsByName.values()].map((skill) => ({

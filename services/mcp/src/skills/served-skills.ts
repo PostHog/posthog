@@ -1,0 +1,59 @@
+import z from 'zod'
+
+import servedSkillsJson from '@/generated/served-skills.json'
+import { POSTHOG_AI_CONSUMER, SLACK_CONSUMER } from '@/lib/client-detection'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
+
+import contextMillSkillsJson from './context-mill-skills.json'
+
+// The PostHog-run agents that read skills through `learn`. Other PostHog consumers read an installed copy.
+const SkillConsumerSchema = z.enum([SLACK_CONSUMER, POSTHOG_AI_CONSUMER])
+
+const ServedSkillSchema = z.strictObject({
+    // The generated file carries each product skill's audience. A skill with any other audience must not be in it.
+    audience: z.enum(['customer', 'scout']).optional(),
+    feature_flag: z.string().min(1).optional(),
+    consumers: z.array(SkillConsumerSchema).min(1).optional(),
+})
+
+// Strict, so a misspelled key fails the load instead of serving a gated skill to everyone.
+const ServedSkillsSchema = z.strictObject({
+    skills: z.record(z.string(), ServedSkillSchema),
+    context_mill_skills: z.record(z.string(), ServedSkillSchema),
+})
+
+export type ServedSkills = Map<string, z.infer<typeof ServedSkillSchema>>
+
+export interface SkillCaller {
+    featureFlags?: EvaluatedFlags | undefined
+    consumer?: string | undefined
+}
+
+export function parseServedSkills(json: unknown): ServedSkills {
+    const { skills, context_mill_skills } = ServedSkillsSchema.parse(json)
+    const contextMillNames = new Set(Object.keys(context_mill_skills))
+    const listedTwice = Object.keys(skills).filter((name) => contextMillNames.has(name))
+    if (listedTwice.length > 0) {
+        // The second entry would replace the first and could drop its flag or consumer limit.
+        throw new Error(`Served skills listed in both sections: ${listedTwice.join(', ')}`)
+    }
+    return new Map([...Object.entries(skills), ...Object.entries(context_mill_skills)])
+}
+
+// Product skills come from the file generated from their headers. Context-mill skills live in another repo, so their list is kept here.
+const SERVED_SKILLS = parseServedSkills({ skills: servedSkillsJson.skills, context_mill_skills: contextMillSkillsJson })
+
+export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS): string[] {
+    return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]
+}
+
+export function isSkillServed(name: string, caller: SkillCaller = {}, served: ServedSkills = SERVED_SKILLS): boolean {
+    const entry = served.get(name)
+    if (!entry) {
+        return false
+    }
+    if (entry.feature_flag !== undefined && caller.featureFlags?.[entry.feature_flag] !== true) {
+        return false
+    }
+    return entry.consumers === undefined || entry.consumers.some((consumer) => consumer === caller.consumer)
+}
