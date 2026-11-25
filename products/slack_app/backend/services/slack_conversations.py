@@ -92,6 +92,20 @@ def _channel_privacy_from_slack(
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
 
 
+def resolve_channel_name(slack: SlackIntegration, channel_id: str) -> str | None:
+    if channel_id.startswith("D"):
+        return None
+    try:
+        channel = slack.client.conversations_info(channel=channel_id).get("channel") or {}
+    except Exception:
+        logger.warning("slack_app_channel_name_lookup_failed", channel_id=channel_id, exc_info=True)
+        return None
+    if channel.get("is_im") or channel.get("is_mpim"):
+        return None
+    name = channel.get("name")
+    return name if isinstance(name, str) and name else None
+
+
 def channel_is_ext_shared(slack: SlackIntegration, channel: str) -> bool:
     """Whether the channel is a Slack Connect channel.
 

@@ -409,6 +409,7 @@ def _build_posthog_code_task_description(
     initiator_ts: str | None,
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
+    channel_name: str | None = None,
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
     context up front and the initiator's @mention is the actionable prompt at the end.
@@ -474,7 +475,16 @@ def _build_posthog_code_task_description(
     if context_entries and context_entries[-1].endswith(_INITIATOR_PLACEHOLDER):
         context_entries.pop()
 
+    channel_line = (
+        f"The thread is in the Slack channel #{channel_name}. Its name can say what the work is for, "
+        "such as an incident."
+        if channel_name
+        else None
+    )
+
     if not context_entries:
+        if channel_line:
+            return f"<{_THREAD_CONTEXT_TAG}>\n{channel_line}\n</{_THREAD_CONTEXT_TAG}>\n\n{prompt}"
         return prompt
 
     # Fall back to deriving the mentioner from `mentioner_slack_user_id` when the
@@ -525,7 +535,7 @@ def _build_posthog_code_task_description(
         "reuse those mention tokens verbatim when you need to ping a participant back.",
     ]
 
-    header_lines = [*origin_lines, _ASK_IN_PROSE_LINE]
+    header_lines = [*origin_lines, *([channel_line] if channel_line else []), _ASK_IN_PROSE_LINE]
     header = "\n".join(header_lines)
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
@@ -708,7 +718,7 @@ def create_posthog_code_task_for_repo_activity(
     )
     from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
+    from products.slack_app.backend.services.slack_conversations import resolve_channel_name, resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
@@ -847,6 +857,7 @@ def create_posthog_code_task_for_repo_activity(
             user_message_ts,
             mentioner_slack_user_id=slack_user_id,
             mentioner_display_name=mentioner_display_name,
+            channel_name=resolve_channel_name(slack, channel),
         )
 
     slack_thread_context = SlackThreadContext(

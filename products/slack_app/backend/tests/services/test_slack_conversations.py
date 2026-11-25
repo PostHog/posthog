@@ -4,7 +4,11 @@ from unittest.mock import MagicMock
 from slack_sdk.errors import SlackApiError
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared, resolve_conversation_type
+from products.slack_app.backend.services.slack_conversations import (
+    channel_is_ext_shared,
+    resolve_channel_name,
+    resolve_conversation_type,
+)
 
 ConversationType = SlackThreadTaskMapping.ConversationType
 
@@ -78,6 +82,20 @@ class TestResolveConversationType:
         result = resolve_conversation_type(_slack(error=error), {"type": "app_mention"}, "C123")
 
         assert result == ConversationType.UNKNOWN
+
+
+class TestResolveChannelName:
+    @pytest.mark.parametrize(
+        "channel_id,slack,expected",
+        [
+            ("C123", _slack({"name": "inc-example"}), "inc-example"),
+            ("C123", _slack({"is_mpim": True, "name": "mpdm-a--b-1"}), None),
+            ("C123", _slack(error=SlackApiError("missing_scope", {"error": "missing_scope"})), None),
+            ("D123", _slack({"name": "should-not-be-read"}), None),
+        ],
+    )
+    def test_names_channels_only(self, channel_id: str, slack: MagicMock, expected: str | None) -> None:
+        assert resolve_channel_name(slack, channel_id) == expected
 
 
 class TestChannelIsExtShared:

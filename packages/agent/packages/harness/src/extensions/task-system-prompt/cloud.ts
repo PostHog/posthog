@@ -30,6 +30,8 @@ export interface CloudTaskPromptOptions {
   taskRepositories: string[];
 }
 
+const SECURITY_FIX_PUBLISH_EXCEPTION = `- **Security fixes are the exception to publishing without asking.** A change is a security fix when it closes a weakness that may be exploitable now: for example exposure of credentials or secrets, access to another account's data, an authentication or access-control bypass, or code execution. Treat the request as one when its context says so, such as a Slack channel named for an incident or a thread about an exploit, even if the request itself reads like a routine change. For a security fix, do NOT push a branch, commit to a remote branch, or open a pull request or merge request, not even as a draft: a draft in a public repository is public, and so is a branch. Make the change locally, then tell the user it looks like a security fix, which repository you would publish it to and why, and wait for their answer. When the repository has its own guidance on routing security fixes (for example in \`AGENTS.md\`, \`.agents/security.md\` or \`SECURITY.md\`), follow it. A request to fix the weakness does not answer the question of where to publish it. If you are unsure whether a change is a security fix, ask.`;
+
 export class CloudTaskPrompt {
   constructor(private readonly options: CloudTaskPromptOptions) {}
 
@@ -141,6 +143,7 @@ After completing the requested changes:
 
 Important:
 - Do NOT create a new branch or a new merge request unless the user explicitly asks.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${common}
 `;
     }
@@ -161,7 +164,8 @@ If this same request already has an open merge request (for example, an earlier 
 Otherwise, after completing the requested changes, ${openMr}
 
 Important:
-- Always open the merge request as a draft. Do not ask for confirmation.
+- Always open the merge request as a draft. Do not ask for confirmation, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${common}
 `;
   }
@@ -384,6 +388,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${commonInstructions}
 `;
     }
@@ -415,7 +420,8 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
+- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}`
             : `
 When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a default PR template at \`.github/pull_request_template.md\` (or variants) and named templates in \`.github/PULL_REQUEST_TEMPLATE/*.md\`. If multiple templates exist, use the one that best matches the change as the body structure. If no repo-level template exists, check the org's \`.github\` repo via \`gh api\` for a default or named template. Search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
@@ -500,7 +506,8 @@ ${prFooter}
 \`\`\`
 
 Important:
-- Always create the PR as a draft. Do not ask for confirmation.
+- Always create the PR as a draft. Do not ask for confirmation, except for a security fix.
+${SECURITY_FIX_PUBLISH_EXCEPTION}
 ${commonInstructions}
 `;
   }
