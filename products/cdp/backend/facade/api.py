@@ -24,6 +24,7 @@ from posthog.models.user import User
 
 from products.actions.backend.facade.enums import ACTIONS_ARRAY_JSONPATH
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
+from products.cdp.backend.internal_events import register_alert_destination_edit_gate
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
 
@@ -39,6 +40,7 @@ __all__ = [
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
+    "register_alert_destination_edit_gate",
     "warehouse_tables_with_enabled_hog_functions",
 ]
 
