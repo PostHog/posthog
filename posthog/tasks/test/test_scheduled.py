@@ -1,16 +1,93 @@
-from unittest.mock import MagicMock
+import json
+from queue import Empty
+
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from celery.schedules import crontab
+from kombu import Connection
 from parameterized import parameterized
 
 from posthog.celery import app
 from posthog.tasks.scheduled import instance_spread_minute, setup_periodic_tasks
+from posthog.tasks.tasks import send_delayed_org_usage_reports
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 
 
 class TestScheduledTasks(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.addCleanup(app.conf.update, task_always_eager=app.conf.task_always_eager)
+        app.conf.update(task_always_eager=False)
+
+    @parameterized.expand(
+        [
+            ("daily", "US", "send instance usage report", False),
+            ("delayed_eu", "EU", "send delayed org usage reports", False),
+            ("delayed_us", "US", "send delayed org usage reports", False),
+            ("delayed_json", "EU", "send delayed org usage reports", True),
+        ]
+    )
+    def test_usage_report_schedule_publishes_organization_filter(
+        self, _name: str, region: str, schedule_name: str, json_payload: bool
+    ) -> None:
+        organization_ids = {
+            "EU": ["00000000-0000-0000-0000-000000000001"],
+            "US": ["00000000-0000-0000-0000-000000000002"],
+        }
+        sender = MagicMock()
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region),
+            patch(
+                "posthog.tasks.tasks.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ) as flag_payload,
+            Connection("memory://") as connection,
+        ):
+            setup_periodic_tasks(sender)
+            flag_payload.return_value = json.dumps(organization_ids) if json_payload else organization_ids
+            signature = next(
+                call.args[1]
+                for call in sender.add_periodic_task.call_args_list
+                if call.kwargs.get("name") == schedule_name
+            )
+            with patch.object(app, "producer_or_acquire", return_value=connection.Producer()):
+                signature.apply(throw=True)
+            with connection.SimpleQueue("usage_reports") as queue:
+                message = queue.get(block=False)
+                message.ack()
+                assert message.headers["task"] == "posthog.tasks.usage_report.send_all_org_usage_reports"
+                expected = None if schedule_name == "send instance usage report" else organization_ids[region]
+                assert message.payload[1].get("organization_ids") == expected
+
+    @parameterized.expand(
+        [
+            ("unavailable", None),
+            ("empty_payload", {}),
+            ("empty_list", {"EU": []}),
+            ("other_region_only", {"US": ["00000000-0000-0000-0000-000000000001"]}),
+            ("invalid_json", "not json"),
+            ("invalid_payload", []),
+            ("invalid_list", {"EU": "00000000-0000-0000-0000-000000000001"}),
+            ("empty_id", {"EU": [""]}),
+            ("invalid_id_type", {"EU": [None]}),
+        ]
+    )
+    def test_delayed_usage_report_does_not_publish_without_valid_organizations(
+        self, _name: str, payload: object
+    ) -> None:
+        with (
+            self.settings(CLOUD_DEPLOYMENT="EU"),
+            patch("posthog.tasks.tasks.posthoganalytics.get_feature_flag_payload", return_value=payload),
+            Connection("memory://") as connection,
+            patch.object(app, "producer_or_acquire", return_value=connection.Producer()),
+        ):
+            send_delayed_org_usage_reports.apply(throw=True)
+            with connection.SimpleQueue("usage_reports") as queue:
+                with self.assertRaises(Empty):
+                    queue.get(block=False)
+
     def test_spend_recovery_runs_every_ten_minutes_and_expires_before_the_next_sweep(self) -> None:
         sender = MagicMock()
         setup_periodic_tasks(sender)

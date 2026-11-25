@@ -8,6 +8,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -29,6 +30,12 @@ if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
 PARTNER_CALLBACK = "https://partner.example.com/callback"
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
+MEMBERS_CAN_CREATE_PROJECTS_FEATURE = {
+    "key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+    "name": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+}
 
 
 class AuthorizeTestBase(ProvisioningTestBase):
@@ -127,18 +134,41 @@ class TestAgenticAuthorize(AuthorizeTestBase):
         assert code_data["partner_id"] == str(partner.id)
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_ok") is None
 
-    def test_trusted_partner_auto_redirect_skips_restricted_team(self):
+    @parameterized.expand(
+        [
+            ("member_when_organization_allows_it", True, UNLIMITED_PROJECTS_FEATURE, None),
+            ("member", False, UNLIMITED_PROJECTS_FEATURE, "forbidden"),
+            ("at_plan_limit", True, ONE_PROJECT_FEATURE, "project_limit_reached"),
+        ]
+    )
+    def test_trusted_partner_auto_redirect_skips_restricted_team(
+        self, _name: str, members_can_create_projects: bool, projects_feature: dict, refusal_code: str | None
+    ) -> None:
         partner = self._make_skip_consent_partner()
         self._restrict_team_access(self.team)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            MEMBERS_CAN_CREATE_PROJECTS_FEATURE,
+            projects_feature,
+        ]
+        self.organization.members_can_create_projects = members_can_create_projects
+        self.organization.save()
         self._set_pending_auth("state_restricted", self.user.email, partner=partner, consent_required=False)
+        team_count = Team.objects.count()
 
         res = self.client.get("/api/agentic/authorize?state=state_restricted")
 
         assert res.status_code == 302
-        assert res["Location"].startswith(PARTNER_CALLBACK)
-        code = res["Location"].split("code=")[1].split("&")[0]
-        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
-        assert code_data["team_id"] != self.team.id
+        if refusal_code is not None:
+            assert res["Location"].endswith(f"/agentic/authorize?state=state_restricted&error={refusal_code}")
+            assert Team.objects.count() == team_count
+            assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_restricted") is not None
+        else:
+            assert res["Location"].startswith(PARTNER_CALLBACK)
+            code = res["Location"].split("code=")[1].split("&")[0]
+            code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+            assert code_data["team_id"] != self.team.id
+            assert Team.objects.count() == team_count + 1
 
     @parameterized.expand(
         [
@@ -481,6 +511,9 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             id=self._code_data(self._confirm_as_shown("state_first", self.team.id))["team_id"]
         )
         users_team = Team.objects.create_with_data(initiating_user=self.user, organization=partner_team.organization)
+        Organization.objects.filter(id=partner_team.organization_id).update(
+            available_product_features=[UNLIMITED_PROJECTS_FEATURE]
+        )
         retire_partner_team(partner_team)
         organization_count = Organization.objects.count()
 
@@ -495,6 +528,25 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         )
         assert get_billing_lock_partner(team.organization) == self.partner
         assert TeamProvisioningConfig.objects.get(team=team).application == self.partner
+
+    def test_paying_partner_confirm_refuses_a_new_project_at_the_project_limit(self) -> None:
+        self.partner.update_provisioning(pays_for_customers=True)
+        self._set_pending_auth("state_first", self.user.email)
+        partner_team = Team.objects.get(
+            id=self._code_data(self._confirm_as_shown("state_first", self.team.id))["team_id"]
+        )
+        Organization.objects.filter(id=partner_team.organization_id).update(
+            available_product_features=[ONE_PROJECT_FEATURE]
+        )
+        TeamProvisioningConfig.objects.filter(team=partner_team).delete()
+        team_count = Team.objects.count()
+
+        self._set_pending_auth("state_again", self.user.email)
+        refused = self._confirm_as_shown("state_again")
+
+        assert (refused.status_code, refused.json()) == (403, {"error": "project_limit_reached"})
+        assert Team.objects.count() == team_count
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_again") is not None
 
     def test_confirm_consumes_pending_state(self):
         self._set_pending_auth("state_consume", self.user.email)

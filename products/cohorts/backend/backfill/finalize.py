@@ -18,8 +18,10 @@ than ``completed``. The seeder scans those days only after they end, and it comp
 they confirm.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -31,6 +33,11 @@ from celery import current_app
 from prometheus_client import Counter, Gauge
 
 from posthog.celery_queues import CeleryQueue
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
@@ -44,6 +51,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
     CohortBackfillScope,
+    CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import invalidate_team_behavioral_cohort_cache
@@ -102,6 +110,16 @@ class FinalizerPass:
     not_allowlisted: int = 0
     stamped_participations: int = 0
     invalidated_teams: int = 0
+
+
+@frozen
+class _ReadyCohort:
+    """A cohort whose last missing stamp one of this pass's runs set. Its event is built after the run commits."""
+
+    team_id: int
+    cohort_id: int
+    trigger_kind: str
+    run_created_at: datetime
 
 
 # Every kind this finalizer knows how to stamp. Discovery draws from these keys, so the lookup below
@@ -196,10 +214,12 @@ def finalize_backfill_runs() -> FinalizerPass:
 
     teams_to_invalidate: set[int] = set()
     stamped_cohorts: list[tuple[int, int]] = []
+    ready_cohorts: list[_ReadyCohort] = []
     for run_id, team_id in observed:
         run_stamped: list[int] = []
+        run_ready: list[_ReadyCohort] = []
         try:
-            invalidate_team = _finalize_one_run(run_id, team_id, result, run_stamped)
+            invalidate_team = _finalize_one_run(run_id, team_id, result, run_stamped, run_ready)
         except Exception:
             # The transaction rolled back, so the run is still reconciling — count it so the pager
             # gauge reflects a stuck run rather than reading clean.
@@ -208,6 +228,7 @@ def finalize_backfill_runs() -> FinalizerPass:
             continue
         # Reached only when the run's transaction committed, so a rolled-back stamp never signals.
         stamped_cohorts.extend((team_id, cohort_id) for cohort_id in run_stamped)
+        ready_cohorts.extend(run_ready)
         if invalidate_team:
             teams_to_invalidate.add(team_id)
 
@@ -234,7 +255,41 @@ def finalize_backfill_runs() -> FinalizerPass:
                 )
 
     _publish_held_runs(result)
+    try:
+        _report_ready_cohorts(ready_cohorts)
+    except Exception:
+        logger.exception("cohort_backfill_finalizer_ready_event_failed", cohorts=len(ready_cohorts))
     return result
+
+
+def _report_ready_cohorts(ready_cohorts: Sequence[_ReadyCohort]) -> None:
+    if not ready_cohorts:
+        return
+    team_ids = {each.team_id for each in ready_cohorts}
+    teams = Team.objects.only("uuid", "organization_id").in_bulk(team_ids)
+    cohorts = Cohort.objects.filter(team_id__in=team_ids).in_bulk([each.cohort_id for each in ready_cohorts])
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+        for each in ready_cohorts:
+            team = teams.get(each.team_id)
+            cohort = cohorts.get(each.cohort_id)
+            ready_at = cohort.realtime_ready_at if cohort is not None and cohort.team_id == each.team_id else None
+            if team is None or cohort is None or ready_at is None:
+                continue
+            properties: dict[str, Any] = {
+                "cohort_id": each.cohort_id,
+                "trigger_kind": each.trigger_kind,
+                "seconds_since_run_created": max(0.0, (ready_at - each.run_created_at).total_seconds()),
+            }
+            # An edit, a team enablement and a repair leave `realtime_enabled_at` where it was, which can be
+            # the day the cohort was created, so only a turn-on's first build measures from it.
+            if each.trigger_kind == CohortBackfillTrigger.COHORT_CREATED and cohort.realtime_enabled_at is not None:
+                properties["seconds_since_turn_on"] = max(0.0, (ready_at - cohort.realtime_enabled_at).total_seconds())
+            capture(
+                distinct_id=str(team.uuid),
+                event="cohort realtime ready",
+                properties=properties,
+                groups=groups(team=team),
+            )
 
 
 def _publish_held_runs(result: FinalizerPass) -> None:
@@ -244,9 +299,33 @@ def _publish_held_runs(result: FinalizerPass) -> None:
     HELD_RUNS_GAUGE.labels(reason="not_allowlisted").set(result.not_allowlisted)
 
 
-def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass, stamped_cohort_ids: list[int]) -> bool:
-    """Terminalize one observed run. Returns whether the team's caches need invalidating, and adds
-    each cohort it stamps to ``stamped_cohort_ids``."""
+def _stamp_completes_readiness(team_id: int, cohort_id: int, kind: str) -> bool:
+    # Locked before the stamp locks it, so a concurrent stamp of the other kind commits first and is seen here.
+    cohort = (
+        Cohort.objects.select_for_update(of=("self",))
+        .only("filters", "last_backfill_events_at", "last_backfill_person_properties_at")
+        .filter(id=cohort_id, team_id=team_id)
+        .first()
+    )
+    if cohort is None:
+        return False
+    try:
+        return cohort.pending_backfill_kinds() == {kind}
+    except Exception:
+        # Raising would roll back the run on every pass; the stamp below supersedes a malformed definition instead.
+        return False
+
+
+def _finalize_one_run(
+    run_id: UUID,
+    team_id: int,
+    result: FinalizerPass,
+    stamped_cohort_ids: list[int],
+    ready_cohorts: list[_ReadyCohort],
+) -> bool:
+    """Terminalize one observed run. Returns whether the team's caches need invalidating, adds
+    each cohort it stamps to ``stamped_cohort_ids``, and each cohort whose last missing stamp it sets
+    to ``ready_cohorts``."""
     stamped = 0
     superseded = 0
     held = 0
@@ -289,12 +368,23 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass, stamped
                 stamped += 1
                 continue
             if participation.reconcile_completed_at is not None:
+                # Per stamp, not after the pass, which would report a cohort stamped twice in one pass twice.
+                completes = _stamp_completes_readiness(team_id, participation.cohort_id, run.backfill_kind)
                 if stamp_readiness(run, participation.cohort_id):
                     stamped += 1
                     invalidate_team = True
                     stamped_cohort_ids.append(participation.cohort_id)
                     result.stamped_participations += 1
                     READINESS_STAMPS_COUNTER.labels(result="stamped", kind=run.backfill_kind).inc()
+                    if completes:
+                        ready_cohorts.append(
+                            _ReadyCohort(
+                                team_id=team_id,
+                                cohort_id=participation.cohort_id,
+                                trigger_kind=run.trigger_kind,
+                                run_created_at=run.created_at,
+                            )
+                        )
                 else:
                     # The stamp superseded the participation (and, for a cohort-scoped run, possibly
                     # the run row itself) inside this transaction.

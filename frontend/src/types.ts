@@ -343,7 +343,6 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Evaluation = 'evaluation',
-    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
@@ -619,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
@@ -3558,6 +3559,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -4776,6 +4781,7 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
+    radar_client_id?: string
 }
 
 interface InstancePreferencesInterface {
@@ -4839,6 +4845,8 @@ export interface PreflightStatus {
     webmcp_available?: boolean
     /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
     cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5331,8 +5339,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6208,6 +6227,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6727,6 +6748,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */
@@ -6757,6 +6779,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

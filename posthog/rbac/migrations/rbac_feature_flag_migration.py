@@ -6,7 +6,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
 from products.access_control.backend.models.organization_resource_access import OrganizationResourceAccess
 from products.access_control.backend.models.role import Role
 
@@ -14,8 +13,8 @@ logger = structlog.get_logger(__name__)
 
 
 # This migration is used to migrate over feature flag permissions to the new RBAC system
-# It will find all feature flag role access for the organization and migrate them over to the new system
-# It will also remove the feature flag role access so we know it's been migrated
+# It will find the organization's view-only feature flag access and migrate it over to the new system
+# It will also remove the organization resource access so we know it's been migrated
 def rbac_feature_flag_role_access_migration(organization_id: str):
     try:
         logger.info("Starting RBAC feature flag role access migration", organization_id=organization_id)
@@ -24,7 +23,7 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
             try:
                 # All feature flags for the organization where it's view only (access level 21)
                 # Basically if this exists then all flags in the organization are by default view only
-                # And only other roles / specific opt in via FeatureFlagRoleAccess give edit access
+                # And only roles with edit access to feature flags can edit them
                 organization_resource_access = OrganizationResourceAccess.objects.filter(
                     organization_id=organization_id,
                     resource="feature flags",  # note this is plural and space
@@ -56,29 +55,6 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
                                 resource="feature_flag",
                                 role=role,
                             )
-
-                # Now that we've done the org level ones we can look at the feature flag role access
-                # These a basically specific ones applied to a role and a feature flag
-                feature_flag_role_access = FeatureFlagRoleAccess.objects.filter(role__organization_id=organization_id)
-                for role_access in feature_flag_role_access:
-                    # Create access control for the feature flag role access
-                    feature_flag = role_access.feature_flag
-                    role = role_access.role
-                    AccessControl.objects.create(
-                        team=feature_flag.team,
-                        access_level="editor",
-                        resource="feature_flag",
-                        resource_id=feature_flag.id,
-                        role=role,
-                    )
-                    # Remove the feature flag role access (so we know it's been migrated)
-                    role_access.delete()
-
-                    logger.info(
-                        "Migrated RBAC feature flag access control",
-                        organization_id=organization_id,
-                        feature_flag_id=feature_flag.id,
-                    )
             except Exception as e:
                 logger.error(
                     "Error during RBAC feature flag transaction",

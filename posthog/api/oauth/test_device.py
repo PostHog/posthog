@@ -308,7 +308,8 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["error"], "invalid_client")
 
-    def test_a_confidential_client_logs_in_with_basic_auth(self) -> None:
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_a_confidential_client_logs_in_with_basic_auth(self, _refresh_task: MagicMock) -> None:
         client_id = "https://cli.example.com/oauth/client.json"
         OAuthApplication.objects.create(
             name="confidential device client",

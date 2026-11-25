@@ -1,6 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -416,26 +427,16 @@ function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): 
         <div data-attr="workflows-sending-allowance-next">
             <MetricLabel
                 label="Next allowance"
-                tooltip="We check every project once a day. Your allowance goes up one step when you meet these conditions, and goes down if your bounce or spam complaint rates get too high."
+                tooltip={`We check every project once a day. Your allowance goes up one step when you send at least ${humanFriendlyNumber(next.daily_target)} emails on ${next.days_required} separate days with low bounce and spam complaint rates. It goes down if those rates get too high.`}
             />
             <div className="text-lg font-semibold">{humanFriendlyNumber(next.emails_per_day)} emails a day</div>
-            <div className="text-secondary">
-                Send at least {humanFriendlyNumber(next.daily_target)} emails on {next.days_required} separate days,
-                with low bounce and spam complaint rates.
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-                <div className="flex-1">
-                    <LemonProgress percent={(next.days_reached / Math.max(next.days_required, 1)) * 100} />
-                </div>
-                <span className="text-xs text-secondary tabular-nums whitespace-nowrap">
-                    {next.days_reached} of {next.days_required} days
+            <LemonProgress percent={(next.days_reached / Math.max(next.days_required, 1)) * 100} className="mt-1" />
+            <div className="text-xs text-secondary mt-1">
+                <span>
+                    {`${next.days_reached} of ${next.days_required} days with at least ${humanFriendlyNumber(next.daily_target)} emails`}
                 </span>
+                {waitUntil && <span>{`, can go up from ${waitUntil.format('MMM D')}`}</span>}
             </div>
-            {waitUntil && (
-                <div className="text-xs text-secondary mt-1">
-                    The earliest it can go up is {waitUntil.format('MMM D')}.
-                </div>
-            )}
         </div>
     )
 }
@@ -457,9 +458,11 @@ function RecentRateRow({
             <span>{label}</span>
             <span className="inline-flex items-center gap-2 tabular-nums">
                 <span className={over ? 'font-semibold text-danger' : 'font-semibold'}>{formatRate(rate)}</span>
-                <span className={over ? 'text-danger' : 'text-secondary'}>
-                    {over ? `over the ${formatRate(limit)} limit` : `(limit ${formatRate(limit)})`}
-                </span>
+                {rate > limit && (
+                    <span className={over ? 'text-danger' : 'text-secondary'}>
+                        {over ? `over the ${formatRate(limit)} limit` : `(limit ${formatRate(limit)})`}
+                    </span>
+                )}
             </span>
         </div>
     )
@@ -470,11 +473,20 @@ function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier:
     const lateComplaints = rates.emails_sent === 0 && !rates.complaints_within_limits
     const overButTooFew =
         withinLimits && (rates.bounce_rate > rates.max_bounce_rate || rates.complaint_rate > rates.max_complaint_rate)
+    let note: string | null = null
+    if (!withinLimits) {
+        const cause = lateComplaints
+            ? `${pluralize(rates.complaints, 'spam complaint')} about earlier emails`
+            : 'Rates over the limit'
+        note = `${cause} ${tier > 0 ? 'can lower your allowance.' : 'can keep your allowance from going up.'}`
+    } else if (overButTooFew) {
+        note = 'Too few emails to judge yet, so this does not lower your allowance.'
+    }
     return (
         <div className="space-y-1" data-attr="workflows-sending-allowance-recent-rates">
             <MetricLabel
                 label={`Last ${rates.window_days} days`}
-                tooltip={`The daily check can lower your allowance when either rate goes over its limit over the last ${rates.window_days} days. The rates further down this page cover 30 days, so they can look fine while these do not.`}
+                tooltip={`Based on ${pluralize(rates.emails_sent, 'email')}. The daily check can lower your allowance when either rate goes over its limit over the last ${rates.window_days} days: ${formatRate(rates.max_bounce_rate)} for bounces, ${formatRate(rates.max_complaint_rate)} for spam complaints. The rates further down this page cover 30 days, so they can look fine while these do not.`}
             />
             <RecentRateRow
                 label="Bounces"
@@ -488,18 +500,7 @@ function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier:
                 limit={rates.max_complaint_rate}
                 judged={!rates.complaints_within_limits}
             />
-            <div className="text-xs text-secondary">
-                {humanFriendlyNumber(rates.emails_sent)} emails in the last {rates.window_days} days.{' '}
-                {!withinLimits
-                    ? `${
-                          lateComplaints
-                              ? pluralize(rates.complaints, 'spam complaint') + ' about earlier emails'
-                              : 'Rates over the limit'
-                      } ${tier > 0 ? 'can lower your allowance.' : 'can keep your allowance from going up.'}`
-                    : overButTooFew
-                      ? 'Too few emails to judge yet, so this does not lower your allowance.'
-                      : null}
-            </div>
+            {note && <div className="text-xs text-secondary">{note}</div>}
         </div>
     )
 }
@@ -517,16 +518,18 @@ const ALLOWANCE_CHANGE_REASONS: Record<string, string> = {
 }
 
 function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowanceChangeApi[] }): JSX.Element | null {
+    const [showAll, setShowAll] = useState(false)
     if (!changes?.length) {
         return null
     }
+    const earlierCount = changes.length - 1
     return (
         <div className="mt-4 space-y-1" data-attr="workflows-sending-allowance-changes">
             <MetricLabel
                 label="Recent changes"
                 tooltip="Changes to your daily allowance over the last 90 days, newest first."
             />
-            {changes.map((change, index) => (
+            {(showAll ? changes : changes.slice(0, 1)).map((change, index) => (
                 <div key={`${change.changed_at}-${index}`} className="flex gap-3">
                     <span className="text-secondary w-14 shrink-0 tabular-nums">
                         {dayjs(change.changed_at).format('MMM D')}
@@ -540,6 +543,17 @@ function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowance
                     </span>
                 </div>
             ))}
+            {earlierCount > 0 && (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    noPadding
+                    onClick={() => setShowAll(!showAll)}
+                    data-attr="workflows-sending-allowance-changes-toggle-earlier"
+                >
+                    {showAll ? 'Hide earlier changes' : `Show ${pluralize(earlierCount, 'earlier change')}`}
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -550,23 +564,27 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
         <div className="@container border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
-            <h3 className="mb-0">Sending allowance</h3>
-            <p className="text-secondary mt-2 mb-0">
-                Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance
-                that grows with a clean sending record. Emails above the allowance are not dropped, they are sent later.
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                    <h3 className="mb-0">Sending allowance</h3>
+                    <Tooltip
+                        openOnClick
+                        title="Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance that grows with a clean sending record. Emails above the allowance are not dropped, they are sent later."
+                    >
+                        <button type="button" aria-label="About the sending allowance" className="inline-flex">
+                            <IconInfo className="text-secondary text-base" />
+                        </button>
+                    </Tooltip>
+                </div>
                 {canRequestSendingTierIncrease && (
-                    <>
-                        {' '}
-                        Need more sooner?{' '}
-                        <Link
-                            onClick={() => requestSendingTierIncrease(allowance)}
-                            data-attr="workflows-request-sending-tier-increase"
-                        >
-                            Request a higher allowance
-                        </Link>
-                    </>
+                    <Link
+                        onClick={() => requestSendingTierIncrease(allowance)}
+                        data-attr="workflows-request-sending-tier-increase"
+                    >
+                        Request a higher allowance
+                    </Link>
                 )}
-            </p>
+            </div>
             <div className={allowance.recent_rates ? 'grid gap-6 mt-3 @2xl:grid-cols-2' : 'mt-3'}>
                 <div className="space-y-4">
                     <div className="flex flex-wrap gap-8">
@@ -584,20 +602,15 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         <div>
                             <MetricLabel
                                 label="Largest batch audience"
-                                tooltip="The biggest audience your allowance permits for a single batch send."
+                                tooltip={`The biggest audience your allowance permits for a single batch send.${
+                                    allowance.rate_limited_max_batch_audience
+                                        ? ` Up to ${humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a sending rate limit.`
+                                        : ''
+                                }`}
                             />
                             <div className="text-lg font-semibold">
                                 {humanFriendlyNumber(allowance.max_batch_audience)}
                             </div>
-                            {allowance.rate_limited_max_batch_audience ? (
-                                <div
-                                    className="text-xs text-secondary"
-                                    data-attr="workflows-rate-limited-batch-audience"
-                                >
-                                    Up to {humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a
-                                    sending rate limit
-                                </div>
-                            ) : null}
                         </div>
                     </div>
                     <NextAllowance allowance={allowance} />

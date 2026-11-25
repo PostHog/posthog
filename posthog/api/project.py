@@ -9,7 +9,6 @@ from django.db.models import Model
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -22,7 +21,7 @@ from posthog.schema import ProductKey
 from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
+from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -55,7 +54,6 @@ from posthog.api.team.settings_validation import (
 )
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
-    TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamCustomerAnalyticsConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
@@ -68,13 +66,18 @@ from posthog.api.team.team_serializer import (
     REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
+    HomeTabDashboardField,
     TeamSerializer,
     available_error_tracking_ai_features,
     flag_evaluations_read_config_for,
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
 )
-from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
+from posthog.api.team.viewsets import (
+    EventIngestionRestrictionSerializer,
+    team_event_ingestion_restrictions_view,
+    team_settings_as_of_view,
+)
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
@@ -89,7 +92,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
     Change,
     Detail,
     dict_changes_between,
@@ -124,6 +126,12 @@ from posthog.permissions import (
     get_organization_from_view,
     request_subject,
 )
+from posthog.project_creation_limits import (
+    ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+    PLAN_PROJECT_LIMIT_MESSAGE,
+    ProjectLimit,
+    organization_project_limit_reached,
+)
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -148,7 +156,7 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.authorization.backend.presentation.querysets import filter_visible_projects
-from products.dashboards.backend.models import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import events_lack_new_flag_calls
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
@@ -167,7 +175,6 @@ from products.notifications.backend.facade.api import (
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 # The action that each level in a field's access rule needs, for a project and for other resources.
 _PROJECT_LEVEL_ACTIONS = {"member": Action.VIEW, "admin": Action.EDIT}
@@ -395,66 +402,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
 
-def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
-    """
-    Return the project settings as of the provided timestamp.
-    Query params:
-    - at: ISO8601 datetime (required)
-    - scope: optional, one or multiple keys to filter the returned settings
-    """
-    at_param = request.query_params.get("at")
-    if not at_param:
-        raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
-
-    as_of = parse_datetime(at_param)
-    if as_of is None:
-        raise exceptions.ValidationError({"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."})
-    if timezone.is_naive(as_of):
-        as_of = timezone.make_aware(as_of)
-
-    settings_fields = set(TEAM_CONFIG_FIELDS)
-    snapshot: dict[str, Any] = {}
-    for field_name in settings_fields:
-        if hasattr(team, field_name):
-            snapshot[field_name] = getattr(team, field_name)
-        elif hasattr(team, f"{field_name}_id"):
-            snapshot[field_name] = getattr(team, f"{field_name}_id")
-        else:
-            snapshot[field_name] = None
-
-    logs = (
-        ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
-        .order_by("-created_at")
-        .only("detail", "created_at", "activity")
-    )
-
-    for log in logs.iterator():
-        detail = log.detail or {}
-        changes = detail.get("changes") or []
-        for change in changes:
-            field = change.get("field")
-            action = change.get("action")
-            before = change.get("before")
-
-            target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
-            if target not in settings_fields:
-                continue
-
-            if action == "changed":
-                snapshot[target] = before
-            elif action == "created":
-                snapshot[target] = None
-            elif action == "deleted":
-                snapshot[target] = before
-
-    scope_values = request.query_params.getlist("scope")
-    if scope_values:
-        filtered = {k: snapshot.get(k, None) for k in scope_values}
-        return response.Response(filtered)
-
-    return response.Response(snapshot)
-
-
 def team_default_evaluation_contexts_view(
     team: Team, request: request.Request, user_permissions: UserPermissions
 ) -> response.Response:
@@ -651,7 +598,8 @@ class ProjectBackwardCompatSerializer(
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An "
+            "organization whose every project reads the native JSON events table reads as 2."
         )
     )
     flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
@@ -706,11 +654,9 @@ class ProjectBackwardCompatSerializer(
     )
     # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
     # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
-    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
-        queryset=Dashboard.objects.all(),
+    home_tab_dashboard = HomeTabDashboardField(
         required=False,
         allow_null=True,
-        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
         help_text=(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
@@ -1065,10 +1011,10 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
+        return flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
+        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk)
         return events_lack_new_flag_calls(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
@@ -1370,8 +1316,7 @@ class ProjectBackwardCompatSerializer(
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         if "home_tab_dashboard" in validated_data:
-            dashboard = team.home_tab_dashboard
-            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
+            team_before_update["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1393,8 +1338,8 @@ class ProjectBackwardCompatSerializer(
         # generic passthrough loop below.
         if "home_tab_dashboard" in validated_data:
             dashboard = validated_data.pop("home_tab_dashboard")
-            team.home_tab_dashboard = dashboard
             home_tab_dashboard_id = dashboard.id if dashboard else None
+            dashboards_api.set_home_tab_dashboard(team_id=team.id, dashboard_id=home_tab_dashboard_id)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -2439,7 +2384,7 @@ class RootProjectViewSet(ProjectViewSet):
 class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+    message = PLAN_PROJECT_LIMIT_MESSAGE
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
@@ -2455,26 +2400,14 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).exists():
                 return False
 
-        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit is None:
+            return True
 
-        if projects_feature:
-            allowed_project_count = projects_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_project_count is None:
-                # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
-                # We don't want to block updates if a customer is already over the max allowed
-                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
-                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
-                    return False
+        if reached_limit == ProjectLimit.ORGANIZATION_MAXIMUM:
+            # We don't want to block updates if a customer is already over the max allowed
+            if view.action != "create":
                 return True
-            # Check current limit against allowed limit
-            if current_non_demo_project_count >= allowed_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_project_count >= 1:
-                return False
+            self.message = ORGANIZATION_PROJECT_LIMIT_MESSAGE
 
-        # in any other case, we're good to go
-        return True
+        return False

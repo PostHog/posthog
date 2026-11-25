@@ -205,6 +205,17 @@ def test_signed_json_request(
             {"TransformJobName": "example"},
         ),
         (
+            "pipelines",
+            "ListPipelines",
+            "PipelineSummaries",
+            "DescribePipeline",
+            "PipelineName",
+            "PipelineArn",
+            "pipeline_arn",
+            {},
+            {"PipelineName": "example"},
+        ),
+        (
             "experiments",
             "ListExperiments",
             "ExperimentSummaries",
@@ -387,6 +398,97 @@ def test_pipeline_executions_walk_every_pipeline_and_resume_from_the_saved_one(
         assert sent.headers["x-amz-target"] == f"SageMaker.{operation}"
         assert payload.items() <= sent.json().items()
     assert result.saved_states == expected_states
+
+
+def step(name: str, index: int | None = None) -> dict[str, object]:
+    result: dict[str, object] = {"StepName": name, "StepStatus": "Succeeded", "StartTime": 1704067200}
+    if index is not None:
+        result["IterationContext"] = {"ParentStepName": "for-each", "Index": index, "Item": "fake-item"}
+    return result
+
+
+@pytest.mark.parametrize(
+    "resume_state,script,expected_targets,expected_keys,expected_states",
+    [
+        (
+            None,
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "zeta"}, {"PipelineName": "alpha"}]}),
+                ScriptedResponse(status=400, json={"__type": "ResourceNotFound"}),
+                ScriptedResponse(
+                    json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z2"}], "NextToken": "z2"}
+                ),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z1"}]}),
+                ScriptedResponse(json={"PipelineExecutionSteps": [step("train"), step("score", 0)], "NextToken": "s2"}),
+                ScriptedResponse(json={"PipelineExecutionSteps": [step("score", 1)]}),
+                ScriptedResponse(json={"PipelineExecutionSteps": [step("train")]}),
+            ],
+            [
+                ("ListPipelines", {"MaxResults": 100, "SortBy": "Name", "SortOrder": "Ascending"}),
+                ("ListPipelineExecutions", {"PipelineName": "alpha", "SortBy": "CreationTime"}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta", "SortBy": "CreationTime"}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta", "NextToken": "z2"}),
+                (
+                    "ListPipelineExecutionSteps",
+                    {"MaxResults": 100, "SortOrder": "Ascending", "PipelineExecutionArn": "arn-z1"},
+                ),
+                ("ListPipelineExecutionSteps", {"PipelineExecutionArn": "arn-z1", "NextToken": "s2"}),
+                ("ListPipelineExecutionSteps", {"PipelineExecutionArn": "arn-z2"}),
+            ],
+            [("arn-z1", "train"), ("arn-z1", "score[0]"), ("arn-z1", "score[1]"), ("arn-z2", "train")],
+            [
+                AwsSagemakerResumeConfig(next_token="s2", parent_name="arn-z1"),
+                AwsSagemakerResumeConfig(parent_name="arn-z2"),
+                AwsSagemakerResumeConfig(complete=True),
+            ],
+        ),
+        (
+            AwsSagemakerResumeConfig(next_token="s2", parent_name="arn-z1"),
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "zeta"}]}),
+                ScriptedResponse(
+                    json={
+                        "PipelineExecutionSummaries": [
+                            {"PipelineExecutionArn": "arn-z2"},
+                            {"PipelineExecutionArn": "arn-z1"},
+                            {"PipelineExecutionArn": "arn-z0"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json={"PipelineExecutionSteps": [step("score")]}),
+                ScriptedResponse(json={"PipelineExecutionSteps": []}),
+            ],
+            [
+                ("ListPipelines", {}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta"}),
+                ("ListPipelineExecutionSteps", {"PipelineExecutionArn": "arn-z1", "NextToken": "s2"}),
+                ("ListPipelineExecutionSteps", {"PipelineExecutionArn": "arn-z2"}),
+            ],
+            [("arn-z1", "score")],
+            [AwsSagemakerResumeConfig(parent_name="arn-z2"), AwsSagemakerResumeConfig(complete=True)],
+        ),
+    ],
+)
+def test_pipeline_execution_steps_walk_every_execution_and_resume_from_the_saved_one(
+    config: AwsSagemakerSourceConfig,
+    resume_state: AwsSagemakerResumeConfig | None,
+    script: list[ScriptedResponse],
+    expected_targets: list[tuple[str, dict[str, object]]],
+    expected_keys: list[tuple[str, str]],
+    expected_states: list[AwsSagemakerResumeConfig],
+) -> None:
+    result = driver(config).run("pipeline_execution_steps", script, resume_state=resume_state)
+    assert result.raised is None
+    assert [(row["pipeline_execution_arn"], row["step_key"]) for row in result.rows] == expected_keys
+    assert result.rows[0]["start_time"] == dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    assert len(result.requests) == len(expected_targets)
+    for sent, (operation, payload) in zip(result.requests, expected_targets):
+        assert sent.headers["x-amz-target"] == f"SageMaker.{operation}"
+        assert payload.items() <= sent.json().items()
+        if operation == "ListPipelineExecutionSteps":
+            assert "SortBy" not in sent.json()
+    assert result.saved_states == expected_states
+    assert result.response and result.response.partition_keys == ["start_time"]
 
 
 def test_monitoring_executions_use_list_summaries_as_rows(config: AwsSagemakerSourceConfig) -> None:
@@ -577,6 +679,30 @@ def test_validation_probes_describe_only_for_selected_table(
             "pipeline_executions",
             [ScriptedResponse(json={"PipelineSummaries": []})],
             [("ListPipelines", {"MaxResults": 1})],
+        ),
+        (
+            "pipeline_execution_steps",
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "pipeline"}]}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-1"}]}),
+                ScriptedResponse(json={"PipelineExecutionSteps": [{"StepName": "train"}]}),
+            ],
+            [
+                ("ListPipelines", {"MaxResults": 1}),
+                ("ListPipelineExecutions", {"MaxResults": 1, "PipelineName": "pipeline"}),
+                ("ListPipelineExecutionSteps", {"MaxResults": 1, "PipelineExecutionArn": "arn-1"}),
+            ],
+        ),
+        (
+            "pipeline_execution_steps",
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "pipeline"}]}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": []}),
+            ],
+            [
+                ("ListPipelines", {"MaxResults": 1}),
+                ("ListPipelineExecutions", {"MaxResults": 1, "PipelineName": "pipeline"}),
+            ],
         ),
         (
             "monitoring_executions",

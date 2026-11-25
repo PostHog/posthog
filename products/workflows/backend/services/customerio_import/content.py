@@ -28,6 +28,12 @@ logger = structlog.get_logger(__name__)
 
 _MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action", "create_event_action"}
 
+_PLAIN_TEXT_NOTE = ImportNote(
+    level=WorkflowImportNoteLevel.APPROXIMATED,
+    message="PostHog read these emails with your Customer.io App API key, which doesn't return the plain text someone "
+    "wrote for an email. If an email has its own plain text, import again with its template to keep it.",
+)
+
 
 def import_content(
     team_id: int,
@@ -68,8 +74,11 @@ def import_content(
                 filled.append(source)
                 continue
             try:
-                filled.append(_with_fetched_templates(source, api.campaign_actions(str(source.campaign.get("id")))))
+                with_templates = _with_fetched_templates(source, api.campaign_actions(str(source.campaign.get("id"))))
+                filled.append(with_templates)
                 fetched = True
+                if _fetched_email_without_text(source, with_templates):
+                    fetch_notes[str(source.campaign.get("id"))] = (_PLAIN_TEXT_NOTE,)
             except CustomerioApiError as error:
                 fetch_notes[str(source.campaign.get("id"))] = (
                     ImportNote(
@@ -110,10 +119,14 @@ def _misses_templates(source: CampaignSource) -> bool:
 def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, Any]]) -> CampaignSource:
     """The source with a template for every message action whose App API action shares its id.
 
-    Language variants share the default variant's id through `parent_action_id`, so the variant whose own id
-    matches is the default-language message.
+    Translations are separate objects. They can share the default message's id, or name its language branch.
     """
-    by_id = {str(app_action.get("id")): app_action for app_action in app_actions}
+    by_id: dict[str, dict[str, Any]] = {}
+    for message in app_actions:
+        # A translation can come with its default message's id, and the default has no language.
+        key = str(message.get("id"))
+        if key not in by_id or (by_id[key].get("language") and not message.get("language")):
+            by_id[key] = message
     templates = dict(source.templates)
     for action in source.actions:
         template_id = action.get("template_id")
@@ -121,8 +134,35 @@ def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, 
             continue
         app_action = by_id.get(str(action.get("id")))
         if app_action is not None:
-            templates[str(template_id)] = _template_from_app_action(app_action)
+            templates[str(template_id)] = {
+                **_template_from_app_action(app_action),
+                "languages": _other_languages(app_action, app_actions),
+            }
     return CampaignSource(campaign=source.campaign, actions=source.actions, templates=templates)
+
+
+def _fetched_email_without_text(source: CampaignSource, filled: CampaignSource) -> bool:
+    fetched = {str(action.get("template_id")) for action in source.actions if action.get("type") == "email_action"} & (
+        filled.templates.keys() - source.templates.keys()
+    )
+    return any(not filled.templates[template_id].get("body_plain") for template_id in fetched)
+
+
+def _other_languages(app_action: dict[str, Any], app_actions: list[dict[str, Any]]) -> list[str]:
+    """The languages of the translations of one message, which share its id or its language branch."""
+    branch = app_action.get("multi_language_branch_action_id")
+    return sorted(
+        {
+            str(other["language"])
+            for other in app_actions
+            if other.get("language")
+            and other["language"] != app_action.get("language")
+            and (
+                other.get("id") == app_action.get("id")
+                or (branch is not None and other.get("multi_language_branch_action_id") == branch)
+            )
+        }
+    )
 
 
 def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
@@ -136,6 +176,11 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
     return {
         "subject": app_action.get("subject"),
         "body": app_action.get("body"),
+        "body_plain": app_action.get("body_plain"),
+        "body_amp": app_action.get("body_amp"),
+        "cc": app_action.get("cc"),
+        "bcc": app_action.get("bcc"),
+        "fake_bcc": app_action.get("fake_bcc"),
         "preheader_text": app_action.get("preheader_text"),
         "recipient": app_action.get("recipient"),
         "from": app_action.get("from"),

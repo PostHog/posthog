@@ -3,7 +3,9 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { scopeGroupsStartOpen } from 'lib/oauthScopeRows'
 import { DEFAULT_OAUTH_SCOPES, type ScopeAccessLevel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
@@ -522,6 +524,57 @@ describe('oauthAuthorizeLogic', () => {
         } finally {
             window.POSTHOG_APP_CONTEXT = original
         }
+    })
+
+    describe('when the app skips consent but the sign-in is too old', () => {
+        beforeEach(() => {
+            useMocks({ post: { '/api/login/precheck': () => [200, {}] } })
+            // jsdom reports the page reload as not implemented
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                oauth_reauthentication_required: true,
+                oauth_application: {
+                    name: 'Example app',
+                    client_id: 'example-client',
+                    is_verified: true,
+                    logo_uri: null,
+                    required_scopes: [],
+                },
+            } as AppContext
+            logic = oauthAuthorizeLogic()
+            logic.mount()
+            router.actions.push('/oauth/authorize', { client_id: 'example-client' })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('opens the sign-in prompt for the app on load, and reloads the request once it succeeds', async () => {
+            expect(timeSensitiveAuthenticationLogic.values.showAuthenticationModal).toBe(true)
+            expect(timeSensitiveAuthenticationLogic.values.reauthenticationPrompt?.title).toBe(
+                "Confirm it's you to connect Example app"
+            )
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadAllTeams'])
+
+            await expectLogic(logic, () => apiStatusLogic.actions.resolveSensitiveAction('success'))
+                .toDispatchActions(['continueAfterReauthentication'])
+                .toMatchValues({ isContinuingAfterReauthentication: true, reauthenticationDismissed: false })
+        })
+
+        it('offers the sign-in again after the person closes the prompt', async () => {
+            await expectLogic(logic, () => timeSensitiveAuthenticationLogic.actions.setDismissedReauthentication(true))
+                .toDispatchActions([logic.actionCreators.setReauthenticationDismissed(true)])
+                .toMatchValues({ reauthenticationDismissed: true, isContinuingAfterReauthentication: false })
+
+            logic.actions.reauthenticate()
+
+            expect(timeSensitiveAuthenticationLogic.values.showAuthenticationModal).toBe(true)
+            await expectLogic(logic).toMatchValues({ reauthenticationDismissed: false })
+        })
     })
 
     describe('OAuth parameter passthrough', () => {

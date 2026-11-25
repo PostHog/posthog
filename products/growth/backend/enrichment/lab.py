@@ -64,7 +64,7 @@ def list_gateway_models() -> list[str]:
     if _model_list_cache["models"] is not None and now < _model_list_cache["expires_at"]:
         return list(_model_list_cache["models"])
     try:
-        client = build_openai_client(product="growth", ai_product="growth")
+        client = build_openai_client(ai_product="growth")
         models = sorted({model.id for model in client.models.list()})
         if not models:
             raise ValueError("gateway returned no models")

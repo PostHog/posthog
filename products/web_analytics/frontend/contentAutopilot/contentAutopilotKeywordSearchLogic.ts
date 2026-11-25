@@ -152,9 +152,14 @@ export const contentAutopilotKeywordSearchLogic = kea<contentAutopilotKeywordSea
                         ),
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     }
-                    const response = await performQuery(query)
-                    breakpoint()
-                    return keywordImpressionsFromRows(response.results ?? [])
+                    try {
+                        const response = await performQuery(query)
+                        breakpoint()
+                        return keywordImpressionsFromRows(response.results ?? [])
+                    } catch (error) {
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -187,7 +192,8 @@ export const contentAutopilotKeywordSearchLogic = kea<contentAutopilotKeywordSea
     })),
     afterMount(({ actions, values }) => {
         if (!values.database && !values.databaseLoading) {
-            actions.loadDatabase()
+            // Only the table names are read, so the fields are not worth fetching.
+            actions.loadDatabase({ shallow: true })
         } else {
             actions.loadImpressions()
         }

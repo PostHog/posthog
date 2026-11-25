@@ -158,12 +158,22 @@ class TestUrls(APIBaseTest):
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
+            follow=True,
         )
+        self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        content = response.content.decode()
-        self.assertIn("Domain not authorized", content)
-        self.assertIn("not-permitted.com", content)
-        self.assertIn("/settings/project-toolbar#authorized-urls", content)
+        self.assertEqual(
+            response.context["posthog_app_context"]["toolbar_oauth_error"],
+            {
+                "title": "Domain not authorized",
+                "message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "detail": (
+                    "The hostname not-permitted.com needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "links_to_authorized_urls": True,
+            },
+        )
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}

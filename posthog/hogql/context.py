@@ -1,7 +1,7 @@
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -154,6 +154,8 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # True while clickhouse_property_resolution visits a SELECT that reads ai_events, or a SELECT nested in one.
+    reads_ai_events: bool = False
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
@@ -174,10 +176,13 @@ class HogQLContext:
     # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
     # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
     events_retention_months: Optional[int] = None
-    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
-    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
-    # HogQLQueryModifier, so a query can't disable enforcement.
+    # Backend-only switch for the events-retention floor and the flag_evaluations coverage floor. It defaults on.
+    # Server-side paths that must act on all rows regardless of retention, such as the GDPR data-deletion mutation
+    # path, set it False. It is deliberately not a HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+    # The time this query derives the flag_evaluations coverage start from. flag_calls_now() sets it on first use.
+    # The swap, the union and the printer's coverage floor therefore pick the same UTC day. clear_reads() resets it.
+    _flag_calls_now: Optional[datetime] = field(default=None, init=False, compare=False, repr=False)
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
@@ -190,6 +195,10 @@ class HogQLContext:
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
     # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
+    # Set when a swapped scan reads a `$feature/<key>` property with no `flag_key` predicate, so ClickHouse parses the
+    # JSON of every flag call. The printer then caps `max_memory_usage` in the top-level settings instead of refusing
+    # the query. A caller that sends settings outside the query must apply the cap itself.
+    cap_flag_call_memory: bool = False
     # Set when the resolver gives a lazy table a copy of a join predicate. `take_join_filters` skips its walk without it.
     holds_join_filters: bool = field(default=False, compare=False, repr=False)
 
@@ -229,6 +238,11 @@ class HogQLContext:
             database.organization_reads_flag_calls_from_flag_evaluations
             or self._reads_native_events_with_flag_evaluations()
         )
+
+    def flag_calls_now(self) -> datetime:
+        if self._flag_calls_now is None:
+            self._flag_calls_now = datetime.now(UTC)
+        return self._flag_calls_now
 
     def flag_calls_only_in_flag_evaluations(self) -> bool:
         """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. A read that
@@ -311,6 +325,7 @@ class HogQLContext:
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
         self.flag_calls_read.clear()
+        self._flag_calls_now = None
 
     def read_tags(self) -> dict[str, list[str] | None]:
         reads_warehouse_object = bool(self.referenced_saved_query_ids or self.referenced_warehouse_table_ids)

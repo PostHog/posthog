@@ -2799,7 +2799,7 @@ class TrinoPrinter(PostgresPrinter):
             f"coalesce(IF(regexp_like({value}, '(Z|[+-][0-9]{{2}}:?[0-9]{{2}})$'), TRY(from_iso8601_timestamp({iso_value}))), "
             f"IF(regexp_like({value}, '^[0-9]{{9,10}}$'), from_unixtime(TRY_CAST({value} AS DOUBLE))), "
             f"with_timezone(TRY(date_parse({value}, {day_month_year})), {timezone}), "
-            f"with_timezone(CAST({value} AS TIMESTAMP), {timezone}))"
+            f"with_timezone(TRY_CAST({value} AS TIMESTAMP), {timezone}))"
         )
         return f"CAST(at_timezone({parsed}, {timezone}) AS TIMESTAMP)"
 

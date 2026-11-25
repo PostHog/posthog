@@ -49,6 +49,9 @@ describe('router-utils', () => {
         expect(addProjectIdIfMissing('/billing', 123)).toEqual('/billing')
         expect(addProjectIdIfMissing('/billing/authorization_status', 123)).toEqual('/billing/authorization_status')
     })
+    it('does not add a project id to the toolbar sign-in error page, which only the server serves', () => {
+        expect(addProjectIdIfMissing('/toolbar_oauth/error', 123)).toEqual('/toolbar_oauth/error')
+    })
 
     describe('the id-less /project root', () => {
         // An id-less `/project` used to survive the strip pass, match no route, and then get the

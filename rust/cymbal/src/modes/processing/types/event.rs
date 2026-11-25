@@ -66,6 +66,31 @@ impl AnyEvent {
     }
 }
 
+#[derive(Debug)]
+pub enum ProcessOutcome {
+    Ok(AnyEvent),
+    /// The reason is a `drop` reason in the response contract, so keep the set small and fixed.
+    Dropped(&'static str),
+    Failed {
+        code: &'static str,
+        message: String,
+    },
+    Retry {
+        code: &'static str,
+        message: String,
+    },
+}
+
+impl ProcessOutcome {
+    pub fn unprocessed(code: &'static str, message: String, retriable: bool) -> Self {
+        if retriable {
+            Self::Retry { code, message }
+        } else {
+            Self::Failed { code, message }
+        }
+    }
+}
+
 pub trait PropertiesContainer: Send + Clone + 'static {
     fn set_properties(&mut self, new_props: Value) -> Result<(), UnhandledError>;
     fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;

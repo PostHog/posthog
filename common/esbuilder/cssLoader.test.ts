@@ -39,7 +39,7 @@ function runLoader({
     const win: Record<string, any> = {
         JS_URL: 'https://cdn.example.com',
         JS_POSTHOG_API_KEY: apiKey,
-        JS_POSTHOG_HOST: 'https://capture.example.com',
+        JS_POSTHOG_HOST: 'https://capture.posthog.invalid',
         // A share path, because this loader also runs on exporter.html.
         location: { origin: 'https://app.example.com', href: 'https://app.example.com/shared/sh4r3-t0k3n' },
         localStorage: { getItem: () => null },

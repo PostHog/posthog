@@ -1,15 +1,46 @@
 import { Editor } from '@tiptap/core'
 
 import { EmailBlockKeymap } from './emailCanvasPlugins'
-import { createEmailEditorAdapter } from './emailEditorAdapter'
+import { emailDocumentFromValue } from './emailDocument'
+import { createEmailEditorAdapter, designForDocument } from './emailEditorAdapter'
 import { buildEmailExtensions } from './emailExtensions'
 import * as renderEmailHtmlModule from './renderEmailHtml'
+import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 jest.mock('./components/EmailHtmlBlockView', () => ({ EmailHtmlBlockView: () => null }))
 jest.mock('./components/EmailImageBlockView', () => ({ EmailImageBlockView: () => null }))
 jest.mock('./components/EmailVariableChip', () => ({ EmailVariableChip: () => null }))
 
 describe('emailEditorAdapter', () => {
+    it.each([
+        ['without sections stays readable by every editor', { type: 'paragraph' }, 1],
+        [
+            'with a section is not read by an editor from before sections, which would open it empty',
+            { type: 'emailSection', content: [{ type: 'paragraph' }] },
+            2,
+        ],
+    ])('a document %s', (_, block, version) => {
+        const doc = { type: 'doc', content: [{ type: 'horizontalRule' }, block] }
+        const design = designForDocument(doc, '<p>a</p>')
+
+        expect(design?.emailDocument.version).toBe(version)
+        expect(emailDocumentFromValue({ html: '<p>a</p>', design }).document?.doc).toEqual(doc)
+    })
+
+    it('opens as one HTML block holding the stored html in an editor that cannot read its document', () => {
+        const doc = {
+            type: 'doc',
+            content: [
+                { type: 'emailSection', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Boxed' }] }] },
+            ],
+        }
+        const html = renderEmailHtmlModule.renderEmailHtml(doc)
+
+        const opened = unlayerToEmailDocument(designForDocument(doc, html), html).document?.doc
+        expect(opened?.content).toMatchObject([{ type: 'emailHtml', attrs: { html } }])
+        expect(renderEmailHtmlModule.renderEmailHtml(opened!)).toBe(html)
+    })
+
     it('keeps the page style when a saved document loads into an open editor', () => {
         const editor = new Editor({ extensions: buildEmailExtensions('') })
         const adapter = createEmailEditorAdapter(editor)

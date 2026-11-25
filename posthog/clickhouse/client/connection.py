@@ -76,19 +76,19 @@ class NodeRole(StrEnum):
     # match the CH macro hostClusterRole
     ALL = "all"
     DATA = "data"
-    INGESTION_EVENTS = "events"
-    # Same macro, named for what the role holds rather than what writes to it. The nodes carrying
-    # this role run the events ingestion layer and are also the events cluster's shards, so a
-    # caller reasoning about stored data (deletion, squash) reads better against EVENTS while the
-    # migrations that create ingestion tables keep INGESTION_EVENTS.
+    # The ingestion-events nodes. They consume clickhouse_events_json and write into the events
+    # cluster, so Kafka tables and MVs for that topic target this role.
+    INGESTION_EVENTS = "ingestion_events"
+    # The events cluster's storage shards (sharded_events_json). This is a separate set of nodes
+    # from INGESTION_EVENTS, so a migration for ingestion objects must not target EVENTS.
     EVENTS = "events"
-    INGESTION_SMALL = "small"
-    INGESTION_MEDIUM = "medium"
+    INGESTION_SMALL = "ingestion_small"
+    INGESTION_MEDIUM = "ingestion_medium"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
     # Below nodes are part of separate clusters.
-    APM = "apm"
+    INGESTION_APM = "ingestion_apm"
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
@@ -185,8 +185,6 @@ class ClickHouseUser(StrEnum):
     # takes from another source's budget.
     ALERTS_PLATFORM = "alerts_platform"
 
-    # Backups - used by Dagster backup jobs
-    BACKUPS = "backups"
     # Part breaker - used by Dagster part breaking jobs
     PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use

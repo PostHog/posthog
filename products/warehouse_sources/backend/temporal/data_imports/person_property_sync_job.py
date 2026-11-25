@@ -100,6 +100,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
                 team_id=inputs.team_id,
                 binding=binding,
                 job_id=inputs.job_id,
+                complete_table_read=inputs.complete_table_read,
                 on_progress=progress_recorder(
                     team_id=inputs.team_id, binding=binding, job_id=inputs.job_id, trigger="scheduled"
                 ),
@@ -137,6 +138,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         ("changed", result.changed),
         ("existing", result.existing),
         ("produced", result.produced),
+        ("removed", result.removed),
         ("skipped_missing_person", result.skipped_missing_person),
     ):
         if count:
@@ -149,6 +151,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         changed=result.changed,
         existing=result.existing,
         produced=result.produced,
+        removed=result.removed,
         skipped_missing_person=result.skipped_missing_person,
     )
     return dataclasses.asdict(result)

@@ -93,7 +93,8 @@ A trace with `_detail: { "mode": "summary" }` carries no conversation content at
 Read the content with `detail: "full"`.
 
 The two calls return different sets of events.
-`query-llm-trace` returns every event in the trace at any depth, unless you pass `properties`, which filter the events.
+`query-llm-trace` returns the earliest 1,000 events in the trace at any depth, unless you pass `properties`, which filter the events.
+A longer trace comes back with an `_eventsLimit` object, and `_truncated.totalEvents` then counts only the 1,000 events read.
 `query-llm-traces-list` returns only the trace's direct children (events whose `$ai_parent_id` is the trace ID)
 plus its `$ai_metric` and `$ai_feedback` events, so a trace can come back with few events or none.
 Either call can also drop trailing events to fit the response size limit.

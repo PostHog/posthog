@@ -12,43 +12,10 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
+from products.dashboards.backend.facade.enums import DASHBOARD_TILE_GROUP_DISPLAY_MODES, TileGroupDisplay
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
-
-
-DASHBOARD_GRID_SPACING_GAPS = {
-    "tight": 8,
-    "condensed": 12,
-    "standard": 16,
-    "relaxed": 32,
-    "wide": 48,
-}
-
-
-class LayoutCompaction(models.TextChoices):
-    VERTICAL = "vertical", "vertical"
-    HORIZONTAL = "horizontal", "horizontal"
-    STABLE = "stable", "stable"
-
-
-DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
-
-
-class TileGroupDisplay(models.TextChoices):
-    SECTIONS = "sections", "sections"
-    TABS = "tabs", "tabs"
-
-
-DASHBOARD_TILE_GROUP_DISPLAY_MODES = tuple(TileGroupDisplay.values)
-
-
-class DashboardTileGroupColor(models.TextChoices):
-    BLUE = "blue", "Blue"
-    PURPLE = "purple", "Purple"
-    GREEN = "green", "Green"
-    YELLOW = "yellow", "Yellow"
-    ORANGE = "orange", "Orange"
-    RED = "red", "Red"
 
 
 class DashboardManager(RootTeamManager):
@@ -185,7 +152,9 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     @property
     def group_display(self) -> str:
         group_display = self.customization.get("group_display") if isinstance(self.customization, dict) else None
-        return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
+        if isinstance(group_display, str) and group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES:
+            return group_display
+        return TileGroupDisplay.SECTIONS
 
     @property
     def tile_group_keys(self) -> set[str]:

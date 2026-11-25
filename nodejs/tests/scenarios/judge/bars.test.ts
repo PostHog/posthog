@@ -1,5 +1,5 @@
 import type { Named, Step } from '../cards'
-import { BarEvidence, BarResult, CpuPoint, judgeBars } from './bars'
+import { BarEvidence, BarResult, CpuPoint, StepReading, judgeBars, judgeStep, stepReadingsOf } from './bars'
 import type { JournalEntry } from './judge'
 import type { HostSample, MetricSample } from './measurements'
 
@@ -385,5 +385,127 @@ describe('judgeBars', () => {
         const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
 
         expect(pickup).toEqual({ ...expected, limit: seconds })
+    })
+})
+
+describe('stepReadingsOf', () => {
+    const writer = (value: number, passed = true): StepReading => ({
+        ...HELD[0],
+        value,
+        part: 'db:cyclotron',
+        passed,
+    })
+    const pickup = (value: number, key: string, passed = true): StepReading => ({
+        ...HELD[1],
+        value,
+        key,
+        part: `role:cdp-cyclotron-worker-${key}`,
+        passed,
+    })
+    const unread = (bar: 0 | 1, why: string): StepReading => ({
+        ...HELD[bar],
+        value: null,
+        passed: null,
+        unjudged: why,
+    })
+
+    const apiSample = { ...scrapedEvery5s(0, prompt)[0], role: 'cdp-api' }
+
+    it.each<[string, Partial<BarEvidence>, StepReading[][]]>([
+        [
+            'reads every bar in every step it held',
+            {},
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'reads the last step of a ramp that scraped more samples than one function call takes',
+            {
+                samples: [
+                    ...scrapedEvery5s(120, prompt),
+                    ...Array.from({ length: 200_000 }, (_, replica) => ({ ...apiSample, replica })),
+                ],
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'reads the step a bar broke in at its breaking value',
+            { samples: scrapedEvery5s(120, lateAfter('email', 60)), writerCpu: cpu({ 0: 40, 1: 80 }) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(80, false), pickup(10, 'email', false)],
+            ],
+        ],
+        [
+            'says a step the run host was too busy to judge was not judged, with no value',
+            { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.95 },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [
+                    unread(0, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                    unread(1, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                ],
+            ],
+        ],
+        [
+            'takes the final reading over a live reading of a step both held',
+            { settled: new Map([[0, [{ ...HELD[0], reading: { value: 55, part: 'db:cyclotron' } }]]]) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'keeps the live break of a step the final evidence passes',
+            { settled: new Map([[1, [broke(0, 10, 60, 90)]]]) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(90, false), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'takes the final break of a step the live judge passed',
+            {
+                writerCpu: cpu({ 0: 40, 1: 80 }),
+                settled: new Map([[1, [{ ...HELD[0], reading: { value: 50, part: 'db:cyclotron' } }]]]),
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(80, false), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'takes the live judge readings where the final writer CPU read failed',
+            {
+                writerCpu: { unread: 'the writer CPU read failed: throttled' },
+                settled: new Map([
+                    [0, [{ ...HELD[0], reading: { value: 40, part: 'db:cyclotron' } }]],
+                    [1, [broke(0, 10, 60, 90)]],
+                ]),
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(90, false), pickup(1, 'hogflow')],
+            ],
+        ],
+    ])('%s', (_story, changes, expected) => {
+        expect(stepReadingsOf(BARS, evidence(changes))).toEqual(expected)
+    })
+
+    it('keeps what the live judge read of each step when the final writer CPU read failed', () => {
+        const live = evidence({})
+        const settled = new Map(live.steps.map((_step, i) => [i, judgeStep(BARS, live, i)]))
+
+        expect(
+            stepReadingsOf(BARS, evidence({ writerCpu: { unread: 'the writer CPU read failed: throttled' }, settled }))
+        ).toEqual([
+            [writer(40), pickup(1, 'hogflow')],
+            [writer(65), pickup(1, 'hogflow')],
+        ])
     })
 })

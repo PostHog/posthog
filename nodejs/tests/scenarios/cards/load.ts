@@ -120,6 +120,29 @@ function checkIntakeVerdict(card: Card): string[] {
     ]
 }
 
+const INTAKE_TOPIC_MOVES =
+    "convergence reads each intake group's whole lag, so an intake topic that changes between cards keeps the old topic's lag"
+const REFUSED_INTAKE_SETTINGS: Record<string, string> = {
+    CDP_INTAKE_DLQ_DRAIN:
+        'the reset never seeks the drain groups and convergence never reads them, so a drain replays the dead-letter topic outside the verdict',
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: INTAKE_TOPIC_MOVES,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: INTAKE_TOPIC_MOVES,
+}
+
+function checkIntakeProfile(profile: Profile): string[] {
+    return [
+        ...Object.keys(profile.settings)
+            .filter((name) => Object.hasOwn(REFUSED_INTAKE_SETTINGS, name))
+            .map((name) => `profile.settings.${name}: ${REFUSED_INTAKE_SETTINGS[name]}`),
+        ...Object.entries(profile.replicas)
+            .filter(([role, replicas]) => role.startsWith('cdp-intake-') && (replicas ?? 1) > 1)
+            .map(
+                ([role]) =>
+                    `profile.replicas.${role}: each intake topic has one partition, so a second replica sits idle; run one`
+            ),
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -177,6 +200,34 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
         ROLE_STOPPING_VALVES.includes(valve) && target === 'cdp-api'
             ? [
                   `valves.${i}.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+              ]
+            : []
+    )
+}
+
+const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+
+const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
+    valve === roleKill.name && target === EMAIL_WORKER
+
+function checkAcceptedBoundary(card: Card): string[] {
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill on ${EMAIL_WORKER}`,
+              ]
+            : []
+    )
+}
+
+function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
+    if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap((entry, i) =>
+        entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
+            ? [
+                  `valves.${i}.target: role.kill stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
     )
@@ -292,12 +343,15 @@ function check(
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
+        ...checkAcceptedBoundary(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
                   ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkAcceptedBoundaryReplicas(card, loaded.profile),
+                  ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),
@@ -311,6 +365,9 @@ function check(
         card,
         profile: loaded.profile,
         profileHash,
-        cardHash: sha256({ card: { ...card, gates: undefined }, profileHash }),
+        cardHash: cardHashOf(card, profileHash),
     }
 }
+
+export const cardHashOf = (card: Card, profileHash: string): string =>
+    sha256({ card: { ...card, gates: undefined, pair: undefined }, profileHash })

@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
@@ -55,7 +56,7 @@ export const openNotebook = async (
     if (thePanelLogic && target === NotebookTarget.Popover) {
         thePanelLogic.actions.selectNotebook(notebookId)
     } else {
-        if (router.values.location.pathname === urls.notebook('new')) {
+        if (removeProjectIdIfPresent(router.values.location.pathname) === urls.notebook('new')) {
             router.actions.replace(withBackLink(urls.notebook(notebookId)))
         } else {
             router.actions.push(withBackLink(urls.notebook(notebookId)))

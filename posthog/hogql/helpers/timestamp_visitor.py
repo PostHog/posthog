@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.visitor import Visitor
 
 
@@ -129,7 +129,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
@@ -261,7 +261,7 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
@@ -368,7 +368,7 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
@@ -499,7 +499,7 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)

@@ -56,6 +56,7 @@ function caller<E extends Env>(c: Context<E>): Caller {
             jti: auth.jti,
             requestId: c.get('requestId'),
         },
+        requestedAt: new Date(),
     }
 }
 
