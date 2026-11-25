@@ -63944,12 +63944,20 @@
                 "role_at_organization": {
                     "type": ["string", "null"]
                 },
+                "type": {
+                    "$ref": "#/definitions/UserTypeEnumApi"
+                },
                 "uuid": {
                     "type": "string"
                 }
             },
-            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
+            "required": ["distinct_id", "email", "first_name", "id", "type", "uuid"],
             "type": "object"
+        },
+        "UserTypeEnumApi": {
+            "description": "* `human` - Human\n* `service_account` - Service account",
+            "enum": ["human", "service_account"],
+            "type": "string"
         },
         "UserUIConfiguration": {
             "additionalProperties": {},

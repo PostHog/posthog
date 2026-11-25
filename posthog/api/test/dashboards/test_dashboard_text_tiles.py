@@ -25,6 +25,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         return {
             "distinct_id": user.distinct_id,
+            "type": user.type,
             "email": user.email,
             "first_name": "",
             "last_name": "",
