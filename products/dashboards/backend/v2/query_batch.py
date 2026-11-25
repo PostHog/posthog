@@ -51,6 +51,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -601,7 +602,8 @@ def _refresh_all(
     shares: tuple[Any, ...],
     traceparent: Optional[str],
 ) -> None:
-    # The stale results are already in the response. The async path recomputes them for the next read.
+    # The stale results are already in the response. The async path recomputes them for the next read, except for the
+    # batch-only kinds: a Celery worker is outside the batch scope and would refuse them, so this thread recomputes those.
     try:
         for query_id, query in queries:
             try:
@@ -615,7 +617,11 @@ def _refresh_all(
                         dashboard_filters_json=query.filters,
                         variables_override_json=query.variables,
                         limit_context=_limit_context(query.query),
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        execution_mode=(
+                            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                            if query.query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
+                            else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                        ),
                         user=user,
                         query_id=query_id,
                         dashboard_id=dashboard_id,
@@ -717,8 +723,10 @@ class QueryBatch:
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
         self._read_bytes = 0
-        # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
-        self._context = copy_context()
+        # Taken while the request is live: the middleware resets the query tags and team scope before streaming. Taken
+        # inside the batch scope, so every pool thread that runs in a copy of it runs the batch-only kinds too.
+        with dashboard_v2_batch_scope():
+            self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
         self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._logql_budget: Optional[BudgetSpec] = None
@@ -748,7 +756,8 @@ class QueryBatch:
             raise QueryBatchBusy()
         weakref.finalize(self, _deferred_releases.append, self._open)
         try:
-            self._read_cache(inputs)
+            with dashboard_v2_batch_scope():
+                self._read_cache(inputs)
         except BaseException:
             self._open.release()
             raise

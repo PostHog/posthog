@@ -43,6 +43,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.dashboard_v2_batch_scope import in_dashboard_v2_batch
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -571,9 +572,18 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
 
 
 def assert_tracing_viewer(user: "User", team: "Team") -> bool:
-    """The check the tracing API's permission class makes, so `/query` and dashboard batches gate spans the same way."""
-    from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
+    """Gate a span runner's generic-query access.
 
+    `/query` refuses span kinds for everyone: the tracing team decides whether they become a public query API. Only a
+    dashboards v2 query batch opts in, and inside it the user needs the viewer access the tracing API asks for.
+    """
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
+        UserAccessControl,
+        UserAccessControlError,
+    )
+
+    if not in_dashboard_v2_batch():
+        raise UserAccessControlError("tracing", "viewer")
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("tracing", "viewer")
 
 

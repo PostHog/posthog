@@ -524,7 +524,9 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             for access_level in ("none", "viewer")
         ]
     )
-    def test_a_traces_tile_runs_only_with_tracing_access(self, kind: str, access_level: str) -> None:
+    def test_a_traces_tile_runs_only_in_the_batch_and_only_with_tracing_access(
+        self, kind: str, access_level: str
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -542,6 +544,13 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             self.assertNotIn("error", line)
             self.assertEqual(line["result"]["format"], "frames")
             self.assertIsInstance(line["result"]["frames"], list)
+            # The same viewer is refused on /query: only the batch opts span kinds in.
+            response = self.client.post(f"/api/environments/{self.team.pk}/query/", {"query": query}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertEqual(
+                response.json()["detail"],
+                "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+            )
         else:
             self.assertEqual(
                 line,
