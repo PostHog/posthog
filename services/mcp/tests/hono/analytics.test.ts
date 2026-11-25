@@ -765,6 +765,13 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['the skill-store install command', 'skill-store-install-command', { rotate: false }, false],
+            ['creating an IdP config', 'identity-provider-configs-create-execute', { confirmation: 'c' }, false],
+            [
+                'updating an IdP config',
+                'identity-provider-configs-partial-update-execute',
+                { confirmation: 'c' },
+                false,
+            ],
             [
                 'the skill-store install command through exec',
                 'exec',
