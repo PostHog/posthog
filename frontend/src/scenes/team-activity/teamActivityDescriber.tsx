@@ -294,8 +294,10 @@ const TEAM_PROPERTIES_MAPPING: Record<
         }
     },
     session_recording_masking_config: (change) => {
-        const maskAllInputsBefore = isObject(change.before) && !!change.before.maskAllInputs
-        const maskAllInputsAfter = isObject(change.after) && !!change.after.maskAllInputs
+        // posthog-js masks inputs unless maskAllInputs is explicitly false.
+        const inputsMasked = (value: unknown): boolean => !isObject(value) || value.maskAllInputs !== false
+        const maskAllInputsBefore = inputsMasked(change.before)
+        const maskAllInputsAfter = inputsMasked(change.after)
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
         const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined

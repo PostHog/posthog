@@ -251,8 +251,16 @@ describe('humanizeActivity', () => {
             name: 'config with inputs unmasked cleared',
             before: { maskAllInputs: false, mobile: { maskAllText: true } },
             after: null,
-            expected: ['disabled masking all text in mobile session replay'],
-            unexpected: ['masking all inputs'],
+            expected: [
+                'enabled masking all inputs in session replay',
+                'disabled masking all text in mobile session replay',
+            ],
+        },
+        {
+            name: 'inputs unmasked on a config with no maskAllInputs key',
+            before: { mobile: { maskAllText: true } },
+            after: { maskAllInputs: false, mobile: { maskAllText: true } },
+            expected: ['disabled masking all inputs in session replay'],
         },
     ])('describes a masking config change: $name', ({ before, after, expected, unexpected = [] }) => {
         const logItem = makeLogItem({
