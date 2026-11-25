@@ -1,0 +1,160 @@
+import type { LoadedCard } from '../cards'
+import { noLoss } from '../judge/invariants'
+import type { DriveWindow, QueueSample } from '../judge/measurements'
+import type { RunVerdict } from './runner'
+import { type Admission, type Status, unobservedValvesOf } from './status'
+
+export type PairRole = 'control' | 'faulted'
+
+export type Attribution = 'fault' | 'open' | 'unjudged' | 'none'
+
+export type JudgedRun = { verdict: RunVerdict; queue: readonly QueueSample[]; drive?: DriveWindow }
+
+export type QueueCourse = { dueAtStart: number; peakDue: number; growth: number; peakOldestDueSeconds: number }
+
+export type FaultDose = {
+    valve: string
+    target: string
+    dose: Record<string, unknown>
+    observedAt: string | null
+    releasedAt: string | null
+    error: string | null
+}
+
+export type NoLossResult = { passed: boolean; observed: number; violation: string | null; unjudged: string | null }
+
+export type PairedRun = {
+    role: PairRole
+    runId: string
+    status: Status
+    statusReason: string
+    admissions: Admission[]
+    queue: QueueCourse | null
+    drainSeconds: number | null
+    faultDose: FaultDose[]
+    noLoss: NoLossResult | null
+}
+
+export type Pair = {
+    attribution: Attribution
+    reason: string
+    controlRunId: string
+    faultedRunId: string | null
+    runs: PairedRun[]
+}
+
+export type FaultedRun = JudgedRun | { missing: string }
+
+export type ScorecardPair = Pair & { role: PairRole }
+
+export const controlOf = (loaded: LoadedCard): LoadedCard => ({ ...loaded, card: { ...loaded.card, valves: [] } })
+
+function queueCourseOf({ queue, drive }: JudgedRun): QueueCourse | null {
+    const counted = queue
+        .filter((sample) => !('error' in sample) && (drive === undefined || sample.at >= drive.startedAt))
+        .sort((a, b) => a.at - b.at) as Exclude<QueueSample, { error: string }>[]
+    if (counted.length === 0) {
+        return null
+    }
+    const dueAtStart = counted[0].due
+    const peakDue = Math.max(...counted.map(({ due }) => due))
+    return {
+        dueAtStart,
+        peakDue,
+        growth: peakDue - dueAtStart,
+        peakOldestDueSeconds: Math.max(...counted.map(({ oldestDueSeconds }) => oldestDueSeconds)),
+    }
+}
+
+function noLossOf({ invariants }: RunVerdict): NoLossResult | null {
+    const result = invariants.find(({ name }) => name === noLoss.name)
+    return result === undefined
+        ? null
+        : {
+              passed: result.passed,
+              observed: result.observed,
+              violation: result.violation ?? null,
+              unjudged: result.unjudged ?? null,
+          }
+}
+
+function pairedRunOf(role: PairRole, run: JudgedRun, card: LoadedCard['card']): PairedRun {
+    const { verdict } = run
+    const { convergence } = verdict
+    return {
+        role,
+        runId: verdict.runId,
+        status: verdict.status,
+        statusReason: verdict.statusReason,
+        admissions: verdict.admissions,
+        queue: queueCourseOf(run),
+        drainSeconds: convergence?.converged ? convergence.tookMs / 1000 : null,
+        faultDose: verdict.timeline.map(({ valve, target, observedAt, releasedAt, error }, i) => ({
+            valve,
+            target,
+            dose: card.valves[i]?.dose ?? {},
+            observedAt: observedAt ?? null,
+            releasedAt: releasedAt ?? null,
+            error: error ?? null,
+        })),
+        noLoss: noLossOf(verdict),
+    }
+}
+
+function unjudgedRunOf(name: string, { verdict }: JudgedRun): string | undefined {
+    const result = noLossOf(verdict)
+    if (result === null) {
+        return `the ${name} run judged no no_loss`
+    }
+    if (result.unjudged !== null) {
+        return `the ${name} run's no_loss was not judged: ${result.unjudged}`
+    }
+    return verdict.status === 'invalid' ? `the ${name} run is invalid: ${verdict.statusReason}` : undefined
+}
+
+function unobservedFaultOf({ verdict, drive }: JudgedRun): string | undefined {
+    if (verdict.timeline.length === 0) {
+        return 'the faulted run applied no fault'
+    }
+    const unobserved = unobservedValvesOf(verdict.timeline, drive ?? { startedAt: 0, endedAt: Infinity })
+    return unobserved.length === 0 ? undefined : `the fault evidence is missing: ${unobserved.join('; ')}`
+}
+
+function attributionOf(control: JudgedRun, faulted: FaultedRun): Pick<Pair, 'attribution' | 'reason'> {
+    const unjudgedControl = unjudgedRunOf('control', control)
+    if (unjudgedControl !== undefined) {
+        return { attribution: 'unjudged', reason: unjudgedControl }
+    }
+    if (control.verdict.status === 'failed') {
+        return {
+            attribution: 'open',
+            reason: `the control failed at the same seed and offered load, so the faulted run's result is not attributed to the fault: ${control.verdict.statusReason}`,
+        }
+    }
+    if ('missing' in faulted) {
+        return { attribution: 'unjudged', reason: `the faulted run did not run: ${faulted.missing}` }
+    }
+    const unjudgedFaulted = unobservedFaultOf(faulted) ?? unjudgedRunOf('faulted', faulted)
+    if (unjudgedFaulted !== undefined) {
+        return { attribution: 'unjudged', reason: unjudgedFaulted }
+    }
+    const faultedNoLoss = noLossOf(faulted.verdict)!
+    return faultedNoLoss.passed
+        ? { attribution: 'none', reason: 'the control and the faulted run both held no_loss' }
+        : {
+              attribution: 'fault',
+              reason: `the control held no_loss at the same seed and offered load, and the faulted run did not: ${faultedNoLoss.violation ?? 'no violation named'}`,
+          }
+}
+
+export function pairOf(loaded: LoadedCard, control: JudgedRun, faulted: FaultedRun): Pair {
+    return {
+        ...attributionOf(control, faulted),
+        controlRunId: control.verdict.runId,
+        faultedRunId: 'missing' in faulted ? null : faulted.verdict.runId,
+        runs: [
+            pairedRunOf('control', control, controlOf(loaded).card),
+            ...('missing' in faulted ? [] : [pairedRunOf('faulted', faulted, loaded.card)]),
+        ],
+    }
+}

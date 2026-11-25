@@ -10,7 +10,7 @@ import { createEnvironment, defaultStateDir } from './environment/environment'
 import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
-import { Runner, createRunner } from './runner/runner'
+import { RunResult, Runner, createRunner } from './runner/runner'
 import { readSavedRun, savedRunPathOf } from './runner/saved-run'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
 import { ADAPTERS } from './scorecard/scorecard'
@@ -20,7 +20,7 @@ import { RunId } from './store/runs'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = [
-    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev]',
+    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev] [--pair]',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>... | --all',
 ].join('\n')
@@ -63,10 +63,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
             profile: { type: 'string' },
             all: { type: 'boolean' },
             target: { type: 'string' },
+            pair: { type: 'boolean' },
         },
     })
     const [command, ...cards] = positionals
-    if (values.target !== undefined && command !== 'run') {
+    const pair = values.pair === true
+    if ((values.target !== undefined || pair) && command !== 'run') {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
@@ -96,7 +98,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const runner = dev
         ? createRunner(devEnvironment(), env, { target: devTarget(dev) })
         : createRunner(createEnvironment(), env)
-    return runCards(runner, checked.loaded, interrupt.signal)
+    return runCards(runner, checked.loaded, interrupt.signal, { pair })
 }
 
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
@@ -203,7 +205,28 @@ async function seedHeld(
     return EXIT_CODE.passed
 }
 
-export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {
+function printResult(result: RunResult): void {
+    process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
+    process.stdout.write(`evidence: ${result.evidenceDir}\n`)
+    const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
+    const recording = result.recorded ? ['recorded'] : readBackSkipped
+    const problems = result.scorecardError ? [result.scorecardError] : []
+    const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
+    process.stdout.write(`scorecard: ${scorecard}\n`)
+    const store = result.stored ? 'stored' : (result.storeError ?? `not reported, ${STORE_URL} is not set`)
+    process.stdout.write(`store: ${store}\n`)
+    if (result.pair) {
+        const { role, attribution, reason } = result.pair
+        process.stdout.write(`pair: ${role} run ${result.runId}, attribution ${attribution}, ${reason}\n`)
+    }
+}
+
+export async function runCards(
+    runner: Runner,
+    cards: LoadedCard[],
+    interrupt: AbortSignal,
+    { pair = false }: { pair?: boolean } = {}
+): Promise<number> {
     let code: number = EXIT_CODE.passed
     let ran = 0
     try {
@@ -212,17 +235,14 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
             if (interrupt.aborted) {
                 break
             }
-            const result = await runner.run(loaded, interrupt)
-            process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
-            process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
-            const recording = result.recorded ? ['recorded'] : readBackSkipped
-            const problems = result.scorecardError ? [result.scorecardError] : []
-            const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
-            process.stdout.write(`scorecard: ${scorecard}\n`)
-            const store = result.stored ? 'stored' : (result.storeError ?? `not reported, ${STORE_URL} is not set`)
-            process.stdout.write(`store: ${store}\n`)
-            code = Math.max(code, exitCodeOf(result))
+            const results = pair ? await runner.runPair(loaded, interrupt) : [await runner.run(loaded, interrupt)]
+            for (const result of results) {
+                printResult(result)
+                code = Math.max(code, exitCodeOf(result))
+            }
+            if (pair && results.length < 2) {
+                code = Math.max(code, EXIT_CODE.invalid)
+            }
             ran += 1
         }
     } catch (error) {

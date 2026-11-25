@@ -60,6 +60,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
+import { JudgedRun, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -88,7 +89,7 @@ export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentB
 
 export type RunTarget = { name: Target; open(loaded: LoadedCard, runId: string): TargetRun }
 
-export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError' | 'pair'>
 
 export type RunResult = {
     runId: string
@@ -99,6 +100,7 @@ export type RunResult = {
     scorecardError?: string
     stored?: true
     storeError?: string
+    pair?: ScorecardPair
     cardId: string
     cardHash: string
     profileHash: string
@@ -123,8 +125,11 @@ export type RunResult = {
 export interface Runner {
     up(signal: AbortSignal): Promise<void>
     run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
+    runPair(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult[]>
     down(): Promise<void>
 }
+
+type Judged = JudgedRun & { loaded: LoadedCard; live: ReturnType<typeof openLiveLog>; evidenceError?: string }
 
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
@@ -484,12 +489,8 @@ export function createRunner(
         }))
     }
 
-    return {
-        async up(signal) {
-            await environment.up(signal)
-        },
-
-        async run(loaded, signal) {
+    const stage = {
+        async judge(loaded: LoadedCard, signal: AbortSignal): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
@@ -506,7 +507,7 @@ export function createRunner(
             const opened = runTarget.open(loaded, runId)
             const judge = createJudge(opened)
             const valves = createValves()
-            using live = openLiveLog(evidenceDir)
+            const live = openLiveLog(evidenceDir)
             live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
             let outcome: Outcome = {
                 status: 'invalid',
@@ -783,8 +784,6 @@ export function createRunner(
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
-            const provenance = provenanceOf()
-            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -798,25 +797,61 @@ export function createRunner(
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
-                writeJson(evidenceDir, SAVED_RUN_FILE, {
-                    ...verdict,
-                    host,
-                    event: scorecardOf(verdict, loaded, provenance),
-                } satisfies SavedRun)
             })
-            const judged = withEvidenceError(verdict, evidenceError)
-            live.write({ type: 'end', at: Date.now(), status: judged.status, statusReason: judged.statusReason })
-            const scorecard = scorecardOf(judged, loaded, provenance)
+            return { verdict, queue: probed.queue, drive: driven, loaded, live, evidenceError }
+        },
+
+        async report(judged: Judged, signal: AbortSignal, pair?: ScorecardPair): Promise<RunResult> {
+            using live = judged.live
+            const { loaded, verdict } = judged
+            const provenance = provenanceOf()
+            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
+            const evidenceError =
+                judged.evidenceError ??
+                (await errorOf(() =>
+                    writeJson(verdict.evidenceDir, SAVED_RUN_FILE, {
+                        ...verdict,
+                        host,
+                        event: scorecardOf(verdict, loaded, provenance, pair),
+                    } satisfies SavedRun)
+                ))
+            const result = withEvidenceError(verdict, evidenceError)
+            live.write({ type: 'end', at: Date.now(), status: result.status, statusReason: result.statusReason })
+            const scorecard = scorecardOf(result, loaded, provenance, pair)
             const written = await publish(scorecard, env, signal)
             const reported = await reportToStore({ scorecard, host }, env)
             return {
-                ...judged,
+                ...result,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
                 stored: reported.stored || undefined,
                 storeError: reported.problem,
+                ...(pair && { pair }),
             }
+        },
+    }
+
+    return {
+        async up(signal) {
+            await environment.up(signal)
+        },
+
+        async run(loaded, signal) {
+            return stage.report(await stage.judge(loaded, signal), signal)
+        },
+
+        async runPair(loaded, signal) {
+            const control = await stage.judge(controlOf(loaded), signal)
+            const faulted = signal.aborted
+                ? { missing: 'the run was interrupted before it' }
+                : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))
+            const pair = pairOf(loaded, control, faulted)
+            const results = [await stage.report(control, signal, { ...pair, role: 'control' })]
+            if (!('missing' in faulted)) {
+                results.push(await stage.report(faulted, signal, { ...pair, role: 'faulted' }))
+            }
+            return results
         },
 
         async down() {

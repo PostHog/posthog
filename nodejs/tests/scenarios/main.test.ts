@@ -17,6 +17,7 @@ import { STORE_URL } from './store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from './store/test-store'
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
+const DESTINATION_ERRORS = load(path.join(__dirname, 'cards', 'destination-errors.yaml'))
 
 const passed = (cardId: string): RunResult => ({
     runId: 'run-a',
@@ -46,11 +47,14 @@ const runnerEnv = (cacheHome: string, credentials: NodeJS.ProcessEnv = {}): Node
     ...credentials,
 })
 
-function environmentWhoseResetFails(): Environment {
+function environmentWhoseResetFails({ resetFails = true } = {}): Environment {
     let edgeUrl: string | undefined = 'http://127.0.0.1:1'
     return {
         up: () => Promise.resolve(),
         reset: () => {
+            if (!resetFails) {
+                return Promise.resolve()
+            }
             edgeUrl = undefined
             return Promise.reject(new Error('cdp-api did not join its consumer group'))
         },
@@ -122,6 +126,7 @@ describe('runCards', () => {
                 }
                 return Promise.resolve(passed(loaded.card.id))
             },
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -155,6 +160,7 @@ describe('runCards', () => {
         const runner: Runner = {
             up: () => Promise.resolve(),
             run: (loaded) => Promise.resolve({ ...passed(loaded.card.id), ...outcome }),
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -172,6 +178,7 @@ describe('runCards', () => {
                     recorded: true,
                     storeError: 'the run store answered 503',
                 }),
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
             down: () => Promise.resolve(),
         }
 
@@ -208,6 +215,33 @@ describe('runCards', () => {
                 /The reset before run [\w-]+ failed and stopped the environment: cdp-api did not join its consumer group\. Restart the runner, then run the card again\.\nSkipped 1 of 2 cards after the error\.\n$/
             ),
         })
+    })
+
+    it('publishes the control and the faulted run of a paired card, each with the pair', async () => {
+        const api = await startFakeProjectApi()
+        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
+        const runner = createRunner(environmentWhoseResetFails({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+
+        try {
+            const exitCode = await runCards(runner, [DESTINATION_ERRORS], new AbortController().signal, { pair: true })
+
+            const [control, faulted] = api.captured.map(({ properties }) => properties)
+            const pair = {
+                pair_attribution: 'unjudged',
+                pair_reason: 'the control run judged no no_loss',
+                pair_control_run_id: control.run_id,
+                pair_faulted_run_id: faulted.run_id,
+            }
+            expect({ exitCode, captured: api.captured.length, control, faulted }).toEqual({
+                exitCode: EXIT_CODE.invalid,
+                captured: 2,
+                control: expect.objectContaining({ ...pair, pair_role: 'control', card_id: 'destination-errors' }),
+                faulted: expect.objectContaining({ ...pair, pair_role: 'faulted', card_id: 'destination-errors' }),
+            })
+            expect(control.run_id).not.toEqual(faulted.run_id)
+        } finally {
+            await api.close()
+        }
     })
 
     it('says the scorecard was captured when the run is interrupted before it was read back', async () => {
