@@ -3355,7 +3355,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             report_user_action(
                 cast(User, request.user),
                 "cohort realtime enabled" if enabled else "cohort realtime disabled",
-                cohort.get_analytics_metadata(),
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
                 team=cohort.team,
                 request=request,
             )
