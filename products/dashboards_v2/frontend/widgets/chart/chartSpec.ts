@@ -51,6 +51,6 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
             time: timeRangeSchema.optional(),
         }),
         refreshes: true,
-        appearance: { color: true },
+        appearance: { backgroundColor: true },
     }
 }

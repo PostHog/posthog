@@ -13,8 +13,8 @@ export function showsBorder(widget: ContentWidget | SectionWidget): boolean {
     return widget.appearance?.border !== false
 }
 
-export function tileColor(widget: ContentWidget, options: WidgetAppearanceOptions): string | null {
-    return (options.color && widget.appearance?.color) || null
+export function tileBackgroundColor(widget: ContentWidget, options: WidgetAppearanceOptions): string | null {
+    return (options.backgroundColor && widget.appearance?.backgroundColor) || null
 }
 
 type TileSetting = 'header' | 'footer' | 'background' | 'border'
@@ -28,7 +28,7 @@ const SETTINGS: { setting: TileSetting; label: string }[] = [
 ]
 
 /** The colors the menu offers. Each is a theme color, so the tint follows light and dark mode. */
-export const TILE_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
+export const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
     { key: 'blue', label: 'Blue', color: 'var(--color-blue-500)' },
     { key: 'green', label: 'Green', color: 'var(--color-green-500)' },
     { key: 'yellow', label: 'Yellow', color: 'var(--color-yellow-500)' },
@@ -103,7 +103,7 @@ export function showAction(
     return { ...menu, group: 'display', disabledReason, submenu }
 }
 
-export function colorAction(
+export function backgroundColorAction(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'widget'>[],
     widgets: WidgetDefinition[],
@@ -114,8 +114,8 @@ export function colorAction(
         if (isSectionWidget(widget)) {
             return []
         }
-        return findWidget(widgets, widget.type)?.appearance?.color
-            ? [{ id, color: widget.appearance?.color ?? null }]
+        return findWidget(widgets, widget.type)?.appearance?.backgroundColor
+            ? [{ id, color: widget.appearance?.backgroundColor ?? null }]
             : []
     })
     if (applies.length === 0) {
@@ -125,7 +125,7 @@ export function colorAction(
     const current = applies.every(({ color }) => color === applies[0].color) ? applies[0].color : undefined
     const choices: { key: string; label: string; color: string | null }[] = [
         { key: 'none', label: 'None', color: null },
-        ...TILE_COLOR_PRESETS,
+        ...BACKGROUND_COLOR_PRESETS,
     ]
     return {
         ...menu,
@@ -139,7 +139,7 @@ export function colorAction(
             disabledReason,
             checked: current === color,
             keepOpen: true,
-            onSelect: () => onEdit({ edit: 'setTilesAppearance', ids, appearance: { color } }),
+            onSelect: () => onEdit({ edit: 'setTilesAppearance', ids, appearance: { backgroundColor: color } }),
         })),
     }
 }

@@ -21,7 +21,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
-import { showsBackground, showsBorder, tileColor } from '../presentation/tileAppearance'
+import { showsBackground, showsBorder, tileBackgroundColor } from '../presentation/tileAppearance'
 import { isPartShown } from '../presentation/tileParts'
 import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
@@ -64,7 +64,7 @@ export function WidgetCard({
     const showFooter = isPartShown(widget, 'footer', slots)
     const appearance = definition?.appearance ?? {}
     const showBackground = showsBackground(widget, appearance)
-    const color = tileColor(widget, appearance)
+    const backgroundColor = tileBackgroundColor(widget, appearance)
     const HeaderActions = definition?.HeaderActions
     const Footer = definition?.Footer
     const hasMenu = hasTileMenu(actions)
@@ -78,11 +78,13 @@ export function WidgetCard({
                     'dash-WidgetCard',
                     !showBackground && 'dash-WidgetCard--no-background',
                     !showsBorder(widget) && 'dash-WidgetCard--no-border',
-                    color && 'dash-WidgetCard--tinted',
+                    backgroundColor && 'dash-WidgetCard--tinted',
                     editable && !showHeader && 'TileGrid__handle'
                 )}
                 // A saved color can be any CSS color, so no class can carry it.
-                style={color ? ({ '--dv2-tile-color': color } as CSSProperties) : undefined}
+                style={
+                    backgroundColor ? ({ '--dv2-tile-background-color': backgroundColor } as CSSProperties) : undefined
+                }
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>

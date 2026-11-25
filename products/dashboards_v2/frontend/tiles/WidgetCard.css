@@ -7,7 +7,7 @@
 
 /* Mixed into the card's own background, so a theme color reads in light and dark mode. */
 .dash-WidgetCard--tinted {
-    background-color: color-mix(in oklab, var(--dv2-tile-color) 8%, var(--card));
+    background-color: color-mix(in oklab, var(--dv2-tile-background-color) 8%, var(--card));
 }
 
 .dash-WidgetCard--no-background {
