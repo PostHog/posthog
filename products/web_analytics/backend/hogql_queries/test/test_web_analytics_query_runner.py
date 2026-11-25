@@ -23,6 +23,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    InlineCohortCalculation,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
@@ -351,39 +352,39 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_cohort_on_flag_evaluations_only", "person", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
-            ("static_cohort_on_flag_evaluations_only", "static", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
-            ("flag_call_cohort_on_events", "flag_call", FlagEvaluationsMode.EVENTS, False),
-            ("flag_call_cohort_on_flag_evaluations_only", "flag_call", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            (
+                "always_inline_on_flag_evaluations_only",
+                InlineCohortCalculation.ALWAYS,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+            ),
+            (
+                "auto_inline_with_flag_off",
+                InlineCohortCalculation.AUTO,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                False,
+            ),
+            ("inline_off", InlineCohortCalculation.OFF, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+            ("always_inline_on_events", InlineCohortCalculation.ALWAYS, FlagEvaluationsMode.EVENTS, False),
         ]
     )
-    def test_full_database_is_built_only_when_a_cohort_filter_can_read_flag_calls(
-        self, _name: str, cohort_kind: str, mode: FlagEvaluationsMode, builds_full_database: bool
+    def test_full_database_is_built_only_when_an_inline_cohort_can_read_flag_calls(
+        self, _name: str, inline: InlineCohortCalculation, mode: FlagEvaluationsMode, builds_full_database: bool
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
-        condition: dict[str, Any] = {"key": "email", "value": "test@posthog.com", "type": "person"}
-        if cohort_kind == "flag_call":
-            condition = {
-                "key": "$feature_flag_called",
-                "type": "behavioral",
-                "value": "performed_event",
-                "event_type": "events",
-                "time_value": 7,
-                "time_interval": "day",
-            }
         cohort = Cohort.objects.create(
             team=self.team,
-            name="Cohort",
-            is_static=cohort_kind == "static",
-            filters={"properties": {"type": "AND", "values": [] if cohort_kind == "static" else [condition]}},
+            name="Test users",
+            groups=[{"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}]}],
         )
         runner = WebOverviewQueryRunner(
             team=self.team,
             query=WebOverviewQuery(
                 dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
                 properties=[CohortPropertyFilter(key="id", value=cohort.id, type="cohort")],
+                modifiers=HogQLQueryModifiers(inlineCohortCalculation=inline),
             ),
         )
 

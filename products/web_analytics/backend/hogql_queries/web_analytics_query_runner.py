@@ -36,14 +36,13 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.cohort import inline_cohort_may_read_flag_call_union
+from posthog.hogql.functions.cohort import inline_cohorts_may_read_flag_call_union
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     action_to_expr,
     apply_path_cleaning,
     get_property_key,
     get_property_type,
-    get_property_value,
     property_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
@@ -848,25 +847,12 @@ WHERE and(
         # The built-in-only database carries no per-user access control.
         if team_has_property_access_rules(team_id=self.team.pk):
             return False
-        return not self._cohort_filter_may_read_flag_calls(filters)
-
-    def _cohort_filter_may_read_flag_calls(self, filters: list[Any]) -> bool:
         # An inline cohort reads flag calls through the flag-call union. The built-in-only database turns the union
         # off, and the cohort then counts only the flag calls that `events` holds.
-        cohort_ids = [get_property_value(prop) for prop in filters if get_property_type(prop) == "cohort"]
-        for cohort_id in cohort_ids:
-            try:
-                if inline_cohort_may_read_flag_call_union(int(cohort_id), self.team, self.modifiers):
-                    return True
-            except Exception:
-                logger.warning(
-                    "web_analytics_cohort_flag_call_check_failed",
-                    team_id=self.team.pk,
-                    cohort_id=cohort_id,
-                    exc_info=True,
-                )
-                return True
-        return False
+        return not (
+            any(get_property_type(prop) == "cohort" for prop in filters)
+            and inline_cohorts_may_read_flag_call_union(self.team, self.modifiers)
+        )
 
     @cached_property
     def _posthog_tables_database(self) -> Database:

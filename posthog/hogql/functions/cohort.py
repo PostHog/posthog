@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 
     from posthog.models import Team
 
-    from products.cohorts.backend.models.cohort import Cohort
-
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
 
@@ -28,7 +26,10 @@ def _is_inline_flag_enabled(context: HogQLContext) -> bool:
 
     if not context.team:
         context.team = Team.objects.get(id=context.team_id)
-    team = context.team
+    return _is_inline_flag_enabled_for_team(context.team)
+
+
+def _is_inline_flag_enabled_for_team(team: "Team") -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             "inline-cohort-calculation",
@@ -82,6 +83,8 @@ def inline_cohort_query(
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
+    from products.cohorts.backend.models.cohort import Cohort
+
     if is_static:
         return None
 
@@ -95,7 +98,7 @@ def inline_cohort_query(
         if not _is_cohort_fast_enough_to_inline(cohort_id):
             return None
 
-    cohort = _get_cohort(cohort_id, context.project_id)
+    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
 
     if not context.team:
         from posthog.models import Team
@@ -111,32 +114,21 @@ def inline_cohort_query(
     return read_flag_calls_in_inline_cohort(query, context)
 
 
-def inline_cohort_may_read_flag_call_union(
-    cohort_id: int, team: "Team", modifiers: "HogQLQueryModifiers | None" = None
-) -> bool:
-    """Whether the subquery that `inline_cohort_query` builds for the cohort can read flag calls through the flag-call
-    union: HogQL reads the team's flag calls from flag_evaluations, and the subquery names `$feature_flag_called`.
+def inline_cohorts_may_read_flag_call_union(team: "Team", modifiers: "HogQLQueryModifiers") -> bool:
+    """Whether a query for the team may inline a cohort that reads flag calls through the flag-call union.
 
-    `reads_flag_calls_from_flag_evaluations` also returns True on mode 1, where an inline cohort never reads the
-    union. It reads `modifiers`, because a modifier can move the team to the native events table. A nested cohort
-    compiles to a read of its stored members, so only this cohort's own conditions count.
+    It is True when the modifiers and the `inline-cohort-calculation` flag allow inlining, and the team's flag calls
+    are only in flag_evaluations. It does not read a cohort's definition, because the resolver also inlines each cohort
+    that a definition references, such as a cohort in a behavioral condition's event filter.
     """
-    from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
+    from products.feature_flags.backend.facade.flags import reads_flag_calls_without_events_fallback
 
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-    from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
-
-    if not reads_flag_calls_from_flag_evaluations(team, modifiers):
+    mode = modifiers.inlineCohortCalculation
+    if mode == InlineCohortCalculation.OFF:
         return False
-    cohort = _get_cohort(cohort_id, team.project_id)
-    return not cohort.is_static and names_flag_called_event(HogQLCohortQuery(cohort=cohort, team=team).get_query())
-
-
-def _get_cohort(cohort_id: int, project_id: int) -> "Cohort":
-    from products.cohorts.backend.models.cohort import Cohort
-
-    return Cohort.objects.select_related("team").get(id=cohort_id, team__project_id=project_id)
+    if mode != InlineCohortCalculation.ALWAYS and not _is_inline_flag_enabled_for_team(team):
+        return False
+    return reads_flag_calls_without_events_fallback(team, modifiers)
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:

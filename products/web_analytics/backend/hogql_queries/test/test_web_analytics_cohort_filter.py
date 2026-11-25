@@ -405,8 +405,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         assert visitors.key == "visitors"
         assert visitors.value == 0
 
-    @parameterized.expand([("events",), ("actions",)])
-    def test_behavioral_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self, event_type: str) -> None:
+    def test_behavioral_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
@@ -438,9 +437,6 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
             distinct_id="flag_caller",
             person_id=people["flag_caller"].uuid,
         )
-        key: str | int = "$feature_flag_called"
-        if event_type == "actions":
-            key = create_action(team=self.team, name="Flag called", steps_json=[{"event": "$feature_flag_called"}]).id
         cohort = Cohort.objects.create(
             team=self.team,
             name="Called a flag",
@@ -449,10 +445,10 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
                     "type": "AND",
                     "values": [
                         {
-                            "key": key,
+                            "key": "$feature_flag_called",
                             "type": "behavioral",
                             "value": "performed_event",
-                            "event_type": event_type,
+                            "event_type": "events",
                             "time_value": 7,
                             "time_interval": "day",
                         }
