@@ -49,6 +49,7 @@ class _AlertConfigValidationContext:
     threshold_config: dict | None
     require_threshold_bounds: bool
     detector_config: dict | None
+    reject_ongoing_on_excluded_periods: bool
 
 
 def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
@@ -141,7 +142,12 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     if not 0 <= parsed_config.series_index < result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
-    if parsed_config.check_ongoing_interval and query_excludes_incomplete_periods(trends_query):
+    if (
+        ctx.reject_ongoing_on_excluded_periods
+        and ctx.detector_config is None
+        and parsed_config.check_ongoing_interval
+        and query_excludes_incomplete_periods(trends_query)
+    ):
         raise ValueError(ONGOING_INTERVAL_EXCLUDED_MESSAGE)
 
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
@@ -184,7 +190,9 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
     strategy.validate_config(funnels_query, parsed)
     # A steps funnel has no periods and ignores the flag, so only a time-series funnel can hit this.
     if (
-        strategy.supports_relative_conditions
+        ctx.reject_ongoing_on_excluded_periods
+        and ctx.detector_config is None
+        and strategy.supports_relative_conditions
         and parsed.check_ongoing_interval
         and query_excludes_incomplete_periods(funnels_query)
     ):
@@ -338,6 +346,16 @@ def should_default_check_ongoing_interval(
     return False
 
 
+def check_ongoing_interval_excluded(query: dict, config: dict | None) -> bool:
+    """Whether ``config`` turns on ``check_ongoing_interval`` for an insight that excludes incomplete periods."""
+    if not isinstance(config, dict) or not config.get("check_ongoing_interval"):
+        return False
+    if get_from_dict_or_attr(query, "kind") in WRAPPER_NODE_KINDS:
+        query = get_from_dict_or_attr(query, "source")
+    date_range = get_from_dict_or_attr(query, "dateRange") or {}
+    return bool(get_from_dict_or_attr(date_range, "excludeIncompletePeriods"))
+
+
 def validate_alert_config(
     query: dict,
     condition: dict | None,
@@ -346,8 +364,12 @@ def validate_alert_config(
     calculation_interval: str | None = None,
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
+    reject_ongoing_on_excluded_periods: bool = False,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
+
+    ``reject_ongoing_on_excluded_periods`` is for a write that sends the config. The scheduled check
+    leaves it off, because a check that fails here disables the alert and emails its subscribers.
 
     Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``. Whether
     the insight itself can run is a separate question, answered by ``validate_alert_insight_query``.
@@ -390,6 +412,7 @@ def validate_alert_config(
             threshold_config=threshold_config,
             require_threshold_bounds=require_threshold_bounds,
             detector_config=detector_config,
+            reject_ongoing_on_excluded_periods=reject_ongoing_on_excluded_periods,
         )
     )
 

@@ -138,6 +138,37 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert saved.next_check_at is not None
         assert saved.next_check_at <= datetime.now(UTC)
 
+    def test_stored_ongoing_flag_on_insight_excluding_incomplete_periods_is_cleared_not_refused(self) -> None:
+        self._keep_the_team_on_insight()
+        insight = self.create_trends_insight(interval="day", dateRange={"excludeIncompletePeriods": True})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": insight["id"],
+                "name": "Complete days only",
+                "subscribed_users": [],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "calculation_interval": "daily",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        alert_id = response.json()["id"]
+        url = f"/api/projects/{self.team.id}/alerts/{alert_id}"
+        ongoing_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
+        AlertConfiguration.objects.filter(id=alert_id).update(config=ongoing_config)
+
+        refused = self.client.patch(url, {"config": ongoing_config}, format="json")
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
+
+        disabled = self.client.patch(url, {"enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        saved = AlertConfiguration.objects.get(id=alert_id)
+        assert saved.enabled is False
+        assert saved.config["check_ongoing_interval"] is False
+
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {

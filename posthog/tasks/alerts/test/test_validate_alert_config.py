@@ -221,33 +221,6 @@ class TestValidateAlertConfig:
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
-                "check_ongoing_with_excluded_incomplete_periods",
-                _base_query(excludes_incomplete=True),
-                _base_condition("absolute_value"),
-                {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
-                _base_threshold(),
-                "hourly",
-                "Check ongoing period can't be used on an insight that excludes incomplete periods",
-            ),
-            (
-                "funnels_trends_check_ongoing_with_excluded_incomplete_periods",
-                _funnels_query(viz="trends", excludes_incomplete=True),
-                _base_condition(),
-                {**_funnels_config(), "check_ongoing_interval": True},
-                _base_threshold(),
-                "hourly",
-                "Check ongoing period can't be used on an insight that excludes incomplete periods",
-            ),
-            (
-                "funnels_steps_check_ongoing_with_excluded_incomplete_periods_has_no_period_to_clip",
-                _funnels_query(viz="steps", excludes_incomplete=True),
-                _base_condition(),
-                {**_funnels_config(), "check_ongoing_interval": True},
-                _base_threshold(),
-                "hourly",
-                None,
-            ),
-            (
                 "series_index_out_of_range",
                 _base_query(series_count=1),
                 _base_condition(),
@@ -547,6 +520,63 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
+
+    @parameterized.expand(
+        [
+            ("trends_write", _base_query(excludes_incomplete=True), _base_config(), None, True, True),
+            (
+                "trends_funnel_write",
+                _funnels_query(viz="trends", excludes_incomplete=True),
+                _funnels_config(),
+                None,
+                True,
+                True,
+            ),
+            (
+                "steps_funnel_has_no_period_to_clip",
+                _funnels_query(viz="steps", excludes_incomplete=True),
+                _funnels_config(),
+                None,
+                True,
+                False,
+            ),
+            (
+                "scheduled_check_leaves_the_alert_on",
+                _base_query(excludes_incomplete=True),
+                _base_config(),
+                None,
+                False,
+                False,
+            ),
+            (
+                "detector_ignores_the_flag",
+                _base_query(excludes_incomplete=True),
+                _base_config(),
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                True,
+                False,
+            ),
+        ]
+    )
+    def test_ongoing_interval_on_insight_excluding_incomplete_periods(
+        self, _name: str, query: dict, config: dict, detector_config: dict | None, on_write: bool, refused: bool
+    ) -> None:
+        def validate() -> None:
+            validate_alert_config(
+                query,
+                _base_condition(),
+                {**config, "check_ongoing_interval": True},
+                _base_threshold(),
+                "hourly",
+                detector_config=detector_config,
+                **({"reject_ongoing_on_excluded_periods": True} if on_write else {}),
+            )
+
+        if refused:
+            with pytest.raises(ValueError, match="Check ongoing period can't be used"):
+                validate()
+        else:
+            validate()
 
     def test_detector_alert_rejects_non_time_series_trend(self) -> None:
         with pytest.raises(ValueError, match="Anomaly detection isn't supported for non time series trends"):

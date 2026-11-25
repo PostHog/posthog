@@ -624,7 +624,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           insight: props.insightId,
                       } as AlertFormType
                   })(),
-            errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
+            errors: (alert: AlertFormType) =>
+                getAlertFormValidationErrors(alert, {
+                    isTrendsFunnel: props.insightIsTrendsFunnel,
+                    excludesIncompletePeriods: props.insightExcludesIncompletePeriods,
+                }),
             submit: async (alert) => {
                 const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
                     hasHighFrequencyAlertsEntitlement: userLogic.values.hasAvailableFeature(

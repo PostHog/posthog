@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 
-import { AlertType, isFunnelsAlertConfig, isTrendsAlertConfig, supportsOngoingInterval } from '../types'
+import { AlertType, isFunnelsAlertConfig, supportsOngoingInterval } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
@@ -27,12 +27,11 @@ export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boole
     return isFiniteThresholdBound(lower) || isFiniteThresholdBound(upper)
 }
 
+export type OngoingIntervalOptions = { isTrendsFunnel?: boolean; excludesIncompletePeriods?: boolean }
+
 export function canCheckOngoingInterval(
     alert?: AlertType | AlertFormType,
-    {
-        isTrendsFunnel = false,
-        excludesIncompletePeriods = false,
-    }: { isTrendsFunnel?: boolean; excludesIncompletePeriods?: boolean } = {}
+    { isTrendsFunnel = false, excludesIncompletePeriods = false }: OngoingIntervalOptions = {}
 ): boolean {
     if (excludesIncompletePeriods) {
         return false
@@ -76,20 +75,6 @@ const alertFormSchema = z
     })
     .passthrough()
     .superRefine((alert, ctx) => {
-        const config = (alert as AlertFormType).config
-        // Submit clears a Trends ongoing-period flag the condition no longer allows, so check that value.
-        if (
-            (alert.evaluation_delay_intervals ?? 0) > 0 &&
-            supportsOngoingInterval(config) &&
-            config.check_ongoing_interval &&
-            (!isTrendsAlertConfig(config) || canCheckOngoingInterval(alert as AlertFormType))
-        ) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ['evaluation_delay_intervals'],
-                message: 'Turn off Check ongoing period to use an evaluation delay.',
-            })
-        }
         if (!alert.name) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['name'], message: NAME_REQUIRED_MESSAGE })
         }
@@ -137,14 +122,23 @@ const alertFormSchema = z
         }
     })
 
-export function getAlertFormValidationErrors(alert: AlertFormType): DeepPartialMap<AlertFormType, ValidationErrorType> {
-    const result = alertFormSchema.safeParse(alert)
-    if (result.success) {
-        return {}
+export function getAlertFormValidationErrors(
+    alert: AlertFormType,
+    ongoingIntervalOptions: OngoingIntervalOptions = {}
+): DeepPartialMap<AlertFormType, ValidationErrorType> {
+    const errors: Record<string, ValidationErrorType> = {}
+    // Submit clears an ongoing-period flag the insight or condition no longer allows, so check that value.
+    if (
+        (alert.evaluation_delay_intervals ?? 0) > 0 &&
+        supportsOngoingInterval(alert.config) &&
+        alert.config.check_ongoing_interval &&
+        canCheckOngoingInterval(alert, ongoingIntervalOptions)
+    ) {
+        errors.evaluation_delay_intervals = 'Turn off Check ongoing period to use an evaluation delay.'
     }
 
-    const errors: Record<string, ValidationErrorType> = {}
-    for (const issue of result.error.issues) {
+    const result = alertFormSchema.safeParse(alert)
+    for (const issue of result.success ? [] : result.error.issues) {
         const field = issue.path[0]
         if (typeof field === 'string' && errors[field] === undefined) {
             errors[field] = issue.message
