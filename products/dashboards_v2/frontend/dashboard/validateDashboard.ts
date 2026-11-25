@@ -2,13 +2,15 @@ import { z } from 'zod'
 
 import { type WidgetSpec, findWidget, sizeOfWidgets } from '../widgets/widgetSpec'
 import {
-    contentWidgetSchema,
-    dashboardSchema,
+    dashboardDocumentSchema,
+    documentContentWidgetSchema,
     gridTabSchema,
     linkTabSchema,
     ONE_GRID_TAB,
     sectionWidgetSchema,
+    sharedWidgetSchema,
     tileSchema,
+    widgetRefSchema,
 } from './dashboardSchema'
 import { type ContentWidget, GRID } from './dashboardTypes'
 
@@ -23,10 +25,13 @@ export interface DashboardProblem {
 
 // The document schemas, with each widget checked only for a `type` at first. A widget's fields depend on its type, so
 // the walk below checks each one against the schema for that type, which gives a clearer problem than a failed union.
-const tileHeadSchema = tileSchema.extend({ widget: z.looseObject({ type: z.string() }) })
+const widgetHeadSchema = z.looseObject({ type: z.string() })
+type WidgetHead = z.infer<typeof widgetHeadSchema>
+const tileHeadSchema = tileSchema.extend({ widget: z.union([widgetHeadSchema, widgetRefSchema]) })
 type TileHead = z.infer<typeof tileHeadSchema>
 const sectionHeadSchema = sectionWidgetSchema.extend({ tiles: z.array(tileHeadSchema) })
-const dashboardHeadSchema = dashboardSchema.extend({
+const dashboardHeadSchema = dashboardDocumentSchema.extend({
+    widgets: z.record(z.string(), widgetHeadSchema).optional(),
     tabs: z
         .array(z.union([gridTabSchema.extend({ tiles: z.array(tileHeadSchema) }), linkTabSchema]))
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
@@ -55,6 +60,48 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
     const sizeOf = sizeOfWidgets(widgets)
     const seenIds = new Set<string>()
 
+    const checkContent = (widget: WidgetHead, path: string, schema: z.ZodType): ContentWidget | null => {
+        const spec = findWidget(widgets, widget.type)
+        if (!spec) {
+            problems.push({
+                path: `${path}.type`,
+                message: `Unknown widget type "${widget.type}". Known types: ${widgets.map((known) => known.type).join(', ')}`,
+            })
+            return null
+        }
+        const fields = schema.safeParse(widget)
+        if (!fields.success) {
+            problems.push(...issuesAt(path, fields.error))
+        }
+        const config = spec.configSchema.safeParse(widget.config)
+        if (!config.success) {
+            problems.push(...issuesAt(`${path}.config`, config.error))
+            return null
+        }
+        return { ...widget, config: config.data } as ContentWidget
+    }
+
+    const shared = new Map(
+        Object.entries(parsed.data.widgets ?? {}).map(([key, widget]) => [
+            key,
+            checkContent(widget, `widgets.${key}`, sharedWidgetSchema),
+        ])
+    )
+
+    // A widget's size can depend on its config, so it is only worked out from a valid one.
+    const checkSize = (widget: ContentWidget | null, tile: TileHead, tilePath: string): void => {
+        if (!widget) {
+            return
+        }
+        const size = sizeOf(widget)
+        if (tile.place.w < size.minW || tile.place.h < size.minH) {
+            problems.push({
+                path: `${tilePath}.place`,
+                message: `This ${widget.type} tile is at least ${size.minW} columns wide and ${size.minH} rows tall`,
+            })
+        }
+    }
+
     const checkGrid = (tiles: TileHead[], cols: number, path: string, depth: number): void => {
         tiles.forEach((tile, index) => {
             const tilePath = `${path}[${index}]`
@@ -64,6 +111,18 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
             seenIds.add(tile.id)
             if (tile.place.x + tile.place.w > cols) {
                 problems.push({ path: `${tilePath}.place`, message: `The tile goes past the grid's ${cols} columns` })
+            }
+
+            if (!('type' in tile.widget)) {
+                const { ref } = tile.widget
+                if (!shared.has(ref)) {
+                    problems.push({
+                        path: `${tilePath}.widget.ref`,
+                        message: `There is no widget "${ref}" in the dashboard's widgets`,
+                    })
+                }
+                checkSize(shared.get(ref) ?? null, tile, tilePath)
+                return
             }
 
             if (tile.widget.type === 'section') {
@@ -83,32 +142,8 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
                 return
             }
 
-            const widget = findWidget(widgets, tile.widget.type)
-            if (!widget) {
-                problems.push({
-                    path: `${tilePath}.widget.type`,
-                    message: `Unknown widget type "${tile.widget.type}". Known types: ${widgets.map((known) => known.type).join(', ')}`,
-                })
-                return
-            }
-            const fields = contentWidgetSchema.safeParse(tile.widget)
-            if (!fields.success) {
-                problems.push(...issuesAt(`${tilePath}.widget`, fields.error))
-            }
-            const config = widget.configSchema.safeParse(tile.widget.config)
-            if (!config.success) {
-                problems.push(...issuesAt(`${tilePath}.widget.config`, config.error))
-            }
-            // A widget's size can depend on its config, so it is only worked out from a valid one.
-            if (config.success) {
-                const size = sizeOf({ ...tile.widget, config: config.data } as ContentWidget)
-                if (tile.place.w < size.minW || tile.place.h < size.minH) {
-                    problems.push({
-                        path: `${tilePath}.place`,
-                        message: `This ${widget.type} tile is at least ${size.minW} columns wide and ${size.minH} rows tall`,
-                    })
-                }
-            }
+            const widget = checkContent(tile.widget, `${tilePath}.widget`, documentContentWidgetSchema)
+            checkSize(widget, tile, tilePath)
         })
     }
 

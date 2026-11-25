@@ -4,7 +4,7 @@ from posthog.migration_helpers import untrack_field
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1454_cimd_provisioning_review_status_length")]
+    dependencies = [("posthog", "1455_user_type")]
 
     operations = [
         # Phase 1 of retiring the column that held saved Vercel tokens. The column stops being NOT NULL,

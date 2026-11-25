@@ -2845,10 +2845,8 @@ presentation-uses-facade	products.data_warehouse.backend.presentation.views.tabl
 presentation-uses-facade	products.early_access_features.backend.routes	products.early_access_features.backend.api	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.ai_observability.backend.models.llm_prompt	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.experiment_service	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.hogql_queries.exposure_query_logic	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.llm_metric_templates	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.metric_events	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.metric_utils	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.models.experiment	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.running_time_calculator	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.session_buckets	1
