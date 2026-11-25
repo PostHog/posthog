@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from uuid import uuid4
 
 import pytest
@@ -25,8 +26,10 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
 @pytest.mark.parametrize(
     ("query", "mode", "overrides", "refused"),
     [
-        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.EVENTS, {}, False, id="mode-0-events"),
-        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, {}, False, id="mode-1-events"),
+        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.EVENTS, {"native_events": False}, False, id="mode-0-events"),
+        pytest.param(
+            _EVENTS_ONLY, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, {"native_events": False}, False, id="mode-1-events"
+        ),
         pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, {}, True, id="mode-2-events"),
         pytest.param(
             _EVENTS_ONLY,
@@ -160,7 +163,11 @@ def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_on
     with (
         override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", overrides.get("union_disabled", False)),
         override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", overrides.get("force_events_reads", False)),
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=overrides.get("native_events", False)),
+        (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=overrides["native_events"])
+            if "native_events" in overrides
+            else nullcontext()
+        ),
         patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=False),
         patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
         patch("posthog.dags.data_deletion_requests.sync_execute", return_value=1) as execute,
