@@ -26,6 +26,10 @@ class TestRenderSource:
                 "(Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
                 "Failed to establish a new connection: [Errno 111] Connection refused'))",
             ),
+            (
+                "rate_limited",
+                "Render API error (retryable): status=429, url=https://api.render.com/v1/services?limit=100",
+            ),
         ]
     )
     def test_exhausted_connection_retries_are_retryable(self, _name: str, observed_error: str) -> None:
