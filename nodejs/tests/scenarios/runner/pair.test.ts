@@ -5,7 +5,7 @@ import { parse, stringify } from 'yaml'
 import { PROFILES_DIR, load, loadText } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { FaultedRun, JudgedRun, controlOf, pairOf } from './pair'
+import { FaultedRun, JudgedRun, controlOf, pairOf, pairProblemsOf } from './pair'
 import type { RunVerdict } from './runner'
 
 const CARDS = path.join(__dirname, '..', 'cards')
@@ -260,5 +260,29 @@ describe('pairOf', () => {
         expect(controlOf(bounces).card.invariants.map(({ name }) => name)).toEqual(
             bounces.card.invariants.map(({ name }) => name).filter((name) => name !== 'bounced_suppressed')
         )
+    })
+})
+
+describe('pairProblemsOf', () => {
+    it.each<[string, typeof CARD, RegExp | undefined]>([
+        ['a card with valves that judges no_loss', CARD, undefined],
+        [
+            'a card without valves',
+            { ...CARD, card: { ...CARD.card, valves: [] } },
+            /needs a card that applies valves and judges no_loss/,
+        ],
+        [
+            'a card with a valve that runs only on a run host',
+            {
+                ...CARD,
+                card: {
+                    ...CARD.card,
+                    valves: [{ valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '5s', for: '10s' }],
+                },
+            },
+            /pg\.failover runs only on a run host/,
+        ],
+    ])('takes or refuses %s', (_story, loaded, refusal) => {
+        expect(pairProblemsOf(loaded)).toEqual(refusal === undefined ? [] : [expect.stringMatching(refusal)])
     })
 })

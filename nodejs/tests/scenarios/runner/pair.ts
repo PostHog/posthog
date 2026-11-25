@@ -2,6 +2,7 @@ import { type LoadedCard, cardHashOf } from '../cards'
 import type { DriveSummary } from '../generator/generator'
 import { bouncedSuppressed, noLoss } from '../judge/invariants'
 import type { DriveWindow, QueueSample } from '../judge/measurements'
+import { pgFailover } from '../valves/valves'
 import type { RunVerdict } from './runner'
 import { type Admission, type Status, unobservedValvesOf, withEvidenceError } from './status'
 
@@ -70,10 +71,14 @@ export function controlOf(loaded: LoadedCard): LoadedCard {
     return { ...loaded, card: control, cardHash: cardHashOf(control, profileHash) }
 }
 
-export const pairProblemsOf = ({ card }: LoadedCard): string[] =>
-    card.valves.length > 0 && card.invariants.some(({ name }) => name === noLoss.name)
-        ? []
-        : [`${card.id}: --pair needs a card that applies valves and judges no_loss, or both runs end unjudged.`]
+export function pairProblemsOf({ card }: LoadedCard): string[] {
+    if (card.valves.length === 0 || !card.invariants.some(({ name }) => name === noLoss.name)) {
+        return [`${card.id}: --pair needs a card that applies valves and judges no_loss, or both runs end unjudged.`]
+    }
+    return card.valves.some(({ valve }) => valve === pgFailover.name)
+        ? [`${card.id}: ${pgFailover.name} runs only on a run host, and --pair runs only locally.`]
+        : []
+}
 
 function queueCourseOf({ queue, drive }: JudgedRun): QueueCourse | null {
     const counted = queue

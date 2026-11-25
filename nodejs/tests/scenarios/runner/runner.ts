@@ -60,7 +60,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
-import { JudgedRun, Offered, ScorecardPair, controlOf, pairOf } from './pair'
+import { JudgedRun, Offered, PairRole, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -797,22 +797,24 @@ export function createRunner(
             return { verdict, queue: probed.queue, drive: driven, units: offered, loaded, live, evidenceError }
         },
 
-        async save(judged: Judged, pair?: ScorecardPair): Promise<Saved> {
-            using live = judged.live
-            const { loaded, verdict } = judged
-            const provenance = provenanceOf()
-            const evidenceError =
-                judged.evidenceError ??
+        async write({ loaded, verdict, evidenceError }: Judged, pair?: ScorecardPair): Promise<string | undefined> {
+            return (
+                evidenceError ??
                 (await errorOf(() =>
                     writeJson(verdict.evidenceDir, SAVED_RUN_FILE, {
                         ...verdict,
                         host,
-                        event: scorecardOf(verdict, loaded, provenance, pair),
+                        event: scorecardOf(verdict, loaded, provenanceOf(), pair),
                     } satisfies SavedRun)
                 ))
-            const result = withEvidenceError(verdict, evidenceError)
+            )
+        },
+
+        close(judged: Judged, evidenceError: string | undefined, pair?: ScorecardPair): Saved {
+            using live = judged.live
+            const result = withEvidenceError(judged.verdict, evidenceError)
             live.write({ type: 'end', at: Date.now(), status: result.status, statusReason: result.statusReason })
-            return { result, scorecard: scorecardOf(result, loaded, provenance, pair), pair }
+            return { result, scorecard: scorecardOf(result, judged.loaded, provenanceOf(), pair), pair }
         },
 
         async publish({ result, scorecard, pair }: Saved, signal: AbortSignal): Promise<RunResult> {
@@ -836,7 +838,8 @@ export function createRunner(
         },
 
         async run(loaded, signal) {
-            return stage.publish(await stage.save(await stage.judge(loaded, signal)), signal)
+            const judged = await stage.judge(loaded, signal)
+            return stage.publish(stage.close(judged, await stage.write(judged)), signal)
         },
 
         async runPair(loaded, signal) {
@@ -844,11 +847,21 @@ export function createRunner(
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))
-            const pair = pairOf(loaded, control, faulted)
-            const saved = [await stage.save(control, { ...pair, role: 'control' })]
-            if (!('missing' in faulted)) {
-                saved.push(await stage.save(faulted, { ...pair, role: 'faulted' }))
+            const runs = 'missing' in faulted ? [control] : [control, faulted]
+            const roleOf = (i: number): PairRole => (i === 0 ? 'control' : 'faulted')
+            let pair = pairOf(loaded, control, faulted)
+            const errors: (string | undefined)[] = []
+            for (const [i, run] of runs.entries()) {
+                errors.push(await stage.write(run, { ...pair, role: roleOf(i) }))
             }
+            if (errors.some((error, i) => error !== runs[i].evidenceError)) {
+                const [failedControl, failedFaulted] = runs.map((run, i) => ({ ...run, evidenceError: errors[i] }))
+                pair = pairOf(loaded, failedControl, failedFaulted ?? faulted)
+                for (const [i, run] of runs.entries()) {
+                    errors[i] ??= await stage.write(run, { ...pair, role: roleOf(i) })
+                }
+            }
+            const saved = runs.map((run, i) => stage.close(run, errors[i], { ...pair, role: roleOf(i) }))
             const results = []
             for (const run of saved) {
                 results.push(await stage.publish(run, signal))
