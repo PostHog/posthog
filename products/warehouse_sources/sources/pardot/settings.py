@@ -596,10 +596,9 @@ PARDOT_ENDPOINTS: dict[str, PardotEndpointConfig] = {
     "tagged_objects": PardotEndpointConfig(
         name="tagged_objects",
         path="tagged-objects",
-        # Tagged objects have no updatedAt and only filter/sort on createdAt. Removing a
-        # tag deletes the record, so only a full refresh drops removed tags.
+        # Removing a tag deletes the record, and there's no updatedAt or isDeleted to
+        # signal it, so a createdAt watermark would keep removed tags forever — full refresh.
         order_by="id",
-        incremental_fields=[incremental_field("createdAt")],
         partition_key="createdAt",
         fields=(
             "id",

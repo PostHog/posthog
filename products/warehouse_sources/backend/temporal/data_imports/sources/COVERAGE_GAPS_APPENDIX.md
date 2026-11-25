@@ -11266,7 +11266,7 @@ Re-audited 2026-11-19 against: <https://developer.salesforce.com/docs/marketing/
 
 Note (2026-11-19): Read the v5 overview page and the per-object guide pages. Each object page lists a Query GET under /api/v5/objects/. All earlier gaps are built. Excluded: exports, imports, bulk actions, files, folders, layout templates, external activities (write only), and form handler fields (config). Tag and tagged-object are the useful new join data.
 
-Note (2026-11-25): Built tags (full refresh, because objectCount changes without updatedAt), tagged objects (incremental on createdAt), Engagement Studio programs and dynamic content. The v5 dynamic content object has no variations field; the nested Engagement Studio schedule and business-hours maps are left out.
+Note (2026-11-25): Built tags (full refresh, because objectCount changes without updatedAt), tagged objects (full refresh, because removing a tag deletes its record), Engagement Studio programs and dynamic content. The v5 dynamic content object has no variations field; the nested Engagement Studio schedule and business-hours maps are left out.
 
 ## Particle — **thin**
 
