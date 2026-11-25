@@ -19,6 +19,7 @@ import { Environment, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
     ConsumerGroup,
+    INTAKE_GROUPS,
     RoleSpec,
     SES_WEBHOOKS_GROUP,
     consumerGroupsOf,
@@ -375,7 +376,11 @@ function localTarget(
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
-            const probe = createCyclotronProbe(cyclotronUrl)
+            const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
+            const probe = createCyclotronProbe(cyclotronUrl, async () => {
+                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                return lags.reduce((total, lag) => total + lag, 0)
+            })
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),

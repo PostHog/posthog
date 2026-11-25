@@ -98,12 +98,13 @@ The components hold no business logic and never import a kea logic, so any page 
 
 ## Narrow screens
 
-Below 768px of canvas width (`GRID.stackBelowPx`), the dashboard is read-only and every tile is full width.
+Below 768px of canvas width (`GRID.stackBelowPx`), every tile is full width and tiles cannot be dragged or resized.
 
 - Tiles stack in reading order: top to bottom, then left to right. Sections stack their own tiles the same way.
 - Text and number tiles keep their height. Line and bar charts stay between 10 and 16 rows, so one chart never fills the screen.
 - The stacked layout is worked out from the saved one each time and is never saved.
-- Every edit is refused, and disabled controls say to open the dashboard on a wider screen.
+- Only arranging tiles (`placeTiles`) is refused. Other edits, such as moving a tile to another tab, still work.
+- A disabled menu entry shows its reason under its label, since a touch screen shows no tooltip.
 
 ## Widgets
 
@@ -131,7 +132,9 @@ A widget type can also:
 - set what its tile shows while its component suspends with `Loading`. Without it, the tile shows `WidgetLoading`, a skeleton a widget can also render itself while it loads;
 - change its tile's right-click menu: `menuActions` adds entries, and `tileActions(actions, { widget })` receives the whole list to remove, disable, reorder or add entries by `key`.
 
-A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `TileAction.key`.
+A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `MenuAction.key`.
+
+The dashboard has its own menu, beside undo and redo. Its built-in action, `download-image`, downloads the active tab as a PNG or WebP image, with every tile drawn first. A host passes `dashboardActions(actions)` on the controller to hide, disable or add entries the same way.
 
 To hide a tab from someone, such as a tab behind a feature flag, the host leaves it out of the dashboard it passes in. Whatever the host passes reaches the browser, so tabs a person may not see are removed where the dashboard is loaded, not in the view.
 

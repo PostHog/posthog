@@ -1833,7 +1833,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason:
-                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-intake-transactional-email, cdp-intake-workflow-webhook, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)

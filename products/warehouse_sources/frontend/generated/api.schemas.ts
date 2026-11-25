@@ -467,6 +467,14 @@ export const IncrementalSyncBlockedReasonEnumApi = {
     DuplicatePrimaryKey: 'duplicate_primary_key',
 } as const
 
+export type WebhookIssueEnumApi = (typeof WebhookIssueEnumApi)[keyof typeof WebhookIssueEnumApi]
+
+export const WebhookIssueEnumApi = {
+    NotRegistered: 'not_registered',
+    MissingInputs: 'missing_inputs',
+    NotRouted: 'not_routed',
+} as const
+
 export interface RowFilterColumnApi {
     /** Column name to use as `column` in a row filter. */
     name: string
@@ -681,6 +689,8 @@ export interface ExternalDataSchemaApi {
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
     readonly webhook_not_registered: boolean
+    /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+    readonly webhook_issue: WebhookIssueEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -939,6 +949,8 @@ export interface PatchedExternalDataSchemaApi {
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
     readonly webhook_not_registered?: boolean
+    /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+    readonly webhook_issue?: WebhookIssueEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable

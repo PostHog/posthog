@@ -119,7 +119,7 @@ const realSinks = (): {
         new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true }),
         new WarehouseWebhooksService(outputs),
         new CapturedEventsService(
-            new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://capture.example.com/i/v0/e' }),
+            new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://capture.posthog.invalid/i/v0/e' }),
             teamManager
         ),
         new MessageAssetsService(outputs),
