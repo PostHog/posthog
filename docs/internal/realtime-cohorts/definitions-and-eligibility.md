@@ -273,7 +273,7 @@ A few window rules are worth knowing.
 A leaf is also dropped when its behavioral value is unsupported, when its `key` is a numeric action id, when its condition hash or bytecode is missing or malformed, or when its type is unknown.
 The processor does not read `event_type`, so it keeps a leaf whose action id is stored as a string and matches it as an event with that name.
 The save refuses such a leaf, so a cohort whose criteria are saved with one is not realtime and the processor does not load it.
-A cohort already typed realtime keeps that leaf, and that wrong match, until its criteria are saved again.
+A cohort already typed realtime keeps that leaf, and that wrong match, until a save changes its criteria or `resave_cohorts` recompiles it.
 Every drop is counted by reason.
 
 ## Eligibility: which cohorts the processor composes
