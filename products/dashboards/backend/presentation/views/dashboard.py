@@ -134,19 +134,6 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.ai_observability.backend.facade import api as ai_observability_api
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
-from products.dashboards.backend.constants import (
-    DASHBOARD_GRID_COLUMN_COUNT,
-    MAX_CACHED_TILES_BATCH_SIZE,
-    MAX_GROUP_KEY_LENGTH,
-    MAX_GROUP_TITLE_LENGTH,
-    MAX_GROUPS,
-    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
-    MAX_WIDGETS_BATCH_SIZE,
-    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
-    RUN_INSIGHTS_MAX_TOTAL_CHARS,
-    RUN_INSIGHTS_MIN_TILE_CHARS,
-)
 from products.dashboards.backend.customization import (
     normalize_dashboard_customization,
     normalized_group_key,
@@ -156,6 +143,11 @@ from products.dashboards.backend.customization import (
     validated_group_key,
     validated_group_keys,
     without_default_settings,
+)
+from products.dashboards.backend.facade.access import (
+    dashboard_access_method,
+    record_dashboard_access,
+    record_dashboard_view,
 )
 from products.dashboards.backend.facade.api import (
     CachedTileStatus,
@@ -167,18 +159,28 @@ from products.dashboards.backend.facade.api import (
     shared_tile_work,
     tile_ids_prefetch,
 )
-from products.dashboards.backend.facade.enums import ResultFormat
+from products.dashboards.backend.facade.enums import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DEFAULTS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    MAX_GROUP_KEY_LENGTH,
+    MAX_GROUP_TITLE_LENGTH,
+    MAX_GROUPS,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+    MAX_WIDGETS_BATCH_SIZE,
+    DashboardAccessMethod,
+    DashboardTileBadge,
+    ResultFormat,
+)
 from products.dashboards.backend.facade.query_sharing import (
+    MAX_CACHED_TILES_BATCH_SIZE,
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
 )
-from products.dashboards.backend.models.dashboard import (
-    DASHBOARD_GRID_COMPACTION_MODES,
-    DASHBOARD_GRID_SPACING_GAPS,
-    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
-    Dashboard,
-)
-from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -194,9 +196,20 @@ from products.dashboards.backend.presentation.query_sharing import (
     DashboardSharingDebugSerializer,
     DashboardSharingRefreshType,
 )
+from products.dashboards.backend.presentation.run_insights_output import (
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
+    bound_formatted_result,
+    parse_max_result_chars,
+    parse_tile_ids,
+    render_unsupported_result,
+    tile_budget,
+    tile_fits_response_budget,
+    unrun_tile_results,
+)
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.dashboards.backend.presentation.widget_openapi_serializers import (
-    DASHBOARD_TILE_GROUP_DEFAULTS,
     GROUP_TITLES_HELP_TEXT,
     GROUPS_HELP_TEXT,
     WIDGET_BATCH_ADD_OPENAPI_HELP,
@@ -208,15 +221,7 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
-from products.dashboards.backend.run_insights_output import (
-    bound_formatted_result,
-    parse_max_result_chars,
-    parse_tile_ids,
-    render_unsupported_result,
-    tile_budget,
-    tile_fits_response_budget,
-    unrun_tile_results,
-)
+from products.dashboards.backend.presentation.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -226,7 +231,6 @@ from products.dashboards.backend.widget_availability import get_widget_feature_e
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
-from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -3257,6 +3261,13 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
     )
 
 
+def _record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
+    # The facade stamps its own copy of the row, so copy the stamp onto this instance before it is serialized.
+    last_accessed_at = record_dashboard_view(dashboard_id=dashboard.id, access_method=access_method)
+    if last_accessed_at is not None:
+        dashboard.last_accessed_at = last_accessed_at
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -3570,7 +3581,7 @@ class DashboardsViewSet(
         # Views during staff impersonation aren't the team's own activity - skip the write
         # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
         if not is_impersonated(request):
-            record_dashboard_view(dashboard, access_method)
+            _record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         if str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request):
@@ -3620,7 +3631,7 @@ class DashboardsViewSet(
         access_method = dashboard_access_method(request)
         # Skip the "Last accessed" bump during staff impersonation (see retrieve)
         if not is_impersonated(request):
-            record_dashboard_view(dashboard, access_method)
+            _record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 
@@ -4419,7 +4430,13 @@ class DashboardsViewSet(
             if output_format == "optimized" and not tile_fits_response_budget(used_chars):
                 # Budget markers carry the insight name, so restricted tiles stay out of them.
                 tile_results.extend(
-                    unrun_tile_results([t for t in insight_tiles[index:] if t[1].id not in restricted_levels])
+                    unrun_tile_results(
+                        [
+                            (unrun_order, unrun_tile.id, unrun_insight)
+                            for unrun_order, unrun_tile, unrun_insight in insight_tiles[index:]
+                            if unrun_tile.id not in restricted_levels
+                        ]
+                    )
                 )
                 break
 

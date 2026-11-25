@@ -188,7 +188,7 @@ Key constants in `constants.py`:
 | `DEFAULT_BATCH_SIZE`                        | 5            | Concurrent item processing                      |
 | `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20           | Max teams to process in parallel                |
 | `DEFAULT_MODE`                              | "detailed"   | Summary detail level                            |
-| `DEFAULT_MODEL`                             | "gpt-5-nano" | LLM model for summarization (flex service tier) |
+| `DEFAULT_MODEL`                             | "gpt-6-luna" | LLM model for summarization                     |
 | `DEFAULT_WINDOW_MINUTES`                    | 60           | Time window to query                            |
 | `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30           | Max per-team workflow duration                  |
 | `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55           | Max coordinator workflow duration               |
