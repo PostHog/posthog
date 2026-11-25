@@ -196,8 +196,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
         throw_on_timeout: bool = False,
         group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
+        # For callers that print the query rather than run it and need the same SQL on every build,
+        # such as the rendered skill examples. Every "now"-relative bound then uses this instant.
+        now: datetime | None = None,
         **_,
     ):
+        self._now = now
         self._user = user
         self._throw_on_timeout = throw_on_timeout
         self._project_exposure_variant = project_exposure_variant
@@ -279,6 +283,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._skip_negative_blocklists = skip_negative_blocklists
         self._experiment_exposure_linkage: Optional[ExperimentExposureLinkage] = None
 
+    def _current_time(self) -> datetime:
+        return self._now or datetime.now(UTC)
+
     @cached_property
     def _execution_modifiers(self) -> HogQLQueryModifiers | None:
         # sessions v3 holds complete data only from its coverage start, so a team on the default table version
@@ -292,7 +299,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         coverage_start = _sessions_v3_coverage_start()
         if coverage_start is None or not self._sessions_v3_flag_enabled():
             return requested
-        earliest = max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE)
+        earliest = max(coverage_start, self._current_time() - REPLAY_SESSIONS_V3_MAX_RANGE)
         if self._bypass_date_window():
             # Pinned session ids skip the date window, so their own start times decide.
             if not self._pinned_sessions_start_after(earliest):
@@ -457,14 +464,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
                         right=ast.Constant(
                             # provided in a placeholder, so we can pass now from python to make tests easier 🙈
-                            value=datetime.now(UTC) - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
+                            value=self._current_time() - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
                         ),
                         op=ast.CompareOperationOp.GtEq,
                     ),
                 ),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
-                "python_now": ast.Constant(value=datetime.now(UTC)),
+                "python_now": ast.Constant(value=self._current_time()),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
@@ -1058,7 +1065,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                    right=ast.Constant(value=self._current_time() - relativedelta(years=5)),
                 )
             )
         else:
@@ -1090,7 +1097,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["expiry_time"]),
-                right=ast.Constant(value=datetime.now(UTC)),
+                right=ast.Constant(value=self._current_time()),
             ),
             # Exclude deleted recordings (crypto shredding)
             ast.CompareOperation(
