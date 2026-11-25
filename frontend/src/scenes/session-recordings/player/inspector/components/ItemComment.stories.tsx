@@ -121,6 +121,7 @@ function makeCommentItem(
             },
             item_context: {},
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
                 distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',
@@ -171,6 +172,7 @@ export const CompletedTaskComment: Story = {
                 content: 'fix the empty-state copy',
                 completed_at: '2026-04-19T15:00:00.000Z',
                 completed_by: {
+                    type: 'human' as const,
                     id: 1,
                     uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
                     distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',

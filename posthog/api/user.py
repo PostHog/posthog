@@ -128,7 +128,7 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import (
     APIScopePermission,
@@ -279,6 +279,9 @@ def _refresh_person_properties(user: User) -> None:
 
 
 class UserSerializer(serializers.ModelSerializer):
+    type = serializers.ChoiceField(
+        choices=UserType.choices, read_only=True, help_text="Whether this user is a human or a service account."
+    )
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
@@ -383,6 +386,7 @@ class UserSerializer(serializers.ModelSerializer):
             "date_joined",
             "uuid",
             "distinct_id",
+            "type",
             "first_name",
             "last_name",
             "email",

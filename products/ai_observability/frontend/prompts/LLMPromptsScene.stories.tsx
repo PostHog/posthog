@@ -12,6 +12,7 @@ import { UserBasicType } from '~/types'
 import { LLMPrompt } from './types'
 
 const MOCK_SECOND_USER: UserBasicType = {
+    type: 'human' as const,
     id: 179,
     uuid: '018daf23-0000-0000-0000-000000000002',
     distinct_id: 'mock-user-179-distinct-id',

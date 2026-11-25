@@ -29,6 +29,7 @@ const BASE_MOCK_ANNOTATION: Pick<
 > = {
     creation_type: 'USR',
     created_by: {
+        type: 'human' as const,
         id: 5,
         uuid: '0182cb27-8dfc-0000-1f45-c16dc0de95ea',
         distinct_id: 'XoBG3ygtKV8635pAFkEWHKboT6me1MTVaJETde7dm8V',

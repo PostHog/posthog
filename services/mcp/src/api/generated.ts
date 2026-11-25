@@ -4062,6 +4062,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `human` - Human
+     * * `service_account` - Service account
+     */
+    export type UserTypeEnum = typeof UserTypeEnum[keyof typeof UserTypeEnum];
+
+
+    export const UserTypeEnum = {
+      Human: 'human',
+      ServiceAccount: 'service_account',
+    } as const;
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -4107,6 +4119,11 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
+      /** Whether this user is a human or a service account.
+       *
+       * * `human` - Human
+       * * `service_account` - Service account */
+      readonly type: UserTypeEnum;
       /** @maxLength 150 */
       first_name?: string;
       /** @maxLength 150 */
@@ -88724,6 +88741,11 @@ export namespace Schemas {
       readonly uuid: string;
       /** @nullable */
       readonly distinct_id: string | null;
+      /** Whether this user is a human or a service account.
+       *
+       * * `human` - Human
+       * * `service_account` - Service account */
+      readonly type: UserTypeEnum;
       /** @maxLength 150 */
       first_name?: string;
       /** @maxLength 150 */
@@ -101286,6 +101308,11 @@ export namespace Schemas {
       readonly uuid?: string;
       /** @nullable */
       readonly distinct_id?: string | null;
+      /** Whether this user is a human or a service account.
+       *
+       * * `human` - Human
+       * * `service_account` - Service account */
+      readonly type?: UserTypeEnum;
       /** @maxLength 150 */
       first_name?: string;
       /** @maxLength 150 */

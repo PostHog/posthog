@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Literal, cast
 
 from posthog.dataclasses import frozen
 from posthog.models import User
@@ -37,6 +38,7 @@ def _creators(user_ids: set[int]) -> dict[int, ActionCreator]:
         return {}
     return {
         user.id: ActionCreator(
+            type=cast(Literal["human", "service_account"], user.type),
             id=user.id,
             uuid=user.uuid,
             distinct_id=user.distinct_id,

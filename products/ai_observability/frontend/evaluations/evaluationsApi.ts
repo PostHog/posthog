@@ -50,6 +50,7 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
         updated_at: evaluation.updated_at,
         created_by: evaluation.created_by
             ? {
+                  type: evaluation.created_by.type,
                   id: evaluation.created_by.id,
                   uuid: evaluation.created_by.uuid,
                   distinct_id: evaluation.created_by.distinct_id ?? '',

@@ -25,6 +25,7 @@ const MOCK_AUTHOR: UserBasicApi = {
     distinct_id: 'mock-user-178-distinct-id',
     first_name: 'John',
     email: 'john.doe@posthog.com',
+    type: 'human' as const,
     hedgehog_config: null,
 }
 

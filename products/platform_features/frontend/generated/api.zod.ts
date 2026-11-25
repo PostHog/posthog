@@ -413,6 +413,12 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
         id: zod.number(),
         uuid: zod.uuid(),
         distinct_id: zod.string().max(advancedActivityLogsExportCreateBodyUserDistinctIdMax).nullish(),
+        type: zod
+            .enum(['human', 'service_account'])
+            .describe('\* `human` - Human\n\* `service_account` - Service account')
+            .describe(
+                'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+            ),
         first_name: zod.string().max(advancedActivityLogsExportCreateBodyUserFirstNameMax).optional(),
         last_name: zod.string().max(advancedActivityLogsExportCreateBodyUserLastNameMax).optional(),
         email: zod.email().max(advancedActivityLogsExportCreateBodyUserEmailMax),

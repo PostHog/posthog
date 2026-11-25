@@ -16,6 +16,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             pinned: true,
             created_at: '2022-11-17T16:52:29.444128Z',
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -37,6 +38,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             },
             last_modified_at: '2022-11-18T23:17:23.944256Z',
             last_modified_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -66,6 +68,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             pinned: false,
             created_at: '2022-11-18T18:46:26.494109Z',
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -87,6 +90,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             },
             last_modified_at: '2022-11-18T23:17:04.416860Z',
             last_modified_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -114,6 +118,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             pinned: true,
             created_at: '2022-11-18T23:15:57.823086Z',
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -135,6 +140,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             },
             last_modified_at: '2022-11-18T23:15:57.822851Z',
             last_modified_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -152,6 +158,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             pinned: false,
             created_at: '2022-11-18T18:46:20.354174Z',
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -173,6 +180,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             },
             last_modified_at: '2022-11-18T18:46:20.353927Z',
             last_modified_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -190,6 +198,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             pinned: false,
             created_at: '2022-11-17T16:46:09.854845Z',
             created_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
@@ -218,6 +227,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             },
             last_modified_at: '2022-11-18T17:55:49.552699Z',
             last_modified_by: {
+                type: 'human' as const,
                 id: 1,
                 uuid: '01848677-afb6-0000-31a7-0ea1d72223c0',
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',

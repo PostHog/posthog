@@ -44,6 +44,7 @@ const UNGROUPED_ALERT: LogsAlertConfigurationApi = {
         distinct_id: 'user-distinct-id',
         first_name: 'Jane',
         email: 'jane@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     },
     updated_at: null,

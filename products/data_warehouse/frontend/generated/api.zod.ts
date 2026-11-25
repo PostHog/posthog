@@ -1330,6 +1330,12 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
                 id: zod.number(),
                 uuid: zod.uuid(),
                 distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                type: zod
+                    .enum(['human', 'service_account'])
+                    .describe('\* `human` - Human\n\* `service_account` - Service account')
+                    .describe(
+                        'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                    ),
                 first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
                 email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
@@ -1426,6 +1432,12 @@ export const WarehouseTablesUpdateBody = /* @__PURE__ */ zod
                 id: zod.number(),
                 uuid: zod.uuid(),
                 distinct_id: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                type: zod
+                    .enum(['human', 'service_account'])
+                    .describe('\* `human` - Human\n\* `service_account` - Service account')
+                    .describe(
+                        'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                    ),
                 first_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneLastNameMax).optional(),
                 email: zod.email().max(warehouseTablesUpdateBodyCredentialCreatedByOneEmailMax),
@@ -1529,6 +1541,12 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneDistinctIdMax)
                         .nullish(),
+                    type: zod
+                        .enum(['human', 'service_account'])
+                        .describe('\* `human` - Human\n\* `service_account` - Service account')
+                        .describe(
+                            'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                        ),
                     first_name: zod
                         .string()
                         .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneFirstNameMax)
@@ -1685,6 +1703,12 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
                     .string()
                     .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneDistinctIdMax)
                     .nullish(),
+                type: zod
+                    .enum(['human', 'service_account'])
+                    .describe('\* `human` - Human\n\* `service_account` - Service account')
+                    .describe(
+                        'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                    ),
                 first_name: zod
                     .string()
                     .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneFirstNameMax)
@@ -1851,6 +1875,12 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
                     .string()
                     .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
                     .nullish(),
+                type: zod
+                    .enum(['human', 'service_account'])
+                    .describe('\* `human` - Human\n\* `service_account` - Service account')
+                    .describe(
+                        'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                    ),
                 first_name: zod
                     .string()
                     .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)

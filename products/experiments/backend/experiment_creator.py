@@ -1,3 +1,5 @@
+from typing import Literal, cast
+
 from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import ExperimentCreator
@@ -5,6 +7,7 @@ from products.experiments.backend.facade.contracts import ExperimentCreator
 
 def to_experiment_creator(user: User) -> ExperimentCreator:
     return ExperimentCreator(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

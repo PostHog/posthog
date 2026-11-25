@@ -21,7 +21,7 @@ import re
 from collections.abc import AsyncIterator, Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
@@ -1135,6 +1135,7 @@ def _to_template_creator(user: User | None) -> contracts.DashboardTemplateCreato
     if user is None:
         return None
     return contracts.DashboardTemplateCreator(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

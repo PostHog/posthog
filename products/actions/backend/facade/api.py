@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from django.db import router
 
@@ -83,6 +83,7 @@ def _to_creator(user: User | None) -> contracts.ActionCreator | None:
     if user is None:
         return None
     return contracts.ActionCreator(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

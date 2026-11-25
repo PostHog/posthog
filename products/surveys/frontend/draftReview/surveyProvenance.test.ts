@@ -4,8 +4,22 @@ import type { ActivityLogEntryApi } from 'products/surveys/frontend/generated/ap
 
 import { SurveyProvenance, getSurveyProvenance } from './surveyProvenance'
 
-const CREATOR = { id: 1, uuid: 'creator', distinct_id: 'creator', first_name: 'Robin', email: 'robin@example.com' }
-const EDITOR = { id: 2, uuid: 'editor', distinct_id: 'editor', first_name: 'Sam', email: 'sam@example.com' }
+const CREATOR = {
+    type: 'human' as const,
+    id: 1,
+    uuid: 'creator',
+    distinct_id: 'creator',
+    first_name: 'Robin',
+    email: 'robin@example.com',
+}
+const EDITOR = {
+    type: 'human' as const,
+    id: 2,
+    uuid: 'editor',
+    distinct_id: 'editor',
+    first_name: 'Sam',
+    email: 'sam@example.com',
+}
 const SURVEY = { created_by: CREATOR as UserBasicType, created_at: '2026-03-01T09:00:00Z' }
 
 function entry(

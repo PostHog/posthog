@@ -227,13 +227,19 @@ describe('metricsLogic', () => {
             const mine = buildMetric({
                 id: 'metric-1',
                 name: 'mine',
-                created_by: { id: 1, uuid: me, email: myEmail, hedgehog_config: null },
+                created_by: { id: 1, uuid: me, email: myEmail, type: 'human' as const, hedgehog_config: null },
                 owner: myEmail,
             })
             const theirs = buildMetric({
                 id: 'metric-2',
                 name: 'theirs',
-                created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
+                created_by: {
+                    id: 2,
+                    uuid: 'someone-else',
+                    email: 'them@example.com',
+                    type: 'human' as const,
+                    hedgehog_config: null,
+                },
                 owner: 'them@example.com',
             })
             logic.actions.loadMetricsSuccess([mine, theirs])
@@ -312,8 +318,14 @@ describe('metricsLogic', () => {
 
     it('orders the review queue by drift, ownership, then AI proposals newest first, and keeps clean approved metrics out', async () => {
         const me = userLogic.values.user as UserType
-        const mine = { id: 1, uuid: me.uuid, email: me.email, hedgehog_config: null }
-        const theirs = { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null }
+        const mine = { id: 1, uuid: me.uuid, email: me.email, type: 'human' as const, hedgehog_config: null }
+        const theirs = {
+            id: 2,
+            uuid: 'someone-else',
+            email: 'them@example.com',
+            type: 'human' as const,
+            hedgehog_config: null,
+        }
         const metric = (name: string, overrides: Partial<DataCatalogMetricApi>): DataCatalogMetricApi =>
             buildMetric({ id: name, name, created_by: theirs, created_at: '2026-10-01T00:00:00Z', ...overrides })
         logic.actions.loadMetricsSuccess([

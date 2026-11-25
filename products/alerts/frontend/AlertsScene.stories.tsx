@@ -22,6 +22,7 @@ const createdBy = {
     distinct_id: 'storybook-user',
     first_name: 'Hedge Hog',
     email: 'hedge@example.com',
+    type: 'human' as const,
     hedgehog_config: null,
 }
 

@@ -1,5 +1,7 @@
 """Map canvas models to the facade contracts."""
 
+from typing import Literal, cast
+
 from posthog.models.user import User
 
 from products.canvas.backend.artifacts import create_canvas_artifact_url
@@ -19,6 +21,7 @@ def user_record(user: User | None) -> CanvasUser | None:
     if user is None:
         return None
     return CanvasUser(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

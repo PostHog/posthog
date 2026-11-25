@@ -867,6 +867,11 @@ export namespace Schemas {
         url_matching?: (ActionStepMatchingEnum | NullEnum) | undefined;
     };
     /**
+     * * `human` - Human
+     * * `service_account` - Service account
+     */
+    export type UserTypeEnum = "human" | "service_account";
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -892,6 +897,13 @@ export namespace Schemas {
         id: number;
         uuid: string;
         distinct_id?: (string | null) | undefined;
+        /**
+         * Whether this user is a human or a service account.
+         *
+         * * `human` - Human
+         * * `service_account` - Service account
+         */
+        type: UserTypeEnum & unknown;
         first_name?: string | undefined;
         last_name?: string | undefined;
         email: string;
@@ -16609,6 +16621,13 @@ export namespace Schemas {
         date_joined: string;
         uuid: string;
         distinct_id: string | null;
+        /**
+         * Whether this user is a human or a service account.
+         *
+         * * `human` - Human
+         * * `service_account` - Service account
+         */
+        type: UserTypeEnum & unknown;
         first_name?: string | undefined;
         last_name?: string | undefined;
         email: string;
@@ -17463,6 +17482,7 @@ export namespace Schemas {
         date_joined: string;
         uuid: string;
         distinct_id: string | null;
+        type: UserTypeEnum & unknown;
         first_name: string;
         last_name: string;
         email: string;

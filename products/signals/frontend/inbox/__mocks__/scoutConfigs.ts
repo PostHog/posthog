@@ -18,6 +18,7 @@ function makeMockOwner(id: number, firstName: string, lastName: string): UserBas
         last_name: lastName,
         email: `${firstName.toLowerCase()}@example.com`,
         is_email_verified: true,
+        type: 'human' as const,
         hedgehog_config: null,
     }
 }

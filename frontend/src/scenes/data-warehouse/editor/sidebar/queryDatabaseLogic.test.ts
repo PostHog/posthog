@@ -60,7 +60,7 @@ const buildMetric = (id: string, name: string, definitionKind: string | null): D
     approved_at: null,
     approved_by: null,
     last_run_at: null,
-    created_by: { id: 1, uuid: 'user-uuid', email: 'owner@example.com', hedgehog_config: null },
+    created_by: { id: 1, uuid: 'user-uuid', email: 'owner@example.com', type: 'human' as const, hedgehog_config: null },
     created_at: '2026-01-01T00:00:00Z',
     updated_at: null,
 })

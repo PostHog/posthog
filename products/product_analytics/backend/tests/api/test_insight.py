@@ -238,6 +238,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "email": self.user.email,
             "is_email_verified": None,
             "hedgehog_config": None,
+            "type": "human",
             "role_at_organization": None,
         }
         alt_user_basic_serialized = {
@@ -249,6 +250,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "email": alt_user.email,
             "is_email_verified": None,
             "hedgehog_config": None,
+            "type": "human",
             "role_at_organization": None,
         }
 

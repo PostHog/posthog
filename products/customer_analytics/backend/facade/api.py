@@ -4472,6 +4472,7 @@ def _to_user_basic_info(user: "User | None") -> contracts.UserBasicInfo | None:
     if user is None:
         return None
     return contracts.UserBasicInfo(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,
@@ -4490,6 +4491,7 @@ def _notebook_user_to_basic_info(
     if user is None:
         return None
     return contracts.UserBasicInfo(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

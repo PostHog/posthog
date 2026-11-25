@@ -46,6 +46,17 @@ export const ConversationTopicEnumApi = {
 } as const
 
 /**
+ * * `human` - Human
+ * * `service_account` - Service account
+ */
+export type UserTypeEnumApi = (typeof UserTypeEnumApi)[keyof typeof UserTypeEnumApi]
+
+export const UserTypeEnumApi = {
+    Human: 'human',
+    ServiceAccount: 'service_account',
+} as const
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -89,6 +100,11 @@ export interface UserBasicApi {
      * @nullable
      */
     distinct_id?: string | null
+    /** Whether this user is a human or a service account.
+     *
+     * * `human` - Human
+     * * `service_account` - Service account */
+    readonly type: UserTypeEnumApi
     /** @maxLength 150 */
     first_name?: string
     /** @maxLength 150 */

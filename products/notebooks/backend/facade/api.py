@@ -13,7 +13,7 @@ lives in ``facade.collab``.
 """
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -275,6 +275,7 @@ def _to_notebook_user(user) -> contracts.NotebookUserInfo | None:
     if user is None:
         return None
     return contracts.NotebookUserInfo(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

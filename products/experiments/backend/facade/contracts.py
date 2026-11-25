@@ -892,6 +892,7 @@ class ExperimentCreator:
     """The user who created an experiment, with the fields that core's `UserBasicSerializer` renders. A caller
     serializes it through that serializer, so the response keeps the `UserBasic` shape."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: "UUID"
     distinct_id: str | None

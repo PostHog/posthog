@@ -41,6 +41,7 @@ const saved: HeatmapScreenshotResponseApi = {
         id: MOCK_DEFAULT_USER.id,
         uuid: MOCK_DEFAULT_USER.uuid,
         email: 'test@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     },
     created_at: '2024-01-01T00:00:00Z',

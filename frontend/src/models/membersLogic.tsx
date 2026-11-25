@@ -18,6 +18,7 @@ function meAsMember(user: UserType): OrganizationMemberType {
     return {
         id: '',
         user: {
+            type: user.type,
             uuid: user.uuid,
             distinct_id: user.distinct_id,
             first_name: user.first_name,

@@ -20,6 +20,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
 from posthog.models.project import Project
+from posthog.models.user import UserType
 
 tracer = trace.get_tracer(__name__)
 
@@ -72,6 +73,9 @@ class SearchMatchTypeSerializerMixin(serializers.Serializer):
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
+    type = serializers.ChoiceField(
+        choices=UserType.choices, read_only=True, help_text="Whether this user is a human or a service account."
+    )
     hedgehog_config = serializers.SerializerMethodField()
 
     class Meta:
@@ -80,6 +84,7 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "id",
             "uuid",
             "distinct_id",
+            "type",
             "first_name",
             "last_name",
             "email",

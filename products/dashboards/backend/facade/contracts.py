@@ -292,6 +292,7 @@ class DashboardTemplateWriteRejected(ValueError):
 class DashboardTemplateCreator:
     """The user fields a template response shows for its creator."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

@@ -13,13 +13,14 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
-    def test_list_organization_members(self):
-        User.objects.create_and_join(self.organization, "1@posthog.com", None)
+    @parameterized.expand([UserType.HUMAN, UserType.SERVICE_ACCOUNT])
+    def test_list_organization_members(self, user_type: str) -> None:
+        member = User.objects.create_and_join(self.organization, "member@example.com", None, type=user_type)
         User.objects.create_and_join(self.organization, "2@posthog.com", None, is_active=False)
 
         response = self.client.get("/api/organizations/@current/members/")
@@ -31,6 +32,10 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 2)
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
+        self.assertEqual(
+            {item["user"]["uuid"]: item["user"]["type"] for item in response_data},
+            {str(self.user.uuid): UserType.HUMAN, str(member.uuid): user_type},
+        )
 
     # def test_list_organization_members_is_not_nplus1(self):
     #     self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -467,6 +472,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "id": user.id,
                     "uuid": str(user.uuid),
                     "distinct_id": str(user.distinct_id),
+                    "type": UserType.HUMAN,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,

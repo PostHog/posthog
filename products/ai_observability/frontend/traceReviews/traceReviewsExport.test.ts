@@ -58,6 +58,7 @@ const baseReview: TraceReview = {
     created_at: '2026-03-12T00:00:00Z',
     updated_at: '2026-03-12T01:00:00Z',
     created_by: {
+        type: 'human' as const,
         id: 7,
         uuid: 'user-uuid-7',
         distinct_id: 'distinct-7',
@@ -66,6 +67,7 @@ const baseReview: TraceReview = {
         email: 'ada@example.com',
     },
     reviewed_by: {
+        type: 'human' as const,
         id: 8,
         uuid: 'user-uuid-8',
         distinct_id: 'distinct-8',

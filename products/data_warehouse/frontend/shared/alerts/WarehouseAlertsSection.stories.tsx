@@ -40,6 +40,7 @@ const DEFAULT_ALERT: PlatformAlertConfigurationApi = {
         email: 'alex@example.com',
         first_name: 'Alex',
         last_name: 'Example',
+        type: 'human',
         hedgehog_config: {},
     },
     last_checked_at: '2026-10-05T12:00:00Z',

@@ -17,7 +17,13 @@ import CyclotronJobInputTaskConnectors from './CyclotronJobInputTaskConnectors'
 // The "Connectors" input of a workflow's "Create AI task" step: one switch per MCP server shared
 // with everyone in the project.
 
-const SHARED_BY = { id: 2, uuid: 'teammate-uuid', email: 'teammate@posthog.com', hedgehog_config: null }
+const SHARED_BY = {
+    id: 2,
+    uuid: 'teammate-uuid',
+    email: 'teammate@posthog.com',
+    type: 'human' as const,
+    hedgehog_config: null,
+}
 
 function server(
     id: string,

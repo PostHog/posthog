@@ -46,7 +46,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         version: 1,
         status: 'draft',
         created_at: '2026-01-01T00:00:00Z',
-        created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
+        created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', type: 'human' as const, hedgehog_config: null },
         updated_at: overrides.updatedAt,
         last_run: null,
         warnings: [],

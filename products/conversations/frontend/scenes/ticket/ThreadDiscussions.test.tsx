@@ -28,6 +28,7 @@ function comment(overrides: Partial<CommentType> = {}): CommentType {
         item_context: null,
         created_at: '2026-01-01T00:00:00Z',
         created_by: {
+            type: 'human' as const,
             id: 1,
             uuid: 'user-1',
             distinct_id: 'user-1',

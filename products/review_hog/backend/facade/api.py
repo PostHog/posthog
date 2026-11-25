@@ -6,6 +6,7 @@ module: they go in their own facade submodule.
 
 import logging
 from collections.abc import Mapping, Sequence
+from typing import Literal, cast
 from uuid import UUID
 
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -180,6 +181,7 @@ def _user_ref(user: User | None) -> ReviewUserRef | None:
     if user is None:
         return None
     return ReviewUserRef(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

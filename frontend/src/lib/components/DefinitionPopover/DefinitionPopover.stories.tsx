@@ -26,6 +26,7 @@ import { ControlledDefinitionPopover } from './DefinitionPopoverContents'
 import { type DefinitionPopoverLogicProps, definitionPopoverLogic } from './definitionPopoverLogic'
 
 const mockUser: UserBasicType = {
+    type: 'human' as const,
     id: 1,
     uuid: 'user-uuid-123',
     distinct_id: 'user-123',

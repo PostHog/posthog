@@ -844,6 +844,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                 config: integration.config ?? {},
                                 created_by: integration.created_by
                                     ? {
+                                          type: integration.created_by.type,
                                           id: integration.created_by.id,
                                           uuid: integration.created_by.uuid,
                                           distinct_id: integration.created_by.distinct_id ?? '',
