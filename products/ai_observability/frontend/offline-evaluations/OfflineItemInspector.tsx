@@ -57,11 +57,12 @@ export function OfflineItemInspector({
         selectedResult,
         selectedResultLoading,
         selectedResultError,
-        payloadFormat,
+        payloadFormat: storedPayloadFormat,
         resultPayload,
         resultPayloadLoading,
         resultPayloadError,
     } = useValues(logic)
+    const payloadFormat = storedPayloadFormat === 'raw' ? 'raw' : 'pretty'
     const {
         refreshItem,
         loadOfflineItemPayload,

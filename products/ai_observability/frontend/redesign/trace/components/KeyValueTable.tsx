@@ -1,5 +1,6 @@
 import { cn } from 'lib/utils/css-classes'
 
+import { JsonString } from './JsonString'
 import { isFilledContainer, toDisplayText } from './jsonText'
 import { JsonTree } from './JsonTree'
 
@@ -29,16 +30,7 @@ export function KeyValueTable({
                                 collapseStringsAfterLength={collapseStringsAfterLength}
                             />
                         ) : typeof value === 'string' ? (
-                            collapseStringsAfterLength && value.length > collapseStringsAfterLength ? (
-                                <details className="whitespace-pre-wrap break-words">
-                                    <summary className="cursor-pointer">
-                                        {value.slice(0, collapseStringsAfterLength)}…
-                                    </summary>
-                                    <span>{value.slice(collapseStringsAfterLength)}</span>
-                                </details>
-                            ) : (
-                                <span className="whitespace-pre-wrap break-words">{value}</span>
-                            )
+                            <JsonString value={value} collapseStringsAfterLength={collapseStringsAfterLength} />
                         ) : (
                             <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
                         )}

@@ -1,3 +1,4 @@
+import { JsonString } from './JsonString'
 import { isFilledContainer, toDisplayText } from './jsonText'
 import { JsonTree } from './JsonTree'
 import { KeyValueTable } from './KeyValueTable'
@@ -32,15 +33,7 @@ export function JsonValue({
         )
     }
     if (typeof value === 'string') {
-        if (collapseStringsAfterLength && value.length > collapseStringsAfterLength) {
-            return (
-                <details className="m-0 whitespace-pre-wrap break-words text-sm">
-                    <summary className="cursor-pointer">{value.slice(0, collapseStringsAfterLength)}…</summary>
-                    <span>{value.slice(collapseStringsAfterLength)}</span>
-                </details>
-            )
-        }
-        return <p className="m-0 whitespace-pre-wrap break-words text-sm">{value}</p>
+        return <JsonString value={value} collapseStringsAfterLength={collapseStringsAfterLength} />
     }
     return <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
 }
