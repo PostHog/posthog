@@ -2,7 +2,8 @@
 
 The regional proxy verifies run capabilities against the Tasks registry.
 The relay forwards HTTP requests to one configured regional endpoint using mTLS.
-The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
+The regional listener serves authenticated `GET /v1/probe` requests and an optional Git read adapter.
+The probe returns 204 without contacting an upstream.
 The probe rejects declared or streaming request bodies without waiting for their contents.
 Tasks owns registration and capability issuance.
 A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. An opt-in observation mode runs the same probe on an existing Tasks VM. Agent traffic and upstream credentials still use their current paths.
@@ -287,7 +288,7 @@ Neither process accepts CONNECT or general upstream destinations.
 | `shutdown_timeout_seconds` | 10               | 10               |
 
 The relay's request budget includes connecting to the proxy and forwarding its response.
-The proxy's budget covers its own request handling; its only operation is currently the probe.
+The proxy's budget covers lookup, request handling and any upstream transfer.
 The relay also waits at most 30 seconds for response headers.
 Before adding streaming adapters, set and test these budgets together, leaving room in the relay's budget for connection and forwarding time.
 
@@ -356,12 +357,12 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 
 ### Git read adapter
 
-`internal/gitread` implements the first credential-aware adapter. It is a library;
-the deployed request listener still serves only the probe.
-Route wiring must land before a sandbox can use it.
+The request listener mounts `internal/gitread` only when `git_read` is configured.
+Without it, Git paths return 404. Sandbox launch and credential removal require a separate rollout.
 
 ```text
-Verified run + repository -> read grant -> GitHub HTTPS with injected token
+Relay -> mTLS + run verification -> audit reservation -> Git read grant
+      -> Smokescreen CONNECT -> verified GitHub HTTPS with injected token
 ```
 
 The caller verifies the capability and relay identity first, reserves audit capacity,
@@ -385,10 +386,27 @@ header values are rejected. Redirects, pushes, LFS and other paths are refused.
 Response headers are limited to the Git content type and `Cache-Control: no-store`;
 upstream errors have generic responses. Successful pack data streams to the guest.
 
-The caller records admission before calling `Forward`, then records its outcome;
-only `CredentialVersion`, never the grant or token, belongs in audit metadata.
-It supplies the upstream transport, which must use the approved external egress path.
-The adapter does not select its upstream transport or credential source.
+The listener applies the existing per-relay rate limit and reserves both audit records before lookup or forwarding.
+Git records include the credential version and transferred byte counts, without repository paths or tokens.
+Admission records authorization; completion records the transfer outcome. A partial response is marked `interrupted` and aborted.
+
+Add this block to the proxy configuration to enable Git reads:
+
+```json
+{
+  "git_read": {
+    "grant_url": "https://registry.example.com",
+    "grant_signing_key_file": "/run/egress/git-grant-key",
+    "smokescreen_url": "http://smokescreen.smokescreen.svc.cluster.local:4750"
+  }
+}
+```
+
+The grant endpoint requires HTTPS and its dedicated credential-lookup key, not the registry key.
+`grant_ca_file` and `upstream_ca_file` optionally replace system trust for their respective connections.
+Both default to system certificate validation. Smokescreen is required; denied or failed CONNECT requests never fall back to direct access.
+The grant client connects directly to its configured regional endpoint, refuses redirects and fetches a current grant for each Git request.
+Reload builds new clients and swaps them only after all material validates; a failed reload retains the previous configuration.
 
 Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
 and decoded sizes. The adapter buffers this bounded negotiation before forwarding
@@ -404,7 +422,8 @@ aborted rather than reported as a complete pack.
 Tests run actual `git clone`, `fetch` and denied operations against a local
 [`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
 They exercise token replacement, scope checks, stripped headers and cancellation.
-They do not prove worker publication, cloud transport or sandbox credential removal.
+Listener tests also cover TLS grant lookup, CONNECT routing, copied-capability denial, audit failure and partial responses.
+They do not prove cloud transport or sandbox credential removal.
 
 ### Git grant publication
 
