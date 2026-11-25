@@ -18,6 +18,9 @@ type Evidence = { journal: readonly JournalEntry[]; truth: readonly TruthRecord[
 
 const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
+// The email worker reschedules a throttled send and counts no failure for it.
+const THROTTLED = 429
+
 const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
     const units = new Set(journal.map(({ unitId }) => unitId))
     return truth.filter(({ unitId }) => unitId !== undefined && units.has(unitId))
@@ -26,9 +29,10 @@ const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
 export function sinkCountsOf(evidence: Evidence): Counted {
     const ours = ofThisRun(evidence)
     const sends = ours.filter(({ kind }) => kind === 'ses.send')
-    const keyOf = ({ unitId, actionId }: TruthRecord): string => deliveryKey(unitId!, actionId ?? '')
+    const keyOf = ({ unitId, actionId, flowId }: TruthRecord): string =>
+        `${deliveryKey(unitId!, actionId ?? '')} ${flowId ?? ''}`
     const accepted = new Set(sends.filter(({ status }) => isAccepted(status)).map(keyOf))
-    const refused = new Set(sends.filter(({ status }) => !isAccepted(status)).map(keyOf))
+    const refused = new Set(sends.filter(({ status }) => !isAccepted(status) && status !== THROTTLED).map(keyOf))
     return {
         email_sent: sends.filter(({ status }) => isAccepted(status)).length,
         // The edge publishes a notification only for a bounce, never for a delivery.
@@ -89,40 +93,40 @@ export async function readCounters(
     }
 }
 
-const EVENTS_UNMEASURED = {
-    key: 'email_sent_events',
+const unknown = (reason: string): { value: null; censored: true; unmeasured: string } => ({
     value: null,
     censored: true,
-    unmeasured: 'the scenario stack runs no ingestion, so no $workflows_email_sent event can be counted',
-} as const
+    unmeasured: reason,
+})
+
+const EVENTS_UNMEASURED = {
+    key: 'email_sent_events',
+    ...unknown('the scenario stack runs no ingestion, so no $workflows_email_sent event can be counted'),
+}
 
 export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
     params: z.object({}).strict(),
     unit: 'messages',
-    measure: ({ journal, truth, counters }) => {
+    measure: ({ journal, truth, counters, unread }) => {
         if (counters === undefined) {
             return []
         }
         if ('unread' in counters) {
-            return [
-                ...COUNTERS.map((counter) => ({
-                    key: counter,
-                    value: null,
-                    censored: true as const,
-                    unmeasured: counters.unread,
-                })),
-                EVENTS_UNMEASURED,
-            ]
+            return [...COUNTERS.map((counter) => ({ key: counter, ...unknown(counters.unread) })), EVENTS_UNMEASURED]
         }
-        const sink = sinkCountsOf({ journal, truth })
+        const sink = unread === undefined ? sinkCountsOf({ journal, truth }) : undefined
+        const truthUnread = unknown(`the truth could not be read: ${unread}`)
         const incomplete = counters.incomplete ? { incomplete: true as const } : {}
         return [
             { key: 'owed', value: owedOf(journal) },
             ...COUNTERS.flatMap((counter) => [
-                { key: counter, value: counters.counted[counter] - sink[counter], ...incomplete },
+                {
+                    key: counter,
+                    ...(sink ? { value: counters.counted[counter] - sink[counter], ...incomplete } : truthUnread),
+                },
                 { key: `${counter}_counted`, value: counters.counted[counter], ...incomplete },
-                { key: `${counter}_sink`, value: sink[counter] },
+                { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : truthUnread) },
             ]),
             EVENTS_UNMEASURED,
         ]

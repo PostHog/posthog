@@ -21,13 +21,15 @@ const answered = (
     unitId: string,
     status = 200,
     kind: TruthRecord['kind'] = 'ses.send',
-    actionId = 'email'
+    actionId = 'email',
+    flowId?: string
 ): TruthRecord => ({
     seq,
     at: new Date(FROM).toISOString(),
     kind,
     unitId,
     actionId,
+    flowId,
     status,
     detail:
         kind === 'ses.feedback'
@@ -43,7 +45,12 @@ const counted = (partial: Partial<Counted> = {}): Counted => ({
     ...partial,
 })
 
-const evidence = (journal: JournalEntry[], truth: TruthRecord[], counters?: CounterReading): MeasureEvidence => ({
+const evidence = (
+    journal: JournalEntry[],
+    truth: TruthRecord[],
+    counters?: CounterReading,
+    unread?: string
+): MeasureEvidence => ({
     journal,
     truth,
     fetchRetries: 3,
@@ -57,6 +64,7 @@ const evidence = (journal: JournalEntry[], truth: TruthRecord[], counters?: Coun
     steps: [],
     timeline: [],
     counters,
+    unread,
 })
 
 const driftOf = (journal: JournalEntry[], truth: TruthRecord[], counters?: CounterReading): Record<string, unknown> =>
@@ -75,6 +83,8 @@ describe('counter drift', () => {
         offered('run-4', ['webhook']),
         offered('run-5', ['email'], { answer: { accepted: false, status: 400 } }),
         offered('run-6', ['email'], { followUp: { accepted: true } }),
+        offered('run-7'),
+        offered('run-8'),
     ]
     const truth = [
         answered(1, 'run-1'),
@@ -84,41 +94,65 @@ describe('counter drift', () => {
         answered(5, 'run-3', 400),
         answered(6, 'run-4', 200, 'webhook', 'webhook'),
         answered(7, 'other-1'),
+        answered(8, 'run-6', 200, 'ses.send', 'email', 'first-flow'),
+        answered(9, 'run-6', 400, 'ses.send', 'email', 'follow-up-flow'),
+        answered(10, 'run-7', 429),
+        answered(11, 'run-8', 429),
     ]
 
     it.each<[string, Counted, Record<string, number>]>([
         [
             'records zero drift when every counter saw what the sink saw',
-            counted({ email_sent: 2, email_bounced: 1, email_failed: 1 }),
+            counted({ email_sent: 3, email_bounced: 1, email_failed: 2 }),
             { email_sent: 0, email_delivered: 0, email_bounced: 0, email_failed: 0 },
         ],
         [
             'records the sends a lost metrics flush never counted as negative drift',
-            counted({ email_bounced: 1, email_failed: 1 }),
-            { email_sent: -2, email_sent_counted: 0, email_sent_sink: 2 },
+            counted({ email_bounced: 1, email_failed: 2 }),
+            { email_sent: -3, email_sent_counted: 0, email_sent_sink: 3 },
         ],
         [
             'records counts past the sink as positive drift',
-            counted({ email_sent: 2, email_delivered: 3, email_bounced: 1, email_failed: 1 }),
+            counted({ email_sent: 3, email_delivered: 3, email_bounced: 1, email_failed: 2 }),
             { email_delivered: 3, email_delivered_sink: 0 },
         ],
     ])('%s', (_name, read, expected) => {
         expect(driftOf(journal, truth, { counted: read })).toMatchObject({
-            owed: 5,
+            owed: 7,
             email_sent_events: null,
-            email_sent_sink: 2,
+            email_sent_sink: 3,
             email_bounced_sink: 1,
-            email_failed_sink: 1,
+            email_failed_sink: 2,
             ...expected,
         })
     })
 
-    it.each<[string, CounterReading, string, RegExp]>([
-        ['names the event count unmeasured on every read', { counted: counted() }, 'email_sent_events', /ingestion/],
-        ['records why the counters could not be read', { unread: 'refused' }, 'email_sent', /^refused$/],
-    ])('%s', (_name, counters, key, reason) => {
+    it.each<[string, CounterReading, string | undefined, string, RegExp]>([
+        [
+            'names the event count unmeasured on every read',
+            { counted: counted() },
+            undefined,
+            'email_sent_events',
+            /ingestion/,
+        ],
+        ['records why the counters could not be read', { unread: 'refused' }, undefined, 'email_sent', /^refused$/],
+        [
+            'leaves the drift unknown when the truth could not be read',
+            { counted: counted({ email_sent: 3 }) },
+            'the edge answered 503',
+            'email_sent',
+            /the edge answered 503/,
+        ],
+        [
+            'leaves the sink count unknown when the truth could not be read',
+            { counted: counted({ email_sent: 3 }) },
+            'the edge answered 503',
+            'email_sent_sink',
+            /the edge answered 503/,
+        ],
+    ])('%s', (_name, counters, truthUnread, key, reason) => {
         expect(
-            measure([{ name: 'counter_drift', params: {} }], evidence(journal, truth, counters)).find(
+            measure([{ name: 'counter_drift', params: {} }], evidence(journal, truth, counters, truthUnread)).find(
                 (row) => row.key === key
             )
         ).toEqual({
