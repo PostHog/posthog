@@ -19,6 +19,13 @@ pnpm --dir nodejs exec tsx tests/scenarios/main.ts run smoke
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
 - Several cards run one after the other on one stack: `main.ts run <card> <card>...`. Every card must load before any runs.
 - `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. It keeps its own `name`, which the scorecard records as `profile_name`; the profile hash tells it from the shipped one.
+- `--pair` runs each card twice on one stack: first a control, the same card, seed, profile and offered load with its valves removed and without the checks that need a fault, such as `bounced_suppressed`, then the card itself. The control's `card_hash` is the hash of the card it ran. `--pair` takes only cards that apply valves and judge `no_loss`, on the local target, and not on a run host, so it refuses a card with `pg.failover`, which runs only there. Both scorecards carry the `pair_` properties of the scorecard schema, so a fault that lost a message reads apart from a load this setup did not pass. The attribution reads:
+  - `fault` when the control passed and the faulted run failed `no_loss`.
+  - `open` when the control failed, so the faulted run's result is not put down to the fault. A failed control reads `open` before any of the faulted run's checks below.
+  - `unjudged` when the control or the faulted run did not judge `no_loss` or is `invalid`, its evidence or its saved scorecard could not be written, the faulted run did not run, applied no valve, or a valve was not observed, or the control did not offer every unit it targeted, since equal totals can hide a different traffic mix.
+  - `none` when the control passed and the faulted run held `no_loss` with its faults observed.
+  - A scorecard that cannot be saved turns its run `invalid`. The runner then reads the pair again, rewrites the other run's saved scorecard once, and publishes that reading on both scorecards. When that rewrite fails too, the other run turns `invalid` and its saved file keeps the first reading.
+  - A message the control accepted and lost still fails the control's own `no_loss`. The pair records what each run offered and drained, and never states a capacity: that comes only from a separate fault-free sweep with an explicit pass criterion.
 - `--target dev` runs a card from `cards/dev/` against the dev deployment at `https://app.dev.posthog.dev`, the only host its offers and dev reads go to. Offers go to capture v1 there, one event per request, and the runner reads the receipts back through the query API. It needs `DEV_TARGET_OFFERS_TEAM_ID`, `DEV_TARGET_OFFERS_TOKEN`, `DEV_TARGET_WORKFLOW_ID`, `DEV_TARGET_RECEIPTS_TEAM_ID`, `DEV_TARGET_MONTHLY_RUNS`, the workflow runs the offers organization may use in a month, and `DEV_TARGET_KEY_FILE`, a file only its owner can read that holds a personal API key. A dev card runs only `capture_webhook` traffic, at most 10 units a second, 2,000 units, and a 10-minute drive, with no parked flows, and allows at least 5 minutes to converge, because receipts take minutes to become queryable. The loader refuses anything else before the first send.
   - The workflow triggers on `scenario_offer` events in the offers project. Its webhook captures one `scenario_receipt` event per offer into the receipts project, carrying the offer's `run_id` and `unit_id` properties.
   - The key reads the offers project, its workflow and the workflow's metrics, and runs queries in the receipts project. Before the first offer, the runner checks that the workflow exists and that `DEV_TARGET_OFFERS_TOKEN` is the offers project's token, so offers cannot land in another project.
@@ -175,7 +182,7 @@ Each valve, traffic kind, invariant and measurement is one definition that holds
 
 ```text
 nodejs/tests/scenarios/
-  main.ts          the CLI: run <card>... [--profile <file>] [--target local|dev]
+  main.ts          the CLI: run <card>... [--profile <file>] [--target local|dev] [--pair]
   runner/          Runner, status rules and exit codes
   cards/           *.yaml cards, schema.ts, load.ts, definitions.ts
   profiles/        synthetic.yaml, invented numbers only
@@ -577,9 +584,12 @@ A scorecard records the profile's name and hash, never its numbers.
 export interface Runner {
   up(signal: AbortSignal): Promise<void>
   run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
+  runPair(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult[]> // the control, then the faulted run
   down(): Promise<void>
 }
 ```
+
+- **Pairs.** `runPair` judges the control, then the faulted run, saves both scorecards, then publishes them, so each carries the other's run id. When the control is interrupted, or a restart is required after it, the faulted run does not run: the control's scorecard is published as `unjudged`, and the invocation exits 2.
 
 - **Run id.** A fresh UUID per run, or the `runId` of the run manifest at `SCENARIO_RUN_MANIFEST` on a run host, which then runs one card.
 - **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `main.ts run` process. Runs on one stack are sequential.
@@ -947,6 +957,17 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 | `bars`              | array           | One entry per bar: its name, unit, `limit` (a number in that unit, absent from older scorecards) and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
 | `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                                                                                       |
 | `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                                                                                |
+
+**Pair**, only on the scorecards of a `--pair` run:
+
+| Property              | Type           | Meaning                                                                                                                                                                                                                                                                                                                                   |
+| --------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pair_role`           | string         | `control` or `faulted`                                                                                                                                                                                                                                                                                                                    |
+| `pair_attribution`    | string         | `fault`, `open`, `unjudged` or `none`, the same on both scorecards                                                                                                                                                                                                                                                                        |
+| `pair_reason`         | string         | Why, in one line                                                                                                                                                                                                                                                                                                                          |
+| `pair_control_run_id` | string         | The control's run id                                                                                                                                                                                                                                                                                                                      |
+| `pair_faulted_run_id` | string or null | The faulted run's id, `null` when it did not run                                                                                                                                                                                                                                                                                          |
+| `pair_runs`           | array          | One entry per run that ran: role, run id, status and reason, `admissions`, the target and offered units, the queue over the drive (due jobs at the first sample, the peak, the growth between them, the oldest due job's peak age), seconds to converge, each valve's dose with its observed and released times, and the `no_loss` result |
 
 **Ramp**, only on the scorecard of a card with `drive.stopOnBreak`. A card without it stores none of these properties. Each property is `null` when it has no value:
 
