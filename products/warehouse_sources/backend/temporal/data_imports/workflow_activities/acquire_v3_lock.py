@@ -46,6 +46,8 @@ TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 # backlog); real no-job-row cleanups are hours old, so a generous grace delays nothing.
 NO_JOB_ROW_TAKEOVER_GRACE_SECONDS = 900
 
+CDC_NOTHING_TO_LOAD = "cdc_nothing_to_load"
+
 
 @dataclasses.dataclass(frozen=True)
 class CheckPipelineVersionActivityInputs:
@@ -75,6 +77,8 @@ class AcquireV3LockActivityOutputs:
     # the logs and the metrics. Defaults False so a payload that predates the field reads as the
     # lock miss its history recorded.
     deferred: bool = False
+    # Set on a deferred run that stood down for a reason other than its failure streak.
+    stood_down_reason: str | None = None
 
 
 @dataclasses.dataclass
@@ -103,8 +107,16 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         return AcquireV3LockActivityOutputs(acquired=False, token="")
 
     # Before the lock, so a stood-down run never takes one and never needs to release one.
-    if _defer_failing_schema(inputs, logger):
+    schema = _read_schema(inputs, logger)
+    if _defer_failing_schema(schema, inputs, logger):
         return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
+    if schema is not None and schema.is_cdc:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import consumer_tick_stands_down
+
+        if consumer_tick_stands_down(inputs.schema_id, inputs.team_id, logger):
+            return AcquireV3LockActivityOutputs(
+                acquired=False, token=token, deferred=True, stood_down_reason=CDC_NOTHING_TO_LOAD
+            )
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
     if not acquired:
@@ -130,7 +142,19 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
 
 
-def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+def _read_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> ExternalDataSchema | None:
+    try:
+        return (
+            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
+            .only("sync_type", "sync_type_config")
+            .first()
+        )
+    except Exception as e:
+        logger.warning("data_import_run_defer_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return None
+
+
+def _defer_failing_schema(schema: ExternalDataSchema | None, inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
     """Whether this run stands down because the schema's runs keep failing.
 
     The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
@@ -141,11 +165,6 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
     what one failing run costs, so going ahead is the safe answer.
     """
     try:
-        schema = (
-            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
-            .only("sync_type_config")
-            .first()
-        )
         if schema is None or schema.reset_pipeline or schema.manual_run_requested:
             return False
 

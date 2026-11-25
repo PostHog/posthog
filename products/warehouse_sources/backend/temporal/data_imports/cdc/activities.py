@@ -79,7 +79,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     measures_backlog_this_run,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import close_buffer_write, open_buffer_write
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    close_buffer_write,
+    data_driven_load_enabled,
+    open_buffer_write,
+    proven_quiet,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -268,6 +273,8 @@ class CDCExtractActivity:
         self._buffer_writer: CDCBufferWriter | None = None
         self._buffer_file_index: dict[str, int] = {}
         self._buffer_cleaned_schemas: set[str] = set()
+        # Evaluated once per run, and only when a table could stand down.
+        self._data_driven_load: bool | None = None
         # Table names whose changes this run writes to the buffer. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
         self._truncated_tables: list[str] = []
@@ -1661,7 +1668,21 @@ class CDCExtractActivity:
             schema,
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
             mutate=lambda config: close_buffer_write(config, wrote=wrote),
+            extra_model_fields={"last_checked_at": run_at} if not wrote and self._stands_down(schema) else None,
         )
+
+    def _stands_down(self, schema: ExternalDataSchema) -> bool:
+        """Whether this table's scheduled ticks stand down, so this run is the check that found nothing.
+
+        Stamping `last_checked_at` then keeps the table off the stalled-schedule sweep between the
+        consumer's periodic full runs.
+        """
+        if not proven_quiet(schema):
+            return False
+        if self._data_driven_load is None:
+            assert self.source is not None
+            self._data_driven_load = data_driven_load_enabled(self.source)
+        return self._data_driven_load
 
     def _record_healthy_run(self, schema: ExternalDataSchema, now: dt.datetime) -> None:
         """Record that extraction ran for this schema, without touching its status.

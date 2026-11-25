@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
     BUFFER_GENERATION_KEY,
+    BUFFER_GENERATION_LOADED_KEY,
     BUFFER_WRITE_OPEN_KEY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -1989,6 +1990,33 @@ class TestBufferedIngressCapture:
 
         assert schema.sync_type_config[BUFFER_GENERATION_KEY] == 1
         assert BUFFER_WRITE_OPEN_KEY not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("table_whose_ticks_stand_down", [], True, True),
+            ("table_this_run_wrote", [_make_event(position="0/100")], True, False),
+            ("flag_off", [], False, False),
+        ]
+    )
+    def test_a_quiet_table_is_marked_checked_while_its_ticks_stand_down(
+        self, _name: str, events: list[ChangeEvent], flag: bool, checked: bool
+    ) -> None:
+        # Its consumer only runs every few hours, so without this the stalled-schedule sweep flags it.
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+        schema.Status = ExternalDataSchema.Status
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.initial_sync_complete = True
+        schema.last_checked_at = None
+        schema.sync_type_config.update({BUFFER_GENERATION_KEY: 4, BUFFER_GENERATION_LOADED_KEY: 4})
+
+        with (
+            patch(f"{_ACTIVITIES}.data_driven_load_enabled", return_value=flag),
+            _capture_harness(source, [schema], events) as capture,
+        ):
+            capture.extract()
+
+        assert (schema.last_checked_at is not None) is checked
 
     @parameterized.expand(
         [
