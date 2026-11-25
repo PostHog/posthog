@@ -7969,9 +7969,9 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 Re-audited 2026-11-19 against: <https://api.intruder.io/v1/swagger.json>
 
-- [ ] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
-- [ ] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
-- [ ] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
+- [x] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
+- [x] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
+- [x] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
 
 Note (2026-11-19): Re-read the live swagger.json and listed every GET and POST path. The previous audit predates the ai-pentests and attack-surface routes, which are not in the current tables. Still excluded: health, licenses (seat and billing), occurrence comments and scanner_output (large free text), target authentications and api_schemas (scan config), and all write routes. The ai-pentests routes may depend on the account having that product.
 
