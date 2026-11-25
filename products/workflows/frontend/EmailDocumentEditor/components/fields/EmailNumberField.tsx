@@ -1,15 +1,13 @@
-import { LemonInput } from '@posthog/lemon-ui'
-
 import { EmailFieldRow } from './EmailFieldRow'
-import { numberOrUnset } from './numberOrUnset'
+import { EmailNumberInput } from './EmailNumberInput'
+import { NumberLimit } from './numberLimits'
 
 export function EmailNumberField({
     label,
     value,
     placeholder,
     suffix = 'px',
-    min = 0,
-    max,
+    limit,
     onChange,
     attr,
 }: {
@@ -17,24 +15,20 @@ export function EmailNumberField({
     value: number | undefined
     placeholder?: number | string
     suffix?: string
-    min?: number
-    max?: number
+    limit: NumberLimit
     onChange: (value: number | undefined) => void
     attr?: string
 }): JSX.Element {
     return (
         <EmailFieldRow label={label}>
-            <LemonInput
-                type="number"
-                size="small"
+            <EmailNumberInput
                 fullWidth
-                min={min}
-                max={max}
-                // An empty string keeps the input controlled while it shows the placeholder.
-                value={value ?? ('' as unknown as number)}
+                limit={limit}
+                unit={suffix}
+                value={value}
                 placeholder={placeholder === undefined ? undefined : String(placeholder)}
                 suffix={<span className="text-xs text-secondary">{suffix}</span>}
-                onChange={(next) => onChange(numberOrUnset(next))}
+                onChange={onChange}
                 data-attr={attr}
             />
         </EmailFieldRow>

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
-import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { EmailSides } from '../../emailDocument'
-import { numberOrUnset } from './numberOrUnset'
+import { EmailNumberInput } from './EmailNumberInput'
+import { NUMBER_LIMITS, NumberLimit } from './numberLimits'
 
 const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'top', title: 'Top' },
@@ -34,12 +35,14 @@ export function EmailSidesField({
     label,
     value,
     placeholder,
+    limit = NUMBER_LIMITS.padding,
     onChange,
     attr,
 }: {
     label: string
     value: EmailSides | undefined
     placeholder: EmailSides
+    limit?: NumberLimit
     onChange: (value: EmailSides | undefined) => void
     attr?: string
 }): JSX.Element {
@@ -57,16 +60,14 @@ export function EmailSidesField({
                     {mode === 'each' ? (
                         <div className="flex-1" />
                     ) : (
-                        <LemonInput
-                            type="number"
-                            size="small"
+                        <EmailNumberInput
                             fullWidth
-                            min={0}
+                            limit={limit}
                             aria-label={label}
                             value={shown.top}
                             suffix={<span className="text-xs text-secondary">px</span>}
                             onChange={(next) => {
-                                const all = numberOrUnset(next) ?? 0
+                                const all = next ?? 0
                                 onChange({ top: all, right: all, bottom: all, left: all })
                             }}
                             data-attr={attr}
@@ -108,15 +109,13 @@ export function EmailSidesField({
                 <div className="grid grid-cols-4 gap-1">
                     {SIDES.map(({ name, title }) => (
                         <label key={name} className="flex flex-col gap-0.5 text-xxs text-secondary">
-                            <LemonInput
-                                type="number"
-                                size="small"
-                                min={0}
+                            <EmailNumberInput
+                                limit={limit}
                                 aria-label={`${label} ${title}`}
                                 value={shown[name]}
                                 onChange={(next) => {
                                     setOpened(true)
-                                    onChange({ ...shown, [name]: numberOrUnset(next) ?? 0 })
+                                    onChange({ ...shown, [name]: next ?? 0 })
                                 }}
                                 data-attr={attr ? `${attr}-${name}` : undefined}
                             />
