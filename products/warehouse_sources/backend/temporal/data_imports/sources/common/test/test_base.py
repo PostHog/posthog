@@ -78,16 +78,38 @@ def test_error_message_matches(_name, error_msg, patterns, expected):
         (
             "flat_keys",
             {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
-            {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            None,
+            {
+                "aws_auth": {
+                    "selection": "access_keys",
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "aws_secret_access_key": "secret",
+                }
+            },
         ),
         (
             "role_named_by_a_bare_selection",
             {"aws_auth": "role", "aws_integration_id": 5},
-            {"selection": "role", "aws_integration_id": 5},
+            None,
+            {"aws_auth": {"selection": "role", "aws_integration_id": 5}},
+        ),
+        (
+            "unknown_bare_selection_left_for_validation",
+            {"aws_auth": "Role", "aws_access_key_id": "AKIAEXAMPLE"},
+            None,
+            {"aws_auth": "Role", "aws_access_key_id": "AKIAEXAMPLE"},
+        ),
+        (
+            "container_without_selection_keeps_the_stored_role",
+            {"aws_auth": {"aws_integration_id": 9}, "aws_access_key_id": "AKIAEXAMPLE"},
+            {"aws_auth": {"selection": "role", "aws_integration_id": 7}},
+            {"aws_auth": {"aws_integration_id": 9}},
         ),
     ]
 )
-def test_nest_flat_select_containers_keeps_the_chosen_branch(_name: str, job_inputs: dict, expected: dict) -> None:
-    nested = nest_flat_select_containers(job_inputs, [aws_auth_field()], AWS_FLAT_STORED_SELECTS)
+def test_nest_flat_select_containers_keeps_the_chosen_branch(
+    _name: str, job_inputs: dict, stored: dict | None, expected: dict
+) -> None:
+    nested = nest_flat_select_containers(job_inputs, [aws_auth_field()], AWS_FLAT_STORED_SELECTS, stored)
 
-    assert nested == {"aws_auth": expected}
+    assert nested == expected
