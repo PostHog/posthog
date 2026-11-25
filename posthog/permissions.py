@@ -37,6 +37,7 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
+from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
@@ -1662,7 +1663,7 @@ class UserCanCreateProjectPermission(BasePermission):
     behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
     """
 
-    message = "You need to be an organization admin or above to create new projects."
+    message = PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE
 
     def has_permission(self, request: Request, view) -> bool:
         try:
@@ -1671,15 +1672,7 @@ class UserCanCreateProjectPermission(BasePermission):
             return True
 
         membership = get_required_organization_membership(request, organization)
-
-        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-            return True
-
-        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
-            return False
-
-        return bool(organization.members_can_create_projects)
+        return member_can_create_projects(cast(User, membership.user), organization)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:
