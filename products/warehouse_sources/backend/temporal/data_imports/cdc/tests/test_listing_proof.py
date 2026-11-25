@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     retire_orphaned_companions,
     run_completed_on_every_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import BUFFER_GENERATION_SEEN_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
     BUFFER_LISTED_TAIL_KEY,
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     buffer_may_have_expired_unread,
     clear_listing,
     read_completed_listing_proof,
+    stamp_listing_on_job,
 )
 
 
@@ -271,10 +273,18 @@ class TestClearListing(BaseTest):
 
     def test_only_the_stamp_comes_off(self):
         schema = self._schema()
-        job = self._job(
-            schema,
-            {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", BUFFER_LISTED_TAIL_KEY: {"f": "e"}, "name": "users"},
-        )
+        job = self._job(schema, {"name": "users"})
+        listed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+
+        stamp_listing_on_job(str(job.id), self.team.id, listed_at, {"f": "e"}, generation_seen=3)
+
+        job.refresh_from_db()
+        assert job.schema_snapshot == {
+            "name": "users",
+            BUFFER_LISTED_AT_KEY: listed_at.isoformat(),
+            BUFFER_LISTED_TAIL_KEY: {"f": "e"},
+            BUFFER_GENERATION_SEEN_KEY: 3,
+        }
 
         clear_listing(str(job.id), self.team.id)
 

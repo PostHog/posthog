@@ -41,6 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     ChangeEventBatcher,
     HistoryNaming,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    BUFFER_GENERATION_KEY,
+    BUFFER_WRITE_OPEN_KEY,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     CDCErrorCategory,
     CDCMaskedKeyError,
@@ -1952,6 +1956,39 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         capture.reader.confirm_position.assert_called_once_with("0/200")
         assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
+
+    def test_a_completed_run_counts_a_buffer_write_only_for_the_tables_it_wrote(self):
+        source = _make_source()
+        users = _make_schema("users", source=source)
+        orders = _make_schema("orders", source=source)
+
+        with _capture_harness(source, [users, orders], [_make_event(table="users", position="0/100")]) as capture:
+            capture.extract()
+
+        assert users.sync_type_config[BUFFER_GENERATION_KEY] == 1
+        assert BUFFER_WRITE_OPEN_KEY not in users.sync_type_config
+        assert BUFFER_GENERATION_KEY not in orders.sync_type_config
+
+    def test_a_write_a_failed_run_left_open_is_counted_by_the_next_completed_run(self):
+        # The failed run's file can be in S3 while its slot never advanced past it, so the table
+        # must keep owing a load until some later run counts it.
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+
+        with _capture_harness(source, [schema], [_make_event(position="0/100")]) as capture:
+            capture.buffer.write_batch.side_effect = RuntimeError("pod killed after the PUT")
+            capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
+            with pytest.raises(RuntimeError):
+                capture.extract()
+
+        assert schema.sync_type_config[BUFFER_WRITE_OPEN_KEY] is True
+        assert BUFFER_GENERATION_KEY not in schema.sync_type_config
+
+        with _capture_harness(source, [schema]) as capture:
+            capture.extract()
+
+        assert schema.sync_type_config[BUFFER_GENERATION_KEY] == 1
+        assert BUFFER_WRITE_OPEN_KEY not in schema.sync_type_config
 
     @parameterized.expand(
         [

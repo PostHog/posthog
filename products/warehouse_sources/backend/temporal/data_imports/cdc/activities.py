@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     measures_backlog_this_run,
     purge_buffer_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import close_buffer_write, open_buffer_write
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -417,6 +418,8 @@ class CDCExtractActivity:
 
         schema_id = str(schema.id)
         if schema_id not in self._buffer_cleaned_schemas:
+            # Before the write, so a run that dies after the file lands still leaves the table owing a load.
+            self._update_schema_sync_type_config(schema, mutate=open_buffer_write)
             # First write this run: remove files a superseded attempt left at or
             # past where this run restarted (batch boundaries are not stable
             # across attempts — see buffer.py). The batch's min seq IS the
@@ -1650,10 +1653,14 @@ class CDCExtractActivity:
         quiet zero-event run still proves extraction is alive. Nothing reads these keys yet — an
         upcoming CDC health check and the status endpoint will — so this is a forward-looking
         breadcrumb, not an ExternalDataJob row per idle run.
+
+        The same write counts this run's buffer writes, because every one of them has landed by now.
         """
+        wrote = str(schema.id) in self._buffer_cleaned_schemas
         self._update_schema_sync_type_config(
             schema,
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
+            mutate=lambda config: close_buffer_write(config, wrote=wrote),
         )
 
     def _record_healthy_run(self, schema: ExternalDataSchema, now: dt.datetime) -> None:
