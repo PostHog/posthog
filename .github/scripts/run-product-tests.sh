@@ -41,6 +41,11 @@ while read -r pattern || [ -n "$pattern" ]; do
 done < "$repo_root/.github/scripts/product-tests-owned-elsewhere.txt"
 
 cd "$repo_root/products/$product"
+# A product declares what its tests need outside Python as a backend:test:setup script in its
+# package.json. canvas uses it to install the npm packages of its builder.
+if grep -q '"backend:test:setup"' package.json 2>/dev/null; then
+    npm run --silent backend:test:setup
+fi
 status=0
 pytest -c ../../pytest.ini --rootdir ../.. "${ignore_args[@]}" -v --tb=short "$@" . || status=$?
 if [ "$status" -eq 5 ]; then

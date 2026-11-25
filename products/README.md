@@ -323,6 +323,7 @@ bash .github/scripts/run-product-tests.sh <product_dir>   # e.g. visual_review
 
 The runner starts pytest in `products/<product_dir>/` and collects every test file under it, except the paths in `.github/scripts/product-tests-owned-elsewhere.txt`, which other CI jobs run.
 Extra arguments go to pytest.
+A product whose tests need setup outside Python, such as npm packages, declares it as a `backend:test:setup` script in its `package.json`, and the runner runs it first.
 
 Locally, `hogli test products/<product_dir>/` runs the same thing for a product that has only Python tests.
 A product that also has Jest tests keeps the per-type grouping.
