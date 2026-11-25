@@ -310,6 +310,12 @@ jobs:
               # is never stale against itself). Single pushes just pay the short wait.
               # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
               #
+              # The window is short because a burst is rare: over 200 recent pull-request runs
+              # (100 branches), only 1% of pushes followed the previous push to the same branch
+              # within 60s; the 5th percentile gap is 222s and the median 993s. The old 60s
+              # window therefore bought that 1% of cases at 60s of wall clock on the lane of
+              # every other run, and this gate is 65s of the E2E lane before it does any work.
+              #
               # The window is measured from the run's created_at, not from when this step
               # got a runner. A burst push arrives within seconds of the push that started
               # this run, so a run that already spent its queue waiting has nothing left to
@@ -326,7 +332,7 @@ jobs:
                   RUN_ID: ${{ github.run_id }}
                   PR: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  WINDOW_SECONDS: '60'
+                  WINDOW_SECONDS: '15'
               run: |
                   # Sets `tip` to the PR's current head so the caller can report it.
                   head_moved() {
@@ -918,6 +924,7 @@ jobs:
                       ${{ needs.changes.outputs.schema_prefix_key }}
 
             - name: Prime posthog_e2e_test from cached schema
+              id: schema-prime
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
               # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db and restores the
               # schema. The migrate step below layers any newer migrations on top and
@@ -925,6 +932,10 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
+              #
+              # `primed` is what the two stores below read: on a primed database the
+              # ClickHouse migrations have the materialized-column registry they read from
+              # Postgres, so they may run beside it. On a miss they must follow it.
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
@@ -936,10 +947,14 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   if ! ./bin/hogli db:restore-schema-fresh; then
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
+                  else
+                      echo "primed=true" >> "$GITHUB_OUTPUT"
                   fi
 
             - parallel:
                   - name: Apply postgres and clickhouse migrations and setup dev
+                    env:
+                        SCHEMA_PRIMED: ${{ steps.schema-prime.outputs.primed }}
                     run: |
                         # --skip-checks on each manage.py call below: the Django system-check
                         # pass costs about 24s of wall clock per invocation here, and this step
@@ -949,8 +964,26 @@ jobs:
                         # The multinode migration smoke and hogli's migrate already pass the
                         # flag for the same reason.
 
-                        # Postgres migrations must run first — ClickHouse migration 0026
-                        # depends on the posthog_instancesetting table in Postgres.
+                        # The two stores are migrated together when the schema was primed above.
+                        # ClickHouse migrations only read Postgres (migration 0026 reads the
+                        # materialized-column registry) and never write it, so a primed registry
+                        # is all they need — ci-mcp.yml runs the pair in parallel on the same
+                        # reasoning. On a cache miss the registry does not exist until the
+                        # Postgres leg has run, so the serial order is kept.
+                        migrate_clickhouse() {
+                            TIMEFORMAT='ClickHouse migrations: %3R seconds'
+                            time python manage.py migrate_clickhouse --skip-checks 2>&1
+                        }
+
+                        clickhouse_pid=''
+                        if [ "$SCHEMA_PRIMED" = 'true' ]; then
+                            # Backgrounded inside this step, not a `parallel:` block: a step that
+                            # exits non-zero has to fail this step, and the pair shares a shell so
+                            # the `wait` below can propagate it.
+                            migrate_clickhouse &
+                            clickhouse_pid=$!
+                        fi
+
                         # On cache hit this is near no-op; on cache miss it's a full migrate.
                         # Either way, any PR-added migrations get applied here.
                         TIMEFORMAT='Django migrations: %3R seconds'
@@ -974,8 +1007,11 @@ jobs:
                             sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
                         }
 
-                        TIMEFORMAT='ClickHouse migrations: %3R seconds'
-                        time python manage.py migrate_clickhouse --skip-checks 2>&1
+                        if [ -n "$clickhouse_pid" ]; then
+                            wait "$clickhouse_pid"
+                        else
+                            migrate_clickhouse
+                        fi
 
                         # Person/group reads go through personhog (no ORM fallback), so the replica
                         # and router must be running before setup_dev creates demo persons.
