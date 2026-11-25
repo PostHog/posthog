@@ -756,6 +756,18 @@ filters:
         - posthog/workload_identity/subjects.py
         - 'common/hogvm/**'
         - common/__init__.py
+        - products/batch_exports/backend/temporal/batch_exports.py
+        - products/batch_exports/backend/temporal/errors.py
+        - products/batch_exports/backend/temporal/queue.py
+        - 'products/batch_exports/backend/temporal/pipeline/**'
+        - products/batch_exports/backend/service.py
+        - products/batch_exports/backend/models/batch_export.py
+        - products/batch_exports/backend/custom_events_schema.py
+        - ee/billing/quota_limiting.py
+        - posthog/tasks/exporter.py
+        - 'products/security/backend/facade/**'
+        - posthog/llm/wizard_blocklist.py
+        - 'products/signals/backend/temporal/**'
     alertsPlatformDelivery:
         - *sharedWorkerBase
         - 'products/alerts_platform/backend/**'
@@ -1928,22 +1940,9 @@ filters:
     alertsPlatformRegistrar:
         # The registrar reads what logs saw from ClickHouse with HogQL and records it for the platform,
         # which is the work evaluation did for it before. It starts like the shared orchestration worker
-        # and runs the evaluation code, so it reuses both filters, and the entries after them are modules
-        # the registrar imports that those filters do not cover.
+        # and runs the evaluation code, so it reuses both filters.
         - *alertsPlatformSharedOrchestration
         - *alertsPlatformEvaluation
-        - products/batch_exports/backend/temporal/batch_exports.py
-        - products/batch_exports/backend/temporal/errors.py
-        - products/batch_exports/backend/temporal/queue.py
-        - 'products/batch_exports/backend/temporal/pipeline/**'
-        - products/batch_exports/backend/service.py
-        - products/batch_exports/backend/models/batch_export.py
-        - products/batch_exports/backend/custom_events_schema.py
-        - ee/billing/quota_limiting.py
-        - posthog/tasks/exporter.py
-        - 'products/security/backend/facade/**'
-        - posthog/llm/wizard_blocklist.py
-        - 'products/signals/backend/temporal/**'
 images:
     posthog-cloud:
         channels:
