@@ -8,6 +8,7 @@ import { IconTodayHome } from './IconTodayHome'
 import { IconTodayMonitor } from './IconTodayMonitor'
 import { IconTodayPeople } from './IconTodayPeople'
 import { IconTodayProducts } from './IconTodayProducts'
+import { IconTodayRelease } from './IconTodayRelease'
 
 const ICONS = {
     home: IconTodayHome,
@@ -15,6 +16,7 @@ const ICONS = {
     analytics: IconTodayAnalytics,
     monitor: IconTodayMonitor,
     people: IconTodayPeople,
+    release: IconTodayRelease,
     automate: IconTodayAutomate,
     data: IconTodayData,
     products: IconTodayProducts,
