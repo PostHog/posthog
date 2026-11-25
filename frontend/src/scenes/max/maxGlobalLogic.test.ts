@@ -103,6 +103,50 @@ describe('maxGlobalLogic', () => {
         })
     })
 
+    it.each(['history', 'conversation', 'empty conversation'] as const)(
+        'discards the %s response after unmount',
+        async (request) => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+            let finishRequest!: () => void
+            if (request === 'history') {
+                jest.spyOn(api.conversations, 'list').mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            finishRequest = () => resolve({ results: [MOCK_CONVERSATION] })
+                        })
+                )
+            } else {
+                jest.spyOn(api.conversations, 'get').mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            finishRequest = () =>
+                                resolve(request === 'conversation' ? MOCK_CONVERSATION : (null as any))
+                        })
+                )
+            }
+
+            await expectLogic(logic, () => {
+                if (request === 'history') {
+                    logic.actions.loadConversationHistory()
+                } else {
+                    logic.actions.loadConversation(MOCK_CONVERSATION_ID)
+                }
+                logic.unmount()
+                finishRequest()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'loadConversationHistorySuccess',
+                    'loadConversationHistoryFailure',
+                    'loadConversationSuccess',
+                    'loadConversationFailure',
+                ])
+
+            expect(logic.isMounted()).toBe(false)
+        }
+    )
+
     // Consent state (accept/dismiss/request-access) now lives in aiConsentLogic (see aiConsentLogic.test.ts)
     // and is only forwarded here via `connect` so the ~15 existing consumers keep reading it off
     // maxGlobalLogic unchanged. This guards the forwarding wiring itself — a mistake here (e.g. connecting
