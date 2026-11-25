@@ -174,6 +174,23 @@ describe('provider edge process', () => {
         })
     })
 
+    it('rejects a start whose options it could not send, and leaves nothing to reject later', async () => {
+        const runner = `require(${EDGE_PROCESS})
+            .startEdgeProcess(Object.assign({ port: 0 }, { unsendable: 1n }), { startsWithinMs: 300 })
+            .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
+            .then((outcome) => setTimeout(() => process.stdout.write(outcome), 1000))`
+        const outcome = await new Promise<string>((resolve) =>
+            execFile(
+                process.execPath,
+                ['--import', TSX, '-e', runner],
+                { cwd: NODEJS_DIR, env: WITHOUT_LOG_THREAD, timeout: 20_000 },
+                (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
+            )
+        )
+
+        expect(outcome).toBe('Do not know how to serialize a BigInt')
+    }, 30_000)
+
     it('gives up on an edge process that does not start, and kills what it started', async () => {
         const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
         const pidFile = path.join(bin, 'openssl.pid')

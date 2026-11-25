@@ -153,7 +153,12 @@ export async function startEdgeProcess(
         }
     })
     if (child.connected) {
-        child.send({ options })
+        try {
+            child.send({ options })
+        } catch (error) {
+            end(error as Error)
+            kill()
+        }
     }
 
     const call = <T>(request: Call): Promise<T> => {
