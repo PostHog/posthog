@@ -739,13 +739,13 @@ def _match_copy_datetime(
 def assign_native_creator(
     *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
 ) -> bool:
-    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
-    run as. False when there is no such configuration. A copy's creator comes from its source's row."""
+    """Makes `created_by_id` the creator of a configuration the platform holds, which its checks run as:
+    one whose source keeps no row, or a copy the platform owns. False when there is no such configuration."""
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
             .select_for_update()
-            .filter(id=configuration_id, source_kind__in=list(source_kinds), legacy_configuration_id__isnull=True)
+            .filter(PlatformAlertConfiguration.held(), id=configuration_id, source_kind__in=list(source_kinds))
             .first()
         )
         if configuration is None:

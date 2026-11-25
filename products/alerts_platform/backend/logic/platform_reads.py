@@ -108,7 +108,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
     )
 
 
-_HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM)
+_HELD = PlatformAlertConfiguration.held()
 
 
 def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAlertConfiguration]:
@@ -444,16 +444,25 @@ def source_config_values(
 
 
 def native_configuration_ids_by_source_config(
-    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+    *,
+    team_id: int,
+    source_kind: str,
+    source_config_key: str,
+    values: Collection[Any],
+    owned_copies_except: Collection[UUID] | None = None,
 ) -> dict[Any, list[UUID]]:
     """The configurations of a kind with no source row in the team, by which of `values` each holds as
-    `source_config[key]`, enabled or not. A value no configuration holds is left out."""
+    `source_config[key]`, enabled or not. With `owned_copies_except`, also the copies the platform owns,
+    apart from those of the source rows it names. A value no configuration holds is left out."""
     if not values:
         return {}
+    held = Q(legacy_configuration_id__isnull=True)
+    if owned_copies_except is not None:
+        held |= Q(owner=PlatformAlertOwner.PLATFORM) & ~Q(legacy_configuration_id__in=list(owned_copies_except))
     # The caller names the team, as `source_config_values` takes its teams.
     configs = (
         PlatformAlertConfiguration.objects.unscoped()
-        .filter(team_id=team_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .filter(held, team_id=team_id, source_kind=source_kind)
         .filter(_source_config_in(source_config_key, values))
         .order_by("created_at", "id")
         .values_list("id", "source_config")
@@ -550,6 +559,21 @@ def _configurations_matching(
     if check_interval_minutes is not None:
         configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
     return configurations
+
+
+def held_configuration(
+    *, team_id: int, source_kinds: Sequence[str], public_id: UUID, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The configuration whose settings the platform holds under the public id `public_id`: one with no
+    source row by its own id, or a copy the platform owns by its source row's id. None otherwise. With
+    `lock`, its row stays locked until the caller's transaction ends."""
+    rows = _readable(team_id, source_kinds).filter(
+        PlatformAlertConfiguration.with_destination_alert_ids([public_id]), _HELD
+    )
+    if lock:
+        rows = rows.select_for_update(no_key=True)
+    row = rows.first()
+    return None if row is None else _configuration_view(row)
 
 
 def get_configuration(

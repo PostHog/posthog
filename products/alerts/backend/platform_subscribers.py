@@ -16,7 +16,7 @@ from posthog.models.user import User
 
 from products.alerts.backend.activity_logging import log_native_subscriber_changes
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view
 from products.alerts.backend.tasks.tasks import remove_departed_subscriber
 from products.alerts_platform.backend.facade.api import set_subscriber_destinations, subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
@@ -54,7 +54,7 @@ def set_native_subscribers(
     """Writes the subscribers of an insight alert with no insight row, which keeps them only as
     destinations, and logs each user added or removed as the change of the user `actor_id` names. Call it
     with the alert locked. False when the alert is gone."""
-    view = native_insight_alert_view(team_id, alert_id)
+    view = rowless_insight_alert_view(team_id, alert_id)
     alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
     if alert is None:
         return False

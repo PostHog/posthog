@@ -40,7 +40,7 @@ from products.alerts.backend.platform_insight_alert import (
     insight_of,
     insight_row_settings,
     interval_of,
-    native_insight_alert_view,
+    rowless_insight_alert_view,
     show_copy_settings,
 )
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
@@ -391,7 +391,7 @@ def write_native_alert_edit(
 
     Raises like `on_updated`.
     """
-    view = native_insight_alert_view(team_id, alert_id, lock=True)
+    view = rowless_insight_alert_view(team_id, alert_id, lock=True)
     if view is None:
         return None
     # Not the API's presentation, which fills in a threshold the alert may not have.
@@ -399,15 +399,17 @@ def write_native_alert_edit(
     if alert is None:
         return None
     alert.schedule_start_time = view.anchor_time
+    before = copy.copy(alert)
+    before.threshold = copy.copy(alert.threshold)
     _apply_changes(alert, changes)
     if not can_move(alert):
         raise PlatformCannotOwn("The alerts platform runs this alert, and it can't run checks at this frequency.")
     upsert = platform_upsert_of(alert)
     assert upsert is not None
-    return update_configuration(
+    updated = update_configuration(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
-        configuration_id=alert_id,
+        configuration_id=view.id,
         change=_platform_change_of(upsert),
         snooze_until=alert.snoozed_until,
         snooze_changed=snooze_changed,
@@ -415,6 +417,10 @@ def write_native_alert_edit(
         rescheduled=rescheduled,
         source_checked=True,
     )
+    if updated is not None and view.legacy_configuration_id is not None:
+        # A copy whose row is gone keeps its history where its row's edits wrote it.
+        log_platform_alert_edit(before, alert, user=get_current_user(), was_impersonated=get_was_impersonated())
+    return updated
 
 
 def admit_platform_write(

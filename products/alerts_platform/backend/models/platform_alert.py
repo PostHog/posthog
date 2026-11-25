@@ -152,6 +152,12 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
             legacy_configuration_id__isnull=True, id__in=listed
         )
 
+    @staticmethod
+    def held() -> models.Q:
+        """Matches the configurations whose settings the platform holds: those with no source row, and the
+        copies the platform owns."""
+        return models.Q(legacy_configuration_id__isnull=True) | models.Q(owner=PlatformAlertOwner.PLATFORM)
+
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
         # Backfills and source edits write those copies one row at a time.

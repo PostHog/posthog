@@ -226,7 +226,7 @@ def _config_refusal(
 
 def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
     """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
-    from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+    from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view  # noqa: PLC0415
 
     try:
         public_id = UUID(alert_id)
@@ -234,7 +234,7 @@ def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
         return None
     # The platform's tables refuse reads outside a team scope, which the insight API's request sets.
     with team_scope(team_id):
-        view = native_insight_alert_view(team_id, public_id)
+        view = rowless_insight_alert_view(team_id, public_id)
         return AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
 
 
@@ -602,7 +602,7 @@ class UpsertAlertTool(MaxTool):
     def _save_native_alert(self, alert: AlertConfiguration, action: UpdateAlertAction) -> _SaveRefusal | None:
         """`_save_alert` for an alert with no insight row: the same checks under the insight API's lock
         order, then the edit written to the platform, which keeps the alert."""
-        from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+        from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view  # noqa: PLC0415
         from products.alerts.backend.platform_ownership import write_native_alert_edit  # noqa: PLC0415
 
         with team_scope(alert.team_id), transaction.atomic():
@@ -610,7 +610,7 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(
                     message="The insight no longer exists. Refresh the alert.", error_code="validation_failed"
                 )
-            view = native_insight_alert_view(alert.team_id, alert.id, lock=True)
+            view = rowless_insight_alert_view(alert.team_id, alert.id, lock=True)
             locked = AlertConfiguration.from_platform_view(view, team_id=alert.team_id) if view is not None else None
             if locked is None:
                 return _SaveRefusal(message=f"Alert '{alert.id}' not found.", error_code="alert_not_found")

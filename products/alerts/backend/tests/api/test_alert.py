@@ -1,5 +1,6 @@
 import json
-from contextlib import nullcontext
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -911,6 +912,18 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["attr"] == field
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
+    @contextmanager
+    def _insight_cleanup_runs(self) -> Iterator[None]:
+        async def start(inputs: NativeCleanupInputs) -> None:
+            for configuration_id in native_alert_ids(inputs):
+                delete_native_alert(inputs.team_id, configuration_id)
+
+        with (
+            mock.patch("products.alerts.backend.platform_native_cleanup._start", side_effect=start),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            yield
+
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
@@ -940,10 +953,11 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
         insight_without_alert_support["query"] = {"kind": "EventsQuery", "select": ["*"]}
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
-            data=insight_without_alert_support,
-        ).json()
+        with self._insight_cleanup_runs():
+            self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
+                data=insight_without_alert_support,
+            ).json()
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -1065,10 +1079,11 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         # Changing to a kind that cannot carry alerts still cascades.
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "EventsQuery", "select": ["*"]}},
-        )
+        with self._insight_cleanup_runs():
+            self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
+                data={"query": {"kind": "EventsQuery", "select": ["*"]}},
+            )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 

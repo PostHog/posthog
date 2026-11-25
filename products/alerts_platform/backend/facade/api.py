@@ -374,12 +374,22 @@ def source_config_values(
 
 
 def native_configuration_ids_by_source_config(
-    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    source_config_key: str,
+    values: Collection[Any],
+    owned_copies_except: Collection[UUID] | None = None,
 ) -> dict[Any, list[UUID]]:
-    """The ids of a kind's alerts with no source row in the team, oldest first, by which of `values`
-    each holds as `source_config[key]`, enabled or not. A value no alert holds is left out."""
+    """The ids of a kind's alerts with no source row in the team, oldest first, by which of `values` each
+    holds as `source_config[key]`, enabled or not. With `owned_copies_except`, also the copies the platform
+    owns, apart from those of the source rows it names. A value no alert holds is left out."""
     return platform_reads.native_configuration_ids_by_source_config(
-        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+        team_id=team_id,
+        source_kind=source_kind.value,
+        source_config_key=source_config_key,
+        values=values,
+        owned_copies_except=owned_copies_except,
     )
 
 
@@ -442,6 +452,15 @@ def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
     """The lock the platform holds while a source checks its caps, for a source creating an alert
     outside the platform. Call it inside the create's transaction."""
     platform_writes.hold_cap_lock(team_id, source_kind)
+
+
+def held_configuration(
+    *, team_id: int, source_kinds: Sequence[str], public_id: UUID, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The alert whose settings the platform holds under the public id `public_id`: one whose source keeps
+    no row, or a copy the platform owns. None otherwise, or when the caller may not read its kind. With
+    `lock`, call it inside a transaction: the row stays locked until it ends."""
+    return platform_reads.held_configuration(team_id=team_id, source_kinds=source_kinds, public_id=public_id, lock=lock)
 
 
 def get_configuration(
@@ -759,8 +778,8 @@ def update_owned_copy(
 def assign_native_creator(
     *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
 ) -> bool:
-    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
-    run as. False when there is no such configuration."""
+    """Makes `created_by_id` the creator of a configuration the platform holds, which its checks run as:
+    one whose source keeps no row, or a copy the platform owns. False when there is no such configuration."""
     return platform_writes.assign_native_creator(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, created_by_id=created_by_id
     )

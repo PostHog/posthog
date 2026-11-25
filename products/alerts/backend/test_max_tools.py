@@ -874,14 +874,19 @@ class TestUpsertAlertTool(BaseTest):
         assert alert.next_check_at is not None
         assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
 
+    @parameterized.expand([("row_drifted", False), ("row_deleted", True)])
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(self):
+    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(self, _name, row_deleted):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, lower_threshold=100.0)
         await sync_to_async(move_to_platform)(alert)
-        # A write that bypasses every API leaves the row apart from the copy.
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(skip_weekend=True)
+        rows = AlertConfiguration.objects.filter(id=alert.id)
+        if row_deleted:
+            await rows.adelete()
+        else:
+            # A write that bypasses every API leaves the row apart from the copy.
+            await rows.aupdate(skip_weekend=True)
 
         content, _ = await self._setup_tool()._arun_impl(
             action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
@@ -900,9 +905,10 @@ class TestUpsertAlertTool(BaseTest):
             {"lower": 100.0, "upper": 200.0},
             False,
         )
-        row = await AlertConfiguration.objects.select_related("threshold").aget(id=alert.id)
-        assert row.threshold is not None
-        assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
+        if not row_deleted:
+            row = await AlertConfiguration.objects.select_related("threshold").aget(id=alert.id)
+            assert row.threshold is not None
+            assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

@@ -30,7 +30,7 @@ from products.alerts.backend.logic.alert_validation import validate_alert_write
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_insight_alert import (
     enable_native_insight_alert,
-    native_insight_alert_view,
+    rowless_insight_alert_view,
     show_copy_settings,
 )
 from products.alerts.backend.platform_ownership import on_updated, show_locked_copy
@@ -50,7 +50,7 @@ def _load_alert(team_id: int, alert_id: UUID, *, lock: bool = False) -> AlertCon
         rows = rows.select_for_update(of=("self",), no_key=True)
     alert = rows.filter(team_id=team_id, id=alert_id).first()
     if alert is None:
-        view = native_insight_alert_view(team_id, alert_id, lock=lock)
+        view = rowless_insight_alert_view(team_id, alert_id, lock=lock)
         alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view else None
         if alert is None:
             raise AlertConfiguration.DoesNotExist
@@ -155,14 +155,15 @@ def _save_owner_and_enable(
 ) -> AlertConfiguration:
     team_id, alert_id = locked.team_id, locked.id
     if locked.has_no_insight_row:
-        if not assign_native_creator(
+        held = rowless_insight_alert_view(team_id, alert_id)
+        if held is None or not assign_native_creator(
             team_id=team_id,
             source_kinds=[SourceKind.INSIGHT.value],
-            configuration_id=alert_id,
+            configuration_id=held.id,
             created_by_id=owner.id,
         ):
             raise AlertConfiguration.DoesNotExist
-        view = enable_native_insight_alert(team_id=team_id, alert_id=alert_id)
+        view = enable_native_insight_alert(team_id=team_id, alert_id=held.id)
         updated = AlertConfiguration.from_platform_view(view, team_id=team_id) if view else None
         if updated is None:
             raise AlertConfiguration.DoesNotExist

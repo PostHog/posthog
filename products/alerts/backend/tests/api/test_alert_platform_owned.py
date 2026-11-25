@@ -65,7 +65,7 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_hooks import insight_alert_creator
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
@@ -380,10 +380,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     def test_simulating_an_ai_alert_insight_keeps_no_row_for_reads_its_earlier_flags_from_the_platform(
         self, _name: str, created_with_no_row: bool
     ) -> None:
+        public_id = self.alert.id
         if created_with_no_row:
             with team_scope(self.team.id):
                 platform_testing.forget_source_row(self.copy_id)
-        public_id = self.copy_id if created_with_no_row else self.alert.id
+            public_id = self.copy_id
         AlertConfiguration.objects.filter(id=self.alert.id).delete()
         self._record(
             -30,
@@ -2066,7 +2067,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
         self._forget_the_insight_row()
         with team_scope(self.team.id):
-            view = native_insight_alert_view(self.team.id, self.copy_id)
+            view = rowless_insight_alert_view(self.team.id, self.copy_id)
             assert view is not None
             seen_enabled = AlertConfiguration.from_platform_view(view, team_id=self.team.id)
             assert seen_enabled is not None and seen_enabled.enabled
@@ -2103,7 +2104,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert elsewhere.json()["attr"] == "alert", elsewhere.json()
         assert watched.json()["detail"] == "simulated", watched.json()
 
-    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self) -> None:
+    @parameterized.expand([("created_with_no_row", True), ("copy_whose_row_is_deleted", False)])
+    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_public_id(
+        self, _name: str, created_with_no_row: bool
+    ) -> None:
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -2111,8 +2115,13 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             config={"authed_user": {"id": "u"}},
             sensitive_config={"access_token": "xoxb-test"},
         )
-        self._forget_the_insight_row()
-        alert_url = f"{self.url}/{self.copy_id}"
+        if created_with_no_row:
+            self._forget_the_insight_row()
+            public_id = self.copy_id
+        else:
+            AlertConfiguration.objects.filter(id=self.alert.id).delete()
+            public_id = self.alert.id
+        alert_url = f"{self.url}/{public_id}"
         slack = {
             "type": "slack",
             "slack_workspace_id": integration.id,
@@ -2140,7 +2149,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         logged = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="AlertConfiguration",
-            item_id=str(self.copy_id),
+            item_id=str(public_id),
             detail__type="alert_destination_change",
         ).order_by("created_at")
         assert [

@@ -39,8 +39,9 @@ def shown_insight_alerts(
 
     ``rows`` holds each insight's alerts with an insight row, as ``insight_alerts_prefetch`` loads
     them. Those the platform owns are shown with the settings and state it holds, in place. Each
-    insight's alerts with no insight row follow its rows. A caller serializing a page of insights
-    passes the whole page, so the page costs one read rather than one per insight.
+    insight's alerts with no insight row, copies whose row was deleted among them, follow its rows. A
+    caller serializing a page of insights passes the whole page, so the page costs one read rather
+    than one per insight.
     """
     # Deferred for the same import loop as `serialize_insight_alerts`.
     from products.alerts.backend.facade.platform import (  # noqa: PLC0415
@@ -61,9 +62,15 @@ def shown_insight_alerts(
     now = timezone.now()
     for team_id, insight_ids in insight_ids_by_team.items():
         with team_scope(team_id):
-            ids_by_insight = native_insight_alert_ids_by_insight(team_id, insight_ids)
+            ids_by_insight = native_insight_alert_ids_by_insight(
+                team_id,
+                insight_ids,
+                row_ids=[alert.id for insight_id in insight_ids for alert in shown[insight_id]],
+            )
             presented = AlertConfiguration.from_platform_views(
-                native_insight_alert_views(team_id, [alert_id for ids in ids_by_insight.values() for alert_id in ids]),
+                native_insight_alert_views(
+                    team_id, [alert_id for ids in ids_by_insight.values() for alert_id in ids], owned_copies=True
+                ),
                 team_id=team_id,
             )
             alerts = [
