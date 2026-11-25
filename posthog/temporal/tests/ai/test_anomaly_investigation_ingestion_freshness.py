@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.temporal.ai.anomaly_investigation.ingestion_freshness import (
-    FreshnessBucket,
     describe_ingestion_freshness,
     render_ingestion_freshness,
 )
@@ -26,7 +25,7 @@ def test_states_lag_only_when_the_newest_event_is_old(_name: str, age: timedelta
         event="$pageview",
         measured_at=MEASURED_AT,
         newest=MEASURED_AT - age,
-        buckets=[FreshnessBucket(start=datetime(2026, 11, 25, 11, 0, tzinfo=UTC), events=10)],
+        counts={datetime(2026, 11, 25, 11, 0, tzinfo=UTC): 10},
         evaluation_delay_intervals=0,
     )
 
@@ -39,10 +38,10 @@ def test_shows_the_empty_buckets_up_to_the_measurement() -> None:
         event=None,
         measured_at=MEASURED_AT,
         newest=datetime(2026, 11, 25, 11, 9, tzinfo=UTC),
-        buckets=[
-            FreshnessBucket(start=datetime(2026, 11, 25, 10, 55, tzinfo=UTC), events=1200),
-            FreshnessBucket(start=datetime(2026, 11, 25, 11, 5, tzinfo=UTC), events=300),
-        ],
+        counts={
+            datetime(2026, 11, 25, 10, 55, tzinfo=UTC): 1200,
+            datetime(2026, 11, 25, 11, 5, tzinfo=UTC): 300,
+        },
         evaluation_delay_intervals=0,
     )
 

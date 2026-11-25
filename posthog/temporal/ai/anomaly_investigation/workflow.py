@@ -190,15 +190,13 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
     event = alerted_series_event(insight.query, series_index=alerted.series_index)
-    event_provenance = ""
-    if event:
-        event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
-            team=team, event=event
-        )
-    # An alert with no evaluation delay scores a bucket that can still be filling. Late events show
-    # only by their absence, so measure that before the agent reads a lag tail as a traffic drop.
-    ingestion_freshness = await sync_to_async(describe_ingestion_freshness, thread_sensitive=False)(
-        team=team, event=event, evaluation_delay_intervals=alert.evaluation_delay_intervals or 0
+    event_provenance, ingestion_freshness = await asyncio.gather(
+        sync_to_async(describe_event_provenance, thread_sensitive=False)(team=team, event=event)
+        if event
+        else asyncio.sleep(0, result=""),
+        sync_to_async(describe_ingestion_freshness, thread_sensitive=False)(
+            team=team, event=event, evaluation_delay_intervals=alert.evaluation_delay_intervals
+        ),
     )
 
     anomaly_context_text = build_anomaly_context(
