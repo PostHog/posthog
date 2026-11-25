@@ -1,6 +1,8 @@
 import math
+from functools import partial
 from typing import Any
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
 import posthoganalytics
@@ -9,24 +11,35 @@ from rest_framework import serializers
 
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
-from posthog.utils import flag_identity
+from posthog.utils import flag_identity, get_safe_cache, safe_cache_set
 
 
-def notebook_app_builder_enabled(user: User, team: Team) -> bool:
+def notebook_app_builder_enabled(user: User | AnonymousUser, team: Team) -> bool:
+    if not isinstance(user, User):
+        return False
     identity = flag_identity(user, team, team.organization)
     if identity is None:
         return False
-    return bool(
-        posthoganalytics.feature_enabled(
-            "notebook-app-builder",
-            identity.distinct_id,
-            groups=identity.groups,
-            group_properties=identity.group_properties,
-            person_properties=identity.person_properties,
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+    evaluate = partial(
+        posthoganalytics.feature_enabled,
+        "notebook-app-builder",
+        identity.distinct_id,
+        groups=identity.groups,
+        group_properties=identity.group_properties,
+        person_properties=identity.person_properties,
+        send_feature_flag_events=False,
     )
+    local = evaluate(only_evaluate_locally=True)
+    if local is not None:
+        return local
+
+    cache_key = f"notebooks:app-builder:{team.pk}:{user.pk}"
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached is True
+    enabled = evaluate() is True
+    safe_cache_set(cache_key, enabled, timeout=30)
+    return enabled
 
 
 def update_app_revision(validated_data: dict[str, Any], current_revision: int) -> None:

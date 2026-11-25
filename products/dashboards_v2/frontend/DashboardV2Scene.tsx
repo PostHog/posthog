@@ -1,20 +1,24 @@
-import './DashboardV2.scss'
-
 import { useActions, useValues } from 'kea'
-import { type RefObject, useEffect, useMemo } from 'react'
-import { useContainerWidth } from 'react-grid-layout'
+import { useMemo } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { DashboardV2Actions } from './components/DashboardV2Actions'
-import { DashboardV2Tabs } from './components/DashboardV2Tabs'
-import { TileGrid } from './components/TileGrid'
+import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
+import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
+import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
-import { stackTiles } from './layout/dashboardEdits'
-import { GRID } from './layout/dashboardTypes'
+import { runSampleQuery } from './fixtures/runSampleQuery'
+import { createChartWidget } from './widgets/chart/createChartWidget'
+import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
+
+// The default widgets, with charts drawn from sample data until the scene runs real queries.
+const SCENE_WIDGETS = [
+    createChartWidget({ runQuery: runSampleQuery }),
+    ...DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart'),
+]
 
 export const scene: SceneExport = {
     component: DashboardV2Scene,
@@ -29,67 +33,36 @@ export function DashboardV2Scene(): JSX.Element {
     )
 }
 
-function isTyping(target: EventTarget | null): boolean {
-    return (
-        target instanceof Element &&
-        !!target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor')
-    )
-}
-
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTab, hasPermission } = useValues(dashboardV2Logic)
-    const { undo, redo, setStacked } = useActions(dashboardV2Logic)
-    const canUndoRedo = hasPermission('undo')
-    const { width, containerRef, mounted } = useContainerWidth()
-    const stacked = width > 0 && width < GRID.stackBelowPx
-    const tiles = useMemo(
-        () => (stacked ? stackTiles(activeTab.tiles, GRID.columns) : activeTab.tiles),
-        [stacked, activeTab.tiles]
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
+    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const controller = useMemo<DashboardV2Controller>(
+        () => ({
+            dashboard,
+            activeTabId,
+            widgets: SCENE_WIDGETS,
+            disabledReasonFor,
+            onEdit: applyDashboardEdit,
+            onActiveTabChange: setActiveTab,
+            history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
+        }),
+        [dashboard, activeTabId, disabledReasonFor, applyDashboardEdit, setActiveTab, canUndo, canRedo, undo, redo]
     )
 
-    useEffect(() => {
-        setStacked(stacked)
-    }, [stacked, setStacked])
-
-    useEffect(() => {
-        if (!canUndoRedo) {
-            return
-        }
-        const onKeyDown = (event: KeyboardEvent): void => {
-            const key = event.key.toLowerCase()
-            if (isTyping(event.target) || !(event.metaKey || event.ctrlKey) || (key !== 'z' && key !== 'y')) {
-                return
-            }
-            event.preventDefault()
-            if (key === 'y' || event.shiftKey) {
-                redo()
-            } else {
-                undo()
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [canUndoRedo, undo, redo])
-
     return (
-        <div data-quill className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground">
-            <header className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
-                <DashboardV2Actions />
-            </header>
-            <DashboardV2Tabs />
-            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
-                {mounted && width > 0 && (
-                    <TileGrid
-                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                        gridId={activeTab.id}
-                        tiles={tiles}
-                        cols={GRID.columns}
-                        width={width}
-                        editable={hasPermission('placeTiles') && !stacked}
-                    />
-                )}
-            </div>
-        </div>
+        <DashboardV2View
+            controller={controller}
+            header={
+                <header className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                        {dashboard.description && (
+                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                        )}
+                    </div>
+                    <DashboardV2Actions />
+                </header>
+            }
+        />
     )
 }

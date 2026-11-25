@@ -315,6 +315,7 @@ That covers a merge-queue run whose earlier pull request merged while the run wa
 Per snapshot, the ledger's hash wins when the render matches it.
 The approved hash is used only when the render does not match the ledger.
 An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
+A stack layer approved over the picture of an open layer below it keeps applying while that layer's approval applies, so a lower layer that merges on its own does not stop the layers above it.
 The snapshot then shows as changed against the new baseline and needs a new approval.
 Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
 
@@ -349,10 +350,12 @@ A partial run posts to the gating context too, with "(partial run)" in the text.
 
 An open approval is stale when the ledger's hash for its story is none of these: the hash it was approved over, the baseline the reviewer saw, the approved hash.
 That happens when another pull request merged a different picture of the same story first, and this approval would be `conflicted` if it landed now.
+An approval made over the picture of an open lower layer of the same stack is not stale while that layer's approval is not stale.
 The approvals a run rests on are the ones finalized on it and the ones its baseline record applied, such as an earlier approval of the same pull request; a quarantined story does not count.
 The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
 A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
 Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
+When an approval closes without a ledger entry (superseded, voided, conflicted, abandoned), the pull requests whose current run applied it publish their status again, so a stack layer that counted through it turns red.
 In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
 
 Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.
@@ -377,7 +380,7 @@ A run without a ledger record is `pending` as a whole. A real change that nobody
 When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
 An approval lands only when both of these hold:
 
-- The ledger's hash for the identifier is still the one the reviewer compared against. If another pull request changed it first, the approval is `conflicted`.
+- The ledger's hash for the identifier is still the one the reviewer compared against, or the last merge-queue run applied the approval and the ledger still holds the picture the queue run read for the story. If another pull request changed it first, the approval is `conflicted`.
 - The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
 
 A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.

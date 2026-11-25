@@ -65,12 +65,17 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   TARGET_SHA: ${{ github.sha }}
               run: |
-                  if gh api repos/${{ github.repository }}/git/ref/heads/browserslist-update >/dev/null 2>&1; then
-                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/browserslist-update \
-                      -f sha="$TARGET_SHA" -F force=true
-                  else
-                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/browserslist-update -f sha="$TARGET_SHA"
-                  fi
+                  # Retry the whole block: GitHub API 5xx responses are transient, and every call in it is safe to repeat
+                  for attempt in 1 2 3 4; do
+                    if gh api repos/${{ github.repository }}/git/ref/heads/browserslist-update >/dev/null 2>&1; then
+                      gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/browserslist-update \
+                        -f sha="$TARGET_SHA" -F force=true && break
+                    else
+                      gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/browserslist-update -f sha="$TARGET_SHA" && break
+                    fi
+                    if [ "$attempt" -eq 4 ]; then exit 1; fi
+                    sleep $((attempt * 15))
+                  done
 
             - name: Commit
               if: steps.check-changes.outputs.changes == 'true'
@@ -88,14 +93,19 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  existing_pr=$(gh pr list --head "browserslist-update" --json number --jq '.[0].number' 2>/dev/null || true)
-                  if [ -n "$existing_pr" ]; then
-                    gh pr edit "$existing_pr" --body-file /tmp/pr-body.md
-                  else
-                    gh pr create \
-                      --title "build: update Browserslist db" \
-                      --body-file /tmp/pr-body.md \
-                      --base master \
-                      --head browserslist-update \
-                      --label "dependencies"
-                  fi
+                  for attempt in 1 2 3 4; do
+                    existing_pr=$(gh pr list --head "browserslist-update" --json number,isCrossRepository \
+                      --jq '[.[] | select(.isCrossRepository | not)][0].number // empty' 2>/dev/null || true)
+                    if [ -n "$existing_pr" ]; then
+                      gh pr edit "$existing_pr" --body-file /tmp/pr-body.md && break
+                    else
+                      gh pr create \
+                        --title "build: update Browserslist db" \
+                        --body-file /tmp/pr-body.md \
+                        --base master \
+                        --head browserslist-update \
+                        --label "dependencies" && break
+                    fi
+                    if [ "$attempt" -eq 4 ]; then exit 1; fi
+                    sleep $((attempt * 15))
+                  done

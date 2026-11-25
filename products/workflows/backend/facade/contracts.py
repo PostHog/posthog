@@ -366,6 +366,10 @@ class ContactsCohortGone(Exception):
     """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
 
 
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
+
+
 class ContactsCleanupFailed(Exception):
     """Object storage kept some of the parts an import stored."""
 
