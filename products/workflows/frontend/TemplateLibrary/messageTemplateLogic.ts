@@ -61,6 +61,13 @@ const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
 
 type TemplateContent = MessageTemplate['content']
 
+// By template id. Outside the logic, because a write outlives the page it started on.
+const pendingTagWrites = new Map<string, Promise<string[] | undefined>>()
+
+function warnAboutPendingTags(event: BeforeUnloadEvent): void {
+    event.preventDefault()
+}
+
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
@@ -749,6 +756,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
+                // The person can come back before the tags they left with are saved.
+                await pendingTagWrites.get(props.id)
                 const { form, draft, published } = splitDraft(await api.messaging.getTemplate(props.id))
                 actions.setDraftState(draft, published)
                 return form
@@ -862,10 +871,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // One write at a time, so an older one can't land last. Without a breakpoint, leaving the page
             // can't cancel a tag that already looks saved.
             const writeBefore: Promise<string[] | undefined> =
-                cache.tagsWrite ?? Promise.resolve(values.originalTemplate.tags)
+                pendingTagWrites.get(id) ?? Promise.resolve(values.originalTemplate.tags)
             const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
                 // A newer edit already holds these tags.
-                if (cache.tagsWrite !== write) {
+                if (pendingTagWrites.get(id) !== write) {
                     return saved
                 }
                 try {
@@ -873,20 +882,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // which a full form save would.
                     return (await api.messaging.updateTemplate(id, { tags })).tags
                 } catch (error: any) {
-                    if (cache.tagsWrite === write) {
+                    if (pendingTagWrites.get(id) === write) {
                         lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
                     }
                     return saved
                 }
             })
-            cache.tagsWrite = write
+            pendingTagWrites.set(id, write)
+            window.addEventListener('beforeunload', warnAboutPendingTags)
             // Shown at once, so the next tag adds to this one instead of replacing it.
             showTags(tags)
             const saved = await write
-            if (cache.tagsWrite !== write) {
+            if (pendingTagWrites.get(id) !== write) {
                 return
             }
-            cache.tagsWrite = undefined
+            pendingTagWrites.delete(id)
+            if (!pendingTagWrites.size) {
+                window.removeEventListener('beforeunload', warnAboutPendingTags)
+            }
             if (messageTemplateLogic.isMounted(props)) {
                 showTags(saved)
             }
@@ -1090,7 +1103,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
             // Tags save on their own, so the answer to this save can hold older ones.
-            const saved = props.id === 'new' ? template : { ...template, tags: current.tags }
+            const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
+            const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
             actions.resetTemplate(saved)
@@ -1195,14 +1209,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.setTemplatePickerOpen(true)
         }
     }),
-    beforeUnload(({ values, actions, cache }) => ({
+    beforeUnload(({ values, actions }) => ({
         // Guards both new and existing templates - a brand-new template only exists in form
         // state until "Create" is pressed, so leaving without saving would discard it entirely.
         enabled: (newLocation) => {
-            // Closing the tab drops the tags still waiting for their turn.
-            if (!newLocation && cache.tagsWrite) {
-                return true
-            }
             if (!values.hasUnsavedChanges) {
                 return false
             }

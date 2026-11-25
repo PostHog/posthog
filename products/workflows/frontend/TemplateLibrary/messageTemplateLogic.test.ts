@@ -675,7 +675,7 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
         })
 
-        it('sends the next tags after the save before them answers, also when the person left', async () => {
+        it('sends the next tags after the save before them answers, also when the person leaves', async () => {
             const mocks = tagMocks(200)
             const answers: (() => void)[] = []
             useMocks({
@@ -698,8 +698,13 @@ describe('messageTemplateLogic', () => {
             expect(patches).toEqual([{ tags: ['old', 'a'] }])
 
             answers[0]()
+            // Coming back waits for both, so the page never shows tags from before them.
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
             await waitFor(() => expect(patches).toEqual([{ tags: ['old', 'a'] }, { tags: ['old', 'a', 'b'] }]))
+            expect(logic.values.originalTemplate.id).not.toBe('existing-id')
             answers[1]()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
         })
 
         it('keeps a tag added while the template saves', async () => {
