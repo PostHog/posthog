@@ -169,13 +169,19 @@ class MarketingAnalyticsRecommendationsQueryRunner(
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
-        # it as the saving user, so it has to name every table a run reads.
+        # it as the saving user, so it has to name every warehouse table a run reads.
+        sources = self.sources
+        if self._recommendation_goals:
+            # PostHog conversions map onto the campaigns of every Google Ads source, not only the ones the query names.
+            sources = [*sources, *(source for source in self._project_sources() if source.sourceType == "GoogleAds")]
+        source_tables = [table for source in sources for field, table in source if field.endswith("Table")]
+        goal_tables = [
+            goal.get("table_name") for goal in self._recommendation_goals if goal.get("kind") == "DataWarehouseNode"
+        ]
         tables = {
             table
-            for source in self.sources
-            for field, table in source
-            if field.endswith("Table")
-            and isinstance(table, str)
+            for table in [*source_tables, *goal_tables]
+            if isinstance(table, str)
             and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
         }
         if not tables:

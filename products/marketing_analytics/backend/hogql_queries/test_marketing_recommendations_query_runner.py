@@ -939,15 +939,15 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
 
     @parameterized.expand(
         [
-            ("synced_tables", None),
+            ("expression_on_a_synced_table", None, False),
             # A table-valued field that fails to compile would make the whole check pass.
-            ("with_a_non_warehouse_table", "events"),
+            ("expression_next_to_a_non_warehouse_table", "events", False),
+            ("warehouse_goal_marked_for_recommendations", None, True),
         ]
     )
-    def test_save_time_access_check_expands_expressions_on_source_tables(
-        self, _name: str, extra_table: str | None
+    def test_save_time_access_check_sees_every_warehouse_table_a_run_reads(
+        self, _name: str, extra_table: str | None, read_by_goal: bool
     ) -> None:
-        # An expression may add a field the run reads, such as a status column older syncs lack.
         self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         secret = DataWarehouseTable.objects.create(
@@ -956,14 +956,36 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
             credential=credential,
             format="Parquet",
             url_pattern="https://example.com/secret/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+                "closed_at": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')"},
+            },
         )
-        DataWarehouseExpression.objects.for_team(self.team.pk).create(
-            team_id=self.team.pk,
-            table_name="googleads.acme.campaign",
-            field_name="campaign_primary_status",
-            expression="(SELECT id FROM secret_lookup LIMIT 1)",
-        )
+        if read_by_goal:
+            self.team.marketing_analytics_config.conversion_goals = [
+                {
+                    "kind": "DataWarehouseNode",
+                    "id": "secret_lookup",
+                    "name": "secret_lookup",
+                    "table_name": "secret_lookup",
+                    "id_field": "id",
+                    "distinct_id_field": "id",
+                    "timestamp_field": "closed_at",
+                    "schema_map": {"utm_campaign_name": "id", "utm_source_name": "id"},
+                    "conversion_goal_id": "deals",
+                    "conversion_goal_name": "Deals",
+                    "use_in_recommendations": True,
+                }
+            ]
+            self.team.marketing_analytics_config.save()
+        else:
+            # An expression may add a field the run reads, such as a status column older syncs lack.
+            DataWarehouseExpression.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk,
+                table_name="googleads.acme.campaign",
+                field_name="campaign_primary_status",
+                expression="(SELECT id FROM secret_lookup LIMIT 1)",
+            )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -990,6 +1012,49 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
             assert denied_query_resources(member, self.team, [query]) == ["secret_lookup"]
             assert denied_query_resources(self.user, self.team, [query]) == []
+
+    @parameterized.expand([("goal_marked", True, ["googleads.other.campaign_stats"]), ("no_goal_marked", False, [])])
+    def test_save_time_access_check_sees_unnamed_google_ads_sources_when_a_goal_is_marked(
+        self, _name: str, marked: bool, expected: list[str]
+    ) -> None:
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        self._source("GoogleAds", "other", {"campaign": True, "campaign_stats": True})
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                "kind": "EventsNode",
+                "event": "sign_up",
+                "name": "sign_up",
+                "conversion_goal_id": "signups",
+                "conversion_goal_name": "Sign ups",
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+                "use_in_recommendations": marked,
+            }
+        ]
+        self.team.marketing_analytics_config.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(DataWarehouseTable.objects.get(team=self.team, name="othergoogleads_campaign_stats").id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery(
+            sources=[
+                MarketingAnalyticsRecommendationsSource(
+                    sourceType="GoogleAds",
+                    campaignTable="googleads.acme.campaign",
+                    campaignStatsTable="googleads.acme.campaign_stats",
+                )
+            ]
+        ).model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == expected
 
     @parameterized.expand([("fresh", False), ("cached", True)])
     def test_running_without_marketing_access_is_refused(self, _name: str, cached: bool) -> None:
