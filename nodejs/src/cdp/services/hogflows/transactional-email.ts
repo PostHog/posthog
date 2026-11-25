@@ -307,12 +307,11 @@ export type TransactionalEmailOutcome =
     | 'utm_value_too_long'
     | 'email_body_too_many_tags'
     | 'delivery_unavailable'
-    | 'not_sealing'
     | 'error'
 
 export const transactionalEmailRequestsTotal = new Counter({
     name: 'cdp_transactional_email_requests_total',
-    help: 'Answers to Django for a transactional email, by outcome and route: `single` counts a request, `batch` counts each recipient of a batch. It records the answer, not the delivery: after `intake_unavailable` or `error`, the email may still go out. `not_sealing` counts a single send refused because the pod does not seal transactional email state while the team is on async intake.',
+    help: 'Answers to Django for a transactional email, by outcome and route: `single` counts a request, `batch` counts each recipient of a batch. It records the answer, not the delivery: after `intake_unavailable` or `error`, the email may still go out.',
     labelNames: ['outcome', 'route'],
 })
 

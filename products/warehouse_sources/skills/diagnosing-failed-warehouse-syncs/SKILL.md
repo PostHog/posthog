@@ -35,6 +35,8 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-sources-retrieve`                       | Full details for one source including all its schemas                      |
 | `external-data-schemas-list`                           | All table schemas across all sources, with per-table status + latest_error |
 | `external-data-schemas-retrieve`                       | Full details for one schema including sync_type_config                     |
+| `external-data-sources-jobs`                           | Sync job history for a source: each job's `created_at`, status and rows    |
+| `external-data-sync-logs`                              | Log lines of a table (`schema_id`); add `job_id` to read one job only      |
 | `external-data-schemas-cancel`                         | Cancel a sync currently in `Running` state                                 |
 | `external-data-schemas-reload`                         | Trigger a sync using the configured sync method (respects incremental)     |
 | `external-data-schemas-resync`                         | Full resync — wipes synced data and restarts. Destructive                  |
@@ -89,8 +91,16 @@ From `external-data-schemas-list`, each schema has a `status`:
 | `Billing limits` (serializer) / `BillingLimitReached` (enum)        | Team hit its warehouse row quota           | Billing issue, not a technical failure |
 | `Billing limits too low` (serializer) / `BillingLimitTooLow` (enum) | Team has insufficient credit               | Billing issue                          |
 
-Always check `last_synced_at` alongside status. A schema in `Running` with `last_synced_at` from 12 hours ago is
-almost certainly stuck, even though the status isn't `Failed`.
+`last_synced_at` is when the last successful sync started, not when the current job started. Use it to tell how
+fresh the data is. Do not use it to tell how long a `Running` job has run: a daily sync that takes six hours shows a
+`last_synced_at` more than a day old while its current job is only a few hours old.
+
+To judge a `Running` schema, call `external-data-sources-jobs` with the source id and the schema name in `schemas`.
+Skip jobs whose `cdc_write_mode` is `scd2_append`. A CDC table in `both` mode adds this second job to each run. It
+starts later, has no `workflow_run_id`, and gets its `rows_synced` only at the end of the run. The newest remaining job
+is the current one. If its `status` is not `Running`, or no job exists, the schema status is stale (see F). Otherwise,
+compare its age (from `created_at`) with the schema's sync frequency and with how long earlier `Completed` jobs took
+(`finished_at` minus `created_at`). Also read its `rows_synced` and `latest_error`.
 
 ### Step 3 — Interpret `latest_error`
 
@@ -173,8 +183,19 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **F. Sync is stuck in `Running` for hours**
 
-- Check `last_synced_at`. If it's hours old and still `Running`, the job is orphaned.
-- Action: `external-data-schemas-cancel` to stop it, then `external-data-schemas-reload`.
+- Do not decide from `last_synced_at`. An old `last_synced_at` only says the last successful sync started long ago.
+- Call `external-data-sources-jobs` for the schema and find the current job as Step 2 says. Its `created_at` is when
+  this run started.
+- If the current job's `status` is not `Running`, or no job exists, no sync is running and the schema status is stale.
+  `external-data-schemas-cancel` repairs the status. Then call `external-data-schemas-reload`.
+- The job is healthy when its age is in line with the earlier completed jobs, or when `rows_synced` grows between two
+  checks a few minutes apart. Tell the user it is still running and how long earlier runs took.
+- The job is likely orphaned when it has run much longer than earlier jobs and longer than the sync interval, and
+  `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id`, the job's
+  `workflow_run_id` as `job_id`, and `level` set to `DEBUG` to confirm that no recent log lines exist. Batch writes log
+  at `DEBUG`, and the default level hides them.
+- Action, only for an orphaned job or a stale status: `external-data-schemas-cancel` to stop it, then
+  `external-data-schemas-reload`.
 
 **G. Table data is corrupt but you want to keep the schema config**
 
@@ -268,7 +289,9 @@ Agent:
 
 - **Source status overrides schema status for diagnosis.** If the source is `Error`, nothing under it will work;
   fixing the source usually fixes all its schemas at once.
-- **`Running` isn't always healthy.** Cross-check `last_synced_at`. A sync stuck in `Running` needs `external-data-schemas-cancel` then
+- **`Running` isn't always healthy, and an old `last_synced_at` doesn't make it stuck.** Judge a `Running` schema
+  from its current job in `external-data-sources-jobs` (`created_at`, `rows_synced`, `latest_error`) against earlier
+  runs and the sync interval. A sync that is really stuck needs `external-data-schemas-cancel` then
   `external-data-schemas-reload`, not `external-data-schemas-resync`.
 - **Resync is destructive.** It discards synced data. Only recommend it when the data itself is bad (duplicates,
   missing rows, corrupt) or when recovery genuinely requires a clean slate (lost WAL position on CDC). Never use it
