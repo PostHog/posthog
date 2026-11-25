@@ -893,12 +893,14 @@ class ExperimentActionReference:
 
 
 @frozen
-class ExperimentsUsingCohort:
-    """The experiments that are not archived or deleted and whose exposure criteria or metrics filter on a cohort."""
+class ExperimentCohortReference:
+    """An experiment that is not archived or deleted and whose exposure criteria or metrics filter on a cohort."""
 
-    count: int
-    # The names of the experiments that the reader may view, in id order. The others count, but stay unnamed.
-    visible_names: tuple[str, ...]
+    id: int
+    name: str
+    team_id: int
+    # Read by the access rules, which give the creator access.
+    created_by_id: int | None
 
 
 @frozen

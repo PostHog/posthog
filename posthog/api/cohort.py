@@ -104,7 +104,7 @@ from posthog.models.property.property import (
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, request_subject
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
@@ -113,6 +113,9 @@ from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDD
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
@@ -160,6 +163,7 @@ from products.cohorts.backend.realtime_state import (
     resolve_realtime_readiness,
 )
 from products.experiments.backend.facade.cohorts import experiments_using_cohort
+from products.experiments.backend.facade.contracts import ExperimentCohortReference
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
@@ -270,6 +274,28 @@ def _flag_names_suffix(
 ) -> str:
     visible = _visible_flags(request, user_access_control, flags)
     return _names_suffix([flag.name or flag.key for flag in visible], len(flags))
+
+
+def _viewable_experiment_names(request: Request, experiments: tuple[ExperimentCohortReference, ...]) -> list[str]:
+    if not _token_can_read(request, "experiment"):
+        return []
+    subject = request_subject(request)
+    viewable = authorization.check(
+        [
+            CheckRequest(
+                resource=Resource(
+                    type=ResourceType.EXPERIMENT,
+                    id=str(experiment.id),
+                    project_id=experiment.team_id,
+                    created_by_id=experiment.created_by_id,
+                ),
+                action=Action.VIEW,
+                subject=subject,
+            )
+            for experiment in experiments
+        ]
+    )
+    return [experiment.name or "Unnamed" for experiment, ok in zip(experiments, viewable, strict=True) if ok]
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -2489,17 +2515,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         "Please remove the cohort from these insights before deleting it.",
                     )
 
-                experiments = experiments_using_cohort(
-                    team=cohort.team,
-                    user=cast(User, request.user) if _token_can_read(request, "experiment") else None,
-                    cohort_id=cohort.id,
-                )
-                if experiments.count:
-                    names = _names_suffix(list(experiments.visible_names), experiments.count)
+                experiments = experiments_using_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
+                if experiments:
+                    names = _names_suffix(_viewable_experiment_names(request, experiments), len(experiments))
                     self._reject_delete(
                         cohort,
                         "experiments",
-                        f"This cohort is used in {experiments.count} experiment(s){names}. "
+                        f"This cohort is used in {len(experiments)} experiment(s){names}. "
                         "Remove the cohort from their exposure criteria and metrics, or archive the experiments that "
                         "have ended, before deleting it.",
                     )
