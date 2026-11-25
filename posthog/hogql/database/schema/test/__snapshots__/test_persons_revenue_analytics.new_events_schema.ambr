@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestPersonsRevenueAnalytics.test_get_revenue_for_events[new_events_schema]
   '''
+  /* request:test */
   SELECT persons__revenue_analytics.revenue AS revenue,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
@@ -210,6 +211,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_person_id_joins_directly_against_persons_id_0_events[new_events_schema]
   '''
+  /* request:test */
   SELECT persons.id AS id,
          revenue.revenue AS revenue
   FROM
@@ -415,6 +417,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_query_revenue_analytics_table_events[new_events_schema]
   '''
+  /* request:test */
   SELECT persons_revenue_analytics.person_id AS person_id,
          persons_revenue_analytics.revenue AS revenue,
          persons_revenue_analytics.mrr AS mrr
@@ -634,6 +637,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_revenue_aggregated_per_person_across_event_and_warehouse_sources[new_events_schema]
   '''
+  /* request:test */
   SELECT persons_revenue_analytics.person_id AS person_id, persons_revenue_analytics.revenue AS revenue, persons_revenue_analytics.mrr AS mrr
   FROM (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
@@ -781,6 +785,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_0_disabled[new_events_schema.1]
   '''
+  /* request:test */
   SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -894,6 +899,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_0_disabled[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -916,6 +922,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events[new_events_schema.1]
   '''
+  /* request:test */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
@@ -1121,6 +1128,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1143,6 +1151,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events[new_events_schema.1]
   '''
+  /* request:test */
   SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1244,6 +1253,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1266,6 +1276,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined[new_events_schema.1]
   '''
+  /* request:test */
   SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1379,6 +1390,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1401,7 +1413,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_0_disabled[new_events_schema.1]
   '''
-  WITH breakdown_series AS
+  /* request:test */ WITH breakdown_series AS
     (SELECT count AS count,
                      day_start AS day_start,
                      breakdown_value AS breakdown_value
@@ -1462,20 +1474,20 @@
                  breakdown_value_1
         ORDER BY day_start ASC,
                  breakdown_value ASC)),
-       totals_per_breakdown AS
+                          totals_per_breakdown AS
     (SELECT breakdown_series.breakdown_value AS breakdown_value,
             sum(breakdown_series.count) AS total_count_for_breakdown,
             if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
      FROM breakdown_series
      GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
+                          ranked_breakdown_totals AS
     (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
             totals_per_breakdown.ordering AS ordering,
             totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
             row_number() OVER (
                                ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
      FROM totals_per_breakdown),
-       ranked_breakdown_values AS
+                          ranked_breakdown_values AS
     (SELECT breakdown_series.count AS count,
             toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
             breakdown_series.breakdown_value AS breakdown_value,
@@ -1483,20 +1495,20 @@
             ranked_breakdown_totals.breakdown_rank AS breakdown_rank
      FROM breakdown_series
      JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
+                          top_n_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
      WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
+                          other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
      WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
+                          top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
             value AS value,
             breakdown_value AS breakdown_value
@@ -1541,6 +1553,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_0_disabled[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1563,7 +1576,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events[new_events_schema.1]
   '''
-  WITH breakdown_series AS
+  /* request:test */ WITH breakdown_series AS
     (SELECT count AS count,
                      day_start AS day_start,
                      breakdown_value AS breakdown_value
@@ -1609,20 +1622,20 @@
                  breakdown_value_1
         ORDER BY day_start ASC,
                  breakdown_value ASC)),
-       totals_per_breakdown AS
+                          totals_per_breakdown AS
     (SELECT breakdown_series.breakdown_value AS breakdown_value,
             sum(breakdown_series.count) AS total_count_for_breakdown,
             if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
      FROM breakdown_series
      GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
+                          ranked_breakdown_totals AS
     (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
             totals_per_breakdown.ordering AS ordering,
             totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
             row_number() OVER (
                                ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
      FROM totals_per_breakdown),
-       ranked_breakdown_values AS
+                          ranked_breakdown_values AS
     (SELECT breakdown_series.count AS count,
             toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
             breakdown_series.breakdown_value AS breakdown_value,
@@ -1630,20 +1643,20 @@
             ranked_breakdown_totals.breakdown_rank AS breakdown_rank
      FROM breakdown_series
      JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
+                          top_n_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
      WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
+                          other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
      WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
+                          top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
             value AS value,
             breakdown_value AS breakdown_value
@@ -1688,6 +1701,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1710,7 +1724,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_2_person_id_override_properties_on_events[new_events_schema.1]
   '''
-  WITH breakdown_series AS
+  /* request:test */ WITH breakdown_series AS
     (SELECT count AS count,
                      day_start AS day_start,
                      breakdown_value AS breakdown_value
@@ -1763,20 +1777,20 @@
                  breakdown_value_1
         ORDER BY day_start ASC,
                  breakdown_value ASC)),
-       totals_per_breakdown AS
+                          totals_per_breakdown AS
     (SELECT breakdown_series.breakdown_value AS breakdown_value,
             sum(breakdown_series.count) AS total_count_for_breakdown,
             if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
      FROM breakdown_series
      GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
+                          ranked_breakdown_totals AS
     (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
             totals_per_breakdown.ordering AS ordering,
             totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
             row_number() OVER (
                                ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
      FROM totals_per_breakdown),
-       ranked_breakdown_values AS
+                          ranked_breakdown_values AS
     (SELECT breakdown_series.count AS count,
             toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
             breakdown_series.breakdown_value AS breakdown_value,
@@ -1784,20 +1798,20 @@
             ranked_breakdown_totals.breakdown_rank AS breakdown_rank
      FROM breakdown_series
      JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
+                          top_n_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
      WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
+                          other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
      WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
+                          top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
             value AS value,
             breakdown_value AS breakdown_value
@@ -1842,6 +1856,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_2_person_id_override_properties_on_events[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
@@ -1864,7 +1879,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_3_person_id_override_properties_joined[new_events_schema.1]
   '''
-  WITH breakdown_series AS
+  /* request:test */ WITH breakdown_series AS
     (SELECT count AS count,
                      day_start AS day_start,
                      breakdown_value AS breakdown_value
@@ -1924,20 +1939,20 @@
                  breakdown_value_1
         ORDER BY day_start ASC,
                  breakdown_value ASC)),
-       totals_per_breakdown AS
+                          totals_per_breakdown AS
     (SELECT breakdown_series.breakdown_value AS breakdown_value,
             sum(breakdown_series.count) AS total_count_for_breakdown,
             if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
      FROM breakdown_series
      GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
+                          ranked_breakdown_totals AS
     (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
             totals_per_breakdown.ordering AS ordering,
             totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
             row_number() OVER (
                                ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
      FROM totals_per_breakdown),
-       ranked_breakdown_values AS
+                          ranked_breakdown_values AS
     (SELECT breakdown_series.count AS count,
             toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
             breakdown_series.breakdown_value AS breakdown_value,
@@ -1945,20 +1960,20 @@
             ranked_breakdown_totals.breakdown_rank AS breakdown_rank
      FROM breakdown_series
      JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
+                          top_n_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
      WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
+                          other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
      WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
+                          top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
             value AS value,
             breakdown_value AS breakdown_value
@@ -2003,6 +2018,7 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_3_person_id_override_properties_joined[new_events_schema]
   '''
+  /* request:test */
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))

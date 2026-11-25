@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestFilterSessionReplaysByEvents.test_select_by_event[new_events_schema]
   '''
+  /* request:test */
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
@@ -28,6 +29,7 @@
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property[new_events_schema]
   '''
+  /* request:test */
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
@@ -55,6 +57,7 @@
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_without_join[new_events_schema]
   '''
+  /* request:test */
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), globalIn(session_replay_events.session_id,
@@ -80,6 +83,7 @@
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property[new_events_schema]
   '''
+  /* request:test */
   SELECT session_replay_events.session_id AS session_id,
          any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
@@ -109,6 +113,7 @@
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person[new_events_schema]
   '''
+  /* request:test */
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
