@@ -46,30 +46,33 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
     def _use_new_events_schema(self) -> bool:
         return use_new_events_schema(self.team.pk, self.modifiers)
 
-    def _get_events_subquery(self) -> ast.SelectQuery:
+    def _event_conditions(self) -> ast.Expr:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
-        with self.timings.measure("build_events_subquery"):
-            event_conditions: list[ast.Expr] = [
+        event_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=after),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=before),
+            ),
+        ]
+        if self.query.personId:
+            event_conditions.append(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=after),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=before),
-                ),
-            ]
-            if self.query.personId:
-                event_conditions.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=self.query.personId),
-                        op=ast.CompareOperationOp.Eq,
-                    )
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                    op=ast.CompareOperationOp.Eq,
                 )
+            )
+        return ast.And(exprs=event_conditions)
+
+    def _get_events_subquery(self) -> ast.SelectQuery:
+        with self.timings.measure("build_events_subquery"):
             select_query = parse_select(
                 """
                 SELECT
@@ -90,7 +93,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                 LIMIT {event_limit_with_more}""",
                 placeholders={
                     "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
-                    "event_conditions": ast.And(exprs=event_conditions),
+                    "event_conditions": self._event_conditions(),
                 },
             )
         return cast(ast.SelectQuery, select_query)
@@ -130,29 +133,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         return cast(ast.SelectQuery, select_query)
 
     def to_actors_query(self) -> ast.SelectQuery:
-        after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
-        before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
-        event_conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=after),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=before),
-            ),
-        ]
-        if self.query.personId:
-            event_conditions.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["person_id"]),
-                    right=ast.Constant(value=self.query.personId),
-                    op=ast.CompareOperationOp.Eq,
-                )
-            )
-
         return cast(
             ast.SelectQuery,
             parse_select(
@@ -167,7 +147,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                 )
                 """,
                 placeholders={
-                    "event_conditions": ast.And(exprs=event_conditions),
+                    "event_conditions": self._event_conditions(),
                     "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
                 },
             ),
