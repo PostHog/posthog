@@ -63,11 +63,13 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
 # An edit through the generic API requires each of those write scopes and editor access on each,
 # on top of the hog function ones, so a token or member that cannot touch the alert cannot touch its
 # destination either. Metrics and traces alerts are served by the platform alerts API, which also
-# checks `alert`. The other alert products stay read-only there.
+# checks `alert`, and insight alerts by their own alert API, which checks `alert` alone. The other
+# alert products stay read-only there.
 GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, tuple[str, ...]] = {
     "$logs_alert_": ("logs",),
     "$metrics_alert_": ("metrics", "alert"),
     "$traces_alert_": ("tracing", "alert"),
+    "$insight_alert_": ("alert",),
 }
 
 
