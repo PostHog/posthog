@@ -7,7 +7,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, reading_product_internal_tables
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
@@ -60,6 +60,11 @@ def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **o
 
 
 class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
+
     @parameterized.expand(
         [
             (table, enforced)

@@ -76,19 +76,30 @@ class TestLegacyWriterAdmission(NonAtomicBaseTest):
             assert not MCPSession.objects.filter(team=self.team).exists()
             assert not has_pending_registered_writers(self.team, invalidation_id=operation)
 
-    @parameterized.expand([("failure", RuntimeError), ("cancellation", asyncio.CancelledError)])
-    def test_uncertain_legacy_writer_keeps_deletion_pending(self, _name: str, error: type[BaseException]) -> None:
+    @parameterized.expand(
+        [
+            ("failure_after_writes_began", RuntimeError, True),
+            ("cancellation_after_writes_began", asyncio.CancelledError, True),
+            ("failure_before_any_write", RuntimeError, False),
+            ("cancellation_before_any_write", asyncio.CancelledError, False),
+        ]
+    )
+    def test_only_a_failure_after_writes_began_keeps_deletion_pending(
+        self, _name: str, error: type[BaseException], writes_began: bool
+    ) -> None:
         operation = uuid4()
 
         async def generate() -> None:
-            async with registered_intent_writer_async(self.team, purpose="test"):
+            async with registered_intent_writer_async(self.team, purpose="test") as begin_writes:
+                if writes_began:
+                    begin_writes()
                 raise error()
 
         with team_scope(self.team.pk):
             with pytest.raises(error):
                 asyncio.run(generate())
             freeze_writes(self.team, invalidation_id=operation)
-            assert has_pending_registered_writers(self.team, invalidation_id=operation)
+            assert has_pending_registered_writers(self.team, invalidation_id=operation) is writes_began
 
 
 class TestWritersDrainedProvider(NonAtomicBaseTest):

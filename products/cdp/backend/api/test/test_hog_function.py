@@ -23,7 +23,6 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
-    comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
@@ -35,6 +34,7 @@ from products.cdp.backend.models.hog_functions.hog_function import (
     HogFunctionState,
 )
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db

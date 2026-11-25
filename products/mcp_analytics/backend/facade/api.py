@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Literal
@@ -227,7 +227,7 @@ def get_intent_cluster_snapshot(
     return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
 
 
-def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[None]:
+def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[Callable[[], None]]:
     return intent_erasure_writers.registered_intent_writer_async(team, purpose=purpose)
 
 
@@ -286,7 +286,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     # Deterministic per team: Temporal refuses a second start while a run with
     # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
-    # (which is shorter than the 20-minute execution timeout) can't be
+    # (which is shorter than the 30-minute execution timeout) can't be
     # overlapped by a retry — the id frees up once the previous run closes.
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 

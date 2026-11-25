@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.schedule import a_describe_schedule
 
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+    from products.alerts_platform.backend.delivery.handoff import deliver_handoff
     from products.alerts_platform.backend.delivery.routing import deliver_routes
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.delivery.transport import RefusedEverywhere
@@ -313,27 +314,60 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
         request: AlertDeliveryRequest,
         send: Callable[[AlertDeliveryRequest], Awaitable[None]] = alerts_platform_deliver_preview_activity,
     ) -> None:
-        busy_deadline: dt.datetime | None = None
-        while True:
-            started_at = workflow.now()
-            try:
-                await workflow.execute_activity(
-                    send,
-                    request,
-                    start_to_close_timeout=DELIVERY_START_TO_CLOSE,
-                    schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-            except ActivityError as error:
-                cause = unwrap_temporal_cause(error)
-                if cause is None or cause.type != THREAD_BUSY:
-                    raise
-                if busy_deadline is None:
-                    busy_deadline = workflow.now() + BUSY_WAIT_LIMIT
-                elif started_at >= busy_deadline:
-                    raise
-            await workflow.sleep(BUSY_RETRY_DELAY)
+        await _send_waiting_out_busy_threads(request, send)
+
+
+async def _send_waiting_out_busy_threads(
+    request: AlertDeliveryRequest, send: Callable[[AlertDeliveryRequest], Awaitable[None]]
+) -> None:
+    busy_deadline: dt.datetime | None = None
+    while True:
+        started_at = workflow.now()
+        try:
+            await workflow.execute_activity(
+                send,
+                request,
+                start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+                schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return
+        except ActivityError as error:
+            cause = unwrap_temporal_cause(error)
+            if cause is None or cause.type != THREAD_BUSY:
+                raise
+            if busy_deadline is None:
+                busy_deadline = workflow.now() + BUSY_WAIT_LIMIT
+            elif started_at >= busy_deadline:
+                raise
+        await workflow.sleep(BUSY_RETRY_DELAY)
+
+
+@activity.defn
+async def alerts_platform_deliver_handoff_activity(request: AlertDeliveryRequest) -> None:
+    """Sends the incident actions an edit owes the incident managers it moved firings between."""
+    try:
+        await database_sync_to_async_pool(deliver_handoff)(request)
+    except ThreadBusy as error:
+        raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
+
+
+# A workflow of its own rather than a branch in the delivery workflow's activities: a worker that
+# predates handoffs does not know this type, so the task waits for one that does instead of reading
+# the request as an evaluation and finishing without a send.
+@workflow.defn(name="alerts-platform-hand-over")
+class AlertsPlatformHandOverWorkflow(PostHogWorkflow):
+    inputs_cls = AlertDeliveryRequest
+
+    @workflow.run
+    async def run(self, inputs: AlertDeliveryRequest) -> None:
+        await _send_waiting_out_busy_threads(inputs, alerts_platform_deliver_handoff_activity)
+
+
+def hand_over_workflow_id(request: AlertDeliveryRequest) -> str:
+    return f"alerts-hand-over-{request.configuration_id}:{request.evaluation_key}"
 
 
 def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
@@ -784,12 +818,14 @@ EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
 DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformDeliverWorkflow,
     AlertsPlatformDeliverPreviewWorkflow,
+    AlertsPlatformHandOverWorkflow,
     AlertsPlatformReleaseExpiredHoldsWorkflow,
 ]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
     alerts_platform_deliver_routes_activity,
+    alerts_platform_deliver_handoff_activity,
     alerts_platform_emit_transitions_activity,
     alerts_platform_find_expired_holds_activity,
     alerts_platform_release_expired_holds_activity,

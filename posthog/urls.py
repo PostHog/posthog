@@ -35,6 +35,7 @@ from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
+from posthog.ingress.slack.provider import PROVISIONING_REVIEW_INTERACTIVITY_APP, build_slack_interactivity_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -411,6 +412,15 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_app_webhook),
     # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
     opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
+    opt_slash_path(
+        "webhooks/provisioning-reviews/slack/interactivity",
+        build_webhook_view(
+            build_slack_interactivity_provider(
+                secret_getter=lambda: settings.PROVISIONING_REVIEW_SLACK_SIGNING_SECRET,
+                app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+            )
+        ),
+    ),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

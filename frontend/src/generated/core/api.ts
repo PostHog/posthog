@@ -65,6 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
+    OrganizationOAuthApplicationApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -900,7 +901,8 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
 }
 
 /**
- * ViewSet for listing OAuth applications at the organization level (read-only).
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
  */
 export const oauthApplicationsList = async (
     organizationId: string,
@@ -914,6 +916,25 @@ export const oauthApplicationsList = async (
             method: 'GET',
         }
     )
+}
+
+export const getOauthApplicationsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/`
+}
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const oauthApplicationsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationApi> => {
+    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {

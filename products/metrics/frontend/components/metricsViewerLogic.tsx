@@ -253,6 +253,9 @@ const defaultsToHistogramQuantile = (
 // Grouping needs an aggregation to combine series, so a grouped clause falls back to sum, not to none.
 const fallbackAggregation = (groupByKeys: string[]): MetricAggregation | null => (groupByKeys.length ? 'sum' : null)
 
+// The backend computes Apdex as one score per bucket and accepts only `avg` to combine it, not `sum`.
+const DERIVED_APDEX_METRIC = 'posthog.derived.spans.apdex'
+
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -481,6 +484,8 @@ export const isBuilderCompatibleQuery = (query: MetricsQuery): boolean =>
                 (clause.aggregation === 'quantile' && clause.quantile === 0.95) ||
                 (clause.aggregation === 'histogram_quantile' &&
                     histogramAggregationForQuantile(clause.quantile) !== null)) &&
+            // The builder has no Apdex threshold control, so an edit would reset a saved one to the default.
+            clause.apdexThresholdMs === undefined &&
             (clause.filters ?? []).every((filter) => isAutoScope(filter.scope)) &&
             (clause.groupBy ?? []).every((groupBy) => isAutoScope(groupBy.scope))
     )
@@ -1098,10 +1103,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         groupByKeys,
                         aggregation:
                             clause.aggregation ??
-                            (groupByKeys.length &&
-                            defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
-                                ? DEFAULT_HISTOGRAM_AGGREGATION
-                                : fallbackAggregation(groupByKeys)),
+                            (groupByKeys.length && clause.metricName.trim() === DERIVED_APDEX_METRIC
+                                ? 'avg'
+                                : groupByKeys.length &&
+                                    defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
+                                  ? DEFAULT_HISTOGRAM_AGGREGATION
+                                  : fallbackAggregation(groupByKeys)),
                     })),
                 // The clause's UniversalFilters group; converted into backend matchers by `metricFiltersForGroup`.
                 setFilterGroup: (state, { filterGroup }) =>

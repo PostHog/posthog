@@ -6,17 +6,28 @@ import { fonts, type } from '@/ui/tokens'
 
 interface SettingsRowProps {
     label: string
+    description?: string
     value?: string
     monoValue?: boolean
     accessory?: ReactNode
     testID?: string
 }
 
-export function SettingsRow({ label, value, monoValue = false, accessory, testID }: SettingsRowProps): ReactElement {
+export function SettingsRow({
+    label,
+    description,
+    value,
+    monoValue = false,
+    accessory,
+    testID,
+}: SettingsRowProps): ReactElement {
     const styles = useStyles()
     return (
         <View style={styles.row} testID={testID}>
-            <Text style={[styles.label, value ? null : styles.labelFill]}>{label}</Text>
+            <View style={value ? undefined : styles.labelFill}>
+                <Text style={styles.label}>{label}</Text>
+                {description ? <Text style={styles.description}>{description}</Text> : null}
+            </View>
             {value ? (
                 <Text style={[styles.value, monoValue && styles.mono]} numberOfLines={1} ellipsizeMode="middle">
                     {value}
@@ -41,6 +52,7 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.ink,
         flexShrink: 0,
     },
+    description: { ...type.metaSmall, color: colors.secondary, marginTop: 4 },
     labelFill: {
         flex: 1,
         flexShrink: 1,

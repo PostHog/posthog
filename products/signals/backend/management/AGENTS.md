@@ -342,11 +342,18 @@ An optional `model_arms` list sends a share of people to another model, so model
 ```
 
 Each arm takes a contiguous range of a salted hash of the user id, in list order, so a person keeps one arm across projects, and a higher percentage keeps the people the arm had.
-An arm sets `model` and optionally `reasoning_effort` and `timeout_seconds`. People outside every arm keep the top-level values.
+An arm sets `model` and optionally `reasoning_effort`, `timeout_seconds` and `service_tier`. People outside every arm keep the top-level values.
 A new `model_arms_salt` draws a new split. At most 5 arms, with unique names other than `default`, and percentages above 0 that add up to at most 100.
 One invalid arm or key turns every arm off and logs `personal_inbox_ranking_model_arms_invalid`.
 The model is in the input hash, so only a person who moves into or out of an arm gets a rebuild.
 `personal inbox ranking built` and the model call carry `model_arm`: the arm name, or `default`.
+
+The optional `service_tier` key (`default`, `flex` or `priority`) sets the provider tier of `tick` and `first_summary` builds, which nobody waits on, and an arm's `service_tier` replaces it for that arm.
+`on_demand_service_tier` sets the tier of `on_demand` builds. A missing key sends no tier, and an invalid one is logged and sends no tier.
+The tiers are not in the input hash, so a tier change rebuilds no list.
+When flex refuses a call with an error that `is_flex_recoverable` accepts, other than a timeout, the build retries once with no tier if at least 15 seconds of `timeout_seconds` remain.
+A tier that the provider rejects with a 400 is left out of later calls with that model, as a rejected `reasoning_effort` is.
+`personal inbox ranking built` carries `service_tier` (requested), `served_service_tier` (from the response) and `service_tier_fallback`.
 
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.

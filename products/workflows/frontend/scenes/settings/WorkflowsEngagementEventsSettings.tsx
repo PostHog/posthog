@@ -16,7 +16,6 @@ export function WorkflowsEngagementEventsSettings(): JSX.Element {
             onChange={(checked) => {
                 updateCurrentTeam({
                     workflows_config: {
-                        ...currentTeam?.workflows_config,
                         capture_workflows_engagement_events: checked,
                     },
                 })

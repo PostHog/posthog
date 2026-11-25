@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from uuid import uuid4
 
@@ -36,37 +36,44 @@ def _complete_writer(run: MCPIntentClusteringRun) -> None:
             raise RuntimeError("Intent writer registration disappeared before completion")
 
 
+class _Registration:
+    def __init__(self, run: MCPIntentClusteringRun) -> None:
+        self.run = run
+        self.writing = False
+
+    def begin_writes(self) -> None:
+        self.writing = True
+
+
 @contextmanager
-def registered_intent_writer(
-    team: Team, *, purpose: str, no_write_errors: tuple[type[Exception], ...] = ()
-) -> Iterator[None]:
+def registered_intent_writer(team: Team, *, purpose: str) -> Iterator[Callable[[], None]]:
     """Enter before source reads; leave only after all writes and child work have joined.
 
-    A failed or cancelled caller can leave remote writes in flight, so its registration
-    remains pending until those writes are reconciled. It must never expire by age.
-    ``no_write_errors`` names exceptions the caller raises only before any write is dispatched,
-    such as a refused LLM call. Those complete the registration, so they cannot block erasure.
+    The caller calls the yielded function immediately before its first write of intent data.
+    A failure before that point wrote nothing, so the registration completes. A failure after it
+    can leave writes in flight, so the registration stays pending until they are reconciled. It
+    never expires by age.
     """
-    run = _register_writer(team, purpose=purpose)
+    registration = _Registration(_register_writer(team, purpose=purpose))
     try:
-        yield
-    except no_write_errors:
-        _complete_writer(run)
+        yield registration.begin_writes
+    except BaseException:
+        if not registration.writing:
+            _complete_writer(registration.run)
         raise
-    _complete_writer(run)
+    _complete_writer(registration.run)
 
 
 @asynccontextmanager
-async def registered_intent_writer_async(
-    team: Team, *, purpose: str, no_write_errors: tuple[type[Exception], ...] = ()
-) -> AsyncIterator[None]:
-    run = await database_sync_to_async(_register_writer)(team, purpose=purpose)
+async def registered_intent_writer_async(team: Team, *, purpose: str) -> AsyncIterator[Callable[[], None]]:
+    registration = _Registration(await database_sync_to_async(_register_writer)(team, purpose=purpose))
     try:
-        yield
-    except no_write_errors:
-        await database_sync_to_async(_complete_writer)(run)
+        yield registration.begin_writes
+    except BaseException:
+        if not registration.writing:
+            await database_sync_to_async(_complete_writer)(registration.run)
         raise
-    await database_sync_to_async(_complete_writer)(run)
+    await database_sync_to_async(_complete_writer)(registration.run)
 
 
 def assert_writers_drained(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:

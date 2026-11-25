@@ -21,6 +21,7 @@ import { configureNotifications } from '@/features/notifications/pushRegistratio
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
 import { installOfflineCache } from '@/features/offlineCache'
+import { useSnoozeReminderPreferences } from '@/features/snooze/useSnoozeReminderPreferences'
 import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
 import { useChartWidgetSync } from '@/features/widgets/useChartWidgetSync'
 import { track } from '@/lib/analytics'
@@ -48,6 +49,11 @@ const bootStartedAt = Date.now()
 
 function hideNativeSplash(): void {
     SplashScreen.hideAsync().catch(() => undefined)
+}
+
+function SnoozeReminderPreferences(): null {
+    useSnoozeReminderPreferences()
+    return null
 }
 
 export default function RootLayout(): ReactElement {
@@ -127,6 +133,7 @@ export default function RootLayout(): ReactElement {
                     <SceneFrame>
                         <KeyboardProvider>
                             <QueryClientProvider client={queryClient}>
+                                {ready ? <SnoozeReminderPreferences /> : null}
                                 <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Collection
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -24,7 +25,7 @@ import structlog
 import posthoganalytics
 
 from posthog.models.user import User
-from posthog.push_notifications import MobilePushCategory, mobile_push_preference_enabled
+from posthog.push_notifications import mobile_push_payload_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.signals.backend.artefact_schemas import (
@@ -242,6 +243,45 @@ def notify_report_task_update(
             recipient_ids.add(claimant.id)
         if task.created_by_id is not None:
             recipient_ids.add(task.created_by_id)
+        # PR artefacts identify a run, not an interactive turn. Only a single-turn run can
+        # replace its completion with PR-ready without hiding an unrelated later answer.
+        if kind == "completed" and task_run.mode != "interactive":
+            ready_pr_ids = (
+                SignalReportArtefact.objects.filter(
+                    team_id=task.team_id,
+                    report_id=report.id,
+                    task_id=task.id,
+                    created_at__gte=task_run.created_at,
+                    pull_request__state=SignalReportPullRequest.State.OPEN,
+                )
+                .exclude(pull_request__review_decision=SignalReportPullRequest.ReviewDecision.APPROVED)
+                .values("pull_request_id")
+            )
+            ready_recipients = reviewers.get(str(report.id), set()).copy()
+            if claimant is not None:
+                ready_recipients.add(claimant.id)
+            ready_users = [
+                user
+                for user in report.team.all_users_with_access().filter(id__in=ready_recipients & recipient_ids)
+                if mobile_push_payload_enabled(user, {"type": "report", "notificationKind": "pull_request_ready"})
+            ]
+            for pull_request in SignalReportPullRequest.objects.for_team(task.team_id).filter(id__in=ready_pr_ids):
+                transaction.on_commit(
+                    partial(
+                        _push_report,
+                        report,
+                        ready_users,
+                        kind="pull_request_ready",
+                        title=PULL_REQUEST_READY_TITLE,
+                        body=report.title or f"{pull_request.repository}#{pull_request.number}",
+                        dedupe_subject=f"pull_request:{pull_request.id}:ready",
+                        pull_request_id=str(pull_request.id),
+                    ),
+                    robust=True,
+                )
+                # Use the PR's existing deduplication identity whichever event arrives first.
+                # Other recipients and people who disabled ready-to-review alerts still get completion updates.
+                recipient_ids -= {user.id for user in ready_users}
         milestone = {
             "completed": "work finished",
             "turn_completed": "work finished",
@@ -268,6 +308,9 @@ def notify_report_task_update(
                 pull_request_url=pull_request_url,
                 task_id=str(task.id),
                 on_enqueued=on_enqueued,
+                cancelled_by_user_id=(task_run.state or {}).get("cancel_requested_by_user_id")
+                if kind == "cancelled"
+                else None,
             )
         )
     return True
@@ -278,6 +321,7 @@ def _push_report(
     users: Collection[User],
     *,
     kind: str,
+    cancelled_by_user_id: int | None = None,
     title: str,
     body: str,
     dedupe_subject: str | None = None,
@@ -290,13 +334,15 @@ def _push_report(
 ) -> list[int]:
     if not users or report_is_hidden_from_inbox(report.team_id, str(report.id)):
         return []
-    data = {
+    data: dict[str, str | int] = {
         "type": "report",
         "report_id": str(report.id),
         "project_id": report.team_id,
         "notificationKind": kind,
         "url": f"posthog://inbox/{report.id}",
     }
+    if cancelled_by_user_id is not None:
+        data["cancelledByUserId"] = cancelled_by_user_id
     if task_run_id is not None:
         data["taskRunId"] = task_run_id
     if pull_request_id is not None:
@@ -307,8 +353,7 @@ def _push_report(
     # The project access check also covers a claimant who has since lost access to the project.
     for user in users:
         try:
-            category: MobilePushCategory = "reports" if kind == "report_visible" else "report_updates"
-            if not mobile_push_preference_enabled(user, category) or not _push_enabled(user):
+            if not mobile_push_payload_enabled(user, data) or not _push_enabled(user):
                 continue
             if not may_read_reports(user=user, team=report.team):
                 continue

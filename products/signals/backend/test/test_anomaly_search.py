@@ -1,5 +1,7 @@
+import json
 import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
@@ -13,6 +15,8 @@ from posthog.schema import IntervalType
 
 from posthog.models import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
@@ -101,6 +105,18 @@ class TestAnomalyRanking(SimpleTestCase):
         ]
 
         ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+
+        assert [summary.series_key for summary in ranked] == expected
+
+    @parameterized.expand(
+        [("unusual", False, ["three_of_ten", "one_of_one"]), ("rate", True, ["one_of_one", "three_of_ten"])]
+    )
+    def test_ranks_by_the_plain_rate_only_when_rate_first(
+        self, _name: str, rate_first: bool, expected: list[str]
+    ) -> None:
+        series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
+
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, rate_first=rate_first)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -227,10 +243,50 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             (day, day == "2026-10-22") for day in expected_days
         ]
 
+    def test_search_returns_the_points_of_every_series_on_a_page_with_many_points(self) -> None:
+        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 61)]
+        for series_key in ("signups", "logins", "upgrades"):
+            for hour in hours:
+                self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
+
+        body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
+
+        assert {row["series_key"]: len(row["points"]) for row in body["series"]} == {
+            "signups": 60,
+            "logins": 60,
+            "upgrades": 60,
+        }
+
+    def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
+        for day in (20, 22):
+            self._score(_day(day), score=0.99, flag=1, series_key="signups")
+
+        row = self._get("search", date_from="2026-10-15").json()["series"][0]
+
+        override = json.loads(parse_qs(urlparse(row["insight_url"]).query)["filters_override"][0])
+        assert override == {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"}
+
+    def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
+        other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
+        main = Dashboard.objects.create(team=self.team, name="Main")
+        removed = Dashboard.objects.create(team=self.team, name="Removed", deleted=True)
+        for dashboard in (main, removed):
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._score(_day(22), score=0.99, flag=1, series_key="signups")
+        self._score(_day(22), score=0.99, flag=1, series_key="checkout", insight=other)
+
+        body = self._get("search", date_from="2026-10-15").json()
+
+        assert {row["series_key"]: row["dashboards"] for row in body["series"]} == {
+            "signups": [{"id": main.id, "name": "Main"}],
+            "checkout": [],
+        }
+
     @parameterized.expand(
         [
             ("unusual", "unusual", ["burst", "steady", "blip"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
+            ("rate", "rate", ["burst", "steady", "blip"]),
         ]
     )
     def test_search_pages_through_rows_in_the_requested_order(

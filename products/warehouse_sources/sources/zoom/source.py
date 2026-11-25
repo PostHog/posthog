@@ -118,6 +118,9 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             "401 Client Error": "Zoom authentication failed. Please check your account ID, client ID, and client secret.",
             "Invalid access token": "Zoom authentication failed. Please reconnect the source.",
             "403 Client Error": "Your Zoom app is missing the required scopes. Grant user/meeting/webinar read scopes and reconnect.",
+            # Zoom returns this as a 400, not a 401/403, so it needs its own entry: the token itself
+            # lacks a scope the endpoint requires.
+            "api error: code=4711": "Your Zoom app is missing the required scopes. Grant user/meeting/webinar read scopes and reconnect.",
         }
 
     def get_schemas(

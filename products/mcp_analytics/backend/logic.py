@@ -46,14 +46,20 @@ from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import missing_capability_report_expr, shared_filter_exprs
 from products.mcp_analytics.backend.intent_erasure_writers import registered_intent_writer
+from products.mcp_analytics.backend.intent_topics.invalidation import (
+    BarrierSnapshot,
+    IntentWritesFrozen,
+    locked_fill,
+    snapshot_barrier,
+)
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
 # auto-recover. Must exceed the compute activity's schedule_to_close budget
-# (400s, covering queue wait + both attempts — see intent_clustering
+# (1300s, covering queue wait + both attempts — see intent_clustering
 # constants); past that, nothing can still legitimately write a final status,
 # so the row is a dead run whose worker never reached _mark_error.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=25)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -304,6 +310,19 @@ def _sessions_cache_key(
     return generate_cache_key(team_id, payload)
 
 
+def _fenced_cache_set(team: Team, snapshot: BarrierSnapshot, entries: list[tuple[str, object, int]]) -> None:
+    """Cache results derived from intent data, unless an erasure ran after ``snapshot`` was taken.
+
+    A skipped write still lets the caller return its result; only the cached copy would outlive the erasure.
+    """
+    try:
+        with locked_fill(team, snapshot):
+            for key, value, ttl in entries:
+                cache.set(key, value, ttl)
+    except IntentWritesFrozen:
+        return
+
+
 def list_mcp_sessions(
     team: Team,
     limit: int,
@@ -367,6 +386,7 @@ def list_mcp_sessions(
     if cached is not None:
         return cached
 
+    snapshot = snapshot_barrier(team)
     page = _query_mcp_sessions(
         team,
         limit=limit,
@@ -383,7 +403,7 @@ def list_mcp_sessions(
     # Don't cache empty results: a newly set-up team's first sessions would
     # otherwise stay hidden for the full TTL.
     if page.results:
-        cache.set(cache_key, page, SESSIONS_CACHE_TTL_SECONDS)
+        _fenced_cache_set(team, snapshot, [(cache_key, page, SESSIONS_CACHE_TTL_SECONDS)])
     return page
 
 
@@ -570,9 +590,7 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     ``date_from`` bounds the event scan; the UI passes the session's start (the same bound
     ``list_mcp_tool_calls`` uses) so any listed session stays summarisable.
     """
-    with registered_intent_writer(
-        team, purpose="session_intent", no_write_errors=(contracts.IntentGenerationUnavailable,)
-    ):
+    with registered_intent_writer(team, purpose="session_intent") as begin_writes:
         existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
         if existing:
             return existing
@@ -582,6 +600,7 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
             return intent_generation.NO_INTENT_MESSAGE
 
         summary = intent_generation.summarize_intents(intents, team)
+        begin_writes()
         MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
         return summary
 
@@ -633,9 +652,8 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     A project with no recorded intents returns a null digest without an LLM call. Raises
     ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
-    with registered_intent_writer(
-        team, purpose="intent_digest", no_write_errors=(contracts.IntentGenerationUnavailable,)
-    ):
+    with registered_intent_writer(team, purpose="intent_digest") as begin_writes:
+        snapshot = snapshot_barrier(team)
         intents = intent_generation.fetch_recent_project_intents(team)
         if not intents:
             return contracts.IntentDigest(digest=None, intent_count=0)
@@ -657,8 +675,15 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
             "intent_count": len(intents),
             "themes": [dataclasses.asdict(theme) for theme in themes],
         }
-        cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
-        cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
+        begin_writes()
+        _fenced_cache_set(
+            team,
+            snapshot,
+            [
+                (corpus_key, payload, INTENT_DIGEST_CACHE_TTL),
+                (recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS),
+            ],
+        )
         return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
 
 
@@ -895,12 +920,16 @@ def get_activity_overview(
     ):
         return cached
 
+    snapshot = snapshot_barrier(team)
     overview = _query_activity_overview(team, properties, filter_test_accounts, user)
     # Don't cache an empty overview: a newly set-up team waits on this view for its first call.
     if overview.stats.total_calls:
         ttl = ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS if restrictions else UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS
-        cache.set(cache_key, overview, ttl)
-        cache.set(refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)
+        _fenced_cache_set(
+            team,
+            snapshot,
+            [(cache_key, overview, ttl), (refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)],
+        )
     return overview
 
 

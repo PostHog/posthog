@@ -60,6 +60,12 @@ IMAGE_EXPORT_RENDER_DURATION = Histogram(
     labelnames=["backend", "outcome"],
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90, 120, float("inf")),
 )
+IMAGE_EXPORT_RENDER_STAGE_DURATION = Histogram(
+    "image_export_render_stage_duration_seconds",
+    "Image export render time per completed stage, by the content the render waits for",
+    labelnames=["content", "stage"],
+    buckets=(0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, float("inf")),
+)
 IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "image_export_render_failure_total",
     "Image export render failures by backend and classified failure type",
@@ -571,6 +577,27 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         pass
 
 
+# Exports can set their own selector, so the metric label maps the known ones and buckets the rest.
+_RENDER_STAGE_CONTENT = {
+    ".InsightCard": "dashboard",
+    ".ExportedInsight": "insight",
+    REPLAY_WRAPPER_SELECTOR: "replay",
+    ".heatmap-exporter": "heatmap",
+    ".heatmaps-ready": "heatmap",
+}
+
+
+class _RenderStages:
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self._started_at = time.perf_counter()
+
+    def done(self, stage: str) -> None:
+        now = time.perf_counter()
+        IMAGE_EXPORT_RENDER_STAGE_DURATION.labels(content=self._content, stage=stage).observe(now - self._started_at)
+        self._started_at = now
+
+
 def _screenshot_asset_browserless(
     image_path: str,
     url_to_render: str,
@@ -587,6 +614,7 @@ def _screenshot_asset_browserless(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
 
+    stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
     with sync_playwright() as p:
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
@@ -597,6 +625,7 @@ def _screenshot_asset_browserless(
 
         disconnected = [False]
         browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
+        stages.done("connect")
 
         context = None
         page = None
@@ -624,6 +653,7 @@ def _screenshot_asset_browserless(
                     capture_exception(e)
 
                 raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+            stages.done("page_load")
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -632,6 +662,7 @@ def _screenshot_asset_browserless(
                     posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
+            stages.done("content")
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
@@ -657,7 +688,12 @@ def _screenshot_asset_browserless(
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
             page.screenshot(path=image_path)
-            return _read_site_style(page, failed_stylesheets) if read_site_style else None
+            stages.done("screenshot")
+            if not read_site_style:
+                return None
+            site_style = _read_site_style(page, failed_stylesheets)
+            stages.done("site_style")
+            return site_style
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:

@@ -155,6 +155,10 @@ def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
 # prevents unbounded memory growth when the WAL backlog is very large.
 CDC_FLUSH_MAX_EVENTS = 5_000
 CDC_FLUSH_MAX_BYTES = 128 * 1024 * 1024  # 128 MiB (estimated, pre-Arrow)
+# The byte estimate cannot see unchanged-TOAST values: the change stream omits them and the
+# loader fills each one from the Delta table, so a small batch can grow by orders of magnitude
+# at load and run the loader out of memory. Capping these rows bounds that growth.
+CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS = 1_000
 
 
 class ChangeEventBatcher:
@@ -174,13 +178,17 @@ class ChangeEventBatcher:
         self,
         max_events: int = CDC_FLUSH_MAX_EVENTS,
         max_bytes: int = CDC_FLUSH_MAX_BYTES,
+        max_toast_omitted_events: int = CDC_FLUSH_MAX_TOAST_OMITTED_EVENTS,
         position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
         self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
+        self._table_toast_omitted: defaultdict[str, int] = defaultdict(int)
+        self._toast_omitted_events: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
+        self._max_toast_omitted_events = max_toast_omitted_events
         # Engine adapter's position_serialized → int converter. When set, flushed
         # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
         self._position_to_seq = position_to_seq
@@ -194,11 +202,18 @@ class ChangeEventBatcher:
         self._events[event.table_name].append(event)
         self._table_bytes[event.table_name] += size
         self._estimated_bytes += size
+        if event.omitted_columns:
+            self._table_toast_omitted[event.table_name] += 1
+            self._toast_omitted_events += 1
 
     @property
     def should_flush(self) -> bool:
         """Whether buffered events exceed the configured thresholds."""
-        return self.event_count >= self._max_events or self._estimated_bytes >= self._max_bytes
+        return (
+            self.event_count >= self._max_events
+            or self._estimated_bytes >= self._max_bytes
+            or self._toast_omitted_events >= self._max_toast_omitted_events
+        )
 
     def flush(self) -> dict[str, pa.Table]:
         """Convert buffered events into PyArrow tables, one per table name.
@@ -219,12 +234,15 @@ class ChangeEventBatcher:
         self._events.clear()
         self._table_bytes.clear()
         self._estimated_bytes = 0
+        self._table_toast_omitted.clear()
+        self._toast_omitted_events = 0
         return result
 
     def discard(self, table_name: str) -> None:
         """Drop a table's pending events so no later flush writes them."""
         self._events.pop(table_name, None)
         self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
+        self._toast_omitted_events -= self._table_toast_omitted.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:

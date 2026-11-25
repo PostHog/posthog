@@ -514,7 +514,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             **{
                 f"{tier.tier}_{name}": getattr(tier, name)
                 for tier in result.tiers
-                for name in ("due_pairs", "oldest_due_hours", "fresh_share")
+                for name in ("due_pairs", "oldest_due_hours", "fresh_share", "recent_share", "due_overdue")
             },
         },
     )

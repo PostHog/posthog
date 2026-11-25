@@ -208,7 +208,7 @@ def _enable(team_id: int) -> _Outcome:
     # A later request finds the team serving and does nothing, so it cannot repair this.
     warning = (
         "The flags cache rebuild was not enqueued. Enqueue update_team_flags_cache and "
-        "update_team_service_flags_cache for this team."
+        "invalidate_team_flags_cache_for_cohorts for this team."
         if result.resave.rebuild_dispatch_failed
         else ""
     )

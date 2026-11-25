@@ -10,6 +10,8 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     DateRange,
+    EventsQuery,
+    HogQLQuery,
     MCPIntentMapBounds,
     MCPIntentMapQuery,
     MCPIntentTopicsQuery,
@@ -17,12 +19,16 @@ from posthog.schema import (
     MCPToolIntentProfileQuery,
 )
 
+from posthog.hogql.database.database import PRODUCT_INTERNAL_POSTHOG_TABLES, Database, reading_product_internal_tables
 from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.utils import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -157,6 +163,54 @@ class TestIntentTopicsQuery(_Base):
         assert (topic.previous_share_pct, topic.trend_pp) == (None, None)
 
 
+class TestIntentResultsAreNeverStored(_Base):
+    @parameterized.expand(
+        [
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
+            ("async", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
+            ("forced_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS),
+        ]
+    )
+    def test_every_run_computes_inline_and_caches_nothing(self, _name: str, mode: ExecutionMode) -> None:
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 5)
+        query = MCPIntentTopicsQuery(dateRange=WINDOW)
+
+        first = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(mode)
+        second = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(mode)
+
+        # An erasure could not remove a stored copy, so neither run leaves one behind.
+        assert [t.calls for t in first.results] == [5]
+        assert (first.is_cached, second.is_cached) == (False, False)
+
+    def test_databases_leave_out_intent_tables_unless_product_code_opts_in(self) -> None:
+        # Batch exports, insights and every other builder resolve user HogQL against Database.create_for.
+        tables = [["posthog", name] for name in sorted(PRODUCT_INTERNAL_POSTHOG_TABLES)]
+
+        default = Database.create_for(team=self.team)
+        with reading_product_internal_tables():
+            opted_in = Database.create_for(team=self.team)
+
+        assert [default.has_table(t) for t in tables] == [False] * len(tables)
+        assert [opted_in.has_table(t) for t in tables] == [True] * len(tables)
+
+    @parameterized.expand(
+        [
+            ("assignments", "mcp_intent_assignments"),
+            ("raw_assignments", "raw_mcp_intent_assignments"),
+            ("hourly_rollup", "mcp_intent_calls_hourly"),
+            ("daily_rollup", "mcp_intent_topic_daily"),
+        ]
+    )
+    def test_user_written_hogql_cannot_read_intent_tables(self, _name: str, table: str) -> None:
+        for runner in (
+            HogQLQueryRunner(query=HogQLQuery(query=f"SELECT count() FROM posthog.{table}"), team=self.team),
+            # Expressions are user HogQL too: a subquery in a column must not reach the table either.
+            EventsQueryRunner(query=EventsQuery(select=[f"(SELECT count() FROM posthog.{table})"]), team=self.team),
+        ):
+            with self.subTest(runner=type(runner).__name__), self.assertRaises(QueryError):
+                runner.calculate()
+
+
 class TestToolIntentProfileQuery(_Base):
     def test_focus_drift_sparkline_and_outliers(self) -> None:
         for offset in range(7):
@@ -273,6 +327,8 @@ class TestSimilarToolsQuery(_Base):
 class TestIntentMapQuery(_Base):
     def setUp(self) -> None:
         super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
         _insert_assignment(self.team.pk, "p1", self.t_insights, x=1.0, y=0.1, intent_text="plot signups", timestamp=NOW)
         # p2 moved from insights to flags: its older assignment must not resurface under a filter.
         _insert_assignment(self.team.pk, "p2", self.t_insights, x=0.9, y=0.0, timestamp=NOW - timedelta(days=2))
@@ -362,6 +418,11 @@ class TestIntentMapQuery(_Base):
 
 
 class TestIntentTopicsAccess(_Base):
+    def setUp(self) -> None:
+        super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
+
     def _restrict(self, property_name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}

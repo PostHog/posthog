@@ -34,7 +34,7 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -1639,11 +1639,6 @@ export class ApiRequest {
 
     public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
-    }
-
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -6215,12 +6210,6 @@ const api = {
         },
         async delete(id: IntegrationType['id']): Promise<void> {
             await new ApiRequest().organizationIntegrationsDetail(id).delete()
-        },
-    },
-
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
         },
     },
 

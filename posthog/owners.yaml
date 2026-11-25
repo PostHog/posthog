@@ -96,6 +96,8 @@ rules:
       owners: team-devex
     - match: '/test/repo_invariants/test_legacy_alert_configuration_reads.py'
       owners: team-apm
+    - match: '/test/repo_invariants/test_temporal_workflow_catalog.py'
+      owners: team-cloud-foundations
     - match:
           - '/security/test/test_*.py'
       owners: team-security

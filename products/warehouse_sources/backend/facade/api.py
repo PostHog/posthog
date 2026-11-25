@@ -98,6 +98,7 @@ __all__ = [
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
+    "earliest_import_table_named",
     "resolve_object_by_name",
     "direct_access_table_ids",
     "team_has_had_direct_query_source",
@@ -467,6 +468,18 @@ def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> di
 
 def get_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable:
     return _to_table(_DataWarehouseTable.objects.get(id=table_id, team_id=team_id))
+
+
+def earliest_import_table_named(team_id: int, name: str) -> UUID | None:
+    """The id of the team's earliest created live import table whose name matches `name` case-insensitively."""
+    return (
+        _DataWarehouseTable.objects.filter(team_id=team_id, name__iexact=name, external_data_source__isnull=False)
+        .exclude(deleted=True)
+        .exclude(external_data_source__deleted=True)
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)
+        .first()
+    )
 
 
 def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable | None:

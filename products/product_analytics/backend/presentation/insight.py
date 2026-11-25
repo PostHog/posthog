@@ -46,6 +46,7 @@ from posthog.schema import (
     QueryStatus,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
@@ -69,7 +70,13 @@ from posthog.auth import (
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import (
+    AccessMethod,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+    tags_context,
+)
 from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, report_user_action
@@ -368,6 +375,12 @@ def _dashboards_field_access_method(request: Request | None) -> str:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
     return type(authenticator).__name__
+
+
+def _limit_context_for_access_method() -> LimitContext:
+    if is_api_key_access_method(get_query_tag_value("access_method")):
+        return LimitContext.QUERY
+    return LimitContext.QUERY_ASYNC
 
 
 def _is_internal_serialization_context(context: dict) -> bool:
@@ -1497,6 +1510,7 @@ class InsightSerializer(InsightBasicSerializer):
                         cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_query_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
+                        limit_context=_limit_context_for_access_method(),
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
                     if (

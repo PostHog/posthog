@@ -24,6 +24,7 @@ export function TodayTour(): JSX.Element | null {
                     key={tour.stepIndex}
                     step={tourStep}
                     stepIndex={tour.stepIndex}
+                    stepCount={tour.steps.length}
                     anchor={tour.anchor}
                     refocusNextRef={refocusNextRef}
                 />

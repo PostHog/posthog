@@ -201,10 +201,25 @@ def _require_source_verification(project: Team, erasure: IntentErasure) -> None:
         ).update(verify_sources=True)
 
 
+def _purge_and_verify(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
+    state = has_state(erasure=erasure, cluster=cluster)
+    _assert_writers_drained(erasure=erasure, cluster=cluster)
+    _run_provider(STORAGE_PURGE, erasure=erasure, cluster=cluster, has_state=state)
+    _run_provider(ROLLUPS_PURGE, erasure=erasure, cluster=cluster, has_state=state)
+    for team_id in erasure.source_team_ids:
+        with team_scope(team_id, canonical=True):
+            MCPIntentTopic.objects.filter(team_id=team_id).delete()
+            MCPIntentClusteringRun.objects.filter(team_id=team_id).delete()
+    # Trust the providers only after an independent read finds nothing left.
+    if has_state(erasure=erasure, cluster=cluster):
+        raise IntentErasurePending("Derived intent copies survived the purge")
+
+
 def complete(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
     project = Team.objects.filter(pk=erasure.project_id).first()
     if project is None:
-        _assert_writers_drained(erasure=erasure, cluster=cluster)
+        # No barrier row survives the team, but its ClickHouse copies do. Purge and verify them all the same.
+        _purge_and_verify(erasure=erasure, cluster=cluster)
         return
     failure: Exception | None = None
     with _locked_barrier(project) as barrier:
@@ -222,17 +237,7 @@ def complete(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
         # The freeze was committed by prepare; a remote failure rolls back to that frozen state.
         try:
             with transaction.atomic():
-                state = has_state(erasure=erasure, cluster=cluster)
-                _assert_writers_drained(erasure=erasure, cluster=cluster)
-                _run_provider(STORAGE_PURGE, erasure=erasure, cluster=cluster, has_state=state)
-                _run_provider(ROLLUPS_PURGE, erasure=erasure, cluster=cluster, has_state=state)
-                for team_id in erasure.source_team_ids:
-                    with team_scope(team_id, canonical=True):
-                        MCPIntentTopic.objects.filter(team_id=team_id).delete()
-                        MCPIntentClusteringRun.objects.filter(team_id=team_id).delete()
-                # Trust the providers only after an independent read finds nothing left.
-                if has_state(erasure=erasure, cluster=cluster):
-                    raise IntentErasurePending("Derived intent copies survived the purge")
+                _purge_and_verify(erasure=erasure, cluster=cluster)
                 MCPIntentErasure.objects.filter(pk=erasure.invalidation_id, team_id=project.pk).update(
                     completed_at=timezone.now()
                 )

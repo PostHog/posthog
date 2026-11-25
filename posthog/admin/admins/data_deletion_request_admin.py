@@ -3,7 +3,11 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models.data_deletion_request import DataDeletionRequest, build_deletion_count_query
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    build_deletion_count_query,
+    unfinished_property_removals,
+)
 from posthog.models.team import Team
 
 # Dagster Cloud deployment slug per PostHog cloud environment. The admin runs on web pods, which
@@ -138,6 +142,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and unfinished_property_removals().filter(pk=obj.pk).exists():
+            return False
+        return super().has_delete_permission(request, obj)
 
     @admin.display(description="PostHog Admin")
     def console_page(self, obj: DataDeletionRequest) -> str:

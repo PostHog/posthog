@@ -867,6 +867,11 @@ class TestShouldRefresh(SimpleTestCase):
         drf_request._full_data = {"refresh": "async"}  # type: ignore
         assert refresh_requested_by_client(drf_request) == "async"
 
+    def test_keeps_the_refresh_mode_that_blocks_only_on_a_cache_miss(self):
+        request = HttpRequest()
+        request.GET = QueryDict("refresh=async_except_on_cache_miss")
+        assert refresh_requested_by_client(Request(request)) == "async_except_on_cache_miss"
+
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         assert get_compare_period_dates(
             date_from=datetime(2022, 1, 1, 0, 0),

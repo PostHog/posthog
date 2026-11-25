@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.logs.backend.alert_creation import AlertLimitReached, check_alert_slot, first_check_at
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_state_machine import apply_enabled
+from products.logs.backend.alert_utils import PLATFORM_SHADOW
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
@@ -89,8 +90,10 @@ def on_created(
 
 
 def _hand_over_new(alert: LogsAlertConfiguration, at: datetime, grouping: Grouping | None) -> bool:
-    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts.
-    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id)
+    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts. A
+    # team's first alert has no logs history to compare against, so its shadow starts already over, and
+    # the team's later alerts inherit that.
+    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id) or at - PLATFORM_SHADOW
     return hand_over(alert, at, grouping=grouping, shadow_from=shadow_from)
 
 

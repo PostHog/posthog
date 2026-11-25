@@ -48,9 +48,17 @@ class OrganizationIntegrationSerializer(serializers.ModelSerializer):
 
 
 class EnvironmentMappingUpdateSerializer(serializers.Serializer):
-    production = serializers.IntegerField(required=True)
-    preview = serializers.IntegerField(required=False)
-    development = serializers.IntegerField(required=False)
+    production = serializers.IntegerField(
+        required=True, help_text="ID of the PostHog project that receives the Vercel production environment."
+    )
+    preview = serializers.IntegerField(
+        required=False,
+        help_text="ID of the PostHog project for the Vercel preview environment. Defaults to the production project.",
+    )
+    development = serializers.IntegerField(
+        required=False,
+        help_text="ID of the PostHog project for the Vercel development environment. Defaults to the production project.",
+    )
 
 
 @extend_schema(extensions={"x-product": "integrations"})
@@ -142,6 +150,10 @@ class OrganizationIntegrationViewSet(
         )
         instance.delete()
 
+    @extend_schema(
+        request=EnvironmentMappingUpdateSerializer,
+        responses={200: OrganizationIntegrationSerializer},
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["patch"], url_path="environment-mapping")
     def environment_mapping(self, request: Request, **kwargs) -> Response:

@@ -1,3 +1,4 @@
+import io
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -133,10 +134,8 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert renamed.json()["check_interval_minutes"] == 5
 
-    @parameterized.expand([("an_hour", 60, status.HTTP_201_CREATED), ("past_an_hour", 61, status.HTTP_400_BAD_REQUEST)])
-    def test_a_metrics_alert_can_look_back_over_an_hour_of_checks(
-        self, _name: str, periods: int, expected: int
-    ) -> None:
+    @parameterized.expand([("a_day", 1441, status.HTTP_201_CREATED), ("past_a_day", 1442, status.HTTP_400_BAD_REQUEST)])
+    def test_a_metrics_alert_can_look_back_over_a_day_of_checks(self, _name: str, periods: int, expected: int) -> None:
         response = self._create(
             {"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
             evaluation_periods=periods,
@@ -220,6 +219,8 @@ def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
     response._content = json.dumps(body).encode()
+    # A streamed read iterates `raw`.
+    response.raw = io.BytesIO(response._content)
     return response
 
 
@@ -438,6 +439,16 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         )
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
+        self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))
+        self.snuffle.return_value = _response(200, _vector(*(({"group": str(index)}, "2000") for index in range(50))))
+
+        outcome = self._evaluate()
+
+        assert outcome.failure is not None
+        assert "more than" in (outcome.error_message or "")
+        assert self.snuffle.call_args.kwargs["stream"] is True
 
     def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
         self.checkpoint.return_value = self.due_at

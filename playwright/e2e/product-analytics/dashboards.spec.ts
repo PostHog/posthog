@@ -77,7 +77,7 @@ test.describe('Dashboards', () => {
             await insight.editName(updatedName)
             await expect(insight.topBarName).toContainText(updatedName)
             await expect(insight.saveButton).toBeEnabled()
-            await insight.save()
+            await insight.save({ returnsTo: dashboardUrl })
         })
 
         await test.step('navigate to dashboard and verify the updated insight', async () => {

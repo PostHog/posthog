@@ -1,3 +1,4 @@
+import copy
 import enum
 import uuid
 from datetime import timedelta
@@ -230,6 +231,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # the user can decline by cancelling, so they carry the same required floor as any other app.
         return translate_renamed_scopes(self.scopes)
 
+    # On an instance that does not issue verification tokens, a CIMD app whose token the issuer confirmed is linked to
+    # an organization on the issuer. This names the issuer, because `organization` can only point at this instance.
+    organization_link_issuer: models.CharField = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The PostHog instance whose organization a CIMD app is linked to, when that is not this instance.",
+    )
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
     # can't slip new tokens past the one-shot bulk revoke.
@@ -338,7 +348,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         one CIMD registration reads."""
         from posthog.models.oauth_provisioning import PartnerTier  # noqa: PLC0415
 
-        attested = self.organization_id is not None
+        attested = self.organization_id is not None or bool(self.organization_link_issuer)
         if self.requires_client_authentication:
             return PartnerTier.JWKS_ATTESTED if attested else PartnerTier.JWKS
         return PartnerTier.PUBLIC_ATTESTED if attested else PartnerTier.PUBLIC
@@ -406,10 +416,37 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.provisioning_signing is ProvisioningSigning.REQUIRED
 
     @property
+    def needs_organization_link(self) -> bool:
+        """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
+        partners are exempt, because staff already know who runs them."""
+        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+        return (
+            self.is_cimd_client
+            and self.organization_id is None
+            and not self.organization_link_issuer
+            and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
+        )
+
+    @property
+    def provisioning_allowed(self) -> bool:
+        """Whether the partner may provision right now. Every partner gate reads this rather than `active`."""
+        return self.provisioning.active and not self.needs_organization_link
+
+    @property
     def cannot_meet_provisioning_signature(self) -> bool:
         # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
         # metadata drops its key.
         return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
+
+    def edit_would_break_provisioning_signature(self, **changes: object) -> bool:
+        """Whether applying ``changes`` leaves a partner that has to sign without a key to sign with, so provisioning
+        auth would refuse every request it makes. A partner already in that state, such as a CIMD client whose
+        metadata dropped its key, stays editable, so staff can still change its other settings."""
+        after = copy.copy(self)
+        for name, value in changes.items():
+            setattr(after, name, value)
+        return after.cannot_meet_provisioning_signature and not self.cannot_meet_provisioning_signature
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"

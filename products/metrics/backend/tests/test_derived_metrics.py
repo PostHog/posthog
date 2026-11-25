@@ -33,6 +33,7 @@ REQUESTS = "posthog.derived.spans.requests"
 ERRORS = "posthog.derived.spans.errors"
 DURATION = "posthog.derived.spans.duration"
 LOG_RECORDS = "posthog.derived.logs.records"
+APDEX = "posthog.derived.spans.apdex"
 
 DATE_FROM = dt.datetime(2026, 6, 2, 8, 0, tzinfo=dt.UTC)
 DATE_TO = dt.datetime(2026, 6, 2, 9, 0, tzinfo=dt.UTC)
@@ -127,6 +128,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         group_by: tuple[str, ...] = ("service.name",),
         filters: tuple[MetricFilter, ...] = (),
         range_function: MetricRangeFunction | None = None,
+        apdex_threshold_ms: float | None = None,
     ) -> list[MetricSeries]:
         clause = MetricQueryClause(
             name="a",
@@ -136,6 +138,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             group_by=tuple(MetricGroupBy(key=key) for key in group_by),
             filters=filters,
             range_function=range_function,
+            apdex_threshold_ms=apdex_threshold_ms,
         )
         request = MetricQueryRequest(clauses=(clause,), date_from=DATE_FROM, date_to=DATE_TO, interval="hour")
         return run_metric_query(team=self.team, request=request)
@@ -190,6 +193,20 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
             series = self._run(metric_name, aggregation, quantile=quantile, range_function=range_function)
+
+        assert _by_label(series, "service.name") == expected
+
+    @parameterized.expand(
+        [
+            # Every request is under the default 500ms, so only errors (frustrated) lower the score.
+            ("default_threshold", None, {"web": 0.75, "worker": 0.5, "api": 1.0, "jobs": 1.0}),
+            # At 15ms, web's 20ms and 30ms requests tolerate (half credit) and worker's 100ms one is frustrated.
+            ("custom_threshold", 15.0, {"web": 0.5, "worker": 0.0, "api": 1.0, "jobs": 1.0}),
+        ]
+    )
+    def test_apdex_per_service(self, _name: str, threshold_ms: float | None, expected: dict[str, float]) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            series = self._run(APDEX, MetricAggregation.AVG, apdex_threshold_ms=threshold_ms)
 
         assert _by_label(series, "service.name") == expected
 

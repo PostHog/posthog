@@ -2643,6 +2643,31 @@ class TestUserAPI(APIBaseTest):
                 f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
             )
 
+    @parameterized.expand(
+        [
+            ({"mobile_push_chat_enabled": True}, True, False),
+            ({"mobile_push_loops_enabled": True}, False, True),
+            ({"mobile_push_tasks_enabled": True}, True, True),
+            ({"mobile_push_tasks_enabled": True, "mobile_push_loops_enabled": False}, True, False),
+        ]
+    )
+    def test_notification_settings_preserve_legacy_opt_outs_and_feature_independence(
+        self, update: dict[str, bool], chat: bool, loops: bool
+    ) -> None:
+        self.user.partial_notification_settings = {"mobile_push_tasks_enabled": False}
+        self.user.save(update_fields=["partial_notification_settings"])
+        current = self.client.get("/api/users/@me/").json()["notification_settings"]
+        self.assertFalse(current["mobile_push_chat_enabled"])
+        self.assertFalse(current["mobile_push_loops_enabled"])
+        response = self.client.patch("/api/users/@me/", {"notification_settings": update})
+        self.assertEqual(response.status_code, 200)
+        saved = response.json()["notification_settings"]
+        self.assertEqual(saved["mobile_push_chat_enabled"], chat)
+        self.assertEqual(saved["mobile_push_loops_enabled"], loops)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.notification_settings["mobile_push_chat_enabled"], chat)
+        self.assertEqual(self.user.notification_settings["mobile_push_loops_enabled"], loops)
+
     def test_can_update_notification_settings(self):
         response = self.client.patch(
             "/api/users/@me/",
@@ -2672,6 +2697,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": False,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": False,
+                "mobile_push_loops_enabled": False,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2704,6 +2741,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": False,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": False,
+                "mobile_push_loops_enabled": False,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2984,6 +3033,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": True,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": True,
+                "mobile_push_loops_enabled": True,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from posthog.hogql.database.database import reading_product_internal_tables
 from posthog.hogql.query import execute_hogql_query
 
 from products.mcp_analytics.backend.intent_hash import intent_hash
@@ -15,6 +16,11 @@ DAY_END = DAY_START + timedelta(days=1)
 
 
 class TestAssignmentInsert(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
+
     def _topics(self) -> list[TopicVector]:
         return [
             TopicVector(topic_id="topic-a", centroid=unit_vector(0), outlier_distance=0.3),

@@ -70,12 +70,15 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
+    count_configurations,
     enabled_native_configurations,
+    list_configurations,
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    runtime_by_public_id,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -83,8 +86,11 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    live_insight_ids_by_team,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -177,6 +183,110 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     team_ids = set(Insight.objects_including_soft_deleted.filter(id__in=rest).values_list("team_id", flat=True))
     return rows | native_source_config_values(
         team_ids=team_ids, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=rest
+    )
+
+
+def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> list[contracts.CreatedAlert]:
+    """The enabled alerts the user created in these teams on insights that are not deleted, with an
+    insight row or without."""
+    rows = (
+        _insight_owned_rows()
+        .filter(team_id__in=team_ids, created_by_id=user_id, enabled=True, insight__deleted=False)
+        .values_list("id", "team_id", "name", "created_at")
+    )
+    held = enabled_native_configurations(
+        team_ids=team_ids, source_kind=SourceKind.INSIGHT, created_by_id=user_id, owned_copies=True
+    )
+    live = _live_insights(held)
+    return [
+        *(
+            contracts.CreatedAlert(id=alert_id, team_id=team_id, name=name, created_at=created_at)
+            for alert_id, team_id, name, created_at in rows
+        ),
+        *(
+            contracts.CreatedAlert(
+                id=configuration.public_id,
+                team_id=configuration.team_id,
+                name=configuration.name,
+                created_at=configuration.created_at,
+            )
+            for configuration in held
+            if configuration.source_config.get("insight_id") in live.get(configuration.team_id, ())
+        ),
+    ]
+
+
+def _live_insights(configurations: Collection[EnabledNativeConfiguration]) -> dict[int, set[int]]:
+    """The ids of the insights these alerts watch that are not deleted, by team."""
+    insight_ids = {
+        insight_id
+        for configuration in configurations
+        if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
+    }
+    return live_insight_ids_by_team(
+        team_ids={configuration.team_id for configuration in configurations}, insight_ids=insight_ids
+    )
+
+
+def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInventory:
+    """How many insight alerts the team has and how many are enabled, with the newest `recent_limit`,
+    with an insight row or without."""
+    # Deferred: the cutover module imports `posthog.tasks.alerts.utils`, which imports this facade.
+    from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
+
+    rows = _insight_owned_rows().filter(team_id=team_id)
+    held = list_configurations(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        limit=recent_limit,
+        offset=0,
+        held_only=True,
+    )
+    enabled_held = count_configurations(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, held_only=True, enabled_only=True
+    )
+    runtime = runtime_by_public_id(
+        team_id=team_id, public_ids=[view.destination_alert_id for view in held.configurations]
+    )
+    now = timezone.now()
+    row_summaries = (
+        contracts.AlertSummary(
+            id=alert_id,
+            name=name,
+            enabled=enabled,
+            state=AlertState(state),
+            calculation_interval=calculation_interval,
+            insight_id=insight_id,
+            created_at=created_at,
+        )
+        for alert_id, name, enabled, state, calculation_interval, insight_id, created_at in rows.order_by(
+            "-created_at"
+        ).values_list("id", "name", "enabled", "state", "calculation_interval", "insight_id", "created_at")[
+            :recent_limit
+        ]
+    )
+    held_summaries = (
+        contracts.AlertSummary(
+            id=view.destination_alert_id,
+            name=view.name,
+            enabled=view.enabled,
+            state=insight_state_of_platform(
+                alert_runtime.state if alert_runtime is not None else PlatformAlertState.NOT_FIRING,
+                snoozed_until=view.snooze_until,
+                at=now,
+            ),
+            calculation_interval=interval_of(view.check_interval_minutes),
+            insight_id=insight_id if isinstance(insight_id := view.source_config.get("insight_id"), int) else None,
+            created_at=view.created_at,
+        )
+        for view in held.configurations
+        for alert_runtime in [runtime.get(view.destination_alert_id)]
+    )
+    recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
+    return contracts.AlertInventory(
+        total_count=rows.count() + held.total,
+        enabled_count=rows.filter(enabled=True).count() + enabled_held,
+        recent=tuple(recent[:recent_limit]),
     )
 
 

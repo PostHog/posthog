@@ -477,7 +477,8 @@ class TestUserAdRevenue:
 
 class TestCampaignManagement:
     @pytest.mark.parametrize(
-        "endpoint, path", [("campaigns", "/campaign/list"), ("creative_sets", "/creative_set/list")]
+        "endpoint, path",
+        [("campaigns", "/campaign/list"), ("creative_sets", "/creative_set/list"), ("assets", "/asset/list")],
     )
     def test_list_walks_pages_until_a_short_page(self, endpoint: str, path: str) -> None:
         full_page = [{"id": str(index)} for index in range(MANAGEMENT_PAGE_SIZE)]

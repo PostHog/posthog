@@ -123,15 +123,15 @@ export interface editorSceneLogicValues {
     sidePanelContext: SidePanelSceneContext
     titleSectionProps:
         | {
-              description: string
-              forceBackTo: LinkBreadcrumb
+              description?: undefined
+              forceBackTo: Breadcrumb
               name: string
               resourceType: {
                   type: string
               }
           }
         | {
-              description?: undefined
+              description: string
               forceBackTo: LinkBreadcrumb
               name: string
               resourceType: {
@@ -227,15 +227,15 @@ export interface editorSceneLogicMeta {
             editorUrl: string
         ) =>
             | {
-                  description: string
-                  forceBackTo: LinkBreadcrumb
+                  description?: undefined
+                  forceBackTo: Breadcrumb
                   name: string
                   resourceType: {
                       type: string
                   }
               }
             | {
-                  description?: undefined
+                  description: string
                   forceBackTo: LinkBreadcrumb
                   name: string
                   resourceType: {
@@ -328,7 +328,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         breadcrumbs: [
             (s) => [s.activeTab, s.editorUrl],
             (activeTab: null | import('./sqlEditorLogic').QueryTab, editorUrl: string): Breadcrumb[] => {
-                const { draft, insight, view } = activeTab || {}
+                const { draft, insight, view, metricName } = activeTab || {}
                 const biHash =
                     editorUrl === urls.businessIntelligence() && activeTab?.biEditorState
                         ? { mode: activeTab.biEditorState.editorView, bi: activeTab.biEditorState.config }
@@ -358,6 +358,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                             name: insight.name || insight.derived_name || 'Untitled',
                             path: combineUrl(editorUrl, { open_insight: insight.short_id }, biHash).url,
                             iconType: 'sql_editor',
+                        },
+                    ]
+                } else if (metricName) {
+                    return [
+                        first,
+                        {
+                            key: `metric-${metricName}`,
+                            name: metricName,
+                            path: combineUrl(editorUrl, { edit_metric: metricName }, biHash).url,
+                            iconType: 'metrics',
                         },
                     ]
                 } else if (draft) {
@@ -443,6 +453,19 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     }
                 }
 
+                if (activeTab?.metricName) {
+                    return {
+                        forceBackTo: {
+                            key: `metric-${activeTab.metricName}`,
+                            name: 'Back to metric',
+                            path: urls.dataCatalogMetric(activeTab.metricName),
+                            iconType: 'metrics',
+                        } as Breadcrumb,
+                        name: activeTab.metricName,
+                        resourceType: { type: 'metrics' },
+                    }
+                }
+
                 if (viewLoading) {
                     return {
                         name: 'Loading view...',
@@ -457,6 +480,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         return {
                             name: 'Loading view...',
                             resourceType: { type: 'view' },
+                        }
+                    }
+
+                    const metricName = searchParams.get('edit_metric')
+                    if (metricName) {
+                        return {
+                            name: metricName,
+                            resourceType: { type: 'metrics' },
                         }
                     }
 

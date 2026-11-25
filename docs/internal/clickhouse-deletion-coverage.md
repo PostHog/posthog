@@ -106,10 +106,10 @@ Intent-topic runs register before reading source events or writing derived data.
 `intent_topics.invalidation.freeze_writes` closes admission for the parent project and its environments under the same PostgreSQL row lock.
 New sync runs use bounded ad-hoc inference followed by synchronous inserts into the model table on the main cluster.
 They stop scheduling work before the activity timeout and resume partially processed hours without advancing past missing vectors.
+Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
 Hourly and daily rollup inserts also wait for distributed delivery, disable asynchronous buffering, and require the same replica quorum as assignment writes.
 Quorum waits time out after 60 seconds; tests and local development disable quorum on their single-node ClickHouse.
 This confirms write completion but does not prove that every replica has completed a later deletion.
-Only an explicit confirmation of these inserts completes a sync registration. Failed or interrupted registrations do not expire, and legacy Kafka runs remain pending because enqueue success does not confirm ClickHouse delivery.
 Session summaries, project digests and legacy snapshot activities also register before reading sources, and complete only after their database and cache writes finish.
 Snapshot activities join embedding tasks before completion; a failed cache write or cancelled activity leaves its registration pending.
 `has_pending_registered_writers` checks only these registrations. Historical workers, queued embedding output, response-cache fills and physical derivative cleanup still need separate coverage.
@@ -288,7 +288,9 @@ The copy, the delete's count, the reingest and the shard verify count each uuid 
 The reingest bumps `_timestamp` past the original's on both tables, so a merge that meets a cleaned row and a surviving original keeps the cleaned row.
 A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
 That cleaned row therefore never collapses with an original.
-A table created before the switch to `ReplacingMergeTree` keeps every duplicate, and the job leaves its `_timestamp` as it is, because the job reads the engine from `system.tables` on each run.
+A table created before the switch to `ReplacingMergeTree` keeps every duplicate.
+The job still bumps its `_timestamp`, because the reingest and the shard verify find cleaned rows in the staged files by the table's sorting key columns, `uuid`, `timestamp`, `_timestamp` and `inserted_at`.
+A property removal does not start while another property removal on the same team has started and not completed, because restoring that removal's staged copy would undo a rewrite made in between.
 
 #### Rows past the TTL
 
@@ -314,9 +316,12 @@ That window is the forward delay that the events tables also have, not the consu
 
 #### Other readers
 
-Cleaned rows carry `inserted_at = marker`, as on events.
-A reader that checkpoints `flag_evaluations` on `inserted_at` sees a rewritten row again if the marker is later than its checkpoint.
-The copy carries every other column through unchanged.
+Cleaned rows keep their original `inserted_at`, as on events.
+A deletion requested before the removal ran therefore still reaches them once they are back in the table, because its `inserted_at` bound compares against the time the row was first ingested.
+`deletes_job` does not wait for a running property removal, so a deletion that runs while the cleaned rows sit only in the staged files does not see them.
+A reader that checkpoints `flag_evaluations` on `inserted_at` does not read a rewritten row again, so it keeps the uncleaned copy it read before.
+Events batch exports select rows by `COALESCE(inserted_at, _timestamp)`, so they do not export a cleaned row again either, except a legacy row with no `inserted_at`.
+Apart from the removed properties and the columns materialized from them, the copy carries every column through unchanged, except `_timestamp`, which moves one second past the marker.
 `flag_evaluations_backfill_job` does not copy a day while a data deletion request run is queued or executing, so it does not re-insert an original the job removed.
 
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.

@@ -8,6 +8,8 @@ shared property filters.
 """
 
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -46,7 +48,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import (
@@ -216,6 +218,14 @@ LIMIT {limit}
 """
 
 
+_INLINE_EXECUTION_MODES = {
+    ExecutionMode.CALCULATE_ASYNC_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+}
+
+
 class _IntentTopicsBase:
     """Shared reads for the runners: per-topic sums for the window and the previous window."""
 
@@ -225,6 +235,22 @@ class _IntentTopicsBase:
     timings: Any
     modifiers: Any
     limit_context: Any
+
+    reads_product_internal_tables = True
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        # Intent results are never stored: an async run would persist its result outside the request,
+        # so every run computes inline instead.
+        if args:
+            args = (_INLINE_EXECUTION_MODES.get(args[0], args[0]), *args[1:])
+        elif "execution_mode" in kwargs:
+            kwargs["execution_mode"] = _INLINE_EXECUTION_MODES.get(kwargs["execution_mode"], kwargs["execution_mode"])
+        return super().run(*args, **kwargs)  # type: ignore[misc]
+
+    @contextmanager
+    def _guard_cache_write(self) -> Iterator[bool]:
+        # A cached result, its S3 copy or an async status could outlive an intent erasure, so none is written.
+        yield False
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:

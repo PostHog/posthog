@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, HogQLQueryModifiers, MCPIntentTopicsQuery
 
+from posthog.hogql.database.database import reading_product_internal_tables
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.event.new_events_schema import events_route_scope
@@ -100,6 +101,11 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # These tests read the product-internal intent tables directly, as the product's own code does.
+        self.enterContext(reading_product_internal_tables())
+
     def _hourly(
         self, hour: int, hash_: str, tool: str, calls: int, conversations: tuple[int, ...] = (1,)
     ) -> HourlyCalls:

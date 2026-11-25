@@ -16,6 +16,7 @@ from django.conf import settings
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import reading_product_internal_tables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
 
@@ -146,12 +147,13 @@ def build_topic_daily_insert(
     """
     days = WholeDays.covering(window_start, window_end, timezone)
     # The guarded view selects one complete assignment before applying source retention.
-    assignments = HogQLQueryExecutor(
-        query=_DAILY_ASSIGNMENTS_HOGQL,
-        team=team,
-        workload=Workload.OFFLINE,
-        placeholders={"since": ast.Constant(value=days.start), "until": ast.Constant(value=days.end)},
-    ).generate_clickhouse_subquery_sql()
+    with reading_product_internal_tables():
+        assignments = HogQLQueryExecutor(
+            query=_DAILY_ASSIGNMENTS_HOGQL,
+            team=team,
+            workload=Workload.OFFLINE,
+            placeholders={"since": ast.Constant(value=days.start), "until": ast.Constant(value=days.end)},
+        ).generate_clickhouse_subquery_sql()
     sql = _TOPIC_DAILY_INSERT_SQL.format(
         target_table=MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE,
         calls_table=MCP_INTENT_CALLS_HOURLY_DISTRIBUTED_TABLE,

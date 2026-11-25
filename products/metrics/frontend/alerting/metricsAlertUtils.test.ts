@@ -47,10 +47,10 @@ describe('metricsAlertUtils', () => {
         expect(payload.source_config.condition).toEqual(expected.condition)
     })
 
-    // The platform accepts up to 60 checks for a metrics alert, so the form must too.
+    // The platform accepts up to 1441 checks for a metrics alert, so the form must too.
     it.each([
-        { periods: 60, error: undefined },
-        { periods: 61, error: 'Enter a number of checks from 1 to 60.' },
+        { periods: 1441, error: undefined },
+        { periods: 1442, error: 'Enter a number of checks from 1 to 1441.' },
     ])('validateForm on a window of $periods checks', ({ periods, error }) => {
         const errors = validateForm({ ...base, evaluationPeriods: periods, datapointsToAlarm: periods })
 

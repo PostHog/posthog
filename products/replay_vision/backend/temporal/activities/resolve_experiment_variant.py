@@ -68,8 +68,8 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
             kind=FailureKind.INTERNAL_ERROR,
         )
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
-    scope = snapshot.experiment_scope()
-    experiment_id = (scope or {}).get("experiment_id")
+    experiment_scope = snapshot.experiment_scope()
+    experiment_id = (experiment_scope or {}).get("experiment_id")
     if experiment_id is None:
         return ResolveExperimentVariantOutput(applicable=False)
 
@@ -81,8 +81,8 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         linkage = resolve_exposure_linkage(
             team,
             experiment_id=experiment_id,
-            variant=scope.get("variant") if scope else None,
-            variants=scope.get("variants") if scope else None,
+            variant=experiment_scope.get("variant") if experiment_scope else None,
+            variants=experiment_scope.get("variants") if experiment_scope else None,
         )
     except UserAccessControlError as exc:
         raise IneligibleSessionError(

@@ -66,6 +66,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
 
+    if source.is_self_managed_migration:
+        # The source is rooted at a whole bucket, so discovery would offer every folder as a table.
+        # Users add its tables by path instead.
+        logger.info("Skipping schema discovery: the source reads tables from anywhere in its bucket")
+        return
+
     try:
         source_type_key = known_source_key(source.source_type)
     except ValueError:
