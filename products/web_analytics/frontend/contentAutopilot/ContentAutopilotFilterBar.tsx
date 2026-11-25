@@ -2,17 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import {
-    AI_VISIBILITY_DATE_OPTIONS,
-    type AiVisibilityFilter,
-    type AiVisibilityFilterTab,
-    DEFAULT_AI_VISIBILITY_DATE_FROM,
-} from './aiVisibilityFilters'
+import { AiVisibilityDateFilter } from './AiVisibilityDateFilter'
+import { type AiVisibilityFilter, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { QuillContentAutopilotFilterBar } from './QuillContentAutopilotFilterBar'
 
 export const ContentAutopilotFilterBar = ({
     tab,
@@ -21,23 +18,20 @@ export const ContentAutopilotFilterBar = ({
     tab: AiVisibilityFilterTab
     filters: readonly AiVisibilityFilter[]
 }): JSX.Element => {
-    const { dateFrom, dateTo, engine } = useValues(contentAutopilotFiltersLogic)
-    const { pickDates, setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
+    const { engine } = useValues(contentAutopilotFiltersLogic)
+    const { setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
     const { engineOptions, topicOptions, topicValue, promptTopicsError, promptTopicsLoading } =
         useValues(contentAutopilotFilterBarLogic)
     const { loadPromptTopics } = useActions(contentAutopilotFilterBarLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillContentAutopilotFilterBar tab={tab} filters={filters} />
+    }
 
     return (
         <div className="flex flex-wrap items-center gap-2" data-attr={`content-autopilot-${tab}-filters`}>
-            {filters.includes('dateRange') ? (
-                <DateFilter
-                    size="small"
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    dateOptions={AI_VISIBILITY_DATE_OPTIONS}
-                    onChange={(nextFrom, nextTo) => pickDates(nextFrom ?? DEFAULT_AI_VISIBILITY_DATE_FROM, nextTo, tab)}
-                />
-            ) : null}
+            {filters.includes('dateRange') ? <AiVisibilityDateFilter tab={tab} /> : null}
             {filters.includes('engine') ? (
                 <LemonSelect
                     size="small"

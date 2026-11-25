@@ -168,13 +168,14 @@ const meta: Meta<typeof ContentAutopilot> = {
 
 export default meta
 
-const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.Element => {
+const WorkspaceTabStory = ({ tab, quill }: { tab: ContentAutopilotWorkspaceTab; quill?: boolean }): JSX.Element => {
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     useEffect(() => {
         setWorkspaceTab(tab)
     }, [setWorkspaceTab, tab])
     return (
-        <div className="p-6">
+        // The app shell puts the new navigation's screens inside a quill surface, and a story has no shell.
+        <div className="p-6" data-quill={quill || undefined}>
             <ContentAutopilot />
         </div>
     )
@@ -224,6 +225,17 @@ OverviewTabFiltered.parameters = {
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
 RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+
+// The new navigation renders the tabs, the filter bar and the page header in quill.
+const QUILL_FEATURE_FLAGS = [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT, FEATURE_FLAGS.TODAY_RAIL_NAV]
+
+export const RankingsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" quill />
+RankingsTabQuill.decorators = RankingsTab.decorators
+RankingsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
+
+export const SiteSettingsQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" quill />
+SiteSettingsQuill.decorators = SiteSettings.decorators
+SiteSettingsQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
 
 export const KeywordsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
 KeywordsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]

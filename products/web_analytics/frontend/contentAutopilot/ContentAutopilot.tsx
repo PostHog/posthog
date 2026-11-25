@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
@@ -19,6 +22,10 @@ import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
+import {
+    type ContentAutopilotWorkspaceTabDefinition,
+    QuillContentAutopilotWorkspaceTabs,
+} from './QuillContentAutopilotWorkspaceTabs'
 
 const FilteredTab = ({
     tab,
@@ -39,16 +46,52 @@ export const ContentAutopilot = (): JSX.Element => {
     const { profile, workspaceTab, onboardingOpen, siteProfilesLoading, workspaceError } =
         useValues(contentAutopilotLogic)
     const { loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const tabs: ContentAutopilotWorkspaceTabDefinition[] = [
+        {
+            key: 'overview',
+            label: 'Overview',
+            content: (
+                <FilteredTab tab="overview">
+                    <ContentAutopilotPromptsOverview />
+                </FilteredTab>
+            ),
+        },
+        {
+            key: 'rankings',
+            label: 'Rankings',
+            content: (
+                <FilteredTab tab="rankings">
+                    <ContentAutopilotRankings />
+                </FilteredTab>
+            ),
+        },
+        {
+            key: 'prompts',
+            label: 'Prompts',
+            content: <ContentAutopilotPrompts />,
+        },
+        {
+            key: 'keywords',
+            label: 'Keywords',
+            content: (
+                <FilteredTab tab="keywords">
+                    <ContentAutopilotKeywords />
+                </FilteredTab>
+            ),
+        },
+    ]
 
     return (
         <div className="flex flex-col gap-4 pb-4">
             {workspaceError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{ children: 'Try again', onClick: loadWorkspace, loading: siteProfilesLoading }}
                 >
                     Some AI visibility data could not be loaded. {workspaceError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
 
             {profile && onboardingOpen ? (
@@ -66,6 +109,13 @@ export const ContentAutopilot = (): JSX.Element => {
                     <ContentAutopilotSitePicker />
                     <ContentAutopilotSettings />
                 </div>
+            ) : todayRailNav ? (
+                <QuillContentAutopilotWorkspaceTabs
+                    tabs={tabs}
+                    activeKey={workspaceTab}
+                    onChange={setWorkspaceTab}
+                    onOpenSettings={profile ? () => setWorkspaceTab('settings') : undefined}
+                />
             ) : (
                 <LemonTabs<ContentAutopilotWorkspaceTab>
                     activeKey={workspaceTab}
@@ -84,40 +134,7 @@ export const ContentAutopilot = (): JSX.Element => {
                             />
                         ) : null
                     }
-                    tabs={[
-                        {
-                            key: 'overview',
-                            label: 'Overview',
-                            content: (
-                                <FilteredTab tab="overview">
-                                    <ContentAutopilotPromptsOverview />
-                                </FilteredTab>
-                            ),
-                        },
-                        {
-                            key: 'rankings',
-                            label: 'Rankings',
-                            content: (
-                                <FilteredTab tab="rankings">
-                                    <ContentAutopilotRankings />
-                                </FilteredTab>
-                            ),
-                        },
-                        {
-                            key: 'prompts',
-                            label: 'Prompts',
-                            content: <ContentAutopilotPrompts />,
-                        },
-                        {
-                            key: 'keywords',
-                            label: 'Keywords',
-                            content: (
-                                <FilteredTab tab="keywords">
-                                    <ContentAutopilotKeywords />
-                                </FilteredTab>
-                            ),
-                        },
-                    ]}
+                    tabs={tabs}
                 />
             )}
             <ContentAutopilotPromptAddModal />
