@@ -6,6 +6,7 @@ import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@pos
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -332,10 +333,12 @@ export function ExposureCriteriaPanel({
             !!warehouseExposure,
             metricDataSources ?? { warehouseNative: false, posthog: false }
         )
-    const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
+    const { isCloud } = useValues(preflightLogic)
+    // A draft that is not saved yet has no server-resolved event. A new experiment counts $experiment_exposure
+    // only where the backend sets EXPERIMENT_EXPOSURE_EVENT_CUTOFF, which by default is PostHog Cloud.
     const defaultExposureEvent = resolvedExposureEvent(
         experiment,
-        experimentExposureEventEnabled ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
+        isCloud ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
     )
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
