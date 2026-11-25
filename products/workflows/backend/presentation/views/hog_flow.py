@@ -4585,10 +4585,11 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     the serializer rather than behind the facade.
     """
     team = Team.objects.get(id=team_id)
-    user = User.objects.get(id=user_id)
-    if access_control_api.get_restricted_properties_with_group_type_index_for_team(team_id=team_id, user=user):
+    user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user_access_control.user
+    ):
         raise exceptions.PermissionDenied(CDPPropertyAccessPermission.message)
-    user_access_control = UserAccessControl(user=user, team=team)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
