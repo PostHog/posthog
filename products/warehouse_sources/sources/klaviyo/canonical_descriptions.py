@@ -396,6 +396,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated": "Time at which the template was last updated.",
         },
     },
+    "universal_content": {
+        "description": "A reusable content block or section that can be placed in many email templates and kept in sync across them.",
+        "docs_url": "https://developers.klaviyo.com/en/reference/get_all_universal_content",
+        "columns": {
+            "id": "Unique identifier for the universal content.",
+            "name": "The name of the universal content.",
+            "definition": (
+                "The structured definition of the content: whether it is a block or a section, its block type "
+                "(such as button, image, html, or text), and its content data. Null when the content has no "
+                "supported definition."
+            ),
+            "created": "Time at which the universal content was created.",
+            "updated": "Time at which the universal content was last updated.",
+            "screenshot_status": (
+                "Status of the preview screenshot: completed, failed, generating, never_generated, "
+                "not_renderable, or stale."
+            ),
+            "screenshot_url": "URL of the preview screenshot of the universal content.",
+        },
+    },
     "forms": {
         "description": "A signup form in Klaviyo that collects profiles from your site.",
         "docs_url": "https://developers.klaviyo.com/en/reference/get_forms",

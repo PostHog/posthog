@@ -40,11 +40,12 @@ import {
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { inStorybook } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { toolbarExtensionLogic } from './toolbarExtensionLogic'
 
-export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.Element {
+export function ToolbarAuthorizedUrls(): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: null,
         experimentId: null,
@@ -61,6 +62,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
         showProposedUrlErrors,
         suggestionsLoading,
         urlsKeyed,
+        writeDisabledReason,
     } = useValues(logic)
     const { currentTeamLoading } = useValues(teamLogic)
     const { extensionInstalled } = useValues(toolbarExtensionLogic)
@@ -77,6 +79,8 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
         submitProposedUrl,
     } = useActions(logic)
 
+    // Storybook has no app context to read access from, so allow editing there.
+    const canEdit = inStorybook() || !writeDisabledReason
     const visibleUrls = urlsKeyed.filter((url) => canEdit || url.type === 'authorized')
     const openLabel = extensionInstalled ? 'Open in extension' : 'Launch'
     // pinned: data-attr values, autocapture insights and tests select these buttons
@@ -330,7 +334,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
             )}
             {!canEdit && (
                 <Text size="xs" variant="muted">
-                    You can launch the toolbar, but only project editors can change authorized URLs.
+                    You can launch the toolbar, but you don't have permission to change authorized URLs.
                 </Text>
             )}
         </div>

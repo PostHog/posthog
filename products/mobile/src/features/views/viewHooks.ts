@@ -221,10 +221,6 @@ export interface DashboardScreenState {
     viewabilityConfig: ReturnType<typeof useVisibility>['viewabilityConfig']
 }
 
-/**
- * A dashboard screen. It opens like the web: a cache-only dashboard read, then `blocking` for each visible tile with no
- * result or a passed `cache_target_age`. A range change starts the same path with the new override.
- */
 export function useDashboardScreen(dashboardRef: string, options: ViewOpenOptions): DashboardScreenState {
     const context = useViewsContext()
     const { scope } = context.item

@@ -183,16 +183,14 @@ Onboarding events carry `onboarding_origin`: `agent` for setup entered through a
 
 ## Interview recruitment with URL elicitation
 
-> [!CAUTION]
-> **Unsolicited elicitation can spam users and damage trust in the MCP.**
-> A native dialog interrupts the user's work even when it is easy to implement or feature-flag.
-> This recruitment flow is a narrow exception, not a general-purpose advertising or survey channel.
-> Read the [MCP agent policy](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation-high-risk) before adding unsolicited prompts or expanding this flow.
-> Reviewers should challenge the interruption's user value, audience, timing, frequency, opt-out behavior, and measurement.
+> [!NOTE]
+> A native dialog interrupts the user's work, so use it sparingly.
+> This flow is for research recruitment, not advertising or general surveys.
+> Read the [MCP agent guidance](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation) before adding unsolicited prompts or expanding this flow, and check in with the MCP team if you have questions.
 
 The `mcp-interview-recruitment` multivariate flag selects one optional interview invitation before a tool call.
 Each variant key identifies a campaign and has its own invitation payload.
-To add an approved study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
+To add a study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
 Create the flag in the MCP server's analytics project and manage its audience and rollout there.
 A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
 development flag override explicitly enables it with an explicit `MCP_INTERVIEW_RECRUITMENT_PAYLOAD`.
@@ -380,7 +378,8 @@ The server's tool instructions resolve an ambiguous target project before skill 
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
-Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Everything else belongs in the `learn` catalog: the built-in guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Every other cli client except the PostHog Code consumer gets the same compact `exec` schema with the built-in guides, so guidance moved behind `learn` reaches them too.
 Skill names, descriptions, and bodies never go into the tool schema; agents discover them with `learn -s "<query>"` and read them with `learn <source>:<skill> [path]`.
 Project skill search applies the caller's per-skill read permissions before ranking and limiting results; restricted skills contribute no metadata or excerpts.
 The search endpoint uses dedicated burst and sustained budgets at the standard API rates (480 requests/minute and 4,800/hour). Personal API keys have separate budgets; OAuth and browser sessions share a budget per user. Exceeding either budget returns HTTP 429 with `Retry-After`, before the search runs.

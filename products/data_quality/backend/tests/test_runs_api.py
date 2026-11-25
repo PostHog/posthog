@@ -508,6 +508,8 @@ class TestDataQualityRunAPI(APIBaseTest):
         ]
         assert len(metric_definition_reads) == int(restricted), metric_definition_reads
         assert not any('"posthog_datawarehousesavedquery"."id" =' in sql for sql in statements)
+        membership_reads = [sql for sql in statements if 'FROM "posthog_organizationmembership"' in sql]
+        assert len(membership_reads) <= 4, membership_reads
 
     def test_a_sweep_leaves_out_checks_on_a_denied_subject(self) -> None:
         # "Everything" means everything this member can see. A denied subject is not part of it.

@@ -186,7 +186,10 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             return ast.PropertyAccess(
                 start=node.start,
                 end=node.end,
-                expr=ast.Field(chain=self._backing_column_chain(node, source_type, "properties")),
+                expr=ast.Field(
+                    chain=self._backing_column_chain(node, source_type, "properties"),
+                    type=ast.FieldType(name="properties", table_type=field_type.table_type),
+                ),
                 keys=[field_type.name],
                 type=ast.StringType(nullable=True),
             )
@@ -206,9 +209,9 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
                     name="arrayDistinct",
                     args=[ast.Call(name="extractAll", args=[source, ast.Constant(value=pattern)])],
                 )
-        if isinstance(field_type, ast.FieldType) and isinstance(table_type, ast.TableType):
-            database_field = field_type.resolve_database_field(self.context)
-            if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
+        if isinstance(node.type, ast.FieldType) and isinstance(table_type, ast.TableType):
+            database_field = node.type.resolve_database_field(self.context)
+            if isinstance(database_field, DatabaseField) and database_field.name != node.type.name:
                 lowered = super().visit_field(node)
                 if self.physical_names:
                     lowered.chain[-1] = database_field.name
@@ -559,6 +562,50 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             return lookup_field_by_name(scope, qualifier, self.context) is not None
         except QueryError:
             return True
+
+
+class _RepeatedInlineAliasHider(TraversingVisitor):
+    """Hide every inline alias after the first that defines the same name in one SELECT.
+
+    The resolver refuses to redefine a name in a scope, so a repeat here is a copy that a lowering made of the same
+    expression, such as the LIMIT BY window's copy of a projection. TrinoSelectAliasLowerer has already expanded the
+    references to these names, and the next resolver pass needs each name defined once.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.defined: set[str] = set()
+        self.projections: set[int] = set()
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self.defined, self.projections
+        self.defined = set()
+        self.projections = {id(expr) for expr in node.select if isinstance(expr, ast.Alias)}
+        try:
+            super().visit_select_query(node)
+        finally:
+            self.defined, self.projections = outer
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        outer = self.defined
+        self.defined = set()
+        try:
+            super().visit_lambda(node)
+        finally:
+            self.defined = outer
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not node.hidden and id(node) not in self.projections:
+            if node.alias in self.defined:
+                node.hidden = True
+            else:
+                self.defined.add(node.alias)
+        super().visit_alias(node)
 
 
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
@@ -1323,8 +1370,9 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoSemanticCallLowerer().visit(lowered)
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
-    lowered = lower_trino_query_wrappers(lowered)
+    lowered = lower_trino_query_wrappers(lowered, budget)
     lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
+    _RepeatedInlineAliasHider().visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     lowered = TrinoDuplicateOutputNameLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)

@@ -120,6 +120,8 @@ pub enum ForwardDecision {
 pub struct LeaderBackendConfig {
     pub changelog: LiveChangelog,
     pub timeout: Duration,
+    pub keepalive_interval: Option<Duration>,
+    pub keepalive_timeout: Option<Duration>,
     pub num_channels: usize,
     pub http2_windows: Http2Windows,
 }
@@ -239,11 +241,19 @@ impl LeaderBackend {
                 // timeout: dialing a pod whose IP has been unassigned black-holes
                 // at TCP connect (no RST ever arrives), and the request timeout
                 // only starts once a connection exists.
-                let endpoint = Channel::from_shared(address.clone())
+                let mut endpoint = Channel::from_shared(address.clone())
                     .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
                     .timeout(self.config.timeout)
                     .connect_timeout(self.config.timeout)
                     .tcp_nodelay(true);
+                if let Some(interval) = self.config.keepalive_interval {
+                    endpoint = endpoint
+                        .http2_keep_alive_interval(interval)
+                        .keep_alive_while_idle(true);
+                }
+                if let Some(timeout) = self.config.keepalive_timeout {
+                    endpoint = endpoint.keep_alive_timeout(timeout);
+                }
                 let endpoint = self.config.http2_windows.apply_to_endpoint(endpoint);
                 let pool = Arc::new(ChannelPool {
                     channels: (0..self.config.num_channels.max(1))
@@ -579,6 +589,8 @@ mod tests {
             changelog: changelog(num_partitions),
             timeout: Duration::from_secs(5),
             num_channels: 4,
+            keepalive_interval: None,
+            keepalive_timeout: None,
             http2_windows: Http2Windows::default(),
         }
     }

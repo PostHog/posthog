@@ -298,7 +298,6 @@ function ImpersonationNoticeContent(): JSX.Element {
                     if (pendingUserId !== null) {
                         changeUser(pendingUserId, reason)
                     }
-                    setPendingUserId(null)
                 }}
                 title="Change impersonated user"
                 description="Provide a reason for impersonating this user."

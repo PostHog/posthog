@@ -1,6 +1,6 @@
 {
-    "production_eu": "clickhouse/clickhouse-server:26.6.2",
-    "production_us": "clickhouse/clickhouse-server:26.6.2",
-    "local": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-cf6928b17299",
-    "oldest_supported": "clickhouse/clickhouse-server:26.6.2"
+    "production_eu": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
+    "production_us": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
+    "local": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d",
+    "oldest_supported": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-c73aad4ad67d"
 }

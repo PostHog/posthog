@@ -133,14 +133,33 @@ describe('traceDrawerLogic', () => {
     })
 
     it.each([
-        ['traces', [A, B], true],
-        ['traces', [A], false],
-    ] as const)('tells the %s host whether it can step traces with %j', (listId, rows, expected) => {
-        setUp({ listId })
-        logic.actions.setRows([...rows])
-        logic.actions.openRow(A)
+        ['traces', [A, B], false, true],
+        ['traces', [A], false, false],
+        ['traces', [A], true, true],
+    ] as const)(
+        'tells the %s host whether it can step traces with %j and rows before: %s',
+        (listId, rows, rowsBefore, expected) => {
+            setUp({ listId })
+            logic.actions.setRows([...rows])
+            logic.actions.setRowsBefore(rowsBefore)
+            logic.actions.openRow(A)
 
-        expect(host.values.canStepTraces).toBe(expected)
+            expect(host.values.canStepTraces).toBe(expected)
+        }
+    )
+
+    it.each([
+        ['every row', false, false, 2],
+        ['not the rows before', true, false, null],
+        ['not the rows after', false, true, null],
+    ])('counts a total when the list has given %s', (_name, rowsBefore, rowsAfter, total) => {
+        setUp()
+        logic.actions.setRows([A, B])
+        logic.actions.setRowsBefore(rowsBefore)
+        logic.actions.setRowsAfter(rowsAfter)
+        logic.actions.openRow(B)
+
+        expect(logic.values.position).toEqual({ index: 1, total })
     })
 
     it('does nothing when stepping past either end', () => {

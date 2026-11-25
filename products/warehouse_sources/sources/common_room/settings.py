@@ -69,6 +69,7 @@ ACTIVITY_COLUMNS = (
 SEGMENT_COLUMNS = ("entityCount", "url", "summary", "automationStatus")
 WEBSITE_VISIT_COLUMNS = ("url", "contactId", "organizationId")
 OBJECT_COLUMNS = ("recordKey", "segments", "tags", "url", "cf_*")
+JOB_OPENING_COLUMNS = ("jobDescription",)
 
 ACTIVITY_TIME_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -96,6 +97,8 @@ class CommonRoomEndpointConfig:
     # The parent endpoint whose `id` each request of this endpoint needs, in `resolve_param`.
     parent: Optional[str] = None
     resolve_param: Optional[str] = None
+    # A resume starts the parent listing at its saved page. The parent must list in a stable order.
+    resume_parent_pagination: bool = False
 
 
 COMMON_ROOM_ENDPOINTS: dict[str, CommonRoomEndpointConfig] = {
@@ -167,6 +170,34 @@ COMMON_ROOM_ENDPOINTS: dict[str, CommonRoomEndpointConfig] = {
         params={"sort": "id", "direction": "asc"},
         parent="object_types",
         resolve_param="objectTypeId",
+    ),
+    "activity_sentiment": CommonRoomEndpointConfig(
+        name="activity_sentiment", path="/activity-sentiment", primary_keys=["id"], paginated=False
+    ),
+    # Job openings and news items are readable only per organization. The key holds the organization id,
+    # because both come from a corpus keyed by company domain, so one posting or article can belong to
+    # more than one organization.
+    "job_openings": CommonRoomEndpointConfig(
+        name="job_openings",
+        path="/job-openings",
+        primary_keys=["organizationId", "id"],
+        page_size=500,
+        columns=JOB_OPENING_COLUMNS,
+        params={"sort": "firstSeenAt", "direction": "asc"},
+        partition_key="firstSeenAt",
+        parent="organizations",
+        resolve_param="organizationId",
+        resume_parent_pagination=True,
+    ),
+    "news_items": CommonRoomEndpointConfig(
+        name="news_items",
+        path="/news-items",
+        primary_keys=["organizationId", "id"],
+        params={"sort": "publishedAt", "direction": "asc"},
+        partition_key="publishedAt",
+        parent="organizations",
+        resolve_param="organizationId",
+        resume_parent_pagination=True,
     ),
 }
 

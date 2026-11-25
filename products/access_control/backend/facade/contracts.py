@@ -200,6 +200,12 @@ class ObjectAccessRuleInput:
 
 
 @frozen
+class UserRole:
+    id: UUID
+    name: str
+
+
+@frozen
 class TerraformLock:
     """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
     wrote access rules to the project at least once. An enabled lock with no account refuses all

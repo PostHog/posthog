@@ -17,12 +17,12 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache import (
     clean_up_stale_insights,
@@ -261,13 +261,7 @@ def schedule_warming_for_teams_task():
             read_at_this_time_only = _flag_enabled_for_team(
                 TIME_OF_DAY_FLAG, team_id=team.pk, organization_id=team.organization_id, uuid=team.uuid
             )
-            dashboard_v2 = posthog_feature_flag_enabled(
-                DASHBOARD_V2_FLAG,
-                str(team.uuid),
-                organization_id=team.organization_id,
-                team_id=team.pk,
-                only_evaluate_locally=True,
-            )
+            dashboard_v2 = dashboard_v2_enabled(team, None)
             insight_tuples = list(
                 insights_to_keep_fresh(
                     team,
@@ -407,7 +401,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
-            elif isinstance(e, ExposedHogQLError):
+            elif isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
                 # The query itself is wrong, and only its author can correct it. Report it as an
                 # event so it stays with the team instead of becoming an issue in our error tracking.
                 with ph_scoped_capture() as capture_ph_event:

@@ -57,6 +57,10 @@ tools:
             people).
 
 
+            To turn realtime on for a new dynamic cohort, create it, then call 'cohorts-set-realtime'. Setting
+            'cohort_type' doesn't turn realtime on.
+
+
             Populate a static cohort from a query by setting BOTH 'is_static: true' and 'query'. 'query' accepts a
             HogQLQuery (raw SQL) or an ActorsQuery (the actors behind a product-analytics insight such as trends or
             funnels). The query MUST expose the person identifier under one of these column names, checked in this
@@ -165,6 +169,9 @@ tools:
             An update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the
             first population right after 'cohorts-create' with a query. Before you send the next query, call
             'cohorts-retrieve' and wait until 'is_calculating' is false.
+
+
+            To turn realtime on or off, use 'cohorts-set-realtime'. Setting 'cohort_type' doesn't turn realtime on.
         exclude_params:
             - groups
             - version
@@ -195,7 +202,8 @@ tools:
         title: Get cohort
         description: >
             Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
-            matching users, and calculation status.
+            matching users, and calculation status. 'realtime_enabled' says whether realtime is on, and 'realtime.state'
+            whether feature flags can target the cohort yet.
         param_overrides:
             id:
                 cast: string-int
@@ -222,3 +230,56 @@ tools:
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
+    cohorts-set-realtime:
+        operation: cohorts_realtime_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Turn realtime on or off for a cohort
+        description: >-
+            Turn realtime on or off for a dynamic cohort. With realtime on, PostHog keeps the cohort's membership
+            current within about a minute, so feature flags can target it and workflows can trigger on it. Send
+            'enabled: true' to turn it on and 'enabled: false' to turn it off. Sending the value the cohort already has
+            changes nothing, except for a cohort in 'needs_attention', described below.
+
+
+            Read the cohort with 'cohorts-retrieve' first. 'realtime_enabled' says whether realtime is on. Only a cohort
+            whose 'cohort_type' is 'realtime' can be turned on, which means its criteria qualify. Setting 'cohort_type'
+            never turns realtime on. When 'realtime.state' is 'daily', the criteria can't be realtime, and
+            'realtime.reason' says why when PostHog can tell.
+
+
+            Turning realtime on also turns it on for every realtime cohort this cohort includes as criteria. PostHog
+            then prepares them from past events, and feature flags can't target them until that finishes. This tool's
+            response and 'cohorts-retrieve' both return 'realtime.state'. It is 'building' or 'rebuilding' while the
+            build runs, with progress in 'realtime.build', and 'ready' once feature flags can target the cohort. Don't
+            wait on any other state. 'person_properties' means feature flags read the cohort directly and it never
+            becomes 'ready'. 'needs_attention' means nothing is preparing the cohort. When its 'realtime.reason' is
+            null, sending 'enabled: true' again asks PostHog to prepare it again. Otherwise, or when that call fails,
+            tell the user. A null 'realtime' has no state to follow.
+
+
+            PostHog refuses to turn realtime on for a static or deleted cohort, for criteria that can't be realtime,
+            when the project's plan allows no more realtime cohorts, when the criteria look back further than the plan
+            allows, or when the cohort includes a cohort the user can't edit. It refuses to turn realtime off while a
+            feature flag, an active workflow, or another cohort with realtime on reads the cohort. The error says what
+            reads it. Ask the user before you change any of those.
+
+
+            Realtime cohorts are in beta. On a project that hasn't joined the beta, the call fails with "Realtime
+            cohorts aren't available for this project." API keys can't join the beta. Ask the user to open the Cohorts
+            page in PostHog, which shows whether the project can join and offers the beta when it can.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            exclude:
+                - filters.properties.values.*.values.*.bytecode
+                - filters.properties.values.*.values.*.bytecode_error
+                - filters.properties.values.*.values.*.conditionHash
+                - filters.properties.values.*.bytecode
+                - filters.properties.values.*.bytecode_error
+                - filters.properties.values.*.conditionHash

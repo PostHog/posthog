@@ -29,7 +29,8 @@ const REASONS: Record<string, string> = {
     opted_out: 'The recipient opted out of this message category.',
     frequency_capped: 'The recipient already received the most emails allowed for now.',
     invalid_recipient: "The recipient address isn't a valid email address.",
-    sandbox_not_provisioned: "The PostHog test sender isn't set up for this project yet.",
+    sandbox_not_provisioned:
+        "The PostHog test sender isn't set up for this project yet. Save this workflow, then send the test again. If it keeps happening, contact support.",
     sending_disabled: 'The PostHog test sender is turned off.',
     render_failed: "The email couldn't be rendered. Check the subject and content for template errors.",
     retries_exhausted: 'Sending kept failing, so it stopped retrying.',

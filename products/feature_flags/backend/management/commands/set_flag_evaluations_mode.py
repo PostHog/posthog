@@ -6,11 +6,12 @@ created after an instant, or every organization, less an optional exclude list.
 
 The command writes the organizations in chunks and commits each chunk in its own transaction.
 A run skips organizations already at --mode, so a run that fails partway resumes when it runs
-again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
-a file. A rollback passes that file to --organization-ids-file.
+again. --write-changed-ids appends a line for each organization a committed chunk changed, with its
+settings before and after the change. --restore-from-changed-ids-file reads that file and puts each
+organization back to the settings it had before the first run that changed it.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
-copies to flag_evaluations.
+copies to flag_evaluations, unless --keep-writing-flag-calls-to-events is set.
 """
 
 import os
@@ -32,12 +33,20 @@ from django.db import DatabaseError, transaction
 from posthog.models import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_modes
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_configs
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
+    OrganizationRestore,
+    RecordedChange,
+    RecordedHistory,
+    RestoreOutcome,
     UnknownIdsError,
+    collapse_recorded_changes,
     find_unknown_organization_ids,
+    is_recorded_change,
+    parse_recorded_changes,
+    restore_organizations_flag_evaluations_configs,
     select_organization_ids,
     set_organizations_flag_evaluations_mode,
 )
@@ -69,10 +78,43 @@ def _read_ids_file(path: Path) -> list[UUID]:
                 try:
                     ids.append(UUID(text))
                 except ValueError as error:
-                    raise CommandError(f"{path}:{line_number}: {text!r} is not an organization id") from error
+                    hint = (
+                        ". It is a --write-changed-ids line, and --restore-from-changed-ids-file reads that file"
+                        if is_recorded_change(text)
+                        else ""
+                    )
+                    raise CommandError(f"{path}:{line_number}: {text!r} is not an organization id{hint}") from error
     except OSError as error:
         raise CommandError(f"Cannot read {path}: {error}") from error
     return ids
+
+
+def _parse_changed_ids(content: str, path: Path) -> tuple[list[RecordedChange], str]:
+    try:
+        return parse_recorded_changes(content)
+    except ValueError as error:
+        raise CommandError(
+            f"{path}:{error}. Only a --write-changed-ids file records the settings from before the run. Roll back an "
+            "older file of bare ids with --mode 0 --allow-downgrade --organization-ids-file."
+        ) from error
+
+
+def _lock_or_refuse(file: TextIO, path: Path, operation: int) -> None:
+    """Lock the file without waiting. A run takes an exclusive lock and a restore takes a shared one, so a restore
+    never reads a file that a run still appends to. A failure closes the file."""
+    try:
+        fcntl.flock(file.fileno(), operation | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        file.close()
+        raise CommandError(f"Another run is using {path}") from error
+
+
+def _experiments_suffix(count: int | None) -> str:
+    return "" if count is None else f", {count} experiment(s) reading $feature_flag_called from events"
+
+
+def _describe(config: FlagEvaluationsConfig) -> str:
+    return f"mode {config.mode}" + (", events writes kept" if config.keeps_events_writes else "")
 
 
 def _sync(file: TextIO) -> None:
@@ -87,9 +129,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--mode",
             type=int,
-            required=True,
             choices=FlagEvaluationsMode.values,
-            help=FLAG_EVALUATIONS_MODES_HELP,
+            help=f"Required unless --restore-from-changed-ids-file is set. {FLAG_EVALUATIONS_MODES_HELP}",
         )
         selector = parser.add_mutually_exclusive_group(required=True)
         selector.add_argument(
@@ -111,6 +152,17 @@ class Command(BaseCommand):
             help="Update every organization created after this ISO 8601 instant. A bare date means midnight UTC.",
         )
         selector.add_argument("--all-organizations", action="store_true", help="Update every organization.")
+        selector.add_argument(
+            "--restore-from-changed-ids-file",
+            type=Path,
+            help=(
+                "Put each organization in a --write-changed-ids file back to the mode and kept events writes it had "
+                "before the first run that changed it. An organization changed since by anything other than those "
+                "runs keeps its settings, and the run lists it. An organization the restore moves down from mode 2 "
+                "keeps the events gap from its time on mode 2. Takes only --chunk-size, --dry-run, "
+                "--skip-experiment-count and --skip-unknown-organization-ids."
+            ),
+        )
         parser.add_argument(
             "--exclude-organization-ids-file",
             type=Path,
@@ -130,6 +182,16 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--keep-writing-flag-calls-to-events",
+            action="store_true",
+            help=(
+                "Only with --mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every "
+                "reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier "
+                "calls, so a read that moves back to events misses the calls only flag_evaluations holds. A run that "
+                "omits it on an organization that has it turns it off."
+            ),
+        )
+        parser.add_argument(
             "--skip-experiment-count",
             action="store_true",
             help=(
@@ -141,17 +203,19 @@ class Command(BaseCommand):
             "--write-changed-ids",
             type=Path,
             help=(
-                "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
-                "writes its ids before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
-                "appends the ids it changes. Refused with --dry-run."
+                "Append a line to this file for each organization the run changes: its id, then its mode and kept "
+                "events writes (0 or 1) before the run, then the same two after it. Each chunk writes its lines "
+                "before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
+                "appends its own lines. --restore-from-changed-ids-file undoes every run that wrote to the file. "
+                "Refused with --dry-run, and for a file in another format."
             ),
         )
         parser.add_argument(
             "--skip-unknown-organization-ids",
             action="store_true",
             help=(
-                "Skip listed ids that match no organization instead of failing the run. A rollback from a "
-                "--write-changed-ids file needs it when an organization was deleted after the run."
+                "Skip listed ids that match no organization instead of failing the run. A restore needs it when "
+                "an organization was deleted after the run."
             ),
         )
         parser.add_argument("--dry-run", action="store_true", help="Report the changes and write nothing")
@@ -166,6 +230,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if options["restore_from_changed_ids_file"] is not None:
+            self._restore(options)
+            return
+        if options["mode"] is None:
+            raise CommandError("--mode is required unless --restore-from-changed-ids-file is set")
         mode = FlagEvaluationsMode(options["mode"])
         dry_run: bool = options["dry_run"]
         allow_downgrade: bool = options["allow_downgrade"]
@@ -200,6 +269,7 @@ class Command(BaseCommand):
         chunk_total = math.ceil(len(organization_ids) / chunk_size)
         done_count = 0
         changed_count = 0
+        listed_count = 0
         left_above_count = 0
         experiments_needing_flag_calls_count = 0
         started_at = time.monotonic()
@@ -212,7 +282,7 @@ class Command(BaseCommand):
                     .order_by("created_at", "id")
                 )
                 chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
-                modes_before_chunk: dict[UUID, int] = {}
+                configs_before_chunk: dict[UUID, FlagEvaluationsConfig] = {}
                 try:
                     with transaction.atomic():
                         changes = set_organizations_flag_evaluations_mode(
@@ -221,23 +291,26 @@ class Command(BaseCommand):
                             allow_downgrade=allow_downgrade,
                             dry_run=dry_run,
                             count_experiments=count_experiments,
+                            keep_writing_flag_calls_to_events=options["keep_writing_flag_calls_to_events"],
                         )
                         # The ids reach the disk before the chunk commits. A rerun reports a committed
                         # organization as unchanged, so it could not list an id that a crash after the
                         # commit lost.
                         if changed_ids_file is not None:
-                            modes_before_chunk = {
-                                change.organization_id: change.current_mode for change in changes if change.changed
+                            recorded_changes = [
+                                RecordedChange.from_mode_change(change) for change in changes if change.changed
+                            ]
+                            configs_before_chunk = {
+                                recorded.organization_id: recorded.before for recorded in recorded_changes
                             }
-                            changed_ids_file.writelines(
-                                f"{organization_id}\n" for organization_id in modes_before_chunk
-                            )
+                            changed_ids_file.writelines(f"{recorded.to_line()}\n" for recorded in recorded_changes)
                             _sync(changed_ids_file)
                 except BaseException:
                     if changed_ids_file is not None:
-                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, modes_before_chunk)
+                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, configs_before_chunk)
                     raise
 
+                listed_count += len(configs_before_chunk)
                 done_count += len(chunk_ids)
                 for change in changes:
                     changed_count += change.changed
@@ -254,17 +327,103 @@ class Command(BaseCommand):
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
         if changed_ids_path is not None:
-            self.stdout.write(f"Appended {changed_count} changed organization id(s) to {changed_ids_path}.")
+            self.stdout.write(f"Appended {listed_count} changed organization(s) to {changed_ids_path}.")
         if left_above_count:
             self.stdout.write(
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
             )
-        if experiments_needing_flag_calls_count:
+        self._write_experiments_warning(experiments_needing_flag_calls_count)
+
+    def _write_experiments_warning(self, count: int) -> None:
+        if count:
             self.stdout.write(
-                f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
-                "through an exposure action, an activation, or a metric. Those reads find no new calls on this mode."
+                f"{count} running experiment(s) read $feature_flag_called from events through an exposure action, an "
+                "activation, or a metric. Those reads miss the calls that only flag_evaluations holds."
             )
+
+    def _restore(self, options: dict[str, Any]) -> None:
+        ignored = [
+            flag
+            for flag, is_set in (
+                ("--mode", options["mode"] is not None),
+                ("--exclude-organization-ids-file", options["exclude_organization_ids_file"] is not None),
+                ("--keep-writing-flag-calls-to-events", options["keep_writing_flag_calls_to_events"]),
+                ("--write-changed-ids", options["write_changed_ids"] is not None),
+                ("--allow-downgrade", options["allow_downgrade"]),
+            )
+            if is_set
+        ]
+        if ignored:
+            raise CommandError(f"--restore-from-changed-ids-file does not take {', '.join(ignored)}")
+
+        path: Path = options["restore_from_changed_ids_file"]
+        try:
+            file = path.open()
+        except OSError as error:
+            raise CommandError(f"Cannot read {path}: {error}") from error
+        with file:
+            _lock_or_refuse(file, path, fcntl.LOCK_SH)
+            changes, unfinished = _parse_changed_ids(file.read(), path)
+            if unfinished:
+                self.stdout.write(f"Skipping the unfinished last line of {path}, from a chunk that never committed.")
+            self._restore_histories(collapse_recorded_changes(changes), path, options)
+
+    def _restore_histories(self, histories: dict[UUID, RecordedHistory], path: Path, options: dict[str, Any]) -> None:
+        dry_run: bool = options["dry_run"]
+        chunk_size: int = options["chunk_size"]
+        count_experiments = not options["skip_experiment_count"]
+        known_ids = self._known(histories, skip_unknown=options["skip_unknown_organization_ids"], source=str(path))
+        self.stdout.write(
+            f"{'Would restore' if dry_run else 'Restoring'} {len(known_ids)} organization(s) in {path} to their "
+            "settings from before the run."
+        )
+
+        per_organization_lines = len(known_ids) <= chunk_size
+        chunk_total = math.ceil(len(known_ids) / chunk_size)
+        counts = dict.fromkeys(RestoreOutcome, 0)
+        changed_outside: list[OrganizationRestore] = []
+        experiments_needing_flag_calls_count = 0
+        for chunk_number, chunk_ids in enumerate(batched(known_ids, chunk_size, strict=False), start=1):
+            chunk: dict[UUID, RecordedHistory] = {
+                organization_id: histories[organization_id] for organization_id in chunk_ids
+            }
+            with transaction.atomic():
+                restores = restore_organizations_flag_evaluations_configs(
+                    chunk, dry_run=dry_run, count_experiments=count_experiments
+                )
+            for restore in restores:
+                counts[restore.outcome] += 1
+                if restore.outcome == RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS:
+                    changed_outside.append(restore)
+                experiments_needing_flag_calls_count += restore.running_experiments_needing_flag_calls_in_events or 0
+                if per_organization_lines:
+                    self._write_restore_line(restore)
+            if not per_organization_lines:
+                self.stdout.write(f"  chunk {chunk_number}/{chunk_total}: {counts[RestoreOutcome.RESTORED]} restored")
+
+        verb = "Would restore" if dry_run else "Restored"
+        self.stdout.write(f"{verb} {counts[RestoreOutcome.RESTORED]} organization(s).")
+        if already_count := counts[RestoreOutcome.ALREADY_RESTORED]:
+            self.stdout.write(
+                f"{already_count} organization(s) already had the settings the file records from before the run."
+            )
+        if changed_outside:
+            self.stdout.write(
+                f"Kept the settings of {len(changed_outside)} organization(s) that changed outside the runs that "
+                f"wrote {path}{'.' if per_organization_lines else ':'}"
+            )
+            if not per_organization_lines:
+                for restore in changed_outside:
+                    self._write_restore_line(restore)
+        self._write_experiments_warning(experiments_needing_flag_calls_count)
+
+    def _write_restore_line(self, restore: OrganizationRestore) -> None:
+        experiments = _experiments_suffix(restore.running_experiments_needing_flag_calls_in_events)
+        self.stdout.write(
+            f"  organization {restore.organization_id}{experiments}: {_describe(restore.current)} -> "
+            f"{_describe(restore.target)}, {restore.outcome}"
+        )
 
     def _select(self, options: dict[str, Any], *, skip_unknown: bool) -> list[UUID]:
         if options["all_organizations"] or options["created_after"] is not None:
@@ -293,41 +452,49 @@ class Command(BaseCommand):
             raise CommandError(f"Cannot open {path}: {error}") from error
         # Failure recovery truncates the file to where its chunk started, which would erase ids that another
         # run appended after that point.
-        try:
-            fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            file.close()
-            raise CommandError(f"Another run is writing to {path}") from error
+        _lock_or_refuse(file, path, fcntl.LOCK_EX)
         file.seek(0)
         listed = file.read()
-        if listed_count := sum(1 for line in listed.splitlines() if line.strip()):
-            self.stdout.write(f"Appending to {path}, which lists {listed_count} organization id(s) already.")
+        try:
+            listed_changes, unfinished = _parse_changed_ids(listed, path)
+        except CommandError as error:
+            file.close()
+            raise CommandError(
+                f"{error} A restore needs every line of the file to record the settings from before the run, so "
+                "write the changed ids to a new file."
+            ) from error
+        if unfinished:
+            listed = listed.removesuffix(unfinished)
+            file.truncate(len(listed.encode()))
+            self.stdout.write(f"Dropped the unfinished last line of {path}, from a chunk that never committed.")
+        if listed_changes:
+            self.stdout.write(f"Appending to {path}, which lists {len(listed_changes)} change(s) already.")
         if listed and not listed.endswith("\n"):
             file.write("\n")
         file.seek(0, os.SEEK_END)
         return file
 
     def _drop_ids_of_rolled_back_chunk(
-        self, file: TextIO, chunk_start: int, modes_before_chunk: dict[UUID, int]
+        self, file: TextIO, chunk_start: int, configs_before_chunk: dict[UUID, FlagEvaluationsConfig]
     ) -> None:
         """Remove the failed chunk's ids from the file when the chunk rolled back.
 
         A commit can apply on the server and still raise. The chunk commits or rolls back as a whole, so
-        the chunk rolled back only when every organization still reads the mode it had before the chunk.
+        the chunk rolled back only when every organization still reads the mode and kept events writes it had before the chunk.
         In any other case the file keeps the ids, because another writer can move an organization after
         the commit.
         """
-        if not modes_before_chunk:
+        if not configs_before_chunk:
             return
         try:
-            stored_modes = get_organization_flag_evaluations_modes(list(modes_before_chunk))
+            stored_configs = get_organization_flag_evaluations_configs(list(configs_before_chunk))
         except DatabaseError:
             self.stderr.write(
                 f"Could not read back the modes of the failed chunk, so {file.name} keeps its "
-                f"{len(modes_before_chunk)} id(s) unverified."
+                f"{len(configs_before_chunk)} id(s) unverified."
             )
             return
-        if stored_modes == modes_before_chunk:
+        if stored_configs == configs_before_chunk:
             file.truncate(chunk_start)
             _sync(file)
 
@@ -337,11 +504,12 @@ class Command(BaseCommand):
             if change.changed
             else f"mode {change.current_mode}, unchanged"
         )
-        experiments = (
-            f", {change.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
-            "from events"
-            if count_experiments
-            else ""
+        if change.changed and change.current_keeps_events_writes != change.target_keeps_events_writes:
+            outcome += (
+                f", events writes kept: {change.current_keeps_events_writes} -> {change.target_keeps_events_writes}"
+            )
+        experiments = _experiments_suffix(
+            change.running_experiments_needing_flag_calls_in_events if count_experiments else None
         )
         self.stdout.write(
             f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "

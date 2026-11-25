@@ -1,19 +1,24 @@
-import './DashboardV2.scss'
-
 import { useActions, useValues } from 'kea'
-import { type RefObject, useEffect } from 'react'
-import { useContainerWidth } from 'react-grid-layout'
+import { useMemo } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardV2Actions } from './components/DashboardV2Actions'
-import { DashboardV2Tabs } from './components/DashboardV2Tabs'
-import { TileGrid } from './components/TileGrid'
+import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
+import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
+import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
-import { GRID } from './layout/dashboardTypes'
+import { createQueryBatchRunner } from './data/queryBatchRunner'
+import { runSampleQuery } from './fixtures/runSampleQuery'
+import { createChartWidget } from './widgets/chart/createChartWidget'
+import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
+
+const NON_CHART_WIDGETS = DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart')
+const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), ...NON_CHART_WIDGETS]
 
 export const scene: SceneExport = {
     component: DashboardV2Scene,
@@ -28,58 +33,64 @@ export function DashboardV2Scene(): JSX.Element {
     )
 }
 
-function isTyping(target: EventTarget | null): boolean {
-    return (
-        target instanceof Element &&
-        !!target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor')
-    )
-}
-
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTab, hasPermission } = useValues(dashboardV2Logic)
-    const { undo, redo } = useActions(dashboardV2Logic)
-    const canUndoRedo = hasPermission('undo')
-    const { width, containerRef, mounted } = useContainerWidth()
-
-    useEffect(() => {
-        if (!canUndoRedo) {
-            return
-        }
-        const onKeyDown = (event: KeyboardEvent): void => {
-            const key = event.key.toLowerCase()
-            if (isTyping(event.target) || !(event.metaKey || event.ctrlKey) || (key !== 'z' && key !== 'y')) {
-                return
-            }
-            event.preventDefault()
-            if (key === 'y' || event.shiftKey) {
-                redo()
-            } else {
-                undo()
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [canUndoRedo, undo, redo])
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
+    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
+    const runsRealQueries =
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS] &&
+        !!currentTeamId
+    // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
+    // when they leave, instead of showing them again after their access changes.
+    const widgets = useMemo(
+        () =>
+            runsRealQueries && currentTeamId
+                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
+                : SAMPLE_WIDGETS,
+        [runsRealQueries, currentTeamId]
+    )
+    const controller = useMemo<DashboardV2Controller>(
+        () => ({
+            dashboard,
+            activeTabId,
+            widgets,
+            disabledReasonFor,
+            onEdit: applyDashboardEdit,
+            onActiveTabChange: setActiveTab,
+            history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
+            refresh: {},
+        }),
+        [
+            dashboard,
+            activeTabId,
+            widgets,
+            disabledReasonFor,
+            applyDashboardEdit,
+            setActiveTab,
+            canUndo,
+            canRedo,
+            undo,
+            redo,
+        ]
+    )
 
     return (
-        <div data-quill className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground">
-            <header className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
-                <DashboardV2Actions />
-            </header>
-            <DashboardV2Tabs />
-            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
-                {mounted && width > 0 && (
-                    <TileGrid
-                        key={activeTab.id}
-                        gridId={activeTab.id}
-                        tiles={activeTab.tiles}
-                        cols={GRID.columns}
-                        width={width}
-                        editable={hasPermission('placeTiles')}
-                    />
-                )}
-            </div>
-        </div>
+        <DashboardV2View
+            controller={controller}
+            header={
+                <header className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                        {dashboard.description && (
+                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                        )}
+                    </div>
+                    <DashboardV2Actions />
+                </header>
+            }
+        />
     )
 }

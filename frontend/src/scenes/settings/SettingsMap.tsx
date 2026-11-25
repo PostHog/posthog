@@ -9,6 +9,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { ImportWizard } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/ImportWizard'
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -52,7 +53,6 @@ import { OrganizationMCPAccess } from 'scenes/settings/organization/Organization
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
-import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -85,13 +85,17 @@ import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/sce
 import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { FeatureFlagRequestAllowlist } from 'products/feature_flags/frontend/FeatureFlagRequestAllowlist'
 import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
+import { isRequestAllowlistVisible } from 'products/feature_flags/frontend/isRequestAllowlistVisible'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
+import { SlackAppChannelSettings } from 'products/slack_app/frontend/settings/SlackAppChannelSettings'
+import { SlackAppPersonalSettings } from 'products/slack_app/frontend/settings/SlackAppPersonalSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -99,6 +103,7 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -228,6 +233,7 @@ import { Reminders } from './user/Reminders'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
+import { UiSoundsSetting } from './user/UiSoundsSetting'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
@@ -1007,7 +1013,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-tag-rules',
                 title: 'Tag rules',
-                description: 'Tag new issues based on rules you define.',
+                description: 'Tag issues based on rules you define.',
                 component: <TagRules />,
                 flag: 'ERROR_TRACKING_ISSUE_TAGS',
                 keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
@@ -1048,6 +1054,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/releases',
                 component: <Releases />,
                 keywords: ['version', 'deploy', 'release', 'regression'],
+            },
+            {
+                id: 'error-tracking-import',
+                title: 'Import from another tool',
+                description:
+                    'Bring filters and rate limits over from another error tracking tool. Review how each setting translates before you import it.',
+                component: <ImportWizard />,
+                flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
+                keywords: ['sentry', 'migrate', 'migration', 'import', 'inbound filter', 'rate limit'],
             },
         ],
     },
@@ -1194,6 +1209,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Feature flag requests from these domains or IP addresses get an empty response and are not billed. Use this when someone else uses your project token without permission.',
                 component: <FeatureFlagRequestBlocklist />,
                 keywords: ['block', 'blocklist', 'domain', 'ip', 'origin', 'abuse', 'token'],
+            },
+            {
+                id: 'feature-flag-request-allowlist',
+                title: 'Allowed domains and IP addresses',
+                description:
+                    "When a list has entries, feature flag requests that don't match it get an empty response and are not billed. The domain list skips requests with no Origin or Referer header, such as those from server-side and mobile SDKs. When both lists have entries, a request must match both. Blocked domains and IP addresses still apply.",
+                component: <FeatureFlagRequestAllowlist />,
+                allowForTeam: isRequestAllowlistVisible,
+                keywords: ['allow', 'allowlist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -1993,6 +2017,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
             },
             {
+                id: 'workflows-email-run-link-tag',
+                title: 'Connect email clicks to sessions',
+                description:
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the main domain you send email from and on any of its subdomains. For example, when you send from mail.example.com, links to example.com and app.example.com are connected. Your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
+                component: <WorkflowsRunLinkTagSettings />,
+                keywords: [
+                    'workflows',
+                    'broadcasts',
+                    'email',
+                    'links',
+                    'clicks',
+                    'session',
+                    'replay',
+                    'ph_workflow_run',
+                ],
+            },
+            {
                 id: 'workflows-email-tracking-consent',
                 title: 'Email tracking consent',
                 description:
@@ -2196,6 +2237,36 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Exports',
         to: urls.exports(),
         settings: [],
+    },
+    {
+        level: 'environment',
+        id: 'environment-slack-app',
+        title: 'Slack app',
+        flag: 'SLACK_APP_WEB_SETTINGS',
+        keywords: ['slack', 'reactions', 'channel', 'thread', 'mention'],
+        settings: [
+            {
+                id: 'slack-app-personal',
+                title: (
+                    <>
+                        My Slack settings
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'My Slack settings',
+                description: 'How PostHog works for you when you use it in Slack.',
+                component: <SlackAppPersonalSettings />,
+                keywords: ['slack', 'project', 'thread', 'model', 'tips', 'personal'],
+            },
+            {
+                id: 'slack-app-channels',
+                title: 'Channel settings',
+                description:
+                    "Set a default project, repository and question mode for a Slack channel. The project and repository win over each person's own, and the question mode can only make things stricter. Each organization keeps its own channel settings.",
+                component: <SlackAppChannelSettings />,
+                keywords: ['slack', 'channel', 'repository', 'project', 'questions'],
+            },
+        ],
     },
     {
         level: 'environment',
@@ -2636,7 +2707,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
                 description:
-                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
+                    'OAuth applications linked to your organization. Open one to see its provisioning review, what PostHog read from it, or to request verification.',
                 component: <OAuthApps />,
                 keywords: [
                     'oauth',
@@ -2675,26 +2746,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically assign a role to new members when they join the organization. New users will inherit all permissions from this role.',
                 component: <DefaultRoleSelector />,
                 keywords: ['default', 'role', 'new member', 'onboarding'],
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-access-resolution',
-        title: 'Access resolution preview',
-        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        // Temporary migration surface: reachable only from the access control
-        // settings banner, never from the settings navigation or search
-        hideFromNavigation: true,
-        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
-        settings: [
-            {
-                id: 'organization-access-resolution-preview',
-                title: 'Access resolution preview',
-                description:
-                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
-                component: <AccessResolutionPreview />,
-                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
             },
         ],
     },
@@ -2886,6 +2937,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsAchievementsSetting />,
                 flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
                 keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
+            },
+            {
+                id: 'ui-sounds',
+                title: 'Button sounds',
+                description:
+                    'Play a quiet click when you press a button, switch, checkbox, tab, or menu item. This setting applies to this browser only.',
+                component: <UiSoundsSetting />,
+                keywords: ['sound', 'audio', 'click', 'feedback', 'tactile'],
             },
             {
                 id: 'hedgehog-mode',
