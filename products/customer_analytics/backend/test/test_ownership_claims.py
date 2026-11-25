@@ -20,6 +20,8 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.schema import RevenueAnalyticsEventItem
+
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.errors import QueryError
@@ -594,6 +596,7 @@ class TestOwnershipClaims(BaseTest):
             ("edited_after_binding", 1),
             ("bound_before_pinning", 1),
             ("reads_another_saved_query", 1),
+            ("reads_a_revenue_analytics_view", 1),
             ("reads_a_field_through_a_join", 1),
             ("execution_reads_a_saved_query", 2),
         ]
@@ -613,6 +616,12 @@ class TestOwnershipClaims(BaseTest):
         elif fault == "reads_another_saved_query":
             create_saved_query(team_id=self.team.id, name="raw_decisions", columns=saved_query_columns(["task_id"]))
             self._pin("select task_id from raw_decisions")
+        elif fault == "reads_a_revenue_analytics_view":
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+            ]
+            self.team.revenue_analytics_config.save()
+            self._pin("select id as task_id from revenue_analytics.events.purchase.charge_events_revenue_view")
         elif fault == "reads_a_field_through_a_join":
             self._pin("select pdi.person_id as task_id from events")
         csm_definition, _ = self._claim_bound_definition("CSM", "csm_decisions")

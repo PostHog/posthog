@@ -218,9 +218,10 @@ def _refuse_outside_dependencies(team: Team, view_name: str, sql: str, database:
 
 def _refuse_saved_queries(view_name: str, context: HogQLContext) -> None:
     """Raise when resolving or executing the view's SQL under this context reached a saved query."""
-    if context.referenced_saved_query_ids:
+    read_views = context.referenced_saved_query_ids | context.referenced_managed_view_ids
+    if read_views:
         raise ClaimSourceMisconfigured(
-            f"View {view_name} reads saved queries ({', '.join(sorted(context.referenced_saved_query_ids))}); "
+            f"View {view_name} reads saved queries ({', '.join(sorted(read_views))}); "
             "a claim view must read source tables only, because its pin covers only its own SQL"
         )
 

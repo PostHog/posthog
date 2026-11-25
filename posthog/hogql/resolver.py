@@ -3239,10 +3239,10 @@ class Resolver(CloningVisitor):
 
     def _record_read(self, database_table: Table, table_name: str) -> None:
         if isinstance(database_table, SavedQuery):
-            # Managed SavedQuery subclasses, such as the revenue analytics views, use an event name or a
-            # warehouse table id as their id. Only a user view has a saved query id to record.
             if type(database_table) is SavedQuery:
                 self._record_saved_query_read(database_table.id)
+            else:
+                self.context.referenced_managed_view_ids.add(database_table.id)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id)
             self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
