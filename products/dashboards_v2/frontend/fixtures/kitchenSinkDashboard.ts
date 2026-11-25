@@ -15,19 +15,24 @@ const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentWidg
     chartOf(title, { language: 'hogql', query: sql }, viz)
 const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
     chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
-const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
-    chartOf(
-        title,
-        {
-            language: 'traces',
-            query: { kind: NodeKind.TraceSpansAggregationQuery, dateRange: { date_from: '-24h' }, serviceNames: [service] },
-        },
-        viz
-    )
 const stat = (title: string, sql: string, format?: StatOptions['format']): ContentWidget<ChartConfig> =>
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
 const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
 const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
+// Spans go through SQL on `posthog.trace_spans`: `/query` refuses TraceSpansAggregationQuery for every signed-in user.
+// `kind = 2` is a server span, so these rank the endpoints a service handles.
+const SERVER_SPANS = (service: string): string => `kind = 2 and service_name = '${service}' and {filters}`
+const slowestSpans = (title: string, service: string): ContentWidget<ChartConfig> =>
+    bar(
+        title,
+        `select name, round(quantile(0.95)(duration_nano) / 1000000, 1) as p95_ms from posthog.trace_spans where ${SERVER_SPANS(service)} ` +
+            'group by name having count() >= 100 order by p95_ms desc limit 10'
+    )
+const busiestSpans = (title: string, service: string): ContentWidget<ChartConfig> =>
+    bar(
+        title,
+        `select name, count() as requests from posthog.trace_spans where ${SERVER_SPANS(service)} group by name order by requests desc limit 10`
+    )
 const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
 
 const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
@@ -194,7 +199,7 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
                     tile('ks-q-hogql', 0, 0, 8, 14, line('HogQL query', SQL.pageviewsOverTime)),
                     tile('ks-q-metrics', 8, 0, 8, 14, metrics('Metrics query', 'sum(rate(http_requests_total[5m]))', { type: 'line' })),
-                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'checkout', { type: 'bar' })),
+                    tile('ks-q-traces', 16, 0, 8, 14, slowestSpans('Trace query', 'posthog-web-django')),
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
                     tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', SQL.revenue, 'currency')),
                     tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', SQL.signups, 'number')),
@@ -309,8 +314,8 @@ export const kitchenSinkDashboard: Dashboard = {
                 tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'line' })),
                 tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
                 section('apm-endpoints', 0, 24, 24, 'Endpoints', [
-                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'checkout', { type: 'bar' })),
-                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'checkout', { type: 'bar', options: { stack: true } })),
+                    tile('apm-slowest', 0, 0, 12, 16, slowestSpans('Slowest operations', 'posthog-web-django')),
+                    tile('apm-busiest', 12, 0, 12, 16, busiestSpans('Busiest operations', 'posthog-web-django')),
                 ]),
             ],
         },
