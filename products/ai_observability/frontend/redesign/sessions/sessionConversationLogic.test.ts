@@ -225,7 +225,10 @@ describe('sessionConversationLogic', () => {
         logic = sessionConversationLogic(PROPS)
         logic.mount()
         await expectLogic(logic).toDispatchActions(['sidesRequested'])
-        const sidesSignal = fetched.mock.calls.find(([url]) => String(url).includes('/traces/turns/'))?.[1]?.signal
+        const sidesCall = fetched.mock.calls.find((call: Parameters<typeof fetch>) =>
+            String(call[0]).includes('/traces/turns/')
+        )
+        const sidesSignal = sidesCall?.[1]?.signal
 
         logic.unmount()
         await new Promise(process.nextTick)
