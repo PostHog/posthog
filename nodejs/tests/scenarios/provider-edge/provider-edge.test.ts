@@ -86,7 +86,7 @@ describe('provider edge', () => {
         return json.id
     }
 
-    it('records a send with the unit id from the recipient and the action id from the signed tracking code', async () => {
+    it('records a send with the unit id from the recipient and the action and invocation ids from the signed tracking code', async () => {
         const trackingCode = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com').generate({
             functionId: 'flow-1',
             id: 'invocation-1',
@@ -103,6 +103,7 @@ describe('provider edge', () => {
                 status: 200,
                 unitId: 'run-1-1',
                 actionId: 'email-step',
+                invocationId: 'invocation-1',
             }),
         ])
     })

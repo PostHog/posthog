@@ -21,6 +21,7 @@ from posthog.temporal.proxy_service.delete import (
     delete_cloudflare_proxy,
     delete_managed_proxy,
     delete_proxy_record,
+    record_proxy_deletion_failure,
 )
 from posthog.temporal.proxy_service.monitor import (
     MonitorManagedProxyInputs,
@@ -40,6 +41,7 @@ ACTIVITIES = [
     wait_for_certificate,
     delete_proxy_record,
     delete_managed_proxy,
+    record_proxy_deletion_failure,
     check_certificate_status,
     check_dns,
     check_proxy_is_live,

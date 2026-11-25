@@ -13,7 +13,7 @@ import { EmailImageBlockView } from './components/EmailImageBlockView'
 import { EmailVariableChip } from './components/EmailVariableChip'
 import { EmailBlockStyle } from './emailDocument'
 import { parseLiquidOutput } from './emailVariables'
-import { safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
+import { lineHeightCss, safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
 
 const COLUMN_BLOCKS =
     '(paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml)+'
@@ -67,7 +67,7 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
         'font-family': !isButton ? style.fontFamily : undefined,
         'font-weight': !isButton && style.fontWeight ? String(style.fontWeight) : undefined,
         'font-size': !isButton && style.fontSize ? `${style.fontSize}px` : undefined,
-        'line-height': !isButton && style.lineHeight ? `${style.lineHeight}%` : undefined,
+        'line-height': !isButton && style.lineHeight ? lineHeightCss(style.lineHeight) : undefined,
         'letter-spacing': !isButton && style.letterSpacing ? `${style.letterSpacing}px` : undefined,
         'text-transform': !isButton && style.uppercase ? 'uppercase' : undefined,
         'text-align': style.textAlign,

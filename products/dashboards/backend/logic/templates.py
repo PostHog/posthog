@@ -1,15 +1,21 @@
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
 
 from django.db import router
 
+from pydantic import JsonValue
+
+from posthog.models.team import Team
+from posthog.models.user import User
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
+from products.dashboards.backend.logic.template_instantiation import (
+    create_dashboard_from_template,
+    create_from_template,
+    dashboard_template_from_creation_payload,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
-if TYPE_CHECKING:
-    from posthog.models.team import Team
-    from posthog.models.user import User
 
 STARTER_DASHBOARD_NAME = "Your starter dashboard"
 
@@ -37,11 +43,6 @@ def create_global_template_if_missing(template: DashboardTemplateDefinition) -> 
 
 
 def create_starter_dashboard(*, team_id: int) -> Dashboard:
-    # Imported at call time: the helper module imports the subscriptions facade, which loads the
-    # exports facade, and the exports facade imports the dashboards facade.
-    from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415
-    from posthog.models.team import Team  # noqa: PLC0415
-
     # The customization module loads the widget registry, which imports the dashboards facade.
     from products.dashboards.backend.customization import stored_customization  # noqa: PLC0415
 
@@ -62,10 +63,7 @@ def create_starter_dashboard(*, team_id: int) -> Dashboard:
     return dashboard
 
 
-def create_unlisted_dashboard(*, team: "Team", user: "User", template: DashboardTemplateDefinition) -> Dashboard:
-    # Imported at call time for the same import cycle as in create_starter_dashboard.
-    from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415
-
+def create_unlisted_dashboard(*, team: Team, user: User, template: DashboardTemplateDefinition) -> Dashboard:
     template_row = unsaved_template(template)
     dashboard = Dashboard.objects.create(
         team_id=team.id,
@@ -77,3 +75,35 @@ def create_unlisted_dashboard(*, team: "Team", user: "User", template: Dashboard
     )
     create_from_template(dashboard, template_row, user, user_access_control=UserAccessControl(user=user, team=team))
     return dashboard
+
+
+def _dashboard_to_fill(*, team_id: int, dashboard_id: int) -> Dashboard:
+    # The caller can create the dashboard in the transaction that fills it, and a read replica cannot see that row yet.
+    return Dashboard.objects.db_manager(router.db_for_write(Dashboard)).get(id=dashboard_id, team_id=team_id)
+
+
+def apply_template_by_key(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    dashboard = _dashboard_to_fill(team_id=team_id, dashboard_id=dashboard_id)
+    user = User.objects.get(id=user_id) if user_id is not None else None
+    create_dashboard_from_template(template_key, dashboard, user, user_access_control=user_access_control)
+
+
+def apply_template_json(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    template_row = dashboard_template_from_creation_payload(dict(template))
+    dashboard = _dashboard_to_fill(team_id=team_id, dashboard_id=dashboard_id)
+    user = User.objects.get(id=user_id) if user_id is not None else None
+    create_from_template(dashboard, template_row, user, user_access_control=user_access_control)
