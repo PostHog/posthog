@@ -271,7 +271,7 @@ export async function createTopics(topics: string[], docker: string): Promise<vo
     if (topics.length === 0) {
         return
     }
-    const failures = topicCreateFailures(await rpk(docker, ['topic', 'create', ...topics]))
+    const failures = topicCreateFailures(await rpk(docker, ['topic', 'create', '--', ...topics]))
     if (failures.length > 0) {
         throw new Error(`Could not create the Kafka topics the roles read:\n${failures.join('\n')}`)
     }

@@ -432,7 +432,7 @@ describe('scenario environment', () => {
             )
         })
 
-        it("answers every team's sends on the intake topic's ack and seals their state, as production does", () => {
+        it('configures every team for async intake, sealed state and the intake dead-letter check, as production does', () => {
             const cdpApi = overrideConfigWithEnv(
                 getDefaultCdpConfig(),
                 specs.find(({ role }) => role === 'cdp-api')!.env
@@ -1292,10 +1292,10 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
-            if ([exec, container, rpk, noun, verb].join(' ') === 'exec posthog-kafka-1 rpk topic create') {
+            if ([exec, container, rpk, noun, verb, args[5]].join(' ') === 'exec posthog-kafka-1 rpk topic create --') {
                 const created = path.join(__dirname, 'topics.json')
                 const topics = fs.existsSync(created) ? JSON.parse(fs.readFileSync(created, 'utf8')) : []
-                const asked = args.slice(5)
+                const asked = args.slice(6)
                 const present = asked.filter((topic) => topics.includes(topic))
                 fs.writeFileSync(created, JSON.stringify([...new Set([...topics, ...asked])]))
                 process.stdout.write(
@@ -2055,6 +2055,20 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it('creates the intake topics a profile names when the card starts', async () => {
+            environment = environmentOf()
+            await environment.up(NEVER_ABORTED)
+
+            await environment.reset({ CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' })
+
+            expect(topicsCreated()).toEqual([
+                'cdp_intake_dlq',
+                'cdp_intake_transactional_email',
+                'cdp_intake_workflow_webhook',
+                'scenario_intake_dlq',
+            ])
+        })
+
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
@@ -2086,13 +2100,11 @@ describe('scenario environment', () => {
                     jobs: await jobsLeft(),
                     tokens: await limiter.claimUpTo(claim),
                     offsets: offsetsOf(),
-                    topics: topicsCreated(),
                     sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
                 }).toEqual({
                     jobs: ['completed', 'running'],
                     tokens: 5,
                     offsets: everyGroupAtEnd(),
-                    topics: ['cdp_intake_dlq', 'cdp_intake_transactional_email', 'cdp_intake_workflow_webhook'],
                     sends: [201, 'MessageRejected', 'sent'],
                 })
             } finally {
