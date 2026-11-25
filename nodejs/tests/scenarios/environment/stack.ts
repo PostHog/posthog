@@ -182,7 +182,8 @@ export async function untilMigrated(
     tables: MigratedTable[],
     withinMs: number,
     intervalMs: number,
-    signal: AbortSignal
+    signal: AbortSignal,
+    pause = (ms: number): Promise<void> => sleep(ms, undefined, { signal })
 ): Promise<void> {
     const deadline = performance.now() + withinMs
     for (;;) {
@@ -208,7 +209,7 @@ export async function untilMigrated(
                 `Postgres was not ready with its migrations within ${withinMs / 1000} seconds: ${problems.join('; ')}. Check \`docker ps\` for a restarted posthog-db-1 and the migrate procs in hogli's log.`
             )
         }
-        await sleep(intervalMs, undefined, { signal })
+        await pause(Math.min(intervalMs, Math.max(0, deadline - performance.now())))
     }
 }
 

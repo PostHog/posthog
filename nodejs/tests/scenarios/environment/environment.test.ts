@@ -1539,13 +1539,7 @@ describe('scenario environment', () => {
             })
         }, 45_000)
 
-        it.each<
-            [
-                string,
-                { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number; containers?: string[] },
-                string[],
-            ]
-        >([
+        it.each<[string, { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number }, string[]]>([
             ['a running stack', { running: true, ready: true }, STACK.templates],
             [
                 'a running stack whose phrocs answers slowly, without starting it again',

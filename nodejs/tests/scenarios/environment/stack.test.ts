@@ -93,12 +93,28 @@ describe('untilMigrated', () => {
         await expect(waited).rejects.toThrow('has no table scenario_never_migrated')
     })
 
-    it('stops a cancelled run before it probes, even when the tables exist', async () => {
-        const cancel = new AbortController()
-        cancel.abort()
+    it('stays pending while a table is missing, and returns once a migration creates it', async () => {
+        const schema = `scenario_migrating_${process.pid}`
+        const migrate = (sql: string): Promise<unknown> => withPostgres((client) => client.query(sql), URL)
+        await migrate(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}`)
 
-        await expect(
-            untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 60_000, 60_000, cancel.signal)
-        ).rejects.toMatchObject({ name: 'AbortError' })
+        try {
+            await expect(
+                untilMigrated([{ url: URL, table: `${schema}.jobs` }], 60_000, 60_000, NEVER, () =>
+                    migrate(`CREATE TABLE IF NOT EXISTS ${schema}.jobs (id int)`).then(() => undefined)
+                )
+            ).resolves.toBeUndefined()
+        } finally {
+            await migrate(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+        }
+    })
+
+    it.each([
+        ['before it probes, even when the tables exist', 'cyclotron_jobs', (): AbortSignal => AbortSignal.abort()],
+        ['during the retry pause', 'scenario_never_migrated', (): AbortSignal => AbortSignal.timeout(100)],
+    ])('stops a cancelled run %s', async (_case, table, cancelled) => {
+        await expect(untilMigrated([{ url: URL, table }], 60_000, 60_000, cancelled())).rejects.toMatchObject({
+            name: expect.stringMatching(/^(AbortError|TimeoutError)$/),
+        })
     })
 })
