@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -13,6 +14,7 @@ from django.core.cache import caches
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import requests
 from django_redis.cache import RedisCache
@@ -1443,7 +1445,13 @@ class TestTransactionalEmail(APIBaseTest):
         analytics = FakeAnalytics()
         capture.side_effect = analytics.capture
 
-        with time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock, FakeCdpApi().serving(mock_post) as cdp:
+        with (
+            time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock,
+            patch(
+                "products.messaging.backend.presentation.views.message_templates.timezone", wraps=timezone
+            ) as send_clock,
+            FakeCdpApi().serving(mock_post) as cdp,
+        ):
 
             def a_slow_flag_lookup(key: str, *_args: Any, **_kwargs: Any) -> bool:
                 if key != EMAIL_SCHEDULED_SENDS_FLAG:
@@ -1451,7 +1459,13 @@ class TestTransactionalEmail(APIBaseTest):
                 clock.shift(3600)
                 return scheduled_sends_on
 
+            def an_hour_passes_after_each_read() -> datetime:
+                read = timezone.now()
+                clock.shift(3600)
+                return read
+
             flag.side_effect = a_slow_flag_lookup
+            send_clock.now.side_effect = an_hour_passes_after_each_read
             response = self._send_with_scheduled_at(self._psak_client(["hog_flow:write"]), "code", scheduled_at)
 
         assert (response.status_code, response.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
