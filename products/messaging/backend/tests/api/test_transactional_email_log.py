@@ -745,7 +745,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
-            create_person(team=self.team, distinct_ids=[distinct_id])
+            # Every other recipient has no person yet, so their send and purchase meet on the distinct ID.
+            if minutes_ago % 2:
+                create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             sent_at = NOW - timedelta(minutes=minutes_ago)
             self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
@@ -764,13 +766,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         welcomed: list[str] = []
         with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": 0}}):
-            few = self._impact_queries_after_adding_sends(welcomed, 3)
-            more = self._impact_queries_after_adding_sends(welcomed, 3)
+            few = len(self._impact_query_types_after_adding_sends(welcomed, 3))
+            more = len(self._impact_query_types_after_adding_sends(welcomed, 3))
 
         assert few > 0
         assert more == few
 
-    def _impact_queries_after_adding_sends(self, welcomed: list[str], count: int) -> int:
+    def test_names_the_type_of_every_query_impact_runs(self, _flag):
+        query_types = self._impact_query_types_after_adding_sends([], 2)
+
+        assert query_types and "" not in query_types, query_types
+
+    def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
         for _ in range(count):
             name = f"welcome-{len(welcomed)}"
             welcomed.append(name)
@@ -785,18 +792,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": len(welcomed), "converted": len(welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
-        [(queries,)] = sync_execute(
+        rows = sync_execute(
             """
-            SELECT uniqExact(query_id) FROM system.query_log
+            SELECT any(JSONExtractString(log_comment, 'query_type')) FROM system.query_log
             WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
               AND position(query, %(impact_request)s) > 0
+            GROUP BY query_id
             """,
             {
                 "since_micros": since_micros,
                 "impact_request": f"request:_api_projects_{self.team.id}_transactional_email_log_impact_",
             },
         )
-        return queries
+        return [query_type for (query_type,) in rows]
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
