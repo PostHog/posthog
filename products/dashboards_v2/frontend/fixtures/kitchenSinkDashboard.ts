@@ -163,6 +163,8 @@ export const kitchenSinkDashboard: Dashboard = {
     title: 'Dashboards v2',
     description: 'Every widget, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
+    allowFilters: true,
+    filters: [{ id: 'browser', type: 'property', label: 'Browser', config: { key: '$browser', source: 'event' } }],
     tabs: [
         {
             id: 'kitchen-sink',

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { type FilterSpec, findFilterType, hasFilterOn } from '../filters/filterSpec'
 import { type WidgetSpec, findWidget, sizeOfWidgets } from '../widgets/widgetSpec'
 import {
     dashboardDocumentSchema,
@@ -12,7 +13,7 @@ import {
     tileSchema,
     widgetRefSchema,
 } from './dashboardSchema'
-import { type ContentWidget, GRID } from './dashboardTypes'
+import { type ContentWidget, type DashboardFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
@@ -48,10 +49,15 @@ function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
 
 /**
  * Checks a dashboard document before anything loads it, such as a JSON file in a repo, a document an MCP tool wrote,
- * or a saved dashboard from the API. `widgets` are the types the host can show. An empty result means it is valid.
+ * or a saved dashboard from the API. `widgets` are the types the host can show, and `filters` the kinds of filter it
+ * supports. An empty result means it is valid.
  * Overlaps and gaps are not problems, because loading the dashboard settles them.
  */
-export function validateDashboard(document: unknown, widgets: WidgetSpec[]): DashboardProblem[] {
+export function validateDashboard(
+    document: unknown,
+    widgets: WidgetSpec[],
+    filters: FilterSpec[] = []
+): DashboardProblem[] {
     const parsed = dashboardHeadSchema.safeParse(document)
     if (!parsed.success) {
         return issuesAt('', parsed.error)
@@ -146,6 +152,33 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
             checkSize(widget, tile, tilePath)
         })
     }
+
+    const filterIds = new Set<string>()
+    const validFilters: Omit<DashboardFilter, 'id'>[] = []
+    parsed.data.filters?.forEach((filter, index) => {
+        const path = `filters[${index}]`
+        if (filterIds.has(filter.id)) {
+            problems.push({ path: `${path}.id`, message: `The id "${filter.id}" is used by another filter` })
+        }
+        filterIds.add(filter.id)
+        const spec = findFilterType(filters, filter.type)
+        if (!spec) {
+            problems.push({
+                path: `${path}.type`,
+                message: `Unknown filter type "${filter.type}". Known types: ${filters.map((known) => known.type).join(', ')}`,
+            })
+            return
+        }
+        const config = spec.configSchema.safeParse(filter.config)
+        if (!config.success) {
+            problems.push(...issuesAt(`${path}.config`, config.error))
+            return
+        }
+        if (hasFilterOn(validFilters, filter, filters)) {
+            problems.push({ path, message: 'Another filter already narrows this field' })
+        }
+        validFilters.push(filter)
+    })
 
     parsed.data.tabs.forEach((tab, index) => {
         if (seenIds.has(tab.id)) {
