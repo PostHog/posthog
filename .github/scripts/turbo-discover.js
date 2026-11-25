@@ -887,7 +887,12 @@ function linksToChangedFiles(changedFiles, repoRoot) {
     }
     let listing
     try {
-        listing = execFileSync('git', ['ls-files', '-s', '-z', '--', PRODUCTS_DIR], { cwd: repoRoot, encoding: 'utf8' })
+        // The listing of every file under products/ runs to megabytes, past execFileSync's 1 MB default.
+        listing = execFileSync('git', ['ls-files', '-s', '-z', '--', PRODUCTS_DIR], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+        })
     } catch {
         return null
     }
@@ -956,10 +961,12 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
     // db_routing.yaml that settings read) belongs to no one product and runs for all of them.
     // So does a symlink there whose target changed.
     const isLooseRoot = (f) => f.startsWith(PRODUCTS_DIR) && !f.slice(PRODUCTS_DIR.length).includes('/')
-    const looseRoot = [
-        ...(changedFiles ?? []).filter((f) => isLooseRoot(f) && !f.endsWith('.md')),
-        ...(linksToChangedFiles(changedFiles ?? [], process.cwd()) ?? []).filter(isLooseRoot),
-    ]
+    const links = linksToChangedFiles(changedFiles ?? [], process.cwd())
+    if (links === null) {
+        console.error('git ls-files failed, so a changed symlink target under products/ is unknown — testing all products + Django')
+        return everything('products_root')
+    }
+    const looseRoot = [...(changedFiles ?? []).filter((f) => isLooseRoot(f) && !f.endsWith('.md')), ...links.filter(isLooseRoot)]
     if (looseRoot.length > 0) {
         console.error(`Shared files under products/ changed (${JSON.stringify(looseRoot)}) — testing all products + Django`)
         return everything('products_root')
