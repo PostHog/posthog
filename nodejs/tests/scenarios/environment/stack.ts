@@ -399,7 +399,13 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export type ProbeFailure = { name: string; reason: string; unanswered: boolean }
+export type ProbeFailure = {
+    name: string
+    reason: string
+    unanswered: boolean
+    hostLimit?: string
+    sockets?: Record<string, number>
+}
 
 export type Probes = Record<string, () => Promise<unknown>>
 
@@ -420,7 +426,38 @@ export function dependencyProbes(
 
 const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
 
+const HOST_LIMITS: Record<string, string> = {
+    EADDRNOTAVAIL: 'local ports',
+    EMFILE: 'file descriptors',
+    ENFILE: 'file descriptors',
+}
+
 const TIMER_SLACK_MS = 10
+
+const SOCKET_GROUPS_KEPT = 20
+
+// A host out of local ports lists tens of thousands of sockets, which is past execFile's 1 MiB default.
+const SOCKET_LISTING_MAX_BYTES = 64 * 1024 * 1024
+
+// What held the host's ports is gone once the run ends, so the check keeps the busiest TCP states and peers.
+async function socketsOf(): Promise<Record<string, number> | undefined> {
+    try {
+        const { stdout } = await promisify(execFile)('ss', ['-tanH'], {
+            timeout: PROBE_TIMEOUT_MS,
+            maxBuffer: SOCKET_LISTING_MAX_BYTES,
+        })
+        const counts = new Map<string, number>()
+        for (const line of stdout.split('\n')) {
+            const [state, , , , peer] = line.trim().split(/\s+/)
+            if (peer !== undefined) {
+                counts.set(`${state} ${peer}`, (counts.get(`${state} ${peer}`) ?? 0) + 1)
+            }
+        }
+        return Object.fromEntries([...counts].sort(([, a], [, b]) => b - a).slice(0, SOCKET_GROUPS_KEPT))
+    } catch {
+        return undefined
+    }
+}
 
 const codeOf = (error: unknown): unknown =>
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
@@ -430,6 +467,10 @@ const isTypedAnswer = (error: unknown): boolean =>
 
 const isAnswer = (error: unknown): boolean =>
     isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
+
+export const hostLimitOf = (error: unknown): string | undefined =>
+    HOST_LIMITS[String(codeOf(error))] ??
+    (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
 
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
@@ -441,15 +482,17 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
             } catch (error) {
                 const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
-                return { name, reason, unanswered: ranOutItsClock && !isAnswer(error) }
+                const hostLimit = hostLimitOf(error)
+                const sockets = hostLimit ? await socketsOf() : undefined
+                return {
+                    name,
+                    reason,
+                    unanswered: ranOutItsClock && !isAnswer(error),
+                    ...(hostLimit ? { hostLimit } : {}),
+                    ...(sockets ? { sockets } : {}),
+                }
             }
         })
     )
     return results.filter((failure): failure is ProbeFailure => failure !== null)
 }
-
-export const downServices = (
-    edgeUrl: string | undefined,
-    postgresUrl: string,
-    sesValkey: { host: string; port: number }
-): Promise<ProbeFailure[]> => failedProbes(dependencyProbes(edgeUrl, postgresUrl, sesValkey))

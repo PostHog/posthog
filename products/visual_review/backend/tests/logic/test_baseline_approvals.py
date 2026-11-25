@@ -385,6 +385,30 @@ class TestStaleApprovals:
 
         assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([made.id] if stale else [])
 
+    @pytest.mark.parametrize(
+        ("middle_state", "stale"),
+        [
+            pytest.param(BaselineApprovalState.OPEN, False, id="middle_layer_open"),
+            pytest.param(BaselineApprovalState.VOIDED, True, id="middle_layer_voided"),
+            pytest.param(BaselineApprovalState.SUPERSEDED, True, id="middle_layer_superseded"),
+        ],
+    )
+    def test_a_stack_layer_stays_fresh_only_while_the_layer_below_counts(self, repo, middle_state, stale) -> None:
+        middle = approve(repo, 7, "Button", "b1", effective_base_hash="g1", state=middle_state)
+        top = approve(repo, 8, "Button", "b2", effective_base_hash="b1")
+        overlay = {"Button": OverlayEntry(content_hash="b1", approval_id=middle.id, pr_number=7, ledger_hash="b0")}
+        record = make_record(overlay=overlay, candidate_approval_ids=(middle.id,))
+        run = _run(
+            repo, "p8a", {"Button": ("changed", "b2", "b1")}, record=record, purpose=RunPurpose.REVIEW, pr_number=8
+        )
+        Run.objects.filter(id=run.id).update(approved=True)
+        BaselineApproval.objects.filter(id=top.id).update(source_run=run)
+        run.refresh_from_db()
+        # The bottom layer of the stack landed alone.
+        move_ledger(repo, "Button", "g1")
+
+        assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([top.id] if stale else [])
+
     def test_nothing_is_stale_without_a_record(self, repo) -> None:
         run = _made_on_the_run(repo, approve(repo, 8, "Button", "b1"))
         move_ledger(repo, "Button", "b9")
@@ -588,6 +612,36 @@ class TestReduceOverlay:
                 {"Card": (7, 9)},
                 ["first", "second"],
                 id="two_unrelated_pull_requests_conflict_with_a_commit_graph",
+            ),
+            pytest.param(
+                {
+                    "middle": _approval("Button", "b1", 7, base="older", effective_base_hash="b0"),
+                    "top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1"),
+                },
+                None,
+                {"Button": "top"},
+                {},
+                ["middle", "top"],
+                id="stack_top_counts_through_the_open_middle_layer_after_the_bottom_landed",
+            ),
+            pytest.param(
+                {"top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1")},
+                None,
+                {},
+                {},
+                [],
+                id="stack_top_does_not_count_once_the_middle_layer_approval_is_gone",
+            ),
+            pytest.param(
+                {
+                    "middle": _approval("Button", "b1", 7, base="older", effective_base_hash="older"),
+                    "top": _approval("Button", "b2", 8, base="older", effective_base_hash="b1"),
+                },
+                None,
+                {},
+                {},
+                [],
+                id="stack_top_does_not_count_through_a_middle_layer_whose_base_moved",
             ),
         ],
     )

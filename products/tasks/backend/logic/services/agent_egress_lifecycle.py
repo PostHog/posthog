@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import hashlib
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -19,8 +20,12 @@ from products.tasks.backend.logic.services.agent_egress_probe import (
     AgentEgressProbeConfig,
     AgentEgressProbeIssuer,
 )
-from products.tasks.backend.logic.services.modal_egress_probe import ModalEgressProbe
+from products.tasks.backend.logic.services.modal_egress_probe import (
+    AgentEgressCertificateDeliveryError,
+    ModalEgressProbe,
+)
 from products.tasks.backend.logic.services.run_actor import get_task_run_credential_user
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.models import TaskRun
 
 STATE_KEY = "agent_egress_probe"
@@ -32,6 +37,10 @@ class AgentEgressRunEnded(ValueError):
     def __init__(self, status: str) -> None:
         self.status = status
         super().__init__(f"The task run has ended: {status}")
+
+
+class AgentEgressOwnershipConflict(RuntimeError):
+    pass
 
 
 class AgentEgressExecution(BaseModel):
@@ -49,6 +58,7 @@ class AgentEgressExecution(BaseModel):
     owns_sandbox: bool = True
     capability_refresh_at: float = 0
     certificate_refresh_at: float = 0
+    certificate_expires_at: float = 0
     closed: bool = False
     closed_executions: dict[str, float] = Field(default_factory=dict)
 
@@ -61,18 +71,24 @@ class AgentEgressLifecycle:
         execution_id: UUID,
         workflow_run_id: str,
         provisioning_deadline: float | None = None,
+        sandbox_expires_at: float | None = None,
     ) -> None:
         config.validate_controller(cleanup=True)
         self.config = config
         self.execution_id = execution_id
         self.workflow_run_id = workflow_run_id
         self.provisioning_deadline = provisioning_deadline
+        self.sandbox_expires_at = sandbox_expires_at
         self.config_sha256 = hashlib.sha256(
             config.model_dump_json(
-                exclude={"renew_relay_certificate"} if not config.renew_relay_certificate else set()
+                exclude={name for name in ("renew_relay_certificate", "maintain_for_run") if not getattr(config, name)}
             ).encode()
         ).hexdigest()
         self.registry = AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION)
+
+    @property
+    def enrollment_expires_at(self) -> float | None:
+        return self._read(self._run()).expires_at if self.config.maintain_for_run else None
 
     @property
     def relay_name(self) -> str:
@@ -103,8 +119,11 @@ class AgentEgressLifecycle:
             raise AgentEgressRunEnded(run.status)
         if (run.state or {}).get("cancel_requested_at"):
             raise AgentEgressRunEnded("cancelled")
-        if state.closed or state.expires_at <= timezone.now().timestamp():
+        now = timezone.now().timestamp()
+        if state.closed or state.expires_at <= now:
             raise ValueError("The egress execution has ended")
+        if self.config.maintain_for_run and state.certificate_expires_at and state.certificate_expires_at <= now:
+            raise ValueError("The relay certificate has expired")
         return state
 
     def _check_provisioning_deadline(self) -> None:
@@ -116,6 +135,13 @@ class AgentEgressLifecycle:
         self._check_provisioning_deadline()
         now = timezone.now().timestamp()
         self.config.eligible_run()
+        if self.config.maintain_for_run and (
+            self.config.sandbox_id is None
+            or self.sandbox_expires_at is None
+            or not math.isfinite(self.sandbox_expires_at)
+            or not now < self.sandbox_expires_at <= now + MAX_SANDBOX_TTL_SECONDS
+        ):
+            raise ValueError("Run-lifetime maintenance requires a live sandbox deadline")
         with transaction.atomic():
             run = self._run(locked=True)
             previous = self.registry.latest(team_id=run.team_id, run_id=run.id)
@@ -130,6 +156,8 @@ class AgentEgressLifecycle:
                     raise ValueError("The egress execution has ended")
                 if existing.execution_id == self.execution_id:
                     self._read(run)
+                    if self.config.maintain_for_run and existing.expires_at != self.sandbox_expires_at:
+                        raise ValueError("The sandbox deadline has changed")
                     if existing.closed or existing.expires_at <= now:
                         raise ValueError("The egress execution has ended")
                     if previous is not None and previous.execution_id == self.execution_id:
@@ -146,7 +174,7 @@ class AgentEgressLifecycle:
                         or self.registry.lookup(team_id=run.team_id, run_id=run.id, execution_id=existing.execution_id)
                         is not None
                     ):
-                        raise ValueError("Another workflow owns this egress probe")
+                        raise AgentEgressOwnershipConflict("Another workflow owns this egress probe")
                 previous_sandbox_id = existing.sandbox_id
                 if not existing.owns_sandbox:
                     previous_relay_name = f"egress-relay-{existing.execution_id.hex}"
@@ -157,7 +185,11 @@ class AgentEgressLifecycle:
                 workflow_run_id=self.workflow_run_id,
                 config_sha256=self.config_sha256,
                 previous_execution_id=previous.execution_id if previous else None,
-                expires_at=(timezone.now() + timedelta(seconds=self.config.duration_seconds + 180)).timestamp(),
+                expires_at=(
+                    self.sandbox_expires_at
+                    if self.config.maintain_for_run and self.sandbox_expires_at is not None
+                    else (timezone.now() + timedelta(seconds=self.config.duration_seconds + 180)).timestamp()
+                ),
                 previous_sandbox_id=previous_sandbox_id,
                 previous_relay_name=previous_relay_name,
                 owns_sandbox=self.config.sandbox_id is None,
@@ -173,7 +205,7 @@ class AgentEgressLifecycle:
             sandbox_id=state.sandbox_id,
             sidecar_id=state.sidecar_id,
             endpoint=self.config.endpoint,
-            ttl_seconds=self.config.duration_seconds + 180,
+            ttl_seconds=max(60, int(state.expires_at - timezone.now().timestamp())),
             relay_name=self.relay_name,
         )
 
@@ -224,7 +256,12 @@ class AgentEgressLifecycle:
             now = timezone.now().timestamp()
             self._save(
                 run,
-                state.model_copy(update={"certificate_refresh_at": (now + issued.expires_at.timestamp()) / 2}),
+                state.model_copy(
+                    update={
+                        "certificate_refresh_at": (now + issued.expires_at.timestamp()) / 2,
+                        "certificate_expires_at": issued.expires_at.timestamp(),
+                    }
+                ),
             )
 
     def _renew_certificate(self, probe: ModalEgressProbe) -> None:
@@ -306,17 +343,32 @@ class AgentEgressLifecycle:
         return probe.sandbox.id
 
     def renew(self) -> None:
-        self._renew()
         state = self._active()
         now = timezone.now().timestamp()
+        if self.config.maintain_for_run and state.certificate_expires_at <= now:
+            raise ValueError("The relay certificate has expired")
+        self._renew()
         refresh_certificate = self.config.renew_relay_certificate and state.certificate_refresh_at <= now
         refresh_capability = state.capability_refresh_at <= now
         if refresh_certificate or refresh_capability:
             probe = self._connect(state)
-            if refresh_certificate:
-                self._renew_certificate(probe)
             if refresh_capability:
                 self._publish(probe)
+            if refresh_certificate:
+                try:
+                    self._renew_certificate(probe)
+                except AgentEgressCertificateDeliveryError:
+                    self._renew()
+                    if not self.config.maintain_for_run or state.certificate_expires_at <= timezone.now().timestamp():
+                        raise
+                    logger.warning(
+                        "agent_egress_certificate_delivery_retry",
+                        exc_info=True,
+                        team_id=self.config.team_id,
+                        run_id=str(self.config.run_id),
+                        execution_id=str(self.execution_id),
+                        certificate_expires_at=state.certificate_expires_at,
+                    )
 
     def probe(self) -> dict[int, int]:
         state = self._active()

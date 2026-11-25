@@ -1,4 +1,5 @@
 import json
+import datetime
 from typing import Any
 from uuid import UUID
 
@@ -37,7 +38,14 @@ from posthog.admin.console.tools import (
     Stats,
     Table,
 )
-from posthog.api.oauth.provisioning_review import partner_provisioning_status, review_workflow_id
+from posthog.api.oauth.provisioning_review import (
+    PARTNER_NOTE_STEP,
+    REGISTERED_STEP,
+    SETTLED_STEP,
+    STAFF_MESSAGE_STEP,
+    partner_provisioning_status,
+    review_workflow_id,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
@@ -52,16 +60,19 @@ REFRESH_SECONDS_WHILE_PENDING = 10
 STATUS_TONES = {
     ProvisioningReviewStatus.PENDING: Tone.INFO,
     ProvisioningReviewStatus.ACCEPTED: Tone.SUCCESS,
+    ProvisioningReviewStatus.DECLINED: Tone.WARNING,
+    ProvisioningReviewStatus.CHANGES_REQUESTED: Tone.INFO,
     ProvisioningReviewStatus.REJECTED: Tone.DESTRUCTIVE,
     ProvisioningReviewStatus.NEEDS_HUMAN: Tone.WARNING,
 }
 REVIEW_COUNT_LABELS = {
     ProvisioningReviewStatus.NEEDS_HUMAN: "Waiting for staff",
     ProvisioningReviewStatus.PENDING: "Reviews running",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: "Waiting for the partner",
     ProvisioningReviewStatus.ACCEPTED: "Accepted partners",
-    ProvisioningReviewStatus.REJECTED: "Rejected partners",
+    ProvisioningReviewStatus.DECLINED: "Declined partners",
+    ProvisioningReviewStatus.REJECTED: "Blocked partners",
 }
-LOG_TONES = {"error": Tone.DESTRUCTIVE, "warning": Tone.WARNING}
 NO_REVIEW = "none"
 
 
@@ -178,20 +189,45 @@ def _review_counts() -> Stats:
     )
 
 
+def _who(entry: dict[str, Any]) -> str:
+    step = entry.get("step")
+    if step == PARTNER_NOTE_STEP:
+        return f"Partner, {entry['author']}" if entry.get("author") else "Partner"
+    if step == REGISTERED_STEP:
+        return "Partner"
+    if entry.get("stage") == ProvisioningReviewStage.STAFF or step == STAFF_MESSAGE_STEP:
+        return f"Staff, {entry['actor']}" if entry.get("actor") else "Staff"
+    return "Automated review"
+
+
+def _what(entry: dict[str, Any]) -> str:
+    message = str(entry.get("message", ""))
+    if entry.get("step") == SETTLED_STEP and entry.get("partner_message"):
+        return f"{message}. Message to the partner: {entry['partner_message']}"
+    return message
+
+
+def _when_logged(entry: dict[str, Any]) -> str:
+    try:
+        return datetime.datetime.fromisoformat(str(entry.get("at", ""))).strftime("%b %-d, %H:%M")
+    except ValueError:
+        return str(entry.get("at", ""))
+
+
 def _log_table(review: CIMDProvisioningReview) -> Table:
-    entries = list(reversed(review.run_log))
     return Table(
-        title="Run log",
-        columns=("Time", "Step", "What happened"),
+        title="Timeline",
+        columns=("When", "Who", "What happened"),
         rows=tuple(
             Row(
                 cells=(
-                    Cell(text=str(entry.get("at", ""))[:19].replace("T", " "), mono=True),
-                    Cell(text=str(entry.get("step", ""))),
-                    Cell(text=str(entry.get("message", "")), tone=LOG_TONES.get(str(entry.get("level")))),
+                    Cell(text=_when_logged(entry)),
+                    Cell(text=_who(entry)),
+                    # Only errors are tinted, because a tinted cell renders as a pill that doesn't wrap.
+                    Cell(text=_what(entry), tone=Tone.DESTRUCTIVE if entry.get("level") == "error" else None),
                 )
             )
-            for entry in entries
+            for entry in review.run_log
         ),
         empty_text="Nothing has run yet.",
     )
@@ -252,8 +288,8 @@ class OAuthApplicationsTool(ConsoleTool):
         if partner_provisioning_status(app, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
             summary = Notice(
                 text=(
-                    f"{app.name} is waiting for a staff decision. Read the review below, then accept or block the "
-                    "partner."
+                    f"{app.name} is waiting for a staff decision. Read the evidence and the timeline below, then "
+                    "decide at the bottom of the page."
                 ),
                 tone=Tone.WARNING,
             )
@@ -267,7 +303,6 @@ class OAuthApplicationsTool(ConsoleTool):
         return Page(
             blocks=(
                 summary,
-                Links(items=(*decisions, Link(label="Open the app", href=app_url, primary=not decisions))),
                 Stats(
                     items=(
                         Stat(label="Status", value=_status_cell(review).text, tone=_status_cell(review).tone),
@@ -280,8 +315,9 @@ class OAuthApplicationsTool(ConsoleTool):
                     )
                 ),
                 *((Notice(text=review.reason),) if review.reason else ()),
-                log,
                 *((Output(text=evidence),) if evidence else ()),
+                log,
+                Links(items=(*decisions, Link(label="Open the app", href=app_url, primary=not decisions))),
                 Table(
                     columns=("Temporal workflow",),
                     rows=(

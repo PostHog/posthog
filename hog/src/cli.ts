@@ -40,6 +40,7 @@ import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { UpdateCheck, updateChecksOff } from '@/updates/check'
+import { Notices } from '@/updates/notices'
 import { shippedBinaries, targetFor } from '@/updates/targets'
 import { VERSION } from '@/version'
 
@@ -616,7 +617,9 @@ function captureFailure(telemetry: Telemetry, command: string | undefined, error
     })
 }
 
-export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
+export async function run(argv: readonly string[], baseRuntime: Runtime): Promise<number> {
+    const notices = new Notices(baseRuntime)
+    const runtime: Runtime = { ...baseRuntime, fetch: notices.watch(baseRuntime.fetch) }
     const { format, debug, noFail, noTelemetry, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
@@ -696,7 +699,8 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
 
     // A `hog_outdated` failure already says to update, and a JSON failure is one object on stderr.
     if (failure?.code !== 'hog_outdated' && !(failure && mode.format === 'json')) {
-        await updates?.finish({ mode, command: state.command })
+        await updates?.finish({ mode, command: state.command, notices })
+        await notices.show({ mode, telemetry })
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.

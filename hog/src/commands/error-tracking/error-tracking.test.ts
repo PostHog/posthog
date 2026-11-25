@@ -231,12 +231,13 @@ describe('hog error-tracking upload', () => {
     })
 
     const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+    const DEBUG_ID = '11111111-2222-4333-8444-555555555555'
     test.each([
         [
             'a reference to a JSON file that is not a sourcemap',
-            { 'dist/a.js': 'a();\n//# sourceMappingURL=../settings.json\n', 'settings.json': '{"theme":"dark"}' },
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=settings.json\n', 'dist/settings.json': '{"theme":"dark"}' },
             [],
-            'settings.json',
+            'dist/settings.json',
             "isn't a sourcemap",
         ],
         [
@@ -245,6 +246,13 @@ describe('hog error-tracking upload', () => {
             ['a.js.map'],
             'dist/a.js.map',
             'ignore pattern',
+        ],
+        [
+            'a sourcemap outside the selected paths',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=../maps/a.js.map\n', 'maps/a.js.map': MAP },
+            [],
+            'maps/a.js.map',
+            'outside the selected paths',
         ],
     ])('inject skips %s and leaves it alone', async (_name, files, ignore, untouched, reason) => {
         const folder = project({
@@ -261,6 +269,22 @@ describe('hog error-tracking upload', () => {
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('process --dry-run keeps a sourcemap in a folder whose name starts with two dots', async () => {
+        const folder = project({
+            'dist/a.js': 'a();\n//# sourceMappingURL=..maps/a.js.map\n',
+            'dist/..maps/a.js.map': MAP,
+        })
+
+        const result = await runHog(['et', 'process', 'dist', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+
+        expect(result.json(UploadOutput).skipped).toEqual([])
+        expect(result.json(UploadOutput).symbolSets).toHaveLength(1)
     })
 
     test('upload --dry-run calls an empty map a bundler problem only when its file is 4096 bytes or more', async () => {
@@ -293,6 +317,32 @@ describe('hog error-tracking upload', () => {
             'chunk.js': 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
         })
     })
+
+    test.each([
+        ['a path that climbs out with ..', (_folder: string) => '../maps/a.js.map'],
+        ['an absolute path', (folder: string) => join(folder, 'maps/a.js.map')],
+    ])(
+        'upload --delete-after leaves alone a sourcemap outside the selected paths, named by %s',
+        async (_name, reference) => {
+            const folder = project({ 'maps/a.js.map': MAP })
+            const bundle = `a();\n//# debugId=${DEBUG_ID}\n//# sourceMappingURL=${reference(folder)}\n`
+            mkdirSync(join(folder, 'dist'))
+            writeFileSync(join(folder, 'dist/a.js'), bundle)
+
+            const result = await runHog(['et', 'upload', 'dist', '--delete-after', '--release-version', '1.0'], {
+                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+
+            expect(result.json(UploadOutput).skipped).toEqual([
+                { path: 'dist/a.js', reason: 'its sourcemap is outside the selected paths' },
+            ])
+            expect(readFileSync(join(folder, 'maps/a.js.map'), 'utf8')).toBe(MAP)
+            expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+            expect(result.requests).toEqual([])
+        }
+    )
 
     test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', async () => {
         const folder = project({
@@ -511,19 +561,18 @@ describe('hog error-tracking upload', () => {
         rmSync(sources, { recursive: true, force: true })
         cpSync(join(NATIVE, '../src'), sources, { recursive: true })
         cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
+        // posthog.json sources must stay inside the project, so the project is the source folder and
+        // the link points back at it. Discovery doesn't follow linked folders, so the link is no loop.
+        symlinkSync(sources, join(sources, 'linked'))
         const plan = async (ignore: string[], linked = false): Promise<string> => {
-            const folder = project({})
-            if (linked) {
-                symlinkSync(sources, join(folder, 'linked'))
-            }
-            const path = linked ? 'linked' : sources
             writeFileSync(
-                join(folder, 'posthog.json'),
-                JSON.stringify({ errorTracking: { sources: [{ path, ignore }] } })
+                join(sources, 'posthog.json'),
+                JSON.stringify({ errorTracking: { sources: [{ path: linked ? 'linked' : '.', ignore }] } })
             )
+
             const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
                 env: { CLAUDECODE: '1' },
-                cwd: folder,
+                cwd: sources,
                 useDisk: true,
             })
             expect(result.exitCode).toBe(EXIT_SUCCESS)
@@ -541,6 +590,36 @@ describe('hog error-tracking upload', () => {
         } finally {
             rmSync(sources, { recursive: true, force: true })
         }
+    })
+
+    test.each([
+        ['an absolute path', (outside: string) => outside],
+        ['a path that climbs out with ..', (outside: string) => join('..', basename(outside))],
+        [
+            'a link out of the project',
+            (outside: string, folder: string) => {
+                symlinkSync(outside, join(folder, 'linked'))
+                return 'linked'
+            },
+        ],
+    ])('errorTracking.sources refuses %s, which still works on the command line', async (_name, source) => {
+        const outside = project({ 'mapping.txt': SMALL_MAPPING })
+        const folder = project({})
+        const path = source(outside, folder)
+        writeFileSync(
+            join(folder, 'posthog.json'),
+            JSON.stringify({ errorTracking: { sources: [{ path, mapId: 'map-1' }] } })
+        )
+        const run = (args: string[]): ReturnType<typeof runHog> =>
+            runHog(['et', 'upload', '--dry-run', ...args], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        const fromConfig = await run([])
+        const fromCommandLine = await run([path, '--map-id', 'map-1'])
+
+        expect(fromConfig.exitCode).toBe(EXIT_FAILURE)
+        expect(fromConfig.error()).toMatchObject({ code: 'unsafe_source_path', hint: expect.any(String) })
+        expect(fromCommandLine.exitCode).toBe(EXIT_SUCCESS)
+        expect(fromCommandLine.json(UploadOutput).symbolSets).toHaveLength(1)
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {
