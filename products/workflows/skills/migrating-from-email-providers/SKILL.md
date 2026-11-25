@@ -128,7 +128,7 @@ Follow the same steps, with these differences.
 
 **Key.** A Marketing API key, created in Mailchimp under Profile, Extras, API keys. It ends in the account's data center, such as `-us21`, and PostHog sends the key only to that data center. Every Mailchimp key can read and change the whole account, so ask the user to delete it once the import ends. Mailchimp Transactional (Mandrill) keys don't work here.
 
-**Contacts.** Only contacts subscribed to an audience become people, so unsubscribed, pending, transactional, archived and cleaned contacts don't. `contacts` needs `audiences`, `groups`, `cleaned` and `complaints` in the same run. Importing again takes anyone who left an audience out of its cohort. To add an audience's segments and tags, rebuild them as cohorts.
+**Contacts.** Only contacts subscribed to an audience become people, so unsubscribed, pending, transactional, archived and cleaned contacts don't. `contacts` needs `audiences`, `groups`, `cleaned` and `complaints` in the same run. Importing again takes anyone who left an audience out of its cohort, and everyone out of the cohort of an audience deleted in Mailchimp. That needs the key of an account owner or admin. The run names each emptied cohort. Ask the user to import once more right before they delete an audience, because PostHog can't see who unsubscribed after that. To add an audience's segments and tags, rebuild them as cohorts.
 
 **Campaigns.** Drafts, paused and scheduled campaigns import by default. Pass `campaigns: "recent"` to add campaigns sent in the last 90 days, or `"all"` for every campaign. Each becomes a draft template, so ask before importing years of sent campaigns.
 

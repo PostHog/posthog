@@ -108,6 +108,8 @@ class MailchimpClient:
         while True:
             page = self.page(path, items_key, len(rows), params)
             rows.extend(page.items)
+            if whole and len(rows) > page.total:
+                raise MailchimpAPIError("Mailchimp sent an unexpected response.")
             if len(rows) >= page.total:
                 return rows
             if not page.items:

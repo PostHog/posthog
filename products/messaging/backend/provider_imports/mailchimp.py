@@ -8,6 +8,7 @@ Steps that read contacts walk a sorted list of targets, one per audience and con
 by offset. The checkpoint names the target and the offset, so a retried step continues where it stopped.
 """
 
+import re
 import html
 import json
 import hashlib
@@ -76,7 +77,7 @@ from products.messaging.backend.services.mailchimp_client import (
     quoted,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
-from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, described_static_cohorts
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -110,6 +111,24 @@ TOO_MANY_AUDIENCES_MESSAGE = (
     "as CSV files instead."
 )
 ACCOUNT_NAME_LENGTH = 200
+NO_AUDIENCES_NOTE = (
+    "Mailchimp returned no audiences, so every cohort stays as it is. If you deleted your audiences, empty or delete "
+    "their cohorts yourself."
+)
+DELETED_AUDIENCE_NOTE = (
+    "This audience was deleted in Mailchimp, so everyone left its cohort. The people stay in PostHog."
+)
+NOT_EMPTIED_NOTE = (
+    "This audience was deleted in Mailchimp, but PostHog couldn't empty its cohort. Import again as someone who can edit "
+    "it."
+)
+UNCONFIRMED_AUDIENCE_NOTE = (
+    "Mailchimp doesn't list this audience, but PostHog couldn't confirm it was deleted, so its cohort stays as it is. "
+    "Import again with the API key of an owner or admin of the account."
+)
+# Other roles can have access to only some audiences, which for them looks like the rest were deleted.
+_ROLES_SEEING_EVERY_AUDIENCE = frozenset({"owner", "admin"})
+_AUDIENCE_COHORT = re.compile(r"audience ([^,]+)\.")
 OPT_OUT_STEPS = ("audiences", "groups", "cleaned", "complaints")
 _ADDRESS_PARTS = ("addr1", "addr2", "city", "state", "zip", "country")
 MAX_LIST_RESTARTS = 3
@@ -165,7 +184,7 @@ class MailchimpImportProvider(ImportProvider):
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Import once more right before you delete an audience or close your Mailchimp account. PostHog can't see who "
-        "unsubscribed after that, and the cohort of a deleted audience keeps its people.",
+        "unsubscribed after that. The next import takes everyone out of a deleted audience's cohort.",
         "Once nothing sends through Mailchimp, delete the API key you created for this import.",
     )
     settings = (
@@ -390,14 +409,11 @@ def _category_key(prefix: str, *parts: str) -> str:
 
 
 def _audiences(client: MailchimpClient) -> list[dict[str, Any]]:
-    return sorted(
-        (
-            audience
-            for audience in client.all("/lists", "lists", {"fields": _LIST_FIELDS}, whole=True)
-            if audience.get("id")
-        ),
-        key=lambda audience: str(audience["id"]),
-    )
+    audiences = client.all("/lists", "lists", {"fields": _LIST_FIELDS}, whole=True)
+    ids = {str(audience.get("id") or "") for audience in audiences}
+    if "" in ids or len(ids) < len(audiences):
+        raise MailchimpAPIError("Mailchimp sent an unexpected response.")
+    return sorted(audiences, key=lambda audience: str(audience["id"]))
 
 
 def _audience_name(audience: Mapping[str, Any]) -> str:
@@ -817,11 +833,20 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
     if len(audiences) > MAX_AUDIENCES:
         raise ImportTooLarge(TOO_MANY_AUDIENCES_MESSAGE)
     # A project can import several accounts, and each one's import sets only its own cohort of all contacts.
-    account = client.get("/", {"fields": "account_id,account_name"})
+    account = client.get("/", {"fields": "account_id,account_name,role"})
     account_id = _clean(account.get("account_id"))
     if not account_id:
         raise MailchimpAPIError("Mailchimp sent an unexpected response.")
     account_name = _clean(account.get("account_name")).strip() or account_id
+    if not audiences:
+        # Nothing tells an account whose audiences were all deleted from one that hides them.
+        item = ImportItem(
+            label=f"Mailchimp contacts, {account_name}"[:MAX_SOURCE_NAME_LENGTH],
+            status="skipped",
+            notes=(NO_AUDIENCES_NOTE,),
+        )
+        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, items=(item,)))
+        return
     # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
     # them again.
     run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
@@ -848,7 +873,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         lists.append(
             ContactList(
                 cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailchimp)",
-                cohort_description=f"Imported from Mailchimp audience {audience['id']}.",
+                cohort_description=f"{_account_prefix(account_id)}audience {audience['id']}.",
                 source=f'the Mailchimp audience "{name}"',
                 rows=tuple(members),
                 empty_note="No subscribed contacts, so no one is in its cohort.",
@@ -856,16 +881,107 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         )
     everyone = ContactList(
         cohort_name=f"Mailchimp contacts, {account_name[:ACCOUNT_NAME_LENGTH]}",
-        cohort_description=f"Imported from Mailchimp contacts of account {account_id}.",
+        cohort_description=f"{_account_prefix(account_id)}all contacts.",
         source=f'the contacts of the Mailchimp account "{account_name}"',
         rows=contacts.everyone,
         empty_note="No subscribed contacts, so no one is in its cohort.",
         repeats_merged=contacts.repeats_merged,
         invalid_skipped=contacts.invalid_skipped,
     )
-    yield ImportPage(
-        processed=read, save=partial(save_contact_lists, context, everyone, lists, contacts.other_spellings)
+    gone = _cohorts_of_missing_audiences(client, context, account_id, _clean(account.get("role")), audiences)
+
+    def save() -> SavedPage:
+        saved = save_contact_lists(context, everyone, [*lists, *gone.emptied], contacts.other_spellings)
+        if saved.error:
+            return saved
+        first_emptied = len(saved.items) - len(gone.emptied)
+        emptied = [
+            replace(item, notes=(NOT_EMPTIED_NOTE,))
+            if item.status == "failed"
+            # A skipped item says it was left as it is.
+            else replace(item, status="listed")
+            for item in saved.items[first_emptied:]
+        ]
+        # Before the audiences, because the run keeps only its first items.
+        return replace(saved, items=(saved.items[0], *emptied, *gone.kept, *saved.items[1:first_emptied]))
+
+    yield ImportPage(processed=read, save=save)
+
+
+def _account_prefix(account_id: str) -> str:
+    """Starts the description of every cohort this import makes. The account and what follows find the cohort again."""
+    return f"Imported from Mailchimp account {account_id}, "
+
+
+@frozen
+class _MissingAudiences:
+    emptied: tuple[ContactList, ...] = ()
+    kept: tuple[ImportItem, ...] = ()
+
+
+def _cohorts_of_missing_audiences(
+    client: MailchimpClient,
+    context: ImportContext,
+    account_id: str,
+    role: str,
+    audiences: list[dict[str, Any]],
+) -> _MissingAudiences:
+    """The cohorts an earlier import of this account made for audiences Mailchimp doesn't list anymore, as empty lists
+    when Mailchimp confirms the audience is gone."""
+    prefix = _account_prefix(account_id)
+    present = {str(audience["id"]) for audience in audiences}
+    made_by_imports = _cohort_ids_of_earlier_imports(context.team_id)
+    gone: dict[str, bool] = {}
+    emptied: list[ContactList] = []
+    kept: list[ImportItem] = []
+    for cohort in described_static_cohorts(context.team_id, prefix):
+        match = _AUDIENCE_COHORT.fullmatch(cohort.description.removeprefix(prefix))
+        if match is None or match[1] in present or cohort.id not in made_by_imports:
+            continue
+        if match[1] not in gone:
+            gone[match[1]] = role.lower() in _ROLES_SEEING_EVERY_AUDIENCE and _is_deleted(client, match[1])
+        if not gone[match[1]]:
+            kept.append(
+                ImportItem(
+                    label=cohort.name,
+                    status="skipped",
+                    url=f"/cohorts/{cohort.id}",
+                    notes=(UNCONFIRMED_AUDIENCE_NOTE,),
+                )
+            )
+            continue
+        emptied.append(
+            ContactList(
+                cohort_name=cohort.name,
+                cohort_description=cohort.description,
+                source=f'the deleted Mailchimp audience of "{cohort.name}"',
+                rows=(),
+                empty_note=DELETED_AUDIENCE_NOTE,
+            )
+        )
+    return _MissingAudiences(emptied=tuple(emptied), kept=tuple(kept))
+
+
+def _cohort_ids_of_earlier_imports(team_id: int) -> set[int]:
+    plans = (
+        ProviderImportRun.objects.for_team(team_id)
+        .filter(provider=ImportProviderKey.MAILCHIMP.value)
+        .values_list("progress__contacts__people_imports", flat=True)
     )
+    return {plan["cohort_id"] for stored in plans if stored for plan in stored}
+
+
+def _is_deleted(client: MailchimpClient, audience_id: str) -> bool:
+    try:
+        client.get(f"/lists/{quoted(audience_id)}", {"fields": "id"})
+    except MailchimpNotFound:
+        return True
+    except MailchimpRateLimited:
+        raise
+    except MailchimpAPIError as e:
+        if isinstance(e, MailchimpKeyRejected) and e.status_code != 403:
+            raise
+    return False
 
 
 def _collect_subscribed(

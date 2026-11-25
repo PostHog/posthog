@@ -19,12 +19,19 @@ from products.messaging.backend.provider_imports.base import (
     ImportProviderUnavailable,
     ImportStepBlocked,
 )
-from products.messaging.backend.provider_imports.mailchimp import MailchimpImportProvider
+from products.messaging.backend.provider_imports.mailchimp import (
+    DELETED_AUDIENCE_NOTE,
+    NO_AUDIENCES_NOTE,
+    NOT_EMPTIED_NOTE,
+    UNCONFIRMED_AUDIENCE_NOTE,
+    MailchimpImportProvider,
+)
 from products.messaging.backend.tests.fake_mailchimp import FULL_KEY, Failure, FakeMailchimp, split_url
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 
 CLIENT = "products.messaging.backend.services.mailchimp_client"
 HOST = "https://us21.api.mailchimp.com"
+NOVEDADES = "Novedades del producto ñ (from Mailchimp)"
 OPT_OUT_STEPS = ["audiences", "groups", "cleaned", "complaints"]
 # Every step that doesn't write people, so these runs need no ClickHouse.
 ALL_STEPS = [spec.key for spec in MailchimpImportProvider.steps if spec.key != "new_people" and spec.key != "contacts"]
@@ -594,3 +601,157 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         run = self._import_contacts("new_people")
 
         assert "new@example.com" not in self._staged(run)["Mailchimp contacts, Example Co"]
+
+    def _cohort(self, name: str) -> Cohort:
+        return Cohort.objects.get(team_id=self.team.id, name=name)
+
+    def _emptied(self, run: ProviderImportRun) -> dict[str, tuple[str, str]]:
+        """Each item that names a cohort an import before made for an audience that's missing now."""
+        return {
+            item["label"]: (item["status"], item["notes"][0])
+            for item in run.progress["contacts"]["items"]
+            if item["notes"][0] in (DELETED_AUDIENCE_NOTE, NOT_EMPTIED_NOTE, UNCONFIRMED_AUDIENCE_NOTE)
+        }
+
+    def test_the_cohort_of_a_deleted_audience_is_emptied_and_named_every_time(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        Cohort.objects.filter(id=self._cohort(NOVEDADES).id).update(name="Renamed here")
+        del self.mailchimp.data["lists"][1]
+
+        for _ in range(2):
+            run = self._import_contacts("new_people")
+
+            staged = self._staged(run)
+            assert staged["Renamed here"] == {}
+            assert set(staged["Mailchimp contacts, Example Co"]) == {
+                "ada@example.com",
+                "Grace.Hopper@example.com",
+                "linus@example.com",
+            }
+            assert self._emptied(run) == {"Renamed here": ("listed", DELETED_AUDIENCE_NOTE)}
+            assert "Novedades del producto ñ" in self._opt_outs()["Left.Person@example.com"]
+            self._close(run)
+
+    def _hide(self) -> None:
+        self.mailchimp.data["lists"][1]["hidden"] = True
+
+    def _delete(self) -> None:
+        del self.mailchimp.data["lists"][1]
+
+    def _as_manager(self) -> None:
+        self._delete()
+        self.mailchimp.data["account"] = {"account_id": "acct1", "account_name": "Example Co", "role": "manager"}
+
+    def _refuse_read(self, status: int) -> None:
+        self._delete()
+        self.mailchimp.failures.append(Failure(route="list", status=status, times=100))
+
+    @parameterized.expand(
+        [
+            ("still_there", lambda test: test._hide()),
+            ("role_without_every_audience", lambda test: test._as_manager()),
+            ("forbidden", lambda test: test._refuse_read(403)),
+            ("server_error", lambda test: test._refuse_read(500)),
+        ]
+    )
+    def test_an_audience_not_confirmed_deleted_keeps_its_cohort(
+        self, _name: str, change: Callable[["TestMailchimpContacts"], None]
+    ) -> None:
+        self._close(self._import_contacts("new_people"))
+        change(self)
+
+        run = self._import_contacts("new_people")
+
+        assert NOVEDADES not in self._staged(run)
+        assert self._emptied(run) == {NOVEDADES: ("skipped", UNCONFIRMED_AUDIENCE_NOTE)}
+
+    def _other_account(self) -> None:
+        self.mailchimp.data["account"] = {"account_id": "acct2", "account_name": "Other", "role": "owner"}
+
+    def _change_cohort(self, **values: Any) -> None:
+        Cohort.objects.filter(id=self._cohort(NOVEDADES).id).update(**values)
+
+    def _forget_imports(self) -> None:
+        ProviderImportRun.objects.for_team(self.team.id).delete()
+
+    @parameterized.expand(
+        [
+            ("another_account", lambda test: test._other_account()),
+            ("made_dynamic", lambda test: test._change_cohort(is_static=False)),
+            ("deleted_in_posthog", lambda test: test._change_cohort(deleted=True)),
+            ("description_edited", lambda test: test._change_cohort(description="Mine now")),
+            (
+                "account_unknown",
+                lambda test: test._change_cohort(description="Imported from Mailchimp audience f6e5d4c3b2."),
+            ),
+            ("not_made_by_an_import", lambda test: test._forget_imports()),
+        ]
+    )
+    def test_a_deleted_audience_leaves_cohorts_that_are_not_its_own_alone(
+        self, _name: str, change: Callable[["TestMailchimpContacts"], None]
+    ) -> None:
+        self._close(self._import_contacts("new_people"))
+        cohort_id = self._cohort(NOVEDADES).id
+        self._delete()
+        change(self)
+
+        run = self._import_contacts("new_people")
+
+        assert cohort_id not in {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]}
+        assert self._emptied(run) == {}
+
+    def test_a_copy_of_an_imported_cohort_is_not_emptied(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        original = self._cohort(NOVEDADES)
+        copy = Cohort.objects.create(
+            team_id=self.team.id, name="Copy", description=original.description, is_static=True
+        )
+        self._delete()
+
+        run = self._import_contacts("new_people")
+
+        planned = {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]}
+        assert original.id in planned and copy.id not in planned
+
+    def test_an_account_without_audiences_changes_no_cohort(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        self.mailchimp.data["lists"] = []
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert "people_imports" not in run.progress["contacts"]
+        assert run.progress["contacts"]["items"][0]["notes"] == [NO_AUDIENCES_NOTE]
+
+    @parameterized.expand(
+        [
+            ("error", (500, {}, {})),
+            ("short", (200, {"lists": [], "total_items": 2}, {})),
+            ("denies_the_rest", (200, {"lists": [], "total_items": 0}, {})),
+            ("repeats_one", None),
+            ("without_an_id", (200, {"lists": [{"name": "x"}], "total_items": 2}, {})),
+        ]
+    )
+    def test_an_audience_list_not_read_whole_empties_nothing(
+        self, name: str, later: tuple[int, dict, dict] | None
+    ) -> None:
+        self._close(self._import_contacts("new_people"))
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        self._patch(f"{CLIENT}.PAGE_SIZE", 1)
+        del self.mailchimp.data["lists"][2]
+        handle = self.mailchimp.handle
+
+        def cut(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            answer = handle(path, query, authorization)
+            if not path.endswith("/lists") or query.get("offset") == "0":
+                return answer
+            first = {"id": self.mailchimp.data["lists"][0]["id"], "name": "again"}
+            return later or (200, {"lists": [first], "total_items": 2}, {})
+
+        with patch.object(self.mailchimp, "handle", cut), self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
