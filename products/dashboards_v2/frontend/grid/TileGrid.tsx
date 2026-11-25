@@ -1,4 +1,6 @@
 import 'react-grid-layout/css/styles.css'
+// After the grid library's styles, which these override.
+import './TileGrid.css'
 
 import clsx from 'clsx'
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -30,7 +32,7 @@ const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's'
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
-const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
+const DRAG_CANCEL = '.SectionTile__body, .dash-WidgetCard__footer, button, a, input, textarea, [role="menuitem"]'
 
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void
@@ -189,7 +191,7 @@ export function TileGrid({
                 return
             }
             lastTarget.current = target
-            rootRef.current?.classList.toggle('DashboardV2__grid--tile-away', target !== null)
+            rootRef.current?.classList.toggle('TileGrid--tile-away', target !== null)
             setDropTarget(target)
         },
         [setDropTarget]
@@ -205,6 +207,18 @@ export function TileGrid({
         },
         [onPlaceTiles]
     )
+
+    // A cell that mounts after the grid did is a tile just added, which can land below the scrolled view.
+    const gridMounted = useRef(false)
+    useEffect(() => {
+        gridMounted.current = true
+    }, [])
+    const scrollToAdded = useCallback((marker: HTMLSpanElement | null): void => {
+        if (marker && gridMounted.current) {
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            marker.parentElement?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+        }
+    }, [])
 
     // A grid can leave the page while a tile from it is still carried: undo, or its section closing.
     useEffect(
@@ -229,14 +243,16 @@ export function TileGrid({
         () =>
             shownTiles.map((tile) =>
                 tile.id === GHOST_ID ? (
-                    <div key={GHOST_ID} className="DashboardV2__drop-preview" />
+                    <div key={GHOST_ID} className="TileGrid__drop-preview" />
                 ) : (
-                    <div key={tile.id} data-dv2-tile={tile.id} className="DashboardV2__tile">
+                    <div key={tile.id} data-dv2-tile={tile.id} className="TileGrid__tile">
+                        {/* The grid library replaces a cell's own ref with its own, so a marker inside reports the mount. */}
+                        <span ref={scrollToAdded} hidden />
                         {renderTile(tile, columnWidthPx(width, cols), setSectionRows)}
                     </div>
                 )
             ),
-        [shownTiles, width, cols, renderTile, setSectionRows]
+        [shownTiles, width, cols, renderTile, setSectionRows, scrollToAdded]
     )
 
     return (
@@ -244,7 +260,7 @@ export function TileGrid({
             ref={rootRef}
             data-dv2-grid={gridId}
             data-dv2-cols={cols}
-            className={clsx('DashboardV2__grid', editable && 'DashboardV2__grid--editable')}
+            className={clsx('TileGrid', editable && 'TileGrid--editable')}
             // The width is worked out in pixels from the grid around this one, so no class can carry it.
             // oxlint-disable-next-line react/forbid-dom-props
             style={{ width }}
@@ -253,7 +269,7 @@ export function TileGrid({
                 width={width}
                 layout={layout}
                 gridConfig={{ cols, rowHeight: GRID.rowPx, margin: MARGIN, containerPadding: NO_PADDING }}
-                dragConfig={{ enabled: editable, handle: '.DashboardV2__handle', cancel: DRAG_CANCEL }}
+                dragConfig={{ enabled: editable, handle: '.TileGrid__handle', cancel: DRAG_CANCEL }}
                 resizeConfig={{ enabled: editable }}
                 compactor={compactor}
                 onDragStart={(current, _old, item, _placeholder, _event, node) => {

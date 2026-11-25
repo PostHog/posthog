@@ -52,3 +52,30 @@ def test_unknown_table_fails_before_sending_credentials() -> None:
     assert not valid
     assert message is not None and "not available" in message
     assert network.requests_log == []
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "child_status", "valid"),
+    [
+        ("orders", 200, True),
+        ("orders", 403, False),
+        ("team_users", 403, True),
+        ("team_users", 401, False),
+    ],
+)
+def test_team_table_probe_checks_first_team(schema_name: str, child_status: int, valid: bool) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"projects": []}),
+            ScriptedResponse(json={"teams": [{"team_id": 7}]}),
+            ScriptedResponse(status=child_status, json={"error": {"code": child_status, "message": "Denied"}}),
+        ]
+    ) as network:
+        result = LokaliseSource().validate_credentials(LokaliseSourceConfig(api_token="test-token"), 1, schema_name)
+    assert result[0] is valid
+    child_path = "orders" if schema_name == "orders" else "users"
+    assert [request.path for request in network.requests_log] == [
+        "/api2/projects",
+        "/api2/teams",
+        f"/api2/teams/7/{child_path}",
+    ]

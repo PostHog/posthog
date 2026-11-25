@@ -1,7 +1,10 @@
-import './DashboardV2.scss'
+import './DashboardV2View.css'
 
-import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useState } from 'react'
+import clsx from 'clsx'
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
 import type { DropTarget } from '../grid/dropTargets'
@@ -9,13 +12,16 @@ import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
+import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
-import { type Dashboard, GRID, activeGridTab } from './dashboardTypes'
+import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
+import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
 import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 
-const STACKED_REASON = 'Open this dashboard on a wider screen to edit it'
+// A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
+const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
 
 export interface DashboardV2ViewProps {
     controller: DashboardV2Controller
@@ -42,11 +48,41 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         (id: string, collapsed: boolean) => setFolds((previous) => ({ ...previous, [id]: collapsed })),
         []
     )
+    const rootRef = useRef<HTMLDivElement>(null)
+    // While set, every tile mounts, so the image has no placeholders.
+    const [downloadingImage, setDownloadingImage] = useState(false)
+    const downloadImage = useCallback(
+        async (format: ImageFormat): Promise<void> => {
+            const root = rootRef.current
+            if (!root) {
+                return
+            }
+            setDownloadingImage(true)
+            try {
+                const { dashboard, activeTabId } = controller
+                const tab = activeGridTab(dashboard, activeTabId).title
+                const oneOfMany = gridTabs(dashboard).length > 1
+                await lemonToast.promise(
+                    downloadDashboardImage(root, oneOfMany ? `${dashboard.title} ${tab}` : dashboard.title, format),
+                    {
+                        pending: oneOfMany ? `Drawing every tile on the "${tab}" tab` : 'Drawing every tile',
+                        success: oneOfMany ? `Image of the "${tab}" tab downloaded` : 'Image downloaded',
+                        error: 'Could not create the image. Try again.',
+                    }
+                )
+            } catch {
+                // The toast already says it failed.
+            } finally {
+                setDownloadingImage(false)
+            }
+        },
+        [controller]
+    )
 
     const state = useMemo<DashboardV2State>(() => {
         const { activeTabId, disabledReasonFor: hostReason, onEdit: hostOnEdit, ...rest } = controller
         const disabledReasonFor = (action: DashboardV2Action): string | null =>
-            hostReason(action) ?? (stacked ? STACKED_REASON : null)
+            hostReason(action) ?? (stacked && action === 'placeTiles' ? STACKED_REASON : null)
         const view = (dashboard: Dashboard): Dashboard => withFolds(dashboard, folds, sizeOf)
         const dashboard = view(rest.dashboard)
         return {
@@ -58,8 +94,10 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             can: (action) => disabledReasonFor(action) === null,
             onEdit: (edit) => hostOnEdit(edit, view),
             onSectionFoldedChange,
+            downloadImage: (format) => void downloadImage(format),
+            downloadingImage,
         }
-    }, [controller, stacked, sizeOf, folds, onSectionFoldedChange])
+    }, [controller, stacked, sizeOf, folds, onSectionFoldedChange, downloadImage, downloadingImage])
     const drag = useMemo<GridDragState>(() => ({ dropTarget, setDropTarget }), [dropTarget])
     const [mountScheduler] = useState(createTileMountScheduler)
     useEffect(() => () => mountScheduler.dispose(), [mountScheduler])
@@ -96,27 +134,33 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     return (
         <DashboardV2StateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
-                <TileMountContext.Provider value={mountScheduler}>
-                    <div
-                        data-quill
-                        className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
-                    >
-                        {header}
-                        <DashboardV2Tabs />
-                        <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
-                            {mounted && width > 0 && (
-                                <DashboardTileGrid
-                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                    gridId={activeTab.id}
-                                    tiles={tiles}
-                                    cols={GRID.columns}
-                                    width={width}
-                                    editable={can('placeTiles')}
-                                />
+                <TimeRangeContext.Provider value={controller.dashboard.time ?? DEFAULT_TIME_RANGE}>
+                    <TileMountContext.Provider value={downloadingImage ? null : mountScheduler}>
+                        <div
+                            ref={rootRef}
+                            data-quill
+                            className={clsx(
+                                'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                downloadingImage && 'DashboardV2View--capturing'
                             )}
+                        >
+                            {header}
+                            <DashboardV2Tabs />
+                            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2View__canvas">
+                                {mounted && width > 0 && (
+                                    <DashboardTileGrid
+                                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                        gridId={activeTab.id}
+                                        tiles={tiles}
+                                        cols={GRID.columns}
+                                        width={width}
+                                        editable={can('placeTiles')}
+                                    />
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </TileMountContext.Provider>
+                    </TileMountContext.Provider>
+                </TimeRangeContext.Provider>
             </GridDragContext.Provider>
         </DashboardV2StateContext.Provider>
     )

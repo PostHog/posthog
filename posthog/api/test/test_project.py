@@ -1466,6 +1466,26 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     @parameterized.expand(
         [
+            ("every_project_moved", True, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+            ("one_project_left_on_the_legacy_table", False, FlagEvaluationsMode.EVENTS),
+        ]
+    )
+    def test_flag_evaluations_mode_of_an_organization_on_the_native_events_table(
+        self, _name, other_project_moved, expected_mode
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        listed = [self.team.id, other_team.id] if other_project_moved else [self.team.id]
+
+        with (
+            self.is_cloud(True),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ",".join(map(str, listed))),
+        ):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+
+        self.assertEqual(response.json()["flag_evaluations_mode"], expected_mode)
+
+    @parameterized.expand(
+        [
             ("events_writes_kept", True, False, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
             ("events_writes_kept_while_reads_are_forced_to_events", True, True, FlagEvaluationsMode.EVENTS),
             (

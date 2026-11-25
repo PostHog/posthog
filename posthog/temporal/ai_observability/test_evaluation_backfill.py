@@ -424,6 +424,102 @@ class TestEvaluationBackfillWorkflow:
             await replayer.replay_workflow(history)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("target", ["generation", "trace"])
+    async def test_a_unit_stopped_by_a_disabled_evaluation_dispatches_again_once_enabled(
+        self, target: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
+        evaluation = {
+            "id": "E",
+            "team_id": 42,
+            "evaluation_type": "llm_judge",
+            "output_type": "boolean",
+            "enabled": False,
+            "deleted": False,
+        }
+        advances: list[AdvanceCursorInputs] = []
+
+        @temporalio.activity.defn(name="prepare_evaluation_backfill_tick_activity")
+        async def prepare(_: EvaluationBackfillInputs) -> PrepareTickOutput:
+            return _tick(
+                target=target,
+                evaluation_type="llm_judge",
+                settle={"strategy": "fixed_window", "window_seconds": 10},
+            )
+
+        @temporalio.activity.defn(name="find_evaluation_backfill_candidates_activity")
+        async def find(_: FindCandidatesInputs) -> FindCandidatesOutput:
+            return _found([_candidate("u0")], exhausted=True)
+
+        @temporalio.activity.defn(name="advance_evaluation_backfill_cursor_activity")
+        async def advance(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput:
+            advances.append(inputs)
+            return AdvanceCursorOutput(finished=True)
+
+        @temporalio.activity.defn(name="measure_evaluation_backfill_remainder_activity")
+        async def measure(_: MeasureRemainderInputs) -> None:
+            return
+
+        @temporalio.activity.defn(name="run_local_evaluation_activity")
+        async def local(_: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+        @temporalio.activity.defn(name="fetch_evaluation_activity")
+        async def fetch(_: RunEvaluationInputs) -> dict[str, Any]:
+            return evaluation
+
+        @temporalio.activity.defn(
+            name="execute_llm_judge_activity" if target == "generation" else "execute_trace_llm_judge_activity"
+        )
+        async def judge(_: dict[str, Any]) -> EvaluationActivityResult:
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        @temporalio.activity.defn(
+            name="emit_evaluation_event_activity" if target == "generation" else "emit_trace_evaluation_event_activity"
+        )
+        async def emit(_: dict[str, Any]) -> None:
+            return
+
+        @temporalio.activity.defn(name="emit_internal_telemetry_activity")
+        async def telemetry(_: dict[str, Any]) -> None:
+            return
+
+        task_queue = settings.LLMA_EVALS_TASK_QUEUE
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[EvaluationBackfillWorkflow, RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
+                activities=[prepare, find, advance, measure, local, fetch, judge, emit, telemetry],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                for backfill_id in ("B1", "B2"):
+                    await env.client.execute_workflow(
+                        EvaluationBackfillWorkflow.run,
+                        EvaluationBackfillInputs(backfill_id=backfill_id, team_id=42),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(hours=1),
+                    )
+                    evaluation["enabled"] = True
+
+        assert [
+            (
+                page.stop_reason,
+                page.dispatched_delta,
+                page.skipped_delta,
+                page.completed_delta,
+                page.evaluation_skipped_delta,
+                page.failed_delta,
+            )
+            for page in advances
+        ] == [
+            ("evaluation_disabled", 1, 0, 0, 0, 1),
+            (None, 1, 0, 1, 0, 0),
+        ]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("max_in_flight,in_flight_limit,peak", [(0, 0, 16), (4, 0, 4), (4, 9, 4)])
     async def test_batch_dispatch_waits_for_outcomes_before_advancing(
         self, max_in_flight: int, in_flight_limit: int, peak: int

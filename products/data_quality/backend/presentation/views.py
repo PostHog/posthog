@@ -31,7 +31,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    get_authenticator_scopes,
+    request_subject,
+)
 from posthog.rate_limit import (
     DataQualityRunBurstRateThrottle,
     DataQualityRunProjectRateThrottle,
@@ -40,6 +45,10 @@ from posthog.rate_limit import (
     PersonalApiKeyRateThrottle,
     exhausted_throttle_wait,
 )
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
@@ -94,7 +103,9 @@ class _DataQualitySubjectPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not isinstance(view, _QualityGatedViewSet):
             return False
-        if not view.user_access_control.check_access_level_for_object(view.team, "member"):
+        if not authorization.check(
+            resource=Resource.project(view.team.pk), action=Action.VIEW, subject=request_subject(request)
+        ):
             return False
         return bool(view._authorized_subject_types(write=request.method not in SAFE_METHODS))
 
@@ -162,7 +173,11 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
     def _require_query_access(self) -> None:
         # required_scopes gates tokens; session users carry no scopes and AccessControlPermission
         # only checks the warehouse resource, so enforce query RBAC explicitly too.
-        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(self.request),
+        ):
             raise PermissionDenied("You need query access to work with data quality checks.")
 
     @cached_property
@@ -192,12 +207,15 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             self._denial_context(), self.user_access_control, allowed=self._authorized_subject_types(write=True)
         )
 
+    @cached_property
+    def _object_denial_applies(self) -> bool:
+        # Per-check gates ask this once per check, and its organization admin check reads the membership.
+        return api.can_be_object_denied(self.user_access_control)
+
     def _can_be_object_denied(self) -> bool:
         # Shared with the information_schema loaders, so the two surfaces agree on which callers a
         # gate applies to as well as on what it decides.
-        return api.can_be_object_denied(self.user_access_control) or self._authorized_subject_types() != frozenset(
-            SubjectType
-        )
+        return self._object_denial_applies or self._authorized_subject_types() != frozenset(SubjectType)
 
     def _denial_context(self) -> api.DenialContext:
         """The subjects this caller may read, and the names they are denied. Once per request.
@@ -761,7 +779,11 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
     @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
     @action(methods=["GET"], detail=False, pagination_class=None)
     def metric_subjects(self, request: Request, **kwargs) -> Response:
-        if not self.user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.DATA_CATALOG, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(request),
+        ):
             raise PermissionDenied("You need data catalog access to create checks on metrics.")
         metrics = api.testable_metric_subjects(self.team_id)
         if self._can_be_object_denied():
