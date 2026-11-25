@@ -64,7 +64,12 @@ _ELEMENT_LABELS = {"selector": "CSS selector", "tag_name": "tag name", "href": "
 
 def metric_compile_values(ctx: HealthContext) -> CheckValues:
     compiles = ctx.metric_compiles
-    if ctx.archived or compiles is None or compiles.exposure_query_fails or compiles.metric_count == 0:
+    if (
+        ctx.archived
+        or compiles is None
+        or compiles.exposure_query_fails
+        or compiles.metric_count in (0, compiles.warehouse_native_count)
+    ):
         return {}
     return {
         ExperimentHealthValueKey.METRIC_COUNT: compiles.metric_count,
@@ -81,6 +86,8 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
         return not_checked("Couldn't check because the metric queries couldn't be built")
     if compiles.metric_count == 0:
         return no_calculated_metric(ctx)
+    if compiles.warehouse_native_count == compiles.metric_count:
+        return not_applicable("Doesn't run on metrics from a warehouse-native query")
     if compiles.exposure_query_fails:
         return not_checked("Couldn't check because the exposure criteria can't be built into a query")
     if not compiles.failures:

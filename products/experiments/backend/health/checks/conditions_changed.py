@@ -38,6 +38,7 @@ from products.experiments.backend.health.checks.change_wording import (
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     change_rows,
+    change_values,
     changes_to_check,
     count_only_after,
     exposed_when,
@@ -78,6 +79,7 @@ from products.experiments.backend.health.skips import (
     CheckOutcome,
     CheckRows,
     CheckSkip,
+    CheckValues,
     not_applicable,
 )
 from products.experiments.backend.health.split_changes import format_change_time
@@ -93,6 +95,10 @@ _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
 def release_conditions_changed_rows(ctx: HealthContext) -> CheckRows:
     return change_rows(ctx, ConditionsChange)
+
+
+def release_conditions_changed_values(ctx: HealthContext) -> CheckValues:
+    return change_values(ctx, ConditionsChange)
 
 
 def _compared_nothing_throughout(ctx: HealthContext, effect: ConditionsNetEffect) -> bool:
