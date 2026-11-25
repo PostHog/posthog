@@ -3,11 +3,15 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache.backends.locmem import LocMemCache
+
 from parameterized import parameterized
 
+from posthog.api.tag_definition import TagMutationBurstRateThrottle, TagMutationSustainedRateThrottle
 from posthog.api.tagged_item import apply_bulk_tag_changes
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership, PersonalAPIKey, Tag, Team, User
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.tag_management import merge_tags
 from posthog.utils import feature_flag_bootstrap
 
@@ -124,6 +128,25 @@ class TestTagDefinitions(APIBaseTest):
         self.membership.level = OrganizationMembership.Level.MEMBER
         self.membership.save()
         self.assertEqual(self._request(operation).status_code, 403)
+
+    @parameterized.expand(
+        [
+            (throttle_class, operation)
+            for throttle_class in [TagMutationBurstRateThrottle, TagMutationSustainedRateThrottle]
+            for operation in ["patch", "delete", "merge"]
+        ]
+    )
+    def test_session_mutation_limits_leave_reads_available(
+        self, throttle_class: type[PersonalApiKeyOrUserRateThrottle], operation: str
+    ) -> None:
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(PersonalApiKeyOrUserRateThrottle, "cache", LocMemCache(f"tag-mutation-{uuid4()}", {})),
+            patch.object(throttle_class, "rate", "1/minute"),
+        ):
+            self.assertEqual(self._request(operation).status_code, 204 if operation == "delete" else 200)
+            self.assertEqual(self._request(operation).status_code, 429)
+            self.assertEqual(self.client.get(self.url).status_code, 200)
 
     @parameterized.expand(["get", "patch", "delete", "preview", "merge"])
     def test_personal_api_keys_cannot_manage_tags(self, operation: str) -> None:
