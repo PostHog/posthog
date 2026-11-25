@@ -626,8 +626,10 @@ class TestMarketingRecommendations(SimpleTestCase):
             _campaign(id="a", name="Alpha", cost=2000, conversions=20),
             _campaign(id="b", name="Beta", cost=2000, conversions=20),
             _campaign(id="pmax", name="PMax", channel_type="PERFORMANCE_MAX", cost=1000, conversions=10),
+            _campaign(id="brand", name="Brand"),
         )
         terms = (
+            _term("example", "brand", cost=200, conversions=5, clicks=100),
             _term("example pricing", "a", cost=300, conversions=1),
             _term("product analytics", "a", cost=1700, conversions=19),
             _term("example login", "b", cost=500, conversions=1),
@@ -645,7 +647,44 @@ class TestMarketingRecommendations(SimpleTestCase):
         shared = next(rec for rec in leaks if rec.level == "account")
         assert [step.copyValue for step in shared.steps or [] if step.copyValue] == ['"example"', "Beta\nAlpha"]
         assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
+        assert (shared.impact, shared.impactType) == (760, "estimated")
         validate_identity(shared.identity)
+
+    @parameterized.expand(
+        [
+            ("no_brand_campaign_saves_all_of_it", None, 300, "measured", "without an ad."),
+            ("brand_campaign_pays_for_the_clicks", 2.0, 280, "estimated", "at a lower cost."),
+            ("brand_campaign_pays_more_per_click", 40.0, None, "estimated", "without an ad."),
+            ("paused_brand_campaign_serves_nothing", 2.0, 300, "measured", "without an ad.", "PAUSED"),
+            ("brand_campaign_blocks_its_brand_search", 2.0, 300, "measured", "without an ad.", "ELIGIBLE", True),
+        ]
+    )
+    def test_brand_leak_saving_leaves_out_what_the_brand_campaign_pays_for_the_same_clicks(
+        self,
+        _name: str,
+        brand_cpc: float | None,
+        impact: int | None,
+        impact_type: str,
+        reason_end: str,
+        brand_status: str = "ELIGIBLE",
+        brand_blocks_search: bool = False,
+    ) -> None:
+        campaigns: tuple[CampaignStats, ...] = (_campaign(id="generic", name="Generic", cost=2000, conversions=20),)
+        terms: tuple[SearchTermStats, ...] = (
+            _term("example pricing", "generic", cost=300, conversions=1, clicks=10),
+            _term("product analytics", "generic", cost=1700, conversions=19),
+        )
+        if brand_cpc is not None:
+            campaigns += (_campaign(id="brand", name="Brand", primary_status=brand_status),)
+            terms += (_term("example", "brand", cost=100 * brand_cpc, conversions=5, clicks=100),)
+
+        excluded = frozenset({ExcludedSearch(term="example", campaign_id="brand")} if brand_blocks_search else ())
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
+
+        leaks = [rec for rec in recommend(inputs) if rec.rule == "brand_leak"]
+
+        assert [(rec.subject, rec.impact, rec.impactType) for rec in leaks] == [("Generic", impact, impact_type)]
+        assert leaks[0].reason.endswith(reason_end)
 
     @parameterized.expand(
         [
@@ -810,6 +849,34 @@ class TestMarketingRecommendations(SimpleTestCase):
             "funnel analysis": (150, "gain", "estimated"),
             "cohort analysis": (300, "gain", "estimated"),
         }
+
+    @parameterized.expand(
+        [
+            ("brand_campaign_serves_it_too", 1000, [("example", 1000)]),
+            ("only_the_leaking_campaign_serves_it", 0, []),
+        ]
+    )
+    def test_brand_overlap_leaves_out_the_spend_a_brand_leak_already_covers(
+        self, _name: str, brand_campaign_cost: float, expected: list[tuple[str, int]]
+    ) -> None:
+        campaigns: tuple[CampaignStats, ...] = (_campaign(id="generic", name="Generic", cost=2000, conversions=20),)
+        terms: tuple[SearchTermStats, ...] = (
+            _term("example", "generic", cost=400, conversions=1),
+            _term("product analytics", "generic", cost=1600, conversions=19),
+        )
+        if brand_campaign_cost:
+            campaigns += (_campaign(id="brand", name="Brand"),)
+            terms += (
+                replace(
+                    _term("example", "brand", cost=brand_campaign_cost, conversions=5), absolute_top_percentage=0.95
+                ),
+            )
+        organic = (OrganicQueryStats(query="example", clicks=500, impressions=1000, position=1.0),)
+
+        recs = recommend(_inputs(campaigns, terms, organic))
+
+        assert [rec.subject for rec in recs if rec.rule == "brand_leak"] == ["Generic"]
+        assert [(rec.subject, rec.impact) for rec in recs if rec.rule == "brand_overlap"] == expected
 
     @parameterized.expand(
         [

@@ -30,7 +30,7 @@ from products.knowledge_writer.merge_check.facts import (
     YesNoFact,
 )
 from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
-from products.knowledge_writer.merge_check.judge import JudgeVerdict
+from products.knowledge_writer.merge_check.judge import GATEWAY_LABELS_HEADER, JudgeVerdict, judge_client, judge_merge
 from products.knowledge_writer.merge_check.sources import LandedChange, read_page_sources
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
@@ -196,7 +196,7 @@ def fake_sitemap() -> httpx.Client:
 
 
 def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
-    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse), default_headers={})
     client.with_options = lambda **_options: client
     return cast(Anthropic, client)
 
@@ -681,3 +681,39 @@ def test_a_diff_path_cannot_read_outside_the_repository_contents() -> None:
         "/repos/PostHog/posthog/contents/%252e%252e/%252e%252e/orgs/PostHog",
         "/repos/PostHog/posthog/contents/posthog/models/team.py",
     ]
+
+
+def test_judge_call_labels_its_stage_and_keeps_the_client_labels(settings: Any) -> None:
+    settings.AI_GATEWAY_URL = "https://ai-gateway.example.com/v1"
+    settings.AI_GATEWAY_API_KEY = "phs_test"
+    commit_sha = "c" * 40
+    sent_labels: list[dict[str, str]] = []
+    verdict_text = json.dumps({"needs_docs": False, "change_kind": None, "page_urls": [], "reason": "internal"})
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        sent_labels.append(json.loads(request.headers[GATEWAY_LABELS_HEADER]))
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-sonnet-5-5",
+                "content": [{"type": "text", "text": verdict_text}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    with judge_client(commit_sha) as client:
+        verdict = judge_merge(
+            client.with_options(http_client=httpx.Client(transport=httpx.MockTransport(respond))),
+            title="Rename an internal helper",
+            judged_diff=COMPONENT_CHUNK,
+            docs_page_paths=FLAGS_PATHS[:1],
+            page_text_by_key={},
+        )
+
+    assert verdict.reason == "internal"
+    assert sent_labels == [{"commit_sha": commit_sha, "ai_product": "knowledge_writer", "ai_stage": "judge"}]
