@@ -131,7 +131,9 @@ describe('ResultHandlingPipeline', () => {
             // Create chunk results directly
             const chunkResults = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
-                createContext(redirect('test redirect', OVERFLOW_OUTPUT, true, false), { message: messages[1] }),
+                createContext(redirect('test redirect', OVERFLOW_OUTPUT, true, false, [], [], { attempts: '1' }), {
+                    message: messages[1],
+                }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
@@ -143,7 +145,9 @@ describe('ResultHandlingPipeline', () => {
             expect(results).not.toBeNull()
             expect(results).toHaveLength(3)
             expect(results![0]).toEqual(createContext(ok({ processed: 'test1' }), { message: messages[0] }))
-            expect(results![1].result).toEqual(redirect('test redirect', OVERFLOW_OUTPUT, true, false))
+            expect(results![1].result).toEqual(
+                redirect('test redirect', OVERFLOW_OUTPUT, true, false, [], [], { attempts: '1' })
+            )
             expect(results![1].context.sideEffects).toHaveLength(1)
             expect(results![2]).toEqual(createContext(ok({ processed: 'test3' }), { message: messages[2] }))
 
@@ -159,7 +163,8 @@ describe('ResultHandlingPipeline', () => {
                 messages[1],
                 'unknown',
                 true,
-                false
+                false,
+                { attempts: '1' }
             )
         })
 
@@ -211,7 +216,8 @@ describe('ResultHandlingPipeline', () => {
                 messagesWithHeaders[0],
                 'unknown',
                 false,
-                true
+                true,
+                undefined
             )
 
             // Verify the message passed to redirect has the correct headers
@@ -420,7 +426,8 @@ describe('ResultHandlingPipeline', () => {
                 messages[3],
                 'unknown',
                 true,
-                true
+                true,
+                undefined
             )
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(
                 config.outputs,
@@ -595,7 +602,8 @@ describe('ResultHandlingPipeline', () => {
                 messages[0],
                 'unknown',
                 true, // default preserveKey
-                true // default awaitAck
+                true, // default awaitAck
+                undefined
             )
         })
     })

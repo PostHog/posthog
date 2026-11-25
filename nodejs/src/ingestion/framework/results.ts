@@ -33,6 +33,8 @@ export type PipelineResultRedirect<R extends string = never> = {
     output: R
     preserveKey?: boolean
     awaitAck?: boolean
+    /** Added to the headers of the redirected message, on top of the original ones. */
+    headers?: Record<string, string>
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
 }
@@ -106,7 +108,8 @@ export function redirect<T, R extends string>(
     preserveKey: boolean = true,
     awaitAck: boolean = true,
     sideEffects: Promise<unknown>[] = [],
-    warnings: PipelineWarning[] = []
+    warnings: PipelineWarning[] = [],
+    headers?: Record<string, string>
 ): PipelineResult<T, R> {
     return {
         type: PipelineResultType.REDIRECT,
@@ -114,6 +117,7 @@ export function redirect<T, R extends string>(
         output,
         preserveKey,
         awaitAck,
+        headers,
         sideEffects,
         warnings,
     }

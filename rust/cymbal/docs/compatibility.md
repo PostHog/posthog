@@ -18,6 +18,10 @@ A cymbal version that does not know the header answers with the array described 
 | `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The resolution service can also report an item as poison, but does not yet. The code is `invalid_input`. |
 | `retry` | The resolution pool did not resolve the event, but resolved another event of the request. The code is `deadline_exceeded` when the resolution deadline passed, and `resolution_unavailable` when every attempt on a resolution pod failed. |
 
+The Node.js error-tracking consumer sends a `retry` event to its overflow lane.
+The overflow lane puts the event back on its topic and sends it to the DLQ after three attempts.
+A consumer without an overflow lane sends it to the DLQ.
+
 A request with more events than `PROCESS_MAX_EVENTS_PER_REQUEST` (10000 by default) is rejected with a 413.
 
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.

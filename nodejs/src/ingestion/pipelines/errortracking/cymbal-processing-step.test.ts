@@ -162,6 +162,64 @@ describe('createCymbalProcessingStep', () => {
         })
     })
 
+    describe('an event Cymbal asks to retry', () => {
+        const retry: CymbalResult = { result: 'retry', error: { code: 'deadline_exceeded', message: 'slow' } }
+        const withAttempts = (attempts?: string) => ({
+            ...createInput(),
+            message: { headers: attempts === undefined ? [] : [{ 'cymbal-retry-attempts': Buffer.from(attempts) }] },
+        })
+
+        it('goes to the overflow lane from the main lane, also when the whole batch asks', async () => {
+            step = createCymbalProcessingStep(mockCymbalClient, {
+                overflowMode: 'redirect',
+                preservePartitionLocality: false,
+            })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
+
+            const results = await step([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
+
+            for (const result of results) {
+                expect(result).toMatchObject({
+                    type: PipelineResultType.REDIRECT,
+                    reason: 'cymbal_item_retry',
+                    output: 'overflow',
+                    preserveKey: false,
+                })
+            }
+        })
+
+        it.each([
+            [undefined, '1'],
+            ['1', '2'],
+        ])('goes back on the overflow topic after %s earlier attempts there', async (attempts, next) => {
+            step = createCymbalProcessingStep(mockCymbalClient, {
+                overflowMode: 'consume',
+                preservePartitionLocality: true,
+            })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+
+            const results = await step([withAttempts(attempts)])
+
+            expect(results[0]).toMatchObject({
+                type: PipelineResultType.REDIRECT,
+                output: 'overflow',
+                headers: { 'cymbal-retry-attempts': next },
+            })
+        })
+
+        it.each([
+            ['after its third attempt on the overflow lane', 'consume' as const, '2'],
+            ['when the consumer has no overflow lane', 'disabled' as const, undefined],
+        ])('goes to the DLQ %s', async (_name, overflowMode, attempts) => {
+            step = createCymbalProcessingStep(mockCymbalClient, { overflowMode, preservePartitionLocality: true })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+
+            const results = await step([withAttempts(attempts)])
+
+            expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
+        })
+    })
+
     it('passes all properties to Cymbal including GeoIP', async () => {
         const input = createInput({
             properties: {
