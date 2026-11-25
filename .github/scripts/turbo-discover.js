@@ -592,28 +592,37 @@ function pythonFilesUnder(repoRoot, dir) {
     return found
 }
 
-// The repo path a symlinked file points to, or null for a regular or missing file. A dangling
-// link (its target was deleted) still names the path it ran, so a deleted target reaches it.
-function symlinkTarget(file, repoRoot) {
-    const full = path.join(repoRoot, file)
-    try {
-        if (!fs.lstatSync(full).isSymbolicLink()) {
-            return null
+// The repo paths a symlinked file runs through, hop by hop, or [] for a regular or missing file.
+// Every hop counts: a change to an intermediate link retargets the chain, and a deleted last hop
+// leaves the chain dangling, where realpath fails. The hops resolve by text against each link's
+// directory, so a dangling chain still names its deleted file.
+const MAX_SYMLINK_HOPS = 40
+
+function symlinkChain(file, repoRoot) {
+    const hops = []
+    let current = path.join(repoRoot, file)
+    for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
+        let isLink
+        try {
+            isLink = fs.lstatSync(current).isSymbolicLink()
+        } catch {
+            break
         }
-    } catch {
-        return null
+        if (!isLink) {
+            break
+        }
+        current = path.resolve(path.dirname(current), fs.readlinkSync(current))
+        hops.push(path.relative(repoRoot, current))
     }
-    try {
-        return path.relative(fs.realpathSync(repoRoot), fs.realpathSync(full))
-    } catch {
-        // realpath fails on a dangling link, so resolve its own text against its directory.
+    // A hop through a symlinked directory names a path that is not the file's own, so add the real one.
+    if (hops.length > 0) {
+        try {
+            hops.push(path.relative(fs.realpathSync(repoRoot), fs.realpathSync(current)))
+        } catch {
+            // The chain dangles: its last hop is the deleted file.
+        }
     }
-    try {
-        const linkDir = fs.realpathSync(path.dirname(full))
-        return path.relative(fs.realpathSync(repoRoot), path.resolve(linkDir, fs.readlinkSync(full)))
-    } catch {
-        return null
-    }
+    return [...new Set(hops)]
 }
 
 // Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
@@ -697,11 +706,10 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
         }
         closed.set(product, reached)
     }
-    // A watched file that is a symlink runs its target, so the target is watched too.
+    // A watched file that is a symlink runs its target, so every hop of its chain is watched too.
     for (const files of closed.values()) {
         for (const file of [...files]) {
-            const target = symlinkTarget(file, repoRoot)
-            if (target !== null) {
+            for (const target of symlinkChain(file, repoRoot)) {
                 files.add(target)
             }
         }
@@ -902,11 +910,8 @@ function linksToChangedFiles(changedFiles, repoRoot) {
             continue
         }
         const link = entry.slice(entry.indexOf('\t') + 1)
-        const target = symlinkTarget(link, repoRoot)
-        if (target === null) {
-            continue
-        }
-        if (changedFiles.some((file) => file === target || file.startsWith(`${target}/`))) {
+        const chain = symlinkChain(link, repoRoot)
+        if (chain.some((target) => changedFiles.some((file) => file === target || file.startsWith(`${target}/`)))) {
             links.push(link)
         }
     }

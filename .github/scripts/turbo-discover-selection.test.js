@@ -736,38 +736,45 @@ test('a change to a shared file directly under products/ runs every product and 
     }
 })
 
-// A watched module that is a symlink runs its target, wherever the target lives.
-for (const [label, deleteTarget] of [
-    ['changed', false],
-    // The deleted target leaves the link dangling, so the link must still name it.
-    ['deleted', true],
+// A watched module that is a symlink runs its target, wherever the target lives. The targets sit
+// outside products/, where no other rule reaches the product.
+// Each case: the link chain from products/canvas/backend/linked.py, the changed file, and whether the diff deletes it.
+for (const [label, chain, changed, deleted] of [
+    ['a changed target', ['../../../shared/impl.py'], 'shared/impl.py', false],
+    // A deleted target leaves the link dangling, so the link must still name it.
+    ['a deleted target', ['../../../shared/impl.py'], 'shared/impl.py', true],
+    ['the deleted end of a two-hop chain', ['../../../shared/alias.py', 'impl.py'], 'shared/impl.py', true],
+    // Retargeting the middle link changes what the chain runs, while realpath names only the end.
+    ['a changed middle link', ['../../../shared/alias.py', 'impl.py'], 'shared/alias.py', false],
 ]) {
-test(`a ${label} target of a symlinked watched file runs Django`, () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
-    fs.mkdirSync(path.join(root, 'products/canvas/backend'), { recursive: true })
-    fs.mkdirSync(path.join(root, 'products/canvas/frontend'), { recursive: true })
-    fs.writeFileSync(path.join(root, 'products/canvas/frontend/_impl.py'), '')
-    fs.symlinkSync('../frontend/_impl.py', path.join(root, 'products/canvas/backend/linked.py'))
-    execFileSync('git', ['init', '-q'], { cwd: root })
-    execFileSync('git', ['add', '.'], { cwd: root })
-    const target = 'products/canvas/frontend/_impl.py'
-    if (deleteTarget) {
-        fs.rmSync(path.join(root, target))
-    }
-    const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
-    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
-    // The selector loads hoglint's answer only for a diff that reaches a product, so the link must reach it.
-    assert.deepEqual(productsReachedByFiles([target], ALL_PRODUCTS, root), ['canvas'])
-    const previous = process.cwd()
-    process.chdir(root)
-    try {
-        const deletedFiles = new Set(deleteTarget ? [target] : [])
-        assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target], deletedFiles }).runLegacy, true)
-    } finally {
-        process.chdir(previous)
-        fs.rmSync(root, { recursive: true, force: true })
-    }
-})
+    test(`${label} of a symlinked watched file runs Django`, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
+        fs.mkdirSync(path.join(root, 'products/canvas/backend'), { recursive: true })
+        fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+        fs.writeFileSync(path.join(root, 'shared/impl.py'), '')
+        fs.symlinkSync(chain[0], path.join(root, 'products/canvas/backend/linked.py'))
+        if (chain.length > 1) {
+            fs.symlinkSync(chain[1], path.join(root, 'shared/alias.py'))
+        }
+        execFileSync('git', ['init', '-q'], { cwd: root })
+        execFileSync('git', ['add', '.'], { cwd: root })
+        if (deleted) {
+            fs.rmSync(path.join(root, changed))
+        }
+        const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
+        const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
+        // The selector loads hoglint's answer only for a diff that reaches a product, so the link must reach it.
+        assert.deepEqual(productsReachedByFiles([changed], ALL_PRODUCTS, root), ['canvas'])
+        const previous = process.cwd()
+        process.chdir(root)
+        try {
+            const deletedFiles = new Set(deleted ? [changed] : [])
+            assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [changed], deletedFiles }).runLegacy, true)
+        } finally {
+            process.chdir(previous)
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
 }
 
 test('a symlink directly under products/ whose target changed runs every product and Django', () => {
