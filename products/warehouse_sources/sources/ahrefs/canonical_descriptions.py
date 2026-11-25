@@ -174,6 +174,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "traffic_value": "Estimated monthly value of the page's organic search traffic, in USD.",
         },
     },
+    "brand_radar_mentions_history": {
+        "description": "Estimated AI search mentions over time of the brands in the project's Brand Radar reports, per platform.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/brand-radar/post-mentions-history",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "report_id": "Identifier of the Brand Radar report whose brands were counted.",
+            "data_source": "AI search platform the mentions were counted on, for example chatgpt or perplexity.",
+            "date": "Date of the data point.",
+            "mentions": "Estimated number of AI responses that mention the brand.",
+        },
+    },
     "domain_rating_top_domains": {
         "description": "The top 1 million domains ranked by Ahrefs Domain Rating.",
         "docs_url": "https://docs.ahrefs.com/en/api/reference/public/get-domain-rating-top-domains",
@@ -220,6 +231,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "positions_source_domain": "Number of keywords the referring domain ranks for in the top 100 positions.",
             "first_seen": "Date Ahrefs first found a backlink to the target from the referring domain.",
             "last_seen": "Date the target lost its last live backlink from the referring domain.",
+        },
+    },
+    "top_pages": {
+        "description": "Pages of the project's target that get the most organic search traffic.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/site-explorer/get-top-pages",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "url": "The ranking page URL.",
+            "top_keyword": "The keyword that brings the most organic traffic from Google to the page.",
+            "top_keyword_country": "The country in which the page ranks for its top keyword.",
+            "top_keyword_best_position": "The ranking position that the page holds for its top keyword.",
+            "sum_traffic": "Estimated monthly organic traffic from Google that the page gets from all its keywords.",
+            "value": "Estimated value of the page's monthly organic traffic from Google, in USD cents.",
+            "keywords": "Number of keywords that the page ranks for in the top 100 organic search results.",
+            "referring_domains": "Number of unique domains that link to the page.",
+            "ur": "URL Rating: the strength of the page's backlink profile on a 100-point logarithmic scale.",
         },
     },
     "rank_tracker_overview": {
