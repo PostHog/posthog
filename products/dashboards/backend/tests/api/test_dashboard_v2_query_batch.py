@@ -3,7 +3,7 @@ import json
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import aclosing
-from threading import Event
+from threading import Event, Semaphore
 from typing import Any, cast
 from uuid import uuid4
 
@@ -207,17 +207,37 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(features, ["query"])
 
     def test_misses_past_a_users_query_share_are_busy_and_the_share_comes_back(self) -> None:
+        # A worker hands its share back after its line is streamed, so the test waits for both hand-backs.
+        ended = Semaphore(0)
+        query_ended = query_batch._query_ended
+
+        def counted(keys: tuple[Any, ...], future: Any) -> None:
+            query_ended(keys, future)
+            ended.release()
+
         with (
             patch("products.dashboards.backend.v2.query_batch.MAX_RUN_QUERIES_PER_USER", 2),
             patch("products.dashboards.backend.v2.query_batch.process_query_dict", return_value={"results": []}),
+            patch.object(query_batch, "_query_ended", counted),
         ):
             lines = self._lines([_insight("$pageview"), _insight("$autocapture"), _insight("$pageleave")])
+            self.assertTrue(all(ended.acquire(timeout=10) for _ in range(2)))
 
         self.assertEqual(
             [line.get("error") for line in lines],
             [None, None, "Too many dashboards are loading at once. Try again shortly."],
         )
         self.assertEqual(query_batch._org_queries, {})
+
+    def test_a_batch_that_cannot_start_its_workers_gives_its_shares_back(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.query_batch.ThreadPoolExecutor.submit", side_effect=RuntimeError),
+            self.assertRaises(RuntimeError),
+        ):
+            self._lines([_insight("$pageview"), _insight("$autocapture")])
+
+        self.assertEqual(query_batch._org_queries, {})
+        self.assertEqual(query_batch._org_batches, {})
 
     def test_a_disconnect_cancels_running_queries_with_tags_set(self) -> None:
         cancelled = Event()

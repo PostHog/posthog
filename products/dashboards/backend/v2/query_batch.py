@@ -867,24 +867,36 @@ class QueryBatch:
     def _start(self) -> bool:
         if not self._jobs:
             return True
-        # Under the lock, so the watchdog's `_close` sees either no admission or one with all of its futures.
-        with self._lock:
-            if self._closed:
-                return False
-            granted = _reserve_queries(self._shares, len(self._jobs))
-            if not granted:
-                return False
-            self._admitted = _admit_batch(self._shares)
-            if not self._admitted:
-                _release_queries(self._shares, granted)
-                return False
-            self._jobs, self._overflow = self._jobs[:granted], self._jobs[granted:]
-            self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
-            for index, query_id, query in self._jobs:
-                future = self._pool.submit(self._context.copy().run, self._work, index, query, query_id)
-                # Run or cancelled, each query gives its share back as it ends, not when the whole batch does.
-                future.add_done_callback(partial(_query_ended, self._shares))
-                self._futures.append(future)
+        unsubmitted = 0
+        try:
+            # Under the lock, so the watchdog's `_close` sees either no admission or one with all of its futures.
+            with self._lock:
+                if self._closed:
+                    return False
+                granted = _reserve_queries(self._shares, len(self._jobs))
+                if not granted:
+                    return False
+                self._admitted = _admit_batch(self._shares)
+                if not self._admitted:
+                    _release_queries(self._shares, granted)
+                    return False
+                self._jobs, self._overflow = self._jobs[:granted], self._jobs[granted:]
+                unsubmitted = granted
+                self._pool = ThreadPoolExecutor(
+                    max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch"
+                )
+                for index, query_id, query in self._jobs:
+                    future = self._pool.submit(self._context.copy().run, self._work, index, query, query_id)
+                    self._futures.append(future)
+                    unsubmitted -= 1
+                    # Run or cancelled, each query gives its share back as it ends, not when the whole batch does.
+                    future.add_done_callback(partial(_query_ended, self._shares))
+        except BaseException:
+            # A query that was never submitted gets no done callback, so its share goes back here. `_close` cancels
+            # the submitted ones and frees the batch slot.
+            _release_queries(self._shares, unsubmitted)
+            self._close(False)
+            raise
         return True
 
     def _close(self, complete: bool) -> None:
