@@ -1448,6 +1448,62 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "l9scan/": BotDefinition("LeakIX", "monitoring", "Bot", "LeakIX", documentation_url="https://leakix.net"),
     "Cortex-Xpanse": BotDefinition("Cortex Xpanse", "monitoring", "Bot", "Palo Alto Networks"),
     "NetcraftSurveyAgent": BotDefinition("Netcraft", "monitoring", "Bot", "Netcraft"),
+    # Self-declared agents seen in docs request logs
+    # AI crawlers and docs indexers
+    "kapa\\.ai": BotDefinition("kapa.ai", "ai_crawler", "AI Agent", "kapa.ai", documentation_url="https://www.kapa.ai"),
+    "code-docs-corpus/": BotDefinition("code-docs-corpus", "ai_crawler", "AI Agent", "Unknown"),
+    "ConareBot": BotDefinition("ConareBot", "ai_crawler", "AI Agent", "Conare"),
+    "atlaswiedzy/": BotDefinition("Atlas Wiedzy", "ai_crawler", "AI Agent", "Atlas Wiedzy"),
+    "TrainingDataFoundationBot": BotDefinition("TrainingDataFoundationBot", "ai_crawler", "AI Agent", "Unknown"),
+    "Docs-Mirrors-": BotDefinition("Docs Mirrors", "ai_crawler", "AI Agent", "Unknown"),
+    "-docs-ingest": BotDefinition("Docs ingest", "ai_crawler", "AI Agent", "Unknown"),
+    "ClawifiBot": BotDefinition("ClawifiBot", "ai_crawler", "AI Agent", "Clawifi"),
+    "InfraStack surface reader": BotDefinition("InfraStack", "ai_crawler", "AI Agent", "InfraStack"),
+    "GeneralRetrieval-Research": BotDefinition("GeneralRetrieval", "ai_crawler", "AI Agent", "Unknown"),
+    "AiInsightsBot": BotDefinition("AiInsightsBot", "ai_crawler", "AI Agent", "Unknown"),
+    "imagelocbot": BotDefinition("imagelocbot", "ai_crawler", "AI Agent", "Unknown"),
+    # AI search
+    "KeenableBot": BotDefinition("Keenable", "ai_search", "AI Agent", "Keenable"),
+    "zedsearch-bot/": BotDefinition("zedsearch", "ai_search", "AI Agent", "Unknown"),
+    # AI assistants and agent tools that fetch pages for one user's request
+    "ZenaAI-DocResearch": BotDefinition("Zena AI", "ai_assistant", "AI Agent", "Zena AI"),
+    "mdbrowse": BotDefinition("mdbrowse", "ai_assistant", "AI Agent", "Unknown"),
+    "docs-reader": BotDefinition("docs-reader", "ai_assistant", "AI Agent", "Unknown"),
+    "vault-research-capture": BotDefinition("vault-research-capture", "ai_assistant", "AI Agent", "Unknown"),
+    "OpenAI File Downloader": BotDefinition("OpenAI File Downloader", "ai_assistant", "AI Agent", "OpenAI"),
+    "XaiImageApiFetch": BotDefinition("xAI Image Fetch", "ai_assistant", "AI Agent", "xAI"),
+    # Search crawlers
+    "Bravebot": BotDefinition(
+        "Bravebot",
+        "search_crawler",
+        "Bot",
+        "Brave",
+        documentation_url="https://search.brave.com/help/brave-search-crawler",
+    ),
+    "Kagibot": BotDefinition("Kagibot", "search_crawler", "Bot", "Kagi"),
+    "CREDBot": BotDefinition("CREDBot", "search_crawler", "Bot", "Unknown"),
+    "SearchMisterBot": BotDefinition("SearchMisterBot", "search_crawler", "Bot", "Unknown"),
+    "SearcliBot": BotDefinition("SearcliBot", "search_crawler", "Bot", "Unknown"),
+    "RiverBot": BotDefinition("RiverBot", "search_crawler", "Bot", "Unknown"),
+    "BashBot": BotDefinition("BashBot", "search_crawler", "Bot", "Unknown"),
+    # Monitors and link checkers
+    "Blackbox Exporter/": BotDefinition(
+        "Prometheus Blackbox Exporter",
+        "monitoring",
+        "Bot",
+        "Prometheus",
+        documentation_url="https://github.com/prometheus/blackbox_exporter",
+    ),
+    "markdown-link-check/": BotDefinition(
+        "markdown-link-check",
+        "monitoring",
+        "Bot",
+        "markdown-link-check",
+        documentation_url="https://github.com/tcort/markdown-link-check",
+    ),
+    "link-check/": BotDefinition("link-check", "monitoring", "Bot", "link-check"),
+    # Scrapers
+    "scrapibara": BotDefinition("scrapibara", "http_client", "Automation", "Unknown"),
 }
 
 
