@@ -69,6 +69,7 @@ env:
         .github/actions/setup-pnpm
         .github/actions/setup-rust
         .github/workflows/release-hog.yml
+        cli/Cargo.lock
     # The approver checks run hog/release/check-approvers.sh as the last release tag has it, and pass
     # HOG_SOURCE_PATHS, plus the compiled files where a build listed them, as extra paths. Owners are the
     # pull requests that touched the checker's own RELEASE_PATHS or the extra paths. The extra paths come
@@ -89,7 +90,7 @@ env:
         b15fb50313c6bf32a76db83d40ff35afe61718fb
         799d46e6a3f739377c713ccc6f65aabb0b266e5f
         38b61c0ff33c4a9c7454acce28ba0dd22825f84f
-    COMPILED_OWNERS_CHECKER_BLOB: 70ce430ab208f3399bb6376949b509ac60babf9e
+    COMPILED_OWNERS_CHECKER_BLOB: ffe77107fcda538b8b7ae9426116625240e16f9f
     # Every approver check runs this as `bash -c "$PIN_OLD_CHECKER" pin <checker> <last tag>`. It swaps a
     # checker from OLD_CHECKER_BLOBS for the pinned blob, and fails when master never had that blob.
     PIN_OLD_CHECKER: |
@@ -99,7 +100,7 @@ env:
         if [[ " $OLD_CHECKER_BLOBS " != *" $(git hash-object "$checker") "* ]]; then
             exit 0
         fi
-        echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
+        echo "The approver check at $last_tag is an old copy, so the copy this workflow pins, blob $COMPILED_OWNERS_CHECKER_BLOB, runs instead"
         if ! git rev-parse -q --verify refs/remotes/origin/master >/dev/null; then
             git fetch --quiet --filter=blob:none origin +refs/heads/master:refs/remotes/origin/master
         fi
@@ -1137,7 +1138,8 @@ jobs:
             compiled-files: ${{ steps.compiled.outputs.files }}
         steps:
             # The workspace packages pnpm installs for hog, and the product files build:mcp bundles or
-            # copies in (services/mcp/scripts/copy-instructions.ts). A missing one fails the build.
+            # copies in (services/mcp/scripts/copy-instructions.ts). A missing one fails the build. The tests
+            # also read cli/Cargo.lock, to check that hog-worker pins the crates posthog-cli builds with.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
@@ -1160,6 +1162,7 @@ jobs:
                       /patches/
                       /.husky/
                       /bin/fix-rdkafka-paths
+                      /cli/Cargo.lock
                   sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies

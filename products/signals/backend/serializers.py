@@ -159,6 +159,7 @@ from .models import (
     SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
@@ -771,7 +772,32 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
     )
 
 
-class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+class FilterExpressionErrorSerializer(serializers.Serializer):
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, "
+            "`boolean_required` or `expression_limit`. Null when the expression is valid."
+        ),
+    )
+    error_start = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` where the invalid part starts. Null when the expression is "
+            "valid, or when the error has no position, for example an expression that is too long."
+        ),
+    )
+    error_end = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` just after the invalid part, so the part is "
+            "`expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example "
+            "an expression that ends too early. Null when `error_start` is null."
+        ),
+    )
+
+
+class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     status = serializers.ChoiceField(
         choices=SourceFilterPreviewStatus.choices,
         help_text=(
@@ -786,7 +812,10 @@ class SourceFilterPreviewResponseSerializer(serializers.Serializer):
     catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
     lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
     total_count = serializers.IntegerField(
-        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+        help_text=(
+            "Records in the window that emission would read before the filter. Leaves out records that never become "
+            "signals, such as Linear issues without a description. 0 unless `status` is `ok`."
+        )
     )
     passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
     excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
@@ -1011,7 +1040,23 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         for field in STEERING_FIELDS.values():
             representation[field] = representation[field] or ""
+        representation["default_autostart_priority"] = effective_autostart_priority(instance).value
         return representation
+
+    def update(self, instance: SignalTeamConfig, validated_data: dict[str, Any]) -> SignalTeamConfig:
+        # A project that never set the switch runs on the threshold `effective_autostart_priority`
+        # gives it. Setting the switch also stores that threshold, so that turning PRs off and on
+        # again does not bring back the P4 column default. A stored P4 with a null switch reads as
+        # never chosen, so only a P4 pick also stores the switch. Any other pick leaves the switch
+        # null, because an explicit True waives the per-reviewer opt-in for trial PRs.
+        if instance.autostart_enabled is None:
+            if validated_data.get("autostart_enabled", False) is None:
+                del validated_data["autostart_enabled"]
+            if "autostart_enabled" in validated_data:
+                validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
+            elif validated_data.get("default_autostart_priority") == AutonomyPriority.P4:
+                validated_data["autostart_enabled"] = True
+        return super().update(instance, validated_data)
 
     def validate_implementation_repositories(self, value: list[str]) -> list[str]:
         try:
@@ -1108,6 +1153,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
                     "false to opt out, so actionable reports still generate and notify but the team "
                     "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
+            "default_autostart_priority": {
+                "help_text": (
+                    "Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). "
+                    "Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. "
+                    "Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true."
                 )
             },
             "default_slack_notification_channel": {

@@ -9,10 +9,15 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.emission.linear_issues import EXTRA_FIELDS, LINEAR_ISSUES_CONFIG, linear_issue_emitter
 from products.signals.backend.filter_catalog import SignalFilterSourceDefinition
 from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalSourceConfig
@@ -26,6 +31,7 @@ _COLUMNS: dict[str, dict[str, str | bool]] = {
     "id": _STRING,
     "identifier": _STRING,
     "title": _STRING,
+    "description": _STRING,
     "url": _STRING,
     "created_at": _STRING,
     "priority": _INTEGER,
@@ -46,12 +52,14 @@ def _issue(
     project: str = '{"id": "p1", "name": "Core"}',
     assignee: str = "",
     state_type: str = "unstarted",
+    description: str | None = "Exports time out on large projects",
 ) -> list[object]:
     created_at = (timezone.now() - timedelta(days=days_ago)).isoformat()
     return [
         issue_id,
         f"ENG-{issue_id}",
         f"Issue {issue_id}",
+        description,
         f"https://linear.example.com/issue/{issue_id}",
         created_at,
         2,
@@ -135,6 +143,41 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         excluded = {record["id"]: record["malformed"] for record in preview["excluded"]}
         assert excluded == {"assigned": False, "other-project": False, "malformed": True}
 
+    def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
+        """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""
+        self._linear_issues(
+            [_issue("described"), _issue("whitespace", description="\n "), _issue("missing", description=None)]
+        )
+
+        preview = self._preview("")
+
+        assert preview["total_count"] == 2
+        assert {record["id"] for record in preview["passing"] + preview["excluded"]} == {"described", "whitespace"}
+
+    def test_linear_emittable_where_keeps_what_the_emitter_keeps(self) -> None:
+        descriptions = [None, "", " ", "\n", "Exports time out"]
+        assert LINEAR_ISSUES_CONFIG.emittable_where is not None
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT description, {emittable} FROM (SELECT arrayJoin({descriptions}) AS description)",
+                placeholders={
+                    "emittable": parse_expr(LINEAR_ISSUES_CONFIG.emittable_where),
+                    "descriptions": ast.Array(exprs=[ast.Constant(value=description) for description in descriptions]),
+                },
+            ),
+            team=self.team,
+        )
+
+        kept_by_hogql = {description for description, kept in response.results if kept}
+        kept_by_emitter = {
+            description
+            for description in descriptions
+            if linear_issue_emitter(
+                self.team.pk, {**dict.fromkeys(EXTRA_FIELDS), "id": "1", "title": "Issue", "description": description}
+            )
+        }
+        assert kept_by_hogql == kept_by_emitter
+
     def test_preview_runs_with_the_requesters_warehouse_access(self) -> None:
         self._linear_issues([_issue("passes")])
         self.organization.available_product_features = [
@@ -163,14 +206,27 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_field", "category = 'Core'", None, "invalid_expression"),
-            ("no_linear_import", "project_name = 'Core'", None, "not_connected"),
-            ("first_sync_pending", "project_name = 'Core'", "no_table", "not_synced"),
-            ("import_lacks_a_bound_column", "project_name = 'Core'", "no_labels_column", "incompatible_table"),
+            ("unknown_field", "category = 'Core'", None, "invalid_expression", ("unknown_field", 0, 8)),
+            ("syntax", "project_name = ", None, "invalid_expression", ("syntax", 15, 15)),
+            ("type", "priority = 'high'", None, "invalid_expression", ("type", 0, 17)),
+            ("no_linear_import", "project_name = 'Core'", None, "not_connected", (None, None, None)),
+            ("first_sync_pending", "project_name = 'Core'", "no_table", "not_synced", (None, None, None)),
+            (
+                "import_lacks_a_bound_column",
+                "project_name = 'Core'",
+                "no_labels_column",
+                "incompatible_table",
+                (None, None, None),
+            ),
         ]
     )
     def test_preview_reports_why_it_has_no_records(
-        self, _name: str, expression: str, linear_import: str | None, expected_status: str
+        self,
+        _name: str,
+        expression: str,
+        linear_import: str | None,
+        expected_status: str,
+        expected_error: tuple[str | None, int | None, int | None],
     ) -> None:
         if linear_import == "no_table":
             source = ExternalDataSource.objects.create(
@@ -189,6 +245,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
 
         assert preview["status"] == expected_status
         assert preview["total_count"] == 0
+        assert (preview["error_code"], preview["error_start"], preview["error_end"]) == expected_error
 
     def test_preview_is_refused_where_the_filter_cannot_be_saved(self) -> None:
         with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=False):

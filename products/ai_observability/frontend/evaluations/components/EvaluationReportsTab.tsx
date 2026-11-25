@@ -67,6 +67,7 @@ export function EvaluationReportsTab({
         shownDestinations,
         editingDestinations,
         destinationsError,
+        dataProcessingAccepted,
     } = useValues(logic)
     const {
         reportRuns,
@@ -97,10 +98,10 @@ export function EvaluationReportsTab({
             evaluationReportTracking.tabViewed({
                 report_count: reportRuns.length,
                 has_destination: activeReport.delivery_targets.length > 0,
-                enabled: activeReport.enabled,
+                enabled: activeReport.enabled && dataProcessingAccepted,
             })
         }
-    }, [activeReport, reportRunsLoading, reportRuns.length])
+    }, [activeReport, dataProcessingAccepted, reportRunsLoading, reportRuns.length])
 
     if (reportsLoadFailed) {
         return (
@@ -140,7 +141,7 @@ export function EvaluationReportsTab({
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
                         <p className="m-0 min-w-0 flex-1 basis-64 text-sm text-secondary">
-                            {activeReport.enabled
+                            {activeReport.enabled && dataProcessingAccepted
                                 ? `Reports ${reportText({ ...savedDraft, cooldownMinutes: activeReport.cooldown_minutes })}`
                                 : 'Reports are off'}
                             {' · '}
@@ -292,7 +293,7 @@ export function EvaluationReportsTab({
                         },
                     ]}
                     emptyState={
-                        activeReport?.enabled && activeReport.frequency === 'every_n'
+                        dataProcessingAccepted && activeReport?.enabled && activeReport.frequency === 'every_n'
                             ? `No report yet. The first one arrives after ${activeReport.trigger_threshold ?? 100} new results.`
                             : 'No report yet.'
                     }

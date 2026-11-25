@@ -145,4 +145,10 @@ describe('emailSenderControlLogic', () => {
             expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
         )
     })
+
+    it('does not offer the sandbox sender for a sensitive own step, which the sandbox sender would make not sensitive', async () => {
+        await setUp({ ...ownStep(), config: { ...ownStep().config, sensitive: true } } as HogFlowAction, STATUS, {})
+
+        expect(logic.values.showSandboxOption).toBe(false)
+    })
 })

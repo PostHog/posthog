@@ -27,15 +27,24 @@ class DashboardCreationMode(LabeledStrEnum):
     UNLISTED = "unlisted", "Unlisted (product-embedded)"
 
 
-# A plain StrEnum, not a LabeledStrEnum: only the stored values cross the boundary, and the OpenAPI
-# build names a component after every labeled enum it finds.
-class DashboardTemplateScope(StrEnum):
+# Keep the labels equal to those of `DashboardTemplate.Scope`. The OpenAPI build names the
+# `DashboardTemplateScopeEnum` component after the two classes only while they hold the same choices.
+class DashboardTemplateScope(LabeledStrEnum):
     """Who can use a dashboard template. Mirrors `DashboardTemplate.Scope`."""
 
-    ONLY_TEAM = "team"
-    ORGANIZATION = "organization"
-    GLOBAL = "global"
-    FEATURE_FLAG = "feature_flag"
+    ONLY_TEAM = "team", "Only team"
+    ORGANIZATION = "organization", "Organization"
+    GLOBAL = "global", "Global"
+    FEATURE_FLAG = "feature_flag", "Feature Flag"
+
+
+class DashboardTemplateOrdering(StrEnum):
+    """How the template list sorts after featured templates. A search sorts by relevance instead."""
+
+    NAME = "template_name"
+    NAME_DESCENDING = "-template_name"
+    CREATED_AT = "created_at"
+    CREATED_AT_DESCENDING = "-created_at"
 
 
 class DashboardUsageCount(StrEnum):
@@ -45,3 +54,10 @@ class DashboardUsageCount(StrEnum):
     FROM_TEMPLATE = "from_template"
     SHARED = "shared"
     TAGGED = "tagged"
+
+
+class QueryBatchLanguage(LabeledStrEnum):
+    """What a query batch target's `query` text holds."""
+
+    INSIGHT = "insight", "Insight"
+    HOGQL = "hogql", "HogQL"

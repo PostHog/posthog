@@ -133,6 +133,7 @@ const FLAGGED_SERIES = [
     makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', dailyValues(8, 5, { 2: 30 }), [2]),
     makeSeries(1, 'Signups by referrer', 'Direct', 'day', dailyValues(64, 50, { 17: 20, 3: 30, 2: 28 }), [17, 3, 2]),
     makeSeries(1, 'Signups by referrer', 'Partners', 'day', dailyValues(5, 3, { 2: 18 }), [2]),
+    makeSeries(4, 'Invites sent', 'Invites sent', 'day', dailyValues(120, 80, { 1: 310 }), [1]),
     makeSeries(
         2,
         'Checkout started',

@@ -60,6 +60,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import IPThrottle
 from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.ceilings import clamp_scopes_to_ceiling, resolve_requested_scopes
@@ -609,7 +610,8 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
         )
 
     @extend_schema(request=DeviceApprovalSerializer, responses={200: DeviceDecisionSerializer})
-    @action(methods=["POST"], detail=False)
+    # Approval hands the client a refresh token that outlives this session, so it needs a recent sign-in.
+    @action(methods=["POST"], detail=False, permission_classes=[IsAuthenticated, TimeSensitiveActionPermission])
     def approve(self, request: Request) -> Response:
         """Approve a device grant for one project. The token gets the requested scopes the person kept."""
         # Late import: the views module imports this one for the token endpoint.
