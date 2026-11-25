@@ -24,7 +24,7 @@ describe('commandKSearchLogic', () => {
 
     test.each<[boolean, string[]]>([
         [false, []],
-        [true, ['Home', 'Chats', 'Analytics', 'People', 'Products', 'Settings']],
+        [true, ['Home', 'Chats', 'Analyze', 'People', 'Products', 'Settings']],
     ])('with the new navigation set to %s, lists its sidebar sections', (enabled, names) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled })
 

@@ -42,7 +42,7 @@ describe('withBackLink', () => {
             'an Analytics page names itself',
             '/project/1/analytics/all?type=notebook',
             '/notebooks/abc',
-            { backUrl: '/analytics/all?type=notebook', backName: 'Analytics' },
+            { backUrl: '/analytics/all?type=notebook', backName: 'Analyze' },
         ],
         [
             'a hop keeps the Analytics link it was given',

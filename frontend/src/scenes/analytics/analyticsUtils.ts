@@ -1,9 +1,7 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
-import { urls } from 'scenes/urls'
 
 import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -99,7 +97,7 @@ export function analyticsItemTarget(
     return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
 }
 
-export const ANALYTICS_BACK_NAME = 'Analytics'
+export const ANALYTICS_BACK_NAME = 'Analyze'
 
 /** The item's page, told where the person came from so its back control returns there rather than to the type's own list. */
 export function analyticsOpenHref(item: Pick<AnalyticsItem, 'href'>, backUrl: string): string {
@@ -199,12 +197,13 @@ export function fileSystemEntryToAnalytics(
 // pane only, so the Products list leaves them out.
 export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 'mcp_analytics'] as const
 
-// The order By PostHog lists its pages in, after Product analytics. Each is a page of the Products tab.
+// The order By PostHog lists its pages in. Each is a page of the Products tab.
 const BY_POSTHOG_ICON_TYPES = [
     'web_analytics',
     'marketing_analytics',
     'mcp_analytics',
     'session_replay',
+    'replay_vision',
     'activity',
     'heatmap',
 ] as const
@@ -222,30 +221,10 @@ export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boo
 
 export function fromPostHogProducts(): FromPostHogItem[] {
     const products = getNavProductPages()
-    // The manifest lists product analytics as a plain insight entry, so it gets a product icon here.
-    const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
-    const home: FromPostHogItem[] = productAnalytics
-        ? [
-              {
-                  key: 'product_analytics',
-                  label: 'Product analytics',
-                  href: urls.insights(),
-                  item: {
-                      ...productAnalytics,
-                      iconType: 'product_analytics',
-                      href: urls.insights(),
-                      flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
-                  },
-              },
-          ]
-        : []
-    return [
-        ...home,
-        ...BY_POSTHOG_ICON_TYPES.flatMap((iconType) => {
-            const item = products.find((product) => product.iconType === iconType)
-            return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
-        }),
-    ]
+    return BY_POSTHOG_ICON_TYPES.flatMap((iconType) => {
+        const item = products.find((product) => product.iconType === iconType)
+        return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
+    })
 }
 
 export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem[] {

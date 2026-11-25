@@ -29,8 +29,8 @@ export function TodayProductsAnalyticsHint({ analyticsTypes }: { analyticsTypes:
                         </IconStackItem>
                     ))}
                 </IconStack>
-                <EmptyTitle>{`${title} are in Analytics`}</EmptyTitle>
-                <EmptyDescription>Canvases, dashboards, notebooks and insights live in Analytics.</EmptyDescription>
+                <EmptyTitle>{`${title} are in Analyze`}</EmptyTitle>
+                <EmptyDescription>Canvases, dashboards, notebooks and insights live in Analyze.</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
                 <Button
@@ -39,7 +39,7 @@ export function TodayProductsAnalyticsHint({ analyticsTypes }: { analyticsTypes:
                     render={<LinkPrimitive to={urls.analyticsList()} />}
                     data-attr="today-products-analytics-hint-open"
                 >
-                    Open Analytics
+                    Open Analyze
                 </Button>
             </EmptyContent>
         </Empty>

@@ -124,11 +124,15 @@
                                                                         "analytics_mine",
                                                                         "collections",
                                                                         "dashboards",
+                                                                        "insights",
                                                                         "alerts",
                                                                         "subscriptions",
                                                                         "product_analytics",
                                                                         "web_analytics",
                                                                         "sql_editor",
+                                                                        "business_intelligence",
+                                                                        "streamlit_apps",
+                                                                        "engineering_analytics",
                                                                         "new_insight"
                                                                     ],
                                                                     "type": "string"
@@ -254,11 +258,15 @@
                                                                         "analytics_mine",
                                                                         "collections",
                                                                         "dashboards",
+                                                                        "insights",
                                                                         "alerts",
                                                                         "subscriptions",
                                                                         "product_analytics",
                                                                         "web_analytics",
                                                                         "sql_editor",
+                                                                        "business_intelligence",
+                                                                        "streamlit_apps",
+                                                                        "engineering_analytics",
                                                                         "new_insight"
                                                                     ],
                                                                     "type": "string"

@@ -21,11 +21,15 @@ class AnalyticsPage(LabeledStrEnum):
     ANALYTICS_MINE = "analytics_mine", "My work"
     COLLECTIONS = "collections", "Collections"
     DASHBOARDS = "dashboards", "Dashboards"
+    INSIGHTS = "insights", "Insights"
     ALERTS = "alerts", "Alerts"
     SUBSCRIPTIONS = "subscriptions", "Subscriptions"
     PRODUCT_ANALYTICS = "product_analytics", "Product analytics"
     WEB_ANALYTICS = "web_analytics", "Web analytics"
     SQL_EDITOR = "sql_editor", "SQL editor"
+    BUSINESS_INTELLIGENCE = "business_intelligence", "Business intelligence"
+    STREAMLIT_APPS = "streamlit_apps", "Apps"
+    ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering analytics"
     NEW_INSIGHT = "new_insight", "New insight"
 
 

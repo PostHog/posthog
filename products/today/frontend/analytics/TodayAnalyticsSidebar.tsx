@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
@@ -17,6 +18,7 @@ import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+import { todayProductsLogic } from '~/layout/today/todayProductsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
@@ -28,7 +30,7 @@ import { ANALYTICS_SIDEBAR_CONFIGURATION } from './analyticsSidebarConfiguration
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { TodayAnalyticsRecordPreview } from './TodayAnalyticsRecordPreview'
-import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
+import { isSidebarTargetShown, resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
 /**
  * The Analytics sub-nav, drawn from the person's layout: sections of links, buttons, metrics and the lists PostHog
@@ -36,6 +38,8 @@ import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
+    const { products } = useValues(todayProductsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
@@ -170,8 +174,8 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             search={{
                 query: searchQuery,
                 onChange: setSearchQuery,
-                label: 'Search analytics',
-                empty: 'Nothing in Analytics matches your search.',
+                label: 'Search Analyze',
+                empty: 'Nothing in Analyze matches your search.',
             }}
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
@@ -182,7 +186,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
-                    return target
+                    return target && isSidebarTargetShown(target, products, featureFlags)
                         ? {
                               ...target,
                               active: isOpen(target.path),
@@ -204,7 +208,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             }}
             customization={{
                 prompt:
-                    'Help me personalize my Analytics sidebar for my current work. Start by checking what is already there. ' +
+                    'Help me personalize my Analyze sidebar for my current work. Start by checking what is already there. ' +
                     'If I give a specific change, apply it directly and ask only for missing details. Otherwise, ask what ' +
                     'I need to open most often and which existing sections I want to keep. For a general redesign, use ' +
                     'my recent activity summary when available, together with Pinned and Recents, to suggest a few useful ' +
@@ -216,7 +220,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 event: 'analytics sidebar customize clicked',
             }}
             dataAttrPrefix="analytics-sidebar"
-            refreshError="Couldn’t refresh the Analytics sidebar."
+            refreshError="Couldn’t refresh the Analyze sidebar."
         />
     )
 }

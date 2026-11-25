@@ -62,6 +62,17 @@ describe('Analytics sidebar options', () => {
         expect(SidebarAgentListener).not.toHaveBeenCalled()
     })
 
+    test.each([
+        [{}, false],
+        [{ [FEATURE_FLAGS.STREAMLIT_APPS]: true }, true],
+    ])('with flags %o, shows the Apps row: %s', (flags, shown) => {
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        render(<TodayAnalyticsSidebar />)
+
+        expect(screen.queryByText('Insights')).not.toBeNull()
+        expect(screen.queryByText('Apps') !== null).toBe(shown)
+    })
+
     it('offers only personalization before a layout is saved, and opens PostHog AI in the side panel', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.UI_CUSTOMIZATION]: true,
@@ -75,7 +86,7 @@ describe('Analytics sidebar options', () => {
         fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-customize"]')!)
 
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-        expect(sidePanelStateLogic.values.selectedTabOptions).toMatch(/^!Help me personalize my Analytics sidebar/)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toMatch(/^!Help me personalize my Analyze sidebar/)
         expect(router.values.location.pathname).toContain(urls.analyticsList())
     })
 

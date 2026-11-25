@@ -32,7 +32,7 @@ const TODAY_TOUR_STEPS: TodayTourStep[] = [
         title: 'Home',
         description: 'What changed in your product today, with highlights, metrics that moved and suggestions for you.',
     },
-    introStep('analytics', 'Analytics'),
+    introStep('analytics', 'Analyze'),
     introStep('people', 'People'),
     introStep('release', 'Release'),
     introStep('monitor', 'Monitor'),

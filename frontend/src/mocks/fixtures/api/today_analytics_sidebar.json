@@ -37,7 +37,35 @@
                         "type": "link",
                         "to": {
                             "kind": "page",
+                            "page": "insights"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
                             "page": "sql_editor"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "business_intelligence"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "streamlit_apps"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "engineering_analytics"
                         }
                     }
                 ]
