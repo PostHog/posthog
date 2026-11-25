@@ -8776,6 +8776,8 @@ def create_task(
             warm_github_integration_id = _report_task_github_integration_id(
                 team, code_access_allowed=code_access_allowed
             )
+            if warm_custom_image_id is None:
+                warm_custom_image_id = _report_discussion_custom_image_id(team_id, warm_github_integration_id)
         warm_run = (
             None
             if validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT and not report_discussion
@@ -10153,6 +10155,14 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
     return integration.id if integration is not None else None
 
 
+def _report_discussion_custom_image_id(team_id: int, github_integration_id: int | None) -> str | None:
+    if github_integration_id is None:
+        return None
+    from products.signals.backend.facade.report_tasks import implementation_custom_image_id  # noqa: PLC0415
+
+    return implementation_custom_image_id(team_id=team_id)
+
+
 def _reserve_report_warm_activation(
     team: Team, task: Task, *, relationship: str | None, description: str | None = None
 ) -> str:
@@ -10261,6 +10271,8 @@ def warm_task_sandbox(
         normalized_repositories = []
         repository = None
         github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
+        if custom_image_id is None:
+            custom_image_id = _report_discussion_custom_image_id(team_id, github_integration_id)
     github_integration = None
     if github_integration_id is not None:
         try:
@@ -10619,6 +10631,7 @@ def run_task(
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
         implementation_access_repositories,
+        implementation_custom_image_id,
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
@@ -10788,6 +10801,16 @@ def run_task(
                 kind="detail", detail="The run's MCP scopes exceed the task profile or run source permissions."
             )
         )
+    default_custom_image_id = None
+    if (
+        report_id_for_slot_check is not None
+        and not resume_from_run_id
+        and validated_data.get("custom_image_id") is None
+    ):
+        if is_implementation:
+            default_custom_image_id = implementation_custom_image_id(team_id=team_id)
+        elif profile is not None and profile.public:
+            default_custom_image_id = _report_discussion_custom_image_id(team_id, task.github_integration_id)
     warm_run = (
         None
         if pipeline_rerun
@@ -10821,7 +10844,7 @@ def run_task(
             desired_context_window = validated_data.get("context_window")
             desired_fast_mode = validated_data.get("fast_mode")
             desired_sandbox_environment_id = validated_data.get("sandbox_environment_id")
-            desired_custom_image_id = validated_data.get("custom_image_id")
+            desired_custom_image_id = validated_data.get("custom_image_id") or default_custom_image_id
             if previous_state is not None:
                 assert previous_run is not None
                 desired_runtime_adapter = desired_runtime_adapter or previous_state.runtime_adapter
@@ -11066,6 +11089,8 @@ def run_task(
             extra_state["github_access_repositories"] = list(
                 dict.fromkeys([*cloned_repositories, *access_repositories])
             )
+    if default_custom_image_id is not None:
+        extra_state["custom_image_id"] = default_custom_image_id
     for key, value in run_state_values.items():
         if value is not None:
             extra_state[key] = value.value if hasattr(value, "value") else value

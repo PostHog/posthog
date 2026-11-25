@@ -7,7 +7,7 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
-import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
+import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, ruleOf } from './faults'
 import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
@@ -23,7 +23,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
-export { SesRejectParams, SesThrottleParams } from './faults'
+export { AmbiguousParams, SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
 export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
@@ -59,6 +59,9 @@ type Reply = { status: number; body?: object; errorType?: string }
 
 type Silence = 'drop-connection' | 'no-answer' | 'stalled-body'
 
+const silenceOf = ({ kind }: SesAnswer): Silence | undefined =>
+    kind === 'drop-connection' || kind === 'no-answer' || kind === 'stalled-body' ? kind : undefined
+
 function respond(res: http.ServerResponse, { status, body, errorType }: Reply): void {
     res.writeHead(status, {
         'content-type': 'application/json',
@@ -92,8 +95,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
-    const actionIdOf = (trackingCode: string | undefined): string | undefined =>
-        trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)?.actionId
+    const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
+        const tracked = trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)
+        return { actionId: tracked?.actionId, flowId: tracked?.functionId }
+    }
 
     const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
@@ -103,11 +108,15 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         const { message } = request
         const recipients = addressesOf(message.to)
-        const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
+        const correlation = { unitId: unitIdOf(recipients), ...trackedOf(trackingCodeOf(message)) }
         const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
-        if (fault && fault.answer.kind !== 'status' && fault.answer.kind !== 'bounce') {
+        if (fault?.answer.kind === 'ambiguous' && !fault.answer.accepted) {
+            return 'drop-connection'
+        }
+        const silence = fault && silenceOf(fault.answer)
+        if (silence) {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
-            return fault.answer.kind
+            return silence
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
@@ -133,7 +142,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (fault?.answer.kind === 'bounce' && feedback) {
             setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
         }
-        return { status: 200, body: { MessageId: messageId } }
+        return fault?.answer.kind === 'ambiguous' ? 'drop-connection' : { status: 200, body: { MessageId: messageId } }
     }
 
     const sendFeedback = async (
@@ -247,7 +256,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
         const fault = faults.takeWebhook(host)
-        const status = fault?.status ?? 200
+        if (fault?.answer.kind === 'webhook-ambiguous' && !fault.answer.accepted) {
+            req.socket.destroy()
+            return
+        }
+        const status = fault?.answer.kind === 'webhook-status' ? fault.answer.status : 200
         truth.append({
             kind: 'webhook',
             status,
@@ -256,6 +269,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             actionId,
             detail: { request: { method: req.method ?? 'GET', host, path: target } },
         })
+        if (fault?.answer.kind === 'webhook-ambiguous') {
+            req.socket.destroy()
+            return
+        }
         respond(res, { status, body: fault ? { message: `${fault.name} answered ${status}` } : { ok: true } })
     }
 

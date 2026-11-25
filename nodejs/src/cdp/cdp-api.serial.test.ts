@@ -5336,7 +5336,7 @@ describe('CDP API', () => {
                 expect(res.body.results).toEqual([
                     { status: 202, body: queuedAs(runIdOf(recipients[0])) },
                     { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(recipients[1]) } },
-                    { status: 400, body: { error: expect.any(String), invocation_id: runIdOf(recipients[2]) } },
+                    { status: 400, body: { error: 'invalid_recipient', invocation_id: runIdOf(recipients[2]) } },
                     { status: 202, body: queuedAs(runIdOf(recipients[3])) },
                     { status: 422, body: { error: 'recipient_suppressed', invocation_id: runIdOf(suppressed) } },
                     { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
@@ -5661,7 +5661,7 @@ describe('CDP API', () => {
                 async (_case, route, payload) => {
                     const res = await sendBatch(route, payload())
 
-                    expect(res.status).toEqual(400)
+                    expect([res.status, res.body]).toEqual([400, { error: 'invalid_request' }])
                     expect(intakeRecords()).toEqual([])
                 }
             )
@@ -5694,7 +5694,7 @@ describe('CDP API', () => {
                     recipients: [recipient('ada@example.com')],
                 })
 
-                expect(res.status).toEqual(500)
+                expect([res.status, res.body]).toEqual([500, { error: 'internal_error' }])
                 expect(intakeRecords()).toEqual([])
             })
 
@@ -5870,6 +5870,42 @@ describe('CDP API', () => {
                     expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
                         `person-${holder.to}`,
                         'person-di@example.com',
+                    ])
+                })
+
+                it('admits a batch from another team while one team holds its share of the pod', async () => {
+                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+                    const otherFlow = await insertHogFlow({
+                        ...transactionalFlow('api', 'active'),
+                        team_id: otherTeamId,
+                    })
+                    const { app: two } = await servedWith({
+                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
+                        CDP_INTAKE_KAFKA_ASYNC_TEAMS: `${team.id},${otherTeamId}`,
+                    })
+                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
+                        team.id
+                    )!
+
+                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const otherTeam = await supertest(two)
+                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                        })
+                        .send(batchOf(recipient('cy@example.com')))
+                    releaseTeamSlot()
+                    const ada = recipient('ada@example.com')
+                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+
+                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
+                    ])
+                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
                     ])
                 })
 

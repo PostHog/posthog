@@ -69,6 +69,15 @@ class ExportShardInput:
 
 
 @frozen
+class DayViewportsInput:
+    team_id: int
+    run_id: str
+    day: str
+    shards_per_day: int
+    session_ids_prefix: str
+
+
+@frozen
 class CheckDestinationInput:
     team_id: int
     destination: ExportDestination

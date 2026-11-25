@@ -20,6 +20,7 @@ from products.ai_observability.backend.logic.traces.events_fallback import Fallb
 from products.ai_observability.backend.logic.traces.preview_queries import PREVIEW_SOURCE_MAX_BYTES
 from products.ai_observability.backend.logic.traces.trace_queries import PageTraceRows
 from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection, TraceWindow
+from products.ai_observability.backend.logic.traces.turn_queries import TURN_SIDE_MAX_BYTES
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
 
@@ -436,3 +437,61 @@ class TestTraceSentiments(ClickhouseTestMixin, BaseTest):
             ),
             contracts.TraceSentimentItem(trace_id="unknown", sentiment=None),
         ]
+
+
+def _message_texts(side: contracts.TraceSideContent | None) -> list[str]:
+    assert isinstance(side, contracts.TraceMessagesSide)
+    return [
+        part.text for message in side.messages for part in message.parts if isinstance(part, contracts.TraceTextPart)
+    ]
+
+
+class TestTraceTurns(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.events = TraceEvents(self.team, start=STARTED_AT)
+
+    def _turns(self, *trace_ids: str) -> list[contracts.TraceTurn]:
+        return api.load_trace_turns(
+            self.team, self.user, trace_ids, earliest=STARTED_AT, latest=STARTED_AT + timedelta(hours=1)
+        )().items
+
+    def test_a_page_reads_each_requested_trace_once_in_request_order_and_omits_unknown_ones(self) -> None:
+        self.events.add("first", properties=_chat("Where is my parcel?", "On its way."))
+        self.events.add("second", minutes=1, properties=_chat("Can I change the address?", "Yes."))
+        self.events.seed()
+
+        turns = self._turns("second", "unknown", "first", "second")
+
+        assert [(turn.trace_id, _message_texts(turn.input), _message_texts(turn.output)) for turn in turns] == [
+            ("second", ["Can I change the address?"], ["Yes."]),
+            ("first", ["Where is my parcel?"], ["On its way."]),
+        ]
+
+    def test_a_side_too_large_to_read_says_why_and_leaves_the_other_side_readable(self) -> None:
+        self.events.add(
+            "oversized",
+            properties={
+                "$ai_input": [{"role": "user", "content": "Summarize this."}],
+                "$ai_output_choices": [{"role": "assistant", "content": "x" * (TURN_SIDE_MAX_BYTES + 1)}],
+            },
+        )
+        self.events.seed()
+
+        (turn,) = self._turns("oversized")
+
+        assert (
+            _message_texts(turn.input),
+            turn.input_missing_reason,
+            turn.output_missing_reason,
+        ) == (["Summarize this."], None, contracts.TracePreviewMissingReason.TOO_LARGE)
+
+    @parameterized.expand([("held in ai_events", ()), ("aged out of ai_events", ("chat",))])
+    def test_a_restricted_input_reads_as_null(self, _name: str, aged_out: tuple[str, ...]) -> None:
+        self.events.add("chat", properties=_chat("Where is my parcel?", "On its way."))
+        self.events.seed(aged_out=aged_out)
+        hide_event_property(self.team, self.user, "$ai_input")
+
+        (turn,) = self._turns("chat")
+
+        assert (turn.trace_id, turn.input) == ("chat", None)
