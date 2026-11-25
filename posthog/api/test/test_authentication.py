@@ -2828,6 +2828,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("service_account_create", "post", "/api/organizations/@current/service_accounts/"),
             ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
             ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
             ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),
@@ -2855,6 +2856,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         now = datetime.now()
         with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = getattr(self.client, method)(url, {}, format="json")
@@ -2863,6 +2866,12 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("service_account_list", "get", "/api/organizations/@current/service_accounts/"),
+            (
+                "service_account_rename",
+                "patch",
+                "/api/organizations/@current/service_accounts/00000000-0000-0000-0000-000000000001/",
+            ),
             ("passkey_list", "get", "/api/webauthn/credentials/"),
             ("connected_app_list", "get", "/api/oauth/connected-apps"),
             ("personal_integration_list", "get", "/api/users/@me/integrations/"),
@@ -2877,6 +2886,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
         ]
     )
     def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         now = datetime.now()
         with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = getattr(self.client, method)(url, {}, format="json")

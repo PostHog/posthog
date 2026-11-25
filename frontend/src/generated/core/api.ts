@@ -81,6 +81,7 @@ import type {
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedSCIMRequestLogApi,
+    PaginatedServiceAccountListApi,
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
@@ -96,6 +97,7 @@ import type {
     PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedServiceAccountWriteApi,
     PatchedUserApi,
     PatchedWorkloadTrustPolicyApi,
     ProductEnablementApi,
@@ -113,6 +115,9 @@ import type {
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
     SearchIntentResponseApi,
+    ServiceAccountApi,
+    ServiceAccountWriteApi,
+    ServiceAccountsListParams,
     SharingConfigurationApi,
     TerminalNetplayMailboxApi,
     TerminalNetplayMailboxRetrieveParams,
@@ -1515,6 +1520,83 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getServiceAccountsListUrl = (organizationId: string, params?: ServiceAccountsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/service_accounts/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/service_accounts/`
+}
+
+export const serviceAccountsList = async (
+    organizationId: string,
+    params?: ServiceAccountsListParams,
+    options?: RequestInit
+): Promise<PaginatedServiceAccountListApi> => {
+    return apiMutator<PaginatedServiceAccountListApi>(getServiceAccountsListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getServiceAccountsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/`
+}
+
+export const serviceAccountsCreate = async (
+    organizationId: string,
+    serviceAccountWriteApi: ServiceAccountWriteApi,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceAccountWriteApi),
+    })
+}
+
+export const getServiceAccountsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/`
+}
+
+export const serviceAccountsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getServiceAccountsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/`
+}
+
+export const serviceAccountsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedServiceAccountWriteApi?: PatchedServiceAccountWriteApi,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedServiceAccountWriteApi),
     })
 }
 
