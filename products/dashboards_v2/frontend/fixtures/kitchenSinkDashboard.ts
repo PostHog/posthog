@@ -68,11 +68,7 @@ export const kitchenSinkDashboard: Dashboard = {
                         ...bar('Signups by country'),
                         description: 'A longer description wraps inside the tooltip, so the header keeps its height whatever the text says.',
                     }),
-                    tile('ks-s-line', 12, 0, 12, 14, {
-                        ...line('Activation'),
-                        description: 'Hidden from Show, Description in the tile menu',
-                        parts: { description: false },
-                    }),
+                    tile('ks-s-line', 12, 0, 12, 14, line('Activation')),
                 ]),
                 section('ks-nested', 0, 42, 24, 'Section with a section inside', [
                     tile('ks-n-stat', 0, 0, 6, STAT_ROWS, stat('Errors')),
