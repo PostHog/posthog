@@ -3,7 +3,7 @@ import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
 import { isCardId, runCardOf } from './card'
-import { awaitCard, prepareDatabase, startCard } from './host'
+import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
@@ -58,7 +58,13 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         )
     }
     if (card.pair) {
-        refuseUnfitPair(profile, cardId, card.pair)
+        const { teardownAllowance } = profile.admission
+        refuseUnfitPair(
+            cardId,
+            card.pair,
+            durationMs(`${TTL_HOURS * 60}m`) - durationMs(teardownAllowance),
+            `the ${TTL_HOURS} h lease less its ${teardownAllowance} teardown allowance`
+        )
     }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
@@ -75,6 +81,15 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
         await prepareDatabase(controller, profile, manifest, interruption.signal)
         await addReader(controller, profile, manifest, parameters, interruption.signal)
+        if (card.pair) {
+            const leftMs = lastWorkAt(profile, manifest) - controller.now().getTime()
+            refuseUnfitPair(
+                cardId,
+                card.pair,
+                leftMs,
+                `the ${Math.floor(leftMs / 60_000)}m the setup left before the teardown`
+            )
+        }
         await startCard(controller, profile, manifest, interruption.signal)
         outcome = await awaitCard(controller, profile, manifest, interruption.signal)
     } catch (error) {
@@ -93,15 +108,14 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
 }
 
 function refuseUnfitPair(
-    profile: CloudProfile,
     cardId: string,
-    { drive, convergeWithin }: { drive: string; convergeWithin: string }
+    { drive, convergeWithin }: { drive: string; convergeWithin: string },
+    workMs: number,
+    window: string
 ): void {
-    const { teardownAllowance } = profile.admission
-    const workMs = durationMs(`${TTL_HOURS * 60}m`) - durationMs(teardownAllowance)
     if (2 * (durationMs(drive) + durationMs(convergeWithin)) > workMs) {
         throw new Error(
-            `${cardId} runs paired, so it needs two drives of ${drive} and their ${convergeWithin} to converge, and they do not fit the ${TTL_HOURS} h lease less its ${teardownAllowance} teardown allowance.`
+            `${cardId} runs paired, so it needs two drives of ${drive} and their ${convergeWithin} to converge, and they do not fit ${window}.`
         )
     }
 }

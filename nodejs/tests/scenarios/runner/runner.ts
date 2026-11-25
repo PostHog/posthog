@@ -524,7 +524,7 @@ export function createRunner(
                 )
             }
             ranManifest ||= ownsManifest
-            const runId = ownsManifest ? manifest.runId : randomUUID()
+            const runId = ownsManifest ? manifest.runId : (manifest?.controlRunId ?? randomUUID())
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)

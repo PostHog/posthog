@@ -29,6 +29,7 @@ const PAIRABLE = loadText('pairable', {
 })
 
 const HOST_RUN_ID = '00000000-0000-4000-8000-0000000000aa'
+const CONTROL_RUN_ID = '00000000-0000-4000-8000-0000000000bb'
 
 const hostManifestOf = (runId: string, extra: object = {}): object => ({
     runId,
@@ -372,10 +373,13 @@ describe('runCards', () => {
         }
     })
 
-    it('runs the faulted card of a pair under the run id of the host manifest that asks for the pair', async () => {
+    it('runs a pair under the run ids of the host manifest that asks for the pair', async () => {
         const api = await startFakeProjectApi()
         const manifest = path.join(cacheHome, 'manifest.json')
-        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true })))
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
         const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
         const runner = createRunner(
             fakeEnvironment({ resetFails: false }),
@@ -385,14 +389,30 @@ describe('runCards', () => {
         try {
             await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
 
-            const runs = api.captured.map(({ properties }) => [properties.pair_role, properties.run_id === HOST_RUN_ID])
+            const runs = api.captured.map(({ properties }) => [properties.pair_role, properties.run_id])
             expect(runs).toEqual([
-                ['control', false],
-                ['faulted', true],
+                ['control', CONTROL_RUN_ID],
+                ['faulted', HOST_RUN_ID],
             ])
         } finally {
             await api.close()
         }
+    })
+
+    it('refuses more than one card on a run host before it starts the stack', async () => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true })))
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
+        expect(
+            await main(['run', 'destination-errors', 'destination-errors', '--pair'], {
+                SCENARIO_RUN_MANIFEST: manifest,
+            })
+        ).toBe(EXIT_CODE.invalid)
+
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toContain('A run host runs one card per manifest')
+        expect(stack.startStack).not.toHaveBeenCalled()
     })
 
     it('takes --pair on a run host whose manifest asks for the pair', async () => {

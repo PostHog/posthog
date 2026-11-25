@@ -23,6 +23,7 @@ export type Manifest = {
     inputs: Record<string, string>
     card: string
     pair?: boolean
+    controlRunId?: string
     readerIdleMaxAcu?: number
     readerMinAcu?: number
 }
@@ -161,7 +162,7 @@ export async function lease(
         card: card.id,
         readerIdleMaxAcu: profile.readerAcu.idleMax,
         readerMinAcu: profile.readerAcu.min,
-        ...(card.pair && { pair: true }),
+        ...(card.pair && { pair: true, controlRunId: randomUUID() }),
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
@@ -233,11 +234,12 @@ const HostManifest = StoredManifest.extend({
     readerIdleMaxAcu: z.number().positive().optional(),
     readerMinAcu: z.number().nonnegative().optional(),
     pair: z.boolean().optional(),
+    controlRunId: z.uuid().optional(),
 })
 
 export type RunManifest = Pick<
     Manifest,
-    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu' | 'pair'
+    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu' | 'pair' | 'controlRunId'
 >
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {

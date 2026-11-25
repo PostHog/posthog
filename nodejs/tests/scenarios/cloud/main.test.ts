@@ -7,6 +7,7 @@ import { parse, stringify } from 'yaml'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
+import type { PairRole } from '../runner/pair'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { storeTokenPathOf } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
@@ -281,45 +282,100 @@ describe('cloud controller', () => {
         })
     })
 
-    it.each([
-        ['passed', 1],
-        ['invalid', 2],
-    ])(
-        'runs a paired card as its control and then the card under one lease, and reports the faulted run when the control %s',
-        async (controlStatus, exitCode) => {
-            const { controller } = prepare({
-                cards: { [PAIRED_CARD]: pairedCard() },
-                cloud: { card: { exitCode, runnerStatus: 'failed', controlStatus } },
-                env: api.credentials,
-            })
+    const evidenceOf = (runId: string, runnerRunId: string): Record<string, unknown> =>
+        parseJSON(cloud.objects.get(`runs/${runId}/evidence/run/${runnerRunId}/scorecard.json`)!) as Record<
+            string,
+            unknown
+        >
 
-            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(exitCode)
-
-            const [runId] = [...cloud.objects.keys()].flatMap(
-                (key) => /^runs\/([\w-]+)\/manifest\.json$/.exec(key)?.[1] ?? []
-            )
-            expect(parseJSON(cloud.objects.get(`runs/${runId}/input/manifest.json`)!)).toMatchObject({ pair: true })
-            expect(published()).toMatchObject({
-                card_id: PAIRED_CARD,
-                status: 'failed',
-                status_reason: 'the card ended failed',
-                pair_role: 'faulted',
-                pair_attribution: 'fault',
-            })
-        }
-    )
-
-    it('calls a paired run invalid when the host uploaded the scorecard of its control alone', async () => {
+    it('exits with the published status of the faulted run when the control of a pair is worse', async () => {
         const { controller } = prepare({
             cards: { [PAIRED_CARD]: pairedCard() },
-            cloud: { card: { exitCode: 2, pairRoles: ['control'] } },
+            cloud: { card: { exitCode: 2, runnerStatus: 'failed', controlStatus: 'invalid' } },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(1)
+
+        const leased = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
+        expect(leased).toMatchObject({ pair: true, controlRunId: expect.stringMatching(/^[0-9a-f-]{36}$/) })
+        expect(published()).toMatchObject({
+            status: 'failed',
+            status_reason: 'the card ended failed',
+            pair_role: 'faulted',
+            pair_attribution: 'unjudged',
+        })
+    })
+
+    it('publishes the faulted run of a paired card, with the attribution, and exits with its status', async () => {
+        const { controller } = prepare({
+            cards: { [PAIRED_CARD]: pairedCard() },
+            cloud: { card: { exitCode: 1, runnerStatus: 'failed' } },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(1)
+
+        expect(published()).toMatchObject({
+            status: 'failed',
+            status_reason: 'the card ended failed',
+            pair_role: 'faulted',
+            pair_attribution: 'fault',
+        })
+        const faulted = evidenceOf(leasedRunId(), leasedRunId())
+        const [firstGap] = published().acu_gaps as string[]
+        expect(Date.parse(firstGap)).toBeLessThan(Date.parse(faulted.startedAt as string) - 60_000)
+    })
+
+    it('calls a paired run invalid and the pair unjudged when the controller finds the run invalid', async () => {
+        const { controller } = prepare({
+            cards: { [PAIRED_CARD]: pairedCard() },
+            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            cloud: {
+                card: { exitCode: 1, runnerStatus: 'failed' },
+                liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+                shortValuesOf: 'Average',
+            },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
+
+        expect(published()).toMatchObject({ status: 'invalid', pair_attribution: 'unjudged' })
+        expect(published().pair_reason).toContain('the cloud run is invalid')
+    })
+
+    it.each<[string, (PairRole | undefined)[], string]>([
+        [
+            'its control alone, and names why the faulted run did not run',
+            ['control'],
+            'the host uploaded 1 runner scorecards, not two: the faulted run did not run: Restart the runner, then run the card again.',
+        ],
+        ['a faulted run and a scorecard of no pair', ['faulted', undefined], 'not one control and one faulted run'],
+    ])('calls a paired run invalid when the host uploaded %s', async (_story, pairRoles, reason) => {
+        const { controller } = prepare({
+            cards: { [PAIRED_CARD]: pairedCard() },
+            cloud: { card: { exitCode: 1, runnerStatus: 'failed', pairRoles } },
             env: api.credentials,
         })
 
         await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
 
         expect(published()).toMatchObject({ card_id: PAIRED_CARD, status: 'invalid' })
-        expect(published().status_reason).toContain('the host uploaded 1 runner scorecards, not two')
+        expect(published().status_reason).toContain(reason)
+    })
+
+    it('calls a paired run invalid before it starts the card when the setup left too little of the lease', async () => {
+        const { controller } = prepare({
+            cards: { [PAIRED_CARD]: pairedCard('140m') },
+            cloud: { seed: { takesMs: HOUR_MS } },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
+
+        expect(published().status_reason).toContain(`${PAIRED_CARD} runs paired, so it needs two drives of 140m`)
+        expect([...cloud.objects.keys()].some((key) => key.endsWith('/evidence/card.log'))).toBe(false)
     })
 
     it('calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps', async () => {

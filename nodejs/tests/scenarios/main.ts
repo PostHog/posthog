@@ -102,6 +102,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         )
         return EXIT_CODE.invalid
     }
+    if (onHost && cards.length > 1) {
+        process.stderr.write('A run host runs one card per manifest, so it takes one card id.\n')
+        return EXIT_CODE.invalid
+    }
     const checked = preflight(cards, values.profile, target, env)
     const problems =
         'problems' in checked

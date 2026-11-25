@@ -50,22 +50,35 @@ const iso = (at: number): string => new Date(at).toISOString()
 
 type HostScorecard = z.infer<typeof HostScorecard>
 
-async function hostScorecardOf(
-    evidence: ReturnType<typeof evidenceOf>,
-    runId: string,
-    paired: boolean
-): Promise<{ host: HostScorecard; exitsOfSaved: number[] }> {
+type HostRun = { host: HostScorecard; statuses: Status[]; window: number[] }
+
+async function hostScorecardOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<HostRun> {
+    const { runId, controlRunId } = manifest
+    const paired = manifest.pair === true
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    if (keys.length !== (paired ? 2 : 1)) {
-        throw new Error(`the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}`)
-    }
     const saved = await Promise.all(keys.map(async (key) => HostScorecard.parse(parseJSON(await evidence.get(key)))))
-    const host = paired ? saved.find(({ event }) => event.pair_role === 'faulted') : saved[0]
-    if (host === undefined) {
-        throw new Error('the host uploaded no scorecard of the faulted run')
+    if (saved.length !== (paired ? 2 : 1)) {
+        const reason = saved.length === 1 ? saved[0].event.pair_reason : undefined
+        throw new Error(
+            `the host uploaded ${saved.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
+        )
     }
-    const worst = Math.max(...saved.map(({ event }) => EXIT_CODE[event.status]))
-    return { host, exitsOfSaved: [worst, EXIT_CODE.writeFailed] }
+    const ranAs = (role: string, id: string | undefined): HostScorecard | undefined =>
+        saved.find(({ event }) => event.pair_role === role && event.run_id === id)
+    const host = paired ? ranAs('faulted', runId) : saved[0]
+    if (host === undefined || (paired && ranAs('control', controlRunId) === undefined)) {
+        throw new Error(
+            `the host uploaded runner scorecards that are not one control and one faulted run of run ${runId}`
+        )
+    }
+    return {
+        host,
+        statuses: saved.map(({ event }) => event.status),
+        window: [
+            Math.min(...saved.map(({ event }) => Date.parse(event.started_at))),
+            Math.max(...saved.map(({ event }) => Date.parse(event.ended_at))),
+        ],
+    }
 }
 
 async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
@@ -240,24 +253,23 @@ export async function report(
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
     const saved = await attempt(reasons, 'could not read the runner scorecard', () =>
-        hostScorecardOf(evidence, runId, manifest.pair === true)
+        hostScorecardOf(evidence, manifest)
     )
     const host = saved?.host
-    if (saved && !saved.exitsOfSaved.includes(end.exitCode)) {
-        reasons.push(`the runner exited ${end.exitCode} after it saved a ${saved.host.event.status} scorecard`)
+    const worst = saved && Math.max(...saved.statuses.map((status) => EXIT_CODE[status]))
+    if (saved && worst !== end.exitCode && end.exitCode !== EXIT_CODE.writeFailed) {
+        const statuses =
+            saved.statuses.length === 1
+                ? `a ${saved.statuses[0]} scorecard`
+                : `${saved.statuses.join(' and ')} scorecards`
+        reasons.push(`the runner exited ${end.exitCode} after it saved ${statuses}`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (card.failsOver && host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
-        capacityOf(
-            controller.aws,
-            `scn-${runId}-reader`,
-            from,
-            to,
-            host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
-        )
+        capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
     const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
     if (judged?.reason) {
@@ -292,6 +304,11 @@ export async function report(
         card_id: card.id,
         adapters: ADAPTERS,
         ...host?.event,
+        ...(manifest.pair &&
+            status === 'invalid' && {
+                pair_attribution: 'unjudged',
+                pair_reason: 'the cloud run is invalid, so the pair is not judged',
+            }),
         ...environment,
         reader_acu_at_t0: readerAtT0,
         run_id: runId,
@@ -352,5 +369,8 @@ export async function report(
     if (written.problem || (!kept && !written.recorded)) {
         return EXIT_CODE.writeFailed
     }
-    return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    if (status === 'invalid' || end.exitCode === EXIT_CODE.writeFailed) {
+        return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
+    }
+    return EXIT_CODE[status]
 }
