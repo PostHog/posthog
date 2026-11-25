@@ -35,6 +35,7 @@ from pydantic import BaseModel, model_validator
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     GITLAB_HOST,
@@ -285,6 +286,7 @@ class SandboxConfig(BaseModel):
     vm_runtime: bool = False
     agent_egress_probe: bool = False
     agent_egress_observation: bool = False
+    agent_egress_resume: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -326,6 +328,12 @@ class SandboxConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_agent_egress_observation(self) -> Self:
+        if self.agent_egress_resume and (
+            not self.agent_egress_observation
+            or not self.resume_snapshot_external_id
+            or self.snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS
+        ):
+            raise ValueError("Egress handoff requires an observed VM with an approved directory resume snapshot")
         if self.agent_egress_observation and (
             not (settings.DEBUG or settings.TEST or agent_egress_enrollment_environment())
             or not self.vm_runtime
@@ -335,11 +343,12 @@ class SandboxConfig(BaseModel):
             or self.block_network
             or self.snapshot_id
             or self.snapshot_external_id
-            or self.resume_snapshot_external_id
-            or self.snapshot_mount_path
+            or ((self.resume_snapshot_external_id or self.snapshot_mount_path) and not self.agent_egress_resume)
             or self.require_snapshot
         ):
-            raise ValueError("Egress observation requires a fresh development VM with full network access")
+            raise ValueError(
+                "Egress observation requires a fresh VM or explicit directory handoff with full network access"
+            )
         return self
 
     @model_validator(mode="before")

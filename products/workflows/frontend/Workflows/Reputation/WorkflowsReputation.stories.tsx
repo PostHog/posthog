@@ -144,6 +144,16 @@ const meta: Meta<typeof WorkflowsReputation> = {
         testOptions: { waitForLoadersToDisappear: true },
         featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },
+    decorators: [
+        // The scene root is a size container, so it adds no width of its own. The padded layout
+        // shrink-wraps the story root in visual review, which would collapse the scene to zero width.
+        // A fixed width also lets a story set the scene width that the container queries respond to.
+        (Story, { parameters }) => (
+            <div className={parameters.sceneWidth === 'narrow' ? 'w-130' : 'w-300'}>
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 
@@ -191,20 +201,28 @@ export const HighBounceRate: StoryFn = () => {
 }
 HighBounceRate.parameters = { testOptions: { snapshotBrowsers: [] } }
 
+const withInfrastructure: TeamEmailReputationResponseApi = {
+    ...baseResponse,
+    infrastructure: {
+        emails_sent_at_least: 4_000_000,
+        delivery_rate: 0.991,
+        bounce_rate: 0.0028,
+        complaint_rate: 0.0003,
+    },
+}
+
 export const WithInfrastructureHealth: StoryFn = () => {
-    useStorybookMocks(
-        mockReputation({
-            ...baseResponse,
-            infrastructure: {
-                emails_sent_at_least: 4_000_000,
-                delivery_rate: 0.991,
-                bounce_rate: 0.0028,
-                complaint_rate: 0.0003,
-            },
-        })
-    )
+    useStorybookMocks(mockReputation(withInfrastructure))
     return <WorkflowsReputation />
 }
+
+export const WithInfrastructureHealthInNarrowScene: StoryFn = () => {
+    useStorybookMocks(mockReputation(withInfrastructure))
+    return <WorkflowsReputation />
+}
+// A 1280px window with the nav and the side panel open leaves about 520px of scene. The cards and the
+// allowance columns must stack by the scene's width, which a wide story viewport alone never shows.
+WithInfrastructureHealthInNarrowScene.parameters = { sceneWidth: 'narrow' }
 
 export const AllowanceWaitingAfterChange: StoryFn = () => {
     // Raised recently, so the time-at-tier wait still applies whatever the project sends.

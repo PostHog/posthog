@@ -5,12 +5,7 @@ here rather than reaching into `services/`: the model catalogue and the preceden
 that resolves it for one run.
 """
 
-from products.slack_app.backend.services.model_catalogue import (
-    ModelChoice,
-    available_model_choices,
-    describe_run_model,
-    group_by_runtime,
-)
+from products.slack_app.backend.services.model_catalogue import ModelChoice, available_model_choices, describe_run_model
 from products.slack_app.backend.services.model_router import (
     MODEL_ROUTER_INSTRUCTIONS,
     ModelRouterOption,
@@ -18,7 +13,6 @@ from products.slack_app.backend.services.model_router import (
 )
 from products.slack_app.backend.services.run_preferences import (
     LiveRunModelChange,
-    find_model_choice,
     resolve_effective_runtime_adapter,
     resolve_live_run_override,
     resolve_run_preferences,
@@ -31,8 +25,6 @@ __all__ = [
     "ModelRouterOption",
     "available_model_choices",
     "describe_run_model",
-    "find_model_choice",
-    "group_by_runtime",
     "model_router_options",
     "resolve_effective_runtime_adapter",
     "resolve_live_run_override",

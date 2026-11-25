@@ -1,6 +1,7 @@
 """Show which recent warehouse records pass a source filter. Creates no signals, calls no AI and moves no cursor."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
@@ -86,6 +87,9 @@ class SourceFilterPreview:
     error: str | None
     catalog_version: int
     lookback_days: int
+    error_code: str | None = None
+    error_start: int | None = None
+    error_end: int | None = None
     total_count: int = 0
     passing_count: int = 0
     malformed_count: int = 0
@@ -132,7 +136,12 @@ def preview_source_filter(
     try:
         FilterExpression(expression, source.field_types)
     except FilterValidationError as error:
-        return outcome(SourceFilterPreviewStatus.INVALID_EXPRESSION, str(error))
+        return replace(
+            outcome(SourceFilterPreviewStatus.INVALID_EXPRESSION, str(error)),
+            error_code=error.code,
+            error_start=error.start,
+            error_end=error.end,
+        )
 
     schemas = _emitting_schemas(team.pk, source_product, source_type)
     if not schemas:
@@ -226,6 +235,8 @@ def _preview_table(
     ]
     if config.where_clause:
         conditions.append(parse_expr(config.where_clause))
+    if config.emittable_where:
+        conditions.append(parse_expr(config.emittable_where))
     scope_ids = scope_ids_from_source_config(config, source_config)
     if scope_ids and config.scope_field:
         conditions.append(

@@ -19,6 +19,8 @@ import structlog
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -242,6 +244,200 @@ class DimensionalStatsTableQueryBuilder(DimensionalTablesMixin, StatsTablePreAgg
 
 
 class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreAggregatedQueryBuilder):
+    """Reads visitors, views and sessions from the stats table and bounce rate and duration from the bounces table.
+
+    The stats table has one row per session and host (and other per-event dimensions), so a host filter keeps the
+    matching events' rows, as the live query does. The bounces table has one row per session, so a host filter
+    matches a session through the session's `session_hosts` list instead of its single `host`."""
+
     def __init__(self, runner: "WebOverviewQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
         self.job_ids = job_ids
+
+    def get_query(self) -> ast.SelectQuery:
+        if self.runner.query.conversionGoal:
+            return super().get_query()
+
+        periods = self.get_date_ranges()
+        counts = parse_select(
+            """
+            SELECT
+                {persons_current} AS unique_persons,
+                {persons_previous} AS previous_unique_persons,
+                {pageviews_current} AS pageviews,
+                {pageviews_previous} AS previous_pageviews,
+                {sessions_current} AS unique_sessions,
+                {sessions_previous} AS previous_unique_sessions
+            FROM {table}
+            """,
+            placeholders={
+                "table": ast.Field(chain=[self.stats_table]),
+                "persons_current": self._uniq_merge_if("persons_uniq_state", periods.current_period),
+                "persons_previous": self._uniq_merge_if("persons_uniq_state", periods.previous_period),
+                "pageviews_current": self._sum_merge_if("pageviews_count_state", periods.current_period),
+                "pageviews_previous": self._sum_merge_if("pageviews_count_state", periods.previous_period),
+                "sessions_current": self._uniq_merge_if("sessions_uniq_state", periods.current_period),
+                "sessions_previous": self._uniq_merge_if("sessions_uniq_state", periods.previous_period),
+            },
+        )
+        assert isinstance(counts, ast.SelectQuery)
+        counts.where = self._get_filters(table_name=self.stats_table)
+
+        sessions = parse_select(
+            """
+            SELECT
+                {duration_current} AS avg_session_duration,
+                {duration_previous} AS previous_avg_session_duration,
+                {bounce_current} AS bounce_rate,
+                {bounce_previous} AS previous_bounce_rate
+            FROM {table}
+            """,
+            placeholders={
+                "table": ast.Field(chain=[self.bounces_table]),
+                "duration_current": self._average_duration(periods.current_period),
+                "duration_previous": self._average_duration(periods.previous_period),
+                "bounce_current": self._bounce_rate(periods.current_period),
+                "bounce_previous": self._bounce_rate(periods.previous_period),
+            },
+        )
+        assert isinstance(sessions, ast.SelectQuery)
+        sessions.where = self._get_filters(table_name=self.bounces_table)
+
+        query = parse_select(
+            """
+            SELECT
+                counts.unique_persons AS unique_persons,
+                counts.previous_unique_persons AS previous_unique_persons,
+                counts.pageviews AS pageviews,
+                counts.previous_pageviews AS previous_pageviews,
+                counts.unique_sessions AS unique_sessions,
+                counts.previous_unique_sessions AS previous_unique_sessions,
+                sessions.avg_session_duration AS avg_session_duration,
+                sessions.previous_avg_session_duration AS previous_avg_session_duration,
+                sessions.bounce_rate AS bounce_rate,
+                sessions.previous_bounce_rate AS previous_bounce_rate,
+                NULL AS revenue,
+                NULL AS previous_revenue
+            FROM {counts} AS counts
+            CROSS JOIN {sessions} AS sessions
+            """,
+            placeholders={"counts": counts, "sessions": sessions},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _bounce_rate(self, period_filter: ast.Expr) -> ast.Expr:
+        # Only sessions with a bounce value count, as live's avgIf over `$is_bounce` skips NULL. A session
+        # without a pageview (an app session with only $screen events) has none under the default bounce mode.
+        return self._average_or_null("bounces_count_state", "bounce_eligible_sessions_state", period_filter)
+
+    def _average_duration(self, period_filter: ast.Expr) -> ast.Expr:
+        return self._average_or_null("total_session_duration_state", "total_session_count_state", period_filter)
+
+    def _average_or_null(self, sum_state: str, count_state: str, period_filter: ast.Expr) -> ast.Expr:
+        # NULL when no session counts, as live's avgIf returns, so the tile shows no value instead of 0.
+        count = self._sum_merge_if(count_state, period_filter)
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=count, right=ast.Constant(value=0)),
+                ast.Call(name="divide", args=[self._sum_merge_if(sum_state, period_filter), count]),
+                ast.Constant(value=None),
+            ],
+        )
+
+    def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
+        filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)
+        if table_name != self.bounces_table:
+            return filters
+        rewritten = _HostSetFilterRewriter(table_name).visit(filters)
+        assert isinstance(rewritten, ast.And)
+        return rewritten
+
+
+_HOST_LAMBDA_ARG = "host_in_set"
+
+
+class _FieldChainCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.chains: list[list[str | int]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.chains.append(node.chain)
+
+
+class _HostFieldReplacer(CloningVisitor):
+    def __init__(self, host_chain: list[str | int]) -> None:
+        super().__init__()
+        self.host_chain = host_chain
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        if node.chain == self.host_chain:
+            return ast.Field(chain=[_HOST_LAMBDA_ARG])
+        return super().visit_field(node)
+
+
+class _HostSetFilterRewriter(CloningVisitor):
+    """Rewrites `$host` filters on the bounces table to match any host in the session's `session_hosts` list.
+
+    Live filters events and keeps a session with at least one matching event, so every operator becomes "some host
+    matches": `is not X` keeps a session that also viewed another host, which `NOT has(session_hosts, X)` would drop.
+    The host filters of one AND go into a single `arrayExists`, because live applies all of them to the same event."""
+
+    def __init__(self, table_name: str) -> None:
+        super().__init__()
+        self.host_chain: list[str | int] = [table_name, "host"]
+        self.session_hosts_chain: list[str | int] = [table_name, "session_hosts"]
+
+    def _field_chains(self, node: ast.Expr) -> list[list[str | int]]:
+        collector = _FieldChainCollector()
+        collector.visit(node)
+        return collector.chains
+
+    def _references_host(self, node: ast.Expr) -> bool:
+        return self.host_chain in self._field_chains(node)
+
+    def _host_only(self, node: ast.Expr) -> bool:
+        chains = self._field_chains(node)
+        return bool(chains) and all(chain == self.host_chain for chain in chains)
+
+    def _match_any_host(self, node: ast.Expr) -> ast.Expr:
+        predicate = _HostFieldReplacer(self.host_chain).visit(node)
+        return ast.Call(
+            name="arrayExists",
+            args=[ast.Lambda(args=[_HOST_LAMBDA_ARG], expr=predicate), ast.Field(chain=self.session_hosts_chain)],
+        )
+
+    def visit_and(self, node: ast.And) -> ast.And:
+        # The host filters match against every host of the session, and the other filters match the one value the row
+        # stores for the session. Live requires one event to match all of them. So a session that viewed host A from
+        # one country and host B from another can match "host B and the first country", which live excludes. Only
+        # sessions with more than one host and a second value of a per-event dimension (mostly viewport and geoip)
+        # are affected, and only bounce rate and duration, because the counts come from the stats table.
+        host_exprs = [expr for expr in node.exprs if self._host_only(expr)]
+        other_exprs = [self.visit(expr) for expr in node.exprs if not self._host_only(expr)]
+        if not host_exprs:
+            return ast.And(exprs=other_exprs)
+        combined = host_exprs[0] if len(host_exprs) == 1 else ast.And(exprs=host_exprs)
+        return ast.And(exprs=[*other_exprs, self._match_any_host(combined)])
+
+    def visit_or(self, node: ast.Or) -> ast.Expr:
+        if self._host_only(node):
+            return self._match_any_host(node)
+        return super().visit_or(node)
+
+    def visit_not(self, node: ast.Not) -> ast.Expr:
+        if self._host_only(node):
+            return self._match_any_host(node)
+        return super().visit_not(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if self._references_host(node):
+            return self._match_any_host(node)
+        return super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        if self._host_only(node):
+            return self._match_any_host(node)
+        return super().visit_call(node)

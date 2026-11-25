@@ -151,6 +151,7 @@ pub struct SourcePair {
 pub enum Unreadable {
     NoSourcemap,
     Skipped(String),
+    Outside(PathBuf),
 }
 
 impl SourceMapContent {
@@ -189,7 +190,12 @@ fn is_section_empty(section: &Value) -> bool {
     is_map_empty(|key| map.get(key))
 }
 
-pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<SourcePair, Unreadable> {
+// `roots` are the selected folders in canonical form, as `cleanup::canonical_roots` returns them.
+pub fn read_pair(
+    path: &Path,
+    public_path_prefix: Option<&str>,
+    roots: &[PathBuf],
+) -> Result<SourcePair, Unreadable> {
     let skipped = |reason: String| Unreadable::Skipped(reason);
 
     let source_path = dunce::canonicalize(path).map_err(|error| {
@@ -208,6 +214,16 @@ pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<Source
     )
     .map_err(|_| skipped("the sourcemap reference is not valid UTF-8 once decoded".to_string()))?
     .ok_or(Unreadable::NoSourcemap)?;
+
+    // Only hog: a bundle can name any file as its map, such as a file elsewhere on the machine or a
+    // device like /dev/zero that never ends, and hog reads, rewrites and can delete that map. So a
+    // map is opened only when it resolves inside a selected folder.
+    match dunce::canonicalize(&map_path) {
+        Ok(real_map_path) if is_within_roots(roots, &real_map_path) => {}
+        Ok(real_map_path) => return Err(Unreadable::Outside(real_map_path)),
+        Err(_) => return Err(Unreadable::Outside(map_path)),
+    }
+
     let map: SourceMapContent = node::read(&map_path)
         .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
         .map_err(|message| skipped(format!("failed to read sourcemap: {message}")))?;
@@ -225,6 +241,14 @@ pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<Source
         map_path,
         source,
         map,
+    })
+}
+
+// By path component, as `isInside` in hog/src/core/paths.ts, so a folder named `..maps` is inside.
+fn is_within_roots(roots: &[PathBuf], path: &Path) -> bool {
+    roots.iter().any(|root| {
+        path.strip_prefix(root)
+            .is_ok_and(|within| !within.as_os_str().is_empty())
     })
 }
 
@@ -532,4 +556,73 @@ pub fn find_sourcemap(
     guessed.push(".map");
     candidates.push(PathBuf::from(guessed));
     Ok(candidates.into_iter().find(|candidate| candidate.exists()))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, sync::mpsc, thread, time::Duration};
+
+    const MAP: &str = r#"{"version":3,"sources":["a.ts"],"names":[],"mappings":"AAAA"}"#;
+    const READ_TIMEOUT: Duration = Duration::from_secs(10);
+    const FIFO_MODE: libc::mode_t = 0o600;
+
+    fn scratch() -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("hog-worker-pair-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&folder).expect("the scratch folder is created");
+        dunce::canonicalize(folder).unwrap()
+    }
+
+    fn make_fifo(path: &Path) {
+        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), FIFO_MODE) }, 0);
+    }
+
+    // Opening a FIFO to read blocks until a writer opens it, and /dev/zero never ends, so a worker
+    // that opened either would never answer. The read runs on a thread to fail the test instead, and
+    // None means it timed out.
+    fn read_bundle(bundle: &Path, roots: &[PathBuf]) -> Option<Result<SourcePair, Unreadable>> {
+        let (bundle, roots) = (bundle.to_path_buf(), roots.to_vec());
+        let (send, receive) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = send.send(read_pair(&bundle, None, &roots));
+        });
+
+        receive.recv_timeout(READ_TIMEOUT).ok()
+    }
+
+    #[test]
+    fn a_map_outside_the_roots_is_never_opened() {
+        let folder = scratch();
+        let dist = folder.join("dist");
+        fs::create_dir(&dist).unwrap();
+        fs::write(folder.join("outside.js.map"), MAP).unwrap();
+        std::os::unix::fs::symlink(folder.join("outside.js.map"), dist.join("link.js.map"))
+            .unwrap();
+        make_fifo(&folder.join("map.fifo"));
+        let bundle = dist.join("a.js");
+
+        let cases = [
+            ("/dev/zero", PathBuf::from("/dev/zero")),
+            ("../map.fifo", folder.join("map.fifo")),
+            ("../outside.js.map", folder.join("outside.js.map")),
+            ("link.js.map", folder.join("outside.js.map")),
+        ];
+        for (reference, expected) in cases {
+            fs::write(&bundle, format!("a();\n//# sourceMappingURL={reference}\n")).unwrap();
+
+            match read_bundle(&bundle, std::slice::from_ref(&dist)) {
+                Some(Err(Unreadable::Outside(path))) => assert_eq!(path, expected, "{reference}"),
+                None => panic!("read_pair opened {reference} and never answered"),
+                Some(_) => panic!("{reference} should resolve outside the roots"),
+            }
+        }
+
+        fs::write(dist.join("a.js.map"), MAP).unwrap();
+        fs::write(&bundle, "a();\n//# sourceMappingURL=a.js.map\n").unwrap();
+        let inside = read_bundle(&bundle, std::slice::from_ref(&dist));
+
+        assert!(matches!(inside, Some(Ok(pair)) if pair.map_path == dist.join("a.js.map")));
+        fs::remove_dir_all(folder).unwrap();
+    }
 }
