@@ -69,6 +69,15 @@ SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR = (
 )
 
 
+# A source check opens one connection, so a busy server is the less likely cause there. The copy
+# leads with the configuration a person can fix.
+SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE = (
+    "Your SSH server closed the connection before the SSH handshake. Check that the SSH host and port "
+    "point to an SSH server, not the database port, and that the server allows PostHog's IP addresses. "
+    "A server that limits new connections (MaxStartups) can also do this, so try again in a moment."
+)
+
+
 class SSHGatewayClosedBeforeBannerError(BaseSSHTunnelForwarderError):
     def __init__(self) -> None:
         super().__init__(SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR)

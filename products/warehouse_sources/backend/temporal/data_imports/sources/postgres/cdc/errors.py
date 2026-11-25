@@ -14,6 +14,7 @@ import psycopg
 import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
@@ -99,6 +100,10 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
 
     # sshtunnel's own exception, not a psycopg one — must be checked before the psycopg guard below.
     if isinstance(exc, BaseSSHTunnelForwarderError):
+        # An SSH server at its limit of new connections closed this one before its banner. It is a
+        # server under load, so the run retries like any other connection that failed.
+        if isinstance(exc, SSHGatewayClosedBeforeBannerError):
+            return CDCErrorCategory.CONNECTION_FAILED
         if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None

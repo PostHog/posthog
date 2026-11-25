@@ -4,6 +4,7 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
@@ -198,6 +199,11 @@ class TestClassifyPostgresCDCError:
                 "ssh_gateway_session_failure_is_non_retryable",
                 BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
                 CDCErrorCategory.SSH_TUNNEL_FAILED,
+            ),
+            (
+                "ssh_gateway_closed_before_banner_retries_as_a_connection_failure",
+                SSHGatewayClosedBeforeBannerError(),
+                CDCErrorCategory.CONNECTION_FAILED,
             ),
             (
                 "unrecognized_ssh_tunnel_error_falls_back_to_unknown",
