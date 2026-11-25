@@ -542,7 +542,13 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_day_viewports_go_to_each_listed_sessions_shard(self) -> None:
-        for event, session_id, width in (("$screen", "s2", 800), ("$autocapture", "s1", 1), ("$pageview", "s9", 1)):
+        for event, session_id, width in (
+            ("$screen", "s2", 800),
+            ("$autocapture", "s1", 1),
+            ("$pageview", "s9", 1),
+            ("$pageview", "s1", "wide"),
+            ("$pageview", "x" * 140_000, 1),
+        ):
             _create_event(
                 team=self.team,
                 event=event,
@@ -563,7 +569,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("", "~")
             assert set(viewports) <= listed
             by_shard.update({session_id: [v["width"] for v in rows] for session_id, rows in viewports.items()})
-        # s1's autocapture is not read, and s9 is not in the quote.
+        # s1's autocapture and non-numeric width are dropped, s9 is not in the quote, and an overlong session ID
+        # would otherwise break the line-by-line read.
         assert by_shard == {"s1": ["1280"], "s2": ["800"]}
 
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:

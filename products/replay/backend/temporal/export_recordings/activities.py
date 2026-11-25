@@ -137,8 +137,10 @@ SELECT
 FROM events
 WHERE event IN ('$pageview', '$screen')
     AND timestamp >= {start} AND timestamp < {end}
-    AND notEmpty(`$session_id`)
-    AND isNotNull(properties.$viewport_width) AND isNotNull(properties.$viewport_height)
+    -- Session IDs and dimensions come from senders, so bounding them keeps every line short and playable.
+    AND length(`$session_id`) BETWEEN 1 AND 128
+    AND match(toString(properties.$viewport_width), '^[0-9]{1,6}$')
+    AND match(toString(properties.$viewport_height), '^[0-9]{1,6}$')
 GROUP BY shard, session_id, width, height, href, toStartOfMinute(timestamp)
 ORDER BY shard, session_id, first_ms
 """
