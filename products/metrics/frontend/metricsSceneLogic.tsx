@@ -10,8 +10,6 @@ import { tryJsonParse } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -37,10 +35,8 @@ import {
 } from './components/metricsViewerLogic'
 import type { MetricsViewerClauseBackfill } from './components/metricsViewerLogic'
 
-export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
-
-export type MetricsSceneActiveTab = 'overview' | 'viewer' | 'sql' | 'alerts'
-const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer', 'sql', 'alerts']
+export type MetricsSceneActiveTab = 'overview' | 'viewer' | 'alerts'
+const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer', 'alerts']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'overview'
 
 // kea-router pre-parses JSON-looking params, so anything a user types into the URL can reach
@@ -223,9 +219,6 @@ export interface metricsSceneLogicActions {
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     } // metricsViewerLogic
-    keepSqlEditorMounted: (editorTabId: string) => {
-        editorTabId: string
-    }
     openViewerForDerivedSeries: () => {
         value: true
     }
@@ -291,7 +284,6 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         // The setup check found derived series but no ingested metrics.
         openViewerForDerivedSeries: true,
         setRestoringFromUrl: (restoring: boolean) => ({ restoring }),
-        keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
     reducers({
         activeTab: [DEFAULT_ACTIVE_TAB as MetricsSceneActiveTab, { setActiveTab: (_, { activeTab }) => activeTab }],
@@ -299,22 +291,12 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         // can tell a restore from the user touching a control.
         isRestoringFromUrl: [false, { setRestoringFromUrl: (_, { restoring }) => restoring }],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         openViewerForDerivedSeries: () => {
             // A link to a tab wins, so only a bare /metrics visit switches.
             if (!router.values.searchParams.activeTab && values.activeTab === DEFAULT_ACTIVE_TAB) {
                 actions.setActiveTab('viewer')
             }
-        },
-        keepSqlEditorMounted: ({ editorTabId }) => {
-            if (cache.sqlEditorTabId === editorTabId) {
-                return
-            }
-            cache.unmountSqlEditor?.()
-            cache.sqlEditorTabId = editorTabId
-            // Intentionally not cleaned up in beforeUnmount: keeps the embedded sqlEditorLogic
-            // alive across navigation so the user's query survives leaving and re-entering /metrics.
-            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
         },
     })),
     urlToAction(({ actions, values, cache }) => {

@@ -398,10 +398,10 @@ describe('metricsSceneLogic', () => {
         it('keeps viewer params in the URL when switching tabs', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setMetricName('requests_total')
-                logic.actions.setActiveTab('sql')
+                logic.actions.setActiveTab('alerts')
             }).toFinishAllListeners()
 
-            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'sql' })
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'alerts' })
         })
 
         it('does not write metrics params onto another scene URL', async () => {
