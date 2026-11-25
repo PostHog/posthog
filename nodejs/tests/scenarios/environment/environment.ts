@@ -25,6 +25,7 @@ import {
     RoleId,
     RoleSpec,
     consumerGroupsOf,
+    intakeTopicsOf,
     portOf,
     roleIdsOf,
     roleSpecs,
@@ -34,6 +35,7 @@ import {
     Hogli,
     ProbeFailure,
     STACK,
+    createTopics,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     forgetSesBucket,
@@ -424,6 +426,7 @@ export function createEnvironment({
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
+        await createTopics(intakeTopicsOf(specs), docker)
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')

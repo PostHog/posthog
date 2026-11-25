@@ -253,6 +253,30 @@ export function seekFailures(rpkSeek: string): string[] {
     })
 }
 
+const CREATED_OR_PRESENT = /^(OK|TOPIC_ALREADY_EXISTS\b)/
+
+export function topicCreateFailures(rpkCreate: string): string[] {
+    const [header = '', ...rows] = rpkCreate.split('\n').filter((line) => line.trim() !== '')
+    if (!/^TOPIC\s+STATUS\s*$/.test(header)) {
+        return [rpkCreate.trim() || 'rpk printed nothing']
+    }
+    return rows.flatMap((row) => {
+        const [topic, ...words] = row.trim().split(/\s+/)
+        const status = words.join(' ')
+        return CREATED_OR_PRESENT.test(status) ? [] : [`${topic}: ${status}`]
+    })
+}
+
+export async function createTopics(topics: string[], docker: string): Promise<void> {
+    if (topics.length === 0) {
+        return
+    }
+    const failures = topicCreateFailures(await rpk(docker, ['topic', 'create', ...topics]))
+    if (failures.length > 0) {
+        throw new Error(`Could not create the Kafka topics the roles read:\n${failures.join('\n')}`)
+    }
+}
+
 export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string): Promise<void> {
     for (const topic of topics) {
         const output = await rpk(docker, [

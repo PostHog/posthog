@@ -11,8 +11,11 @@ import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
+import { getDefaultCdpConfig } from '~/cdp/config'
+import { intakeModeOf } from '~/cdp/intake/intake-producer'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
-import { defaultConfig } from '~/common/config/config'
+import { PluginServerMode } from '~/common/config'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -33,7 +36,16 @@ import {
     strangerConflict,
     terminate,
 } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
+import {
+    MODES_WITHOUT_A_ROLE,
+    ROLE_PORTS,
+    Role,
+    consumerGroupsOf,
+    fetchRetriesOf,
+    intakeTopicsOf,
+    roleSpecs,
+    secretsOf,
+} from './roles'
 import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
@@ -46,6 +58,7 @@ import {
     scratchSchema,
     seekFailures,
     terminateRoleConnections,
+    topicCreateFailures,
     withPostgres,
 } from './stack'
 import { createSupervisor } from './supervisor'
@@ -419,6 +432,33 @@ describe('scenario environment', () => {
             )
         })
 
+        it("answers every team's sends on the intake topic's ack and seals their state, as production does", () => {
+            const cdpApi = overrideConfigWithEnv(
+                getDefaultCdpConfig(),
+                specs.find(({ role }) => role === 'cdp-api')!.env
+            )
+
+            expect({
+                mode: intakeModeOf(cdpApi)(9_999_123),
+                sealed: cdpApi.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+                parksUnreadableRuns: specs
+                    .filter(({ role }) => role.startsWith('cdp-intake-'))
+                    .map(({ env }) => overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_DLQ_ENABLED),
+            }).toEqual({ mode: 'async', sealed: true, parksUnreadableRuns: [true, true] })
+        })
+
+        it('runs a role for every CDP plugin server mode, or names why the scenarios leave it out', () => {
+            const cdpModes: string[] = Object.values(PluginServerMode).filter((mode) => mode.startsWith('cdp-'))
+            const roles: string[] = [...CdpRole.options]
+            const excluded = Object.keys(MODES_WITHOUT_A_ROLE)
+
+            expect({
+                unscenarioed: cdpModes.filter((mode) => !roles.includes(mode) && !excluded.includes(mode)),
+                excludedYetRun: excluded.filter((mode) => roles.includes(mode)),
+                rolesWithoutAMode: roles.filter((role) => !cdpModes.includes(role)),
+            }).toEqual({ unscenarioed: [], excludedYetRun: [], rolesWithoutAMode: [] })
+        })
+
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
 
@@ -488,7 +528,7 @@ describe('scenario environment', () => {
             )
             const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
 
-            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(shares.map((share) => share.length)).toEqual([5, 4])
             expect(
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
@@ -631,6 +671,8 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -640,6 +682,8 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -649,6 +693,11 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['scenario_cdp_ses_webhooks'] },
+                {
+                    group: 'cdp-intake-transactional-email-consumer',
+                    topics: ['scenario_cdp_intake_transactional_email'],
+                },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['scenario_cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -658,12 +707,63 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['scenario_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
         expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
             groups
         )
+    })
+
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, string[]]>([
+        [
+            'their configured names',
+            {},
+            {},
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'cdp_intake_dlq'],
+        ],
+        [
+            'the Kafka prefix the roles inherit',
+            { KAFKA_PREFIX: 'scenario_' },
+            {},
+            [
+                'scenario_cdp_intake_transactional_email',
+                'scenario_cdp_intake_workflow_webhook',
+                'scenario_cdp_intake_dlq',
+            ],
+        ],
+        [
+            'the dead-letter topic a profile sets',
+            {},
+            { CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' },
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'scenario_intake_dlq'],
+        ],
+    ])('creates the intake topics and their dead-letter topic under %s', (_name, env, settings, topics) => {
+        expect(intakeTopicsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
+            topics
+        )
+    })
+
+    it.each<[string, string, string[]]>([
+        [
+            'topics it created and topics that were there',
+            'TOPIC                   STATUS\ncdp_intake_dlq          OK\ncdp_intake_transactional_email  TOPIC_ALREADY_EXISTS: The topic has already been created\n',
+            [],
+        ],
+        [
+            'a topic the broker refused',
+            'TOPIC           STATUS\ncdp_intake_dlq  POLICY_VIOLATION: Unsupported configuration\n',
+            ['cdp_intake_dlq: POLICY_VIOLATION: Unsupported configuration'],
+        ],
+        [
+            'a create rpk could not run',
+            'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n',
+            ['unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused'],
+        ],
+    ])('reads the failures of a topic create from rpk: %s', (_name, output, failures) => {
+        expect(topicCreateFailures(output)).toEqual(failures)
     })
 
     it.each<[string, string, string[]]>([
@@ -1192,6 +1292,20 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            if ([exec, container, rpk, noun, verb].join(' ') === 'exec posthog-kafka-1 rpk topic create') {
+                const created = path.join(__dirname, 'topics.json')
+                const topics = fs.existsSync(created) ? JSON.parse(fs.readFileSync(created, 'utf8')) : []
+                const asked = args.slice(5)
+                const present = asked.filter((topic) => topics.includes(topic))
+                fs.writeFileSync(created, JSON.stringify([...new Set([...topics, ...asked])]))
+                process.stdout.write(
+                    'TOPIC  STATUS\\n' +
+                        asked
+                            .map((topic) => topic + '  ' + (present.includes(topic) ? 'TOPIC_ALREADY_EXISTS: The topic has already been created' : 'OK') + '\\n')
+                            .join('')
+                )
+                process.exit(present.length > 0 ? 1 : 0)
+            }
             const describes = args.length === 6 && verb === 'describe'
             const seeks =
                 args.length === 11 &&
@@ -1263,6 +1377,10 @@ describe('scenario environment', () => {
                     ({ group, topics }) => [group, Object.fromEntries(topics.map((topic) => [topic, 'end']))]
                 )
             )
+        const topicsCreated = (): string[] =>
+            existsSync(path.join(fakes, 'topics.json'))
+                ? (parseJSON(readFileSync(path.join(fakes, 'topics.json'), 'utf8')) as string[]).sort()
+                : []
         const offsetsOf = (): Record<string, Record<string, string>> =>
             existsSync(path.join(fakes, 'offsets.json'))
                 ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
@@ -1968,11 +2086,13 @@ describe('scenario environment', () => {
                     jobs: await jobsLeft(),
                     tokens: await limiter.claimUpTo(claim),
                     offsets: offsetsOf(),
+                    topics: topicsCreated(),
                     sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
                 }).toEqual({
                     jobs: ['completed', 'running'],
                     tokens: 5,
                     offsets: everyGroupAtEnd(),
+                    topics: ['cdp_intake_dlq', 'cdp_intake_transactional_email', 'cdp_intake_workflow_webhook'],
                     sends: [201, 'MessageRejected', 'sent'],
                 })
             } finally {
