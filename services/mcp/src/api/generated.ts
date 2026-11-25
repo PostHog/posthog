@@ -43624,19 +43624,19 @@ export namespace Schemas {
 
     export interface EmitReportResponse {
       /**
-         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
          * @nullable
          */
       report_id: string | null;
       /**
-         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
          * @nullable
          */
       report_status: string | null;
       /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
       emitted: boolean;
       /**
-         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
          * @nullable
          */
       skipped_reason: string | null;
@@ -123289,6 +123289,11 @@ export namespace Schemas {
       malformed: boolean;
       /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
       field_values: SourceFilterPreviewRecordFieldValues;
+      /**
+         * For an excluded record, the conditions of the expression that the record does not pass, as written in the expression and in expression order. The conditions are the operands of a top-level AND, or the whole expression when it is one condition. A condition that reads a malformed value fails. Null for records that pass, and for every record when the expression's top level is OR or the expression has more than 8 conditions.
+         * @nullable
+         */
+      failed_conditions: string[] | null;
     }
 
     export interface SourceFilterPreviewRequest {
