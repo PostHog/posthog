@@ -559,6 +559,41 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             {returned.groups[0].grouping_key: IncidentAction.RESOLVE}
         ]
 
+    def test_a_series_that_stops_for_good_shows_no_data_then_gives_up_its_slot(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.set_on_missing_data(self.configuration_id, OnMissingData.NO_DATA)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        fired = self._evaluate()
+        (key,) = [group.grouping_key for group in fired.groups]
+
+        self._next_check(fired)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
+        resolved = self._evaluate()
+        assert self._kinds(resolved) == {"a": AlertEventKind.RESOLVED}
+
+        self._next_check(resolved)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector())
+        lost = self._evaluate()
+        assert [(group.grouping_key, group.new_state) for group in lost.groups] == [(key, "no_data")]
+
+        self._next_check(lost)
+        self.checkpoint.return_value = self.due_at
+        still_lost = self._evaluate()
+        assert still_lost.groups == ()
+
+        self._next_check(still_lost)
+        # Past the 24 hours the platform waits before it reaps a resting group nobody returned.
+        self.cutoff += timedelta(hours=25)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(self.configuration_id, self.due_at)
+        self.checkpoint.return_value = self.due_at
+        self._next_check(self._evaluate())
+        with team_scope(self.team.id):
+            assert platform_testing.alert_for(self.configuration_id, grouping_key=key) is None
+
     @parameterized.expand(
         [
             ("missing_for_the_whole_window", [], [("", AlertEventKind.FIRING)]),
