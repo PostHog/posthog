@@ -71,7 +71,7 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 from posthog.hogql.utils import ilike_matches, is_json_verbatim, like_matches
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
@@ -172,9 +172,10 @@ def resolve_materialized_property_source(
     if context.modifiers.materializationMode == "disabled":
         return None
 
-    # ai_events is a Distributed table, so ClickHouse runs the joins of a query that reads it on the ai-events cluster.
-    # There, `person` is a Distributed shim built from the base DDL (posthog/models/ai_events/person_shims.py), and it
-    # has none of the pmat_* columns that the materialized-column registry lists for the main cluster.
+    # ai_events is a Distributed table, so ClickHouse runs a SELECT that reads it, with its joins and subqueries, on the
+    # ai-events cluster. There, `person` is a Distributed shim built from the base DDL
+    # (posthog/models/ai_events/person_shims.py), and it has none of the pmat_* columns that the materialized-column
+    # registry lists for the main cluster.
     if table_name == "person" and context.reads_ai_events:
         return None
 
@@ -1205,14 +1206,19 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
+        outer_reads_ai_events = self.context.reads_ai_events
+        reads_ai_events = outer_reads_ai_events
         join: ast.JoinExpr | None = node.select_from
         while join is not None:
             table_type: ast.Type | None = join.table.type if join.table is not None else None
             while table_type is not None:
                 scope.add(id(table_type))
+                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, AiEventsTable):
+                    reads_ai_events = True
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
+        self.context.reads_ai_events = reads_ai_events
         try:
             with self._grouped_clause(False):
                 if not is_grouped(node):
@@ -1224,6 +1230,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             return result
         finally:
             self._tables_in_scope.pop()
+            self.context.reads_ai_events = outer_reads_ai_events
 
     def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
         self._join_constraint_depth += 1
@@ -2899,15 +2906,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         return None
 
 
-class _AiEventsReadFinder(TraversingVisitor):
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit_table_type(self, node: ast.TableType) -> None:
-        if isinstance(node.table, AiEventsTable):
-            self.found = True
-
-
 def clickhouse_property_resolution(
     node: _T_AST, context: HogQLContext, settings: HogQLGlobalSettings | None = None
 ) -> _T_AST:
@@ -2919,7 +2917,4 @@ def clickhouse_property_resolution(
     """
     # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
     transform_null_in = isinstance(settings, HogQLGlobalSettings) and bool(settings.transform_null_in)
-    ai_events_finder = _AiEventsReadFinder()
-    ai_events_finder.visit(node)
-    context.reads_ai_events = ai_events_finder.found
     return cast(_T_AST, ClickHousePropertyResolver(context, transform_null_in=transform_null_in).visit(node))

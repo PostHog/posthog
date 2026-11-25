@@ -154,7 +154,7 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
-    # Set by clickhouse_property_resolution when the query reads the ai_events table.
+    # True while clickhouse_property_resolution visits a SELECT that reads ai_events, or a SELECT nested in one.
     reads_ai_events: bool = False
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table

@@ -251,9 +251,26 @@ class TestQueryAiEvents:
         assert kwargs["user"] is None
 
 
+_PERSON_JOIN_QUERY = "SELECT person.properties.email FROM posthog.ai_events"
+
+
 class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
-    @parameterized.expand([("query_ai_events", query_ai_events), ("execute_hogql_query", execute_hogql_query)])
-    def test_reads_person_properties_without_materialized_columns(self, _name, run_query):
+    @parameterized.expand(
+        [
+            ("query_ai_events", query_ai_events, _PERSON_JOIN_QUERY, [("user@example.com",)], False),
+            ("execute_hogql_query", execute_hogql_query, _PERSON_JOIN_QUERY, [("user@example.com",)], False),
+            (
+                "independent_persons_branch",
+                execute_hogql_query,
+                "SELECT properties.email, (SELECT count() FROM posthog.ai_events) FROM persons",
+                [("user@example.com", 1)],
+                True,
+            ),
+        ]
+    )
+    def test_person_materialized_columns_only_skipped_under_ai_events(
+        self, _name, run_query, query, expected_results, reads_materialized_column
+    ):
         with materialized("person", "email"):
             _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "user@example.com"})
             bulk_create_ai_events(
@@ -268,11 +285,11 @@ class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
             )
 
             result = run_query(
-                query=parse_select("SELECT person.properties.email FROM posthog.ai_events"),
+                query=parse_select(query),
                 placeholders={},
                 team=self.team,
                 query_type="TestQuery",
             )
 
-        assert result.results == [("user@example.com",)]
-        assert "pmat_email" not in result.clickhouse
+        assert result.results == expected_results
+        assert ("pmat_email" in result.clickhouse) == reads_materialized_column
