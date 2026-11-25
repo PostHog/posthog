@@ -207,6 +207,8 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
     def replace_memory_addresses_and_ips(value):
         message = re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
         message = re.sub(r"address='\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'", "address='127.0.0.1'", message)
+        # The parser's list of expected tokens changes between ClickHouse versions.
+        message = re.sub(r"Expected one of: [^\n]*", "Expected one of: ...", message)
         return re.sub(r"host='\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'", "host='127.0.0.1'", message)
 
     with pytest.raises(ExceptionGroup) as e:
