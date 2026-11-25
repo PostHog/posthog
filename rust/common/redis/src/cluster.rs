@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
@@ -18,6 +17,9 @@ const CONNECT_COOLDOWN: Duration = Duration::from_secs(5);
 /// The cluster connection heals a lost node by itself, but a hung node sends no MOVED and a
 /// fully down cluster makes every read retry every node. Rebuild it after this many failures.
 const FAILURES_BEFORE_RECONNECT: u32 = 3;
+/// Limiters that share one client refresh together, so a rebuild also needs the streak to span
+/// more than one refresh round.
+const FAILURE_STREAK_MIN_AGE: Duration = Duration::from_secs(4);
 
 /// Connects on the first read, so a cache that is down at startup cannot fail or block the
 /// caller. Only the sorted-set range reads work; every other method returns an error.
@@ -33,31 +35,41 @@ struct Inner {
     cooldown_started_at: tokio::sync::Mutex<Option<Instant>>,
     connect_cooldown: Duration,
     connect_budget: Duration,
-    consecutive_failures: AtomicU32,
+    failure_streak_min_age: Duration,
+    failure_streak: Mutex<FailureStreak>,
+}
+
+#[derive(Default)]
+struct FailureStreak {
+    failures: u32,
+    started_at: Option<Instant>,
 }
 
 impl RedisClusterClient {
+    /// Do not time out reads before the connect budget ends: a dropped connect sets no cooldown.
     pub fn new(
         url: String,
         response_timeout: Duration,
         connection_timeout: Duration,
         read_from_replicas: bool,
     ) -> Result<Self, CustomRedisError> {
-        Self::with_connect_cooldown(
+        Self::with_timings(
             url,
             response_timeout,
             connection_timeout,
             read_from_replicas,
             CONNECT_COOLDOWN,
+            FAILURE_STREAK_MIN_AGE,
         )
     }
 
-    fn with_connect_cooldown(
+    fn with_timings(
         url: String,
         response_timeout: Duration,
         connection_timeout: Duration,
         read_from_replicas: bool,
         connect_cooldown: Duration,
+        failure_streak_min_age: Duration,
     ) -> Result<Self, CustomRedisError> {
         if response_timeout.is_zero() || connection_timeout.is_zero() {
             return Err(CustomRedisError::InvalidConfiguration(
@@ -80,7 +92,8 @@ impl RedisClusterClient {
                 connect_cooldown,
                 // Seed connect, PING or READONLY, CLUSTER SLOTS, then the per-node connects.
                 connect_budget: connection_timeout * 2 + response_timeout * 3,
-                consecutive_failures: AtomicU32::new(0),
+                failure_streak_min_age,
+                failure_streak: Mutex::new(FailureStreak::default()),
             }),
         })
     }
@@ -128,7 +141,7 @@ impl RedisClusterClient {
     fn after_result<T>(&self, result: redis::RedisResult<T>) -> Result<T, CustomRedisError> {
         match result {
             Ok(value) => {
-                self.inner.consecutive_failures.store(0, Ordering::Relaxed);
+                *self.failure_streak() = FailureStreak::default();
                 Ok(value)
             }
             Err(error) => Err(self.after_error(error)),
@@ -136,20 +149,29 @@ impl RedisClusterClient {
     }
 
     fn after_error(&self, error: redis::RedisError) -> CustomRedisError {
-        let failures = self
-            .inner
-            .consecutive_failures
-            .fetch_add(1, Ordering::Relaxed)
-            + 1;
-        if failures >= FAILURES_BEFORE_RECONNECT {
+        let rebuild = {
+            let mut streak = self.failure_streak();
+            streak.failures += 1;
+            let started_at = *streak.started_at.get_or_insert_with(Instant::now);
+            streak.failures >= FAILURES_BEFORE_RECONNECT
+                && started_at.elapsed() >= self.inner.failure_streak_min_age
+        };
+        if rebuild {
             if let Ok(mut cooldown_started_at) = self.inner.cooldown_started_at.try_lock() {
-                self.inner.consecutive_failures.store(0, Ordering::Relaxed);
+                *self.failure_streak() = FailureStreak::default();
                 self.inner.connection.store(None);
                 *cooldown_started_at = Some(Instant::now());
                 warn!(%error, "cluster connection dropped; reconnecting after the cooldown");
             }
         }
         error.into()
+    }
+
+    fn failure_streak(&self) -> std::sync::MutexGuard<'_, FailureStreak> {
+        self.inner
+            .failure_streak
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -388,6 +410,7 @@ mod tests {
     const RESPONSE_TIMEOUT: Duration = Duration::from_millis(500);
     const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
     const TEST_COOLDOWN: Duration = Duration::from_millis(200);
+    const TEST_STREAK_MIN_AGE: Duration = Duration::from_millis(400);
     const HANG_GUARD: Duration = Duration::from_secs(10);
     const KEY: &str = "@posthog/quota-limits/events";
     const MEMBER: &str = "phc_live";
@@ -395,6 +418,7 @@ mod tests {
     #[derive(Clone, Copy, PartialEq)]
     enum NodeMode {
         Answer,
+        Fail,
         Hang,
     }
 
@@ -444,7 +468,8 @@ mod tests {
         let mut read = BufReader::new(read);
         let mut hung = false;
         while let Some(command) = read_command(&mut read).await {
-            hung |= *mode.lock().unwrap() == NodeMode::Hang;
+            let current = *mode.lock().unwrap();
+            hung |= current == NodeMode::Hang;
             if hung {
                 continue;
             }
@@ -453,6 +478,7 @@ mod tests {
                 "CLUSTER" => {
                     format!("*1\r\n*3\r\n:0\r\n:16383\r\n*2\r\n$9\r\n127.0.0.1\r\n:{port}\r\n")
                 }
+                "ZRANGEBYSCORE" if current == NodeMode::Fail => "-ERR fake failure\r\n".to_string(),
                 "ZRANGEBYSCORE" => format!("*1\r\n${}\r\n{MEMBER}\r\n", MEMBER.len()),
                 _ => "+OK\r\n".to_string(),
             };
@@ -483,12 +509,13 @@ mod tests {
     }
 
     fn client_for(node: &FakeNode) -> RedisClusterClient {
-        RedisClusterClient::with_connect_cooldown(
+        RedisClusterClient::with_timings(
             node.url(),
             RESPONSE_TIMEOUT,
             CONNECTION_TIMEOUT,
             false,
             TEST_COOLDOWN,
+            TEST_STREAK_MIN_AGE,
         )
         .unwrap()
     }
@@ -651,6 +678,52 @@ mod tests {
         tokio::time::sleep(TEST_COOLDOWN).await;
         assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
         assert!(node.connections() > before_rebuild);
+    }
+
+    #[tokio::test]
+    async fn a_success_clears_the_failure_streak() {
+        let node = FakeNode::start(NodeMode::Fail).await;
+        let client = client_for(&node);
+        assert!(read(&client).await.is_err());
+        tokio::time::sleep(TEST_STREAK_MIN_AGE).await;
+        node.set_mode(NodeMode::Answer);
+        assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
+
+        node.set_mode(NodeMode::Fail);
+        for _ in 0..3 {
+            assert!(read(&client).await.is_err());
+        }
+        node.set_mode(NodeMode::Answer);
+        let connections = node.connections();
+        assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
+        assert_eq!(node.connections(), connections);
+    }
+
+    #[tokio::test]
+    async fn a_failure_burst_rebuilds_only_once_the_streak_is_old_enough() {
+        let node = FakeNode::start(NodeMode::Answer).await;
+        let client = client_for(&node);
+        assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
+
+        node.set_mode(NodeMode::Hang);
+        let burst = tokio::join!(read(&client), read(&client), read(&client), read(&client));
+        for result in [burst.0, burst.1, burst.2, burst.3] {
+            assert!(
+                matches!(result, Err(CustomRedisError::Timeout)),
+                "{result:?}"
+            );
+        }
+
+        let after_burst = read(&client).await;
+        assert!(
+            matches!(after_burst, Err(CustomRedisError::Timeout)),
+            "a burst must not drop the connection: {after_burst:?}"
+        );
+        let in_cooldown = read(&client).await.unwrap_err();
+        assert!(
+            !matches!(in_cooldown, CustomRedisError::Timeout),
+            "a streak older than the minimum age must drop the connection"
+        );
     }
 
     #[test]

@@ -26,18 +26,19 @@ pub fn spawn_observation(
         loop {
             ticker.tick().await;
             let started = Instant::now();
-            let result = RedisLimiter::fetch_limited(&redis, &key).await;
-            histogram!(
-                format!("{service_name}_billing_limits_observe_duration_seconds"),
-                "cache_key" => cache_key.clone(),
-            )
-            .record(started.elapsed().as_secs_f64());
-            match result {
-                Ok(set) => gauge!(
-                    format!("{service_name}_billing_limits_observed_tokens"),
-                    "cache_key" => cache_key.clone(),
-                )
-                .set(set.len() as f64),
+            match RedisLimiter::fetch_limited(&redis, &key).await {
+                Ok(set) => {
+                    histogram!(
+                        format!("{service_name}_billing_limits_observe_duration_seconds"),
+                        "cache_key" => cache_key.clone(),
+                    )
+                    .record(started.elapsed().as_secs_f64());
+                    gauge!(
+                        format!("{service_name}_billing_limits_observed_tokens"),
+                        "cache_key" => cache_key.clone(),
+                    )
+                    .set(set.len() as f64);
+                }
                 Err(_) => counter!(
                     format!("{service_name}_billing_limits_observe_errors_total"),
                     "cache_key" => cache_key.clone(),
@@ -117,11 +118,9 @@ mod tests {
             metric("observe_errors_total", exceptions),
             Some(&DebugValue::Counter(3))
         );
-        for cache_key in [events, exceptions] {
-            assert!(
-                matches!(metric("observe_duration_seconds", cache_key), Some(DebugValue::Histogram(reads)) if reads.len() == 3),
-                "{cache_key}"
-            );
-        }
+        assert!(
+            matches!(metric("observe_duration_seconds", events), Some(DebugValue::Histogram(reads)) if reads.len() == 3)
+        );
+        assert_eq!(metric("observe_duration_seconds", exceptions), None);
     }
 }
