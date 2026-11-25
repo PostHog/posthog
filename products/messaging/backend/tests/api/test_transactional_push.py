@@ -1,5 +1,6 @@
 import json
 import hashlib
+from contextlib import ExitStack
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -39,7 +40,7 @@ from products.messaging.backend.presentation.views.push_throttles import (
 from products.messaging.backend.services.push_digest import push_digest
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.messaging.backend.services.transactional_email_status import keyed_run_id
-from products.messaging.backend.services.transactional_push import PUSH_REQUESTS_PER_PROCESS, _push_requests
+from products.messaging.backend.services.transactional_push import PUSH_REQUESTS_PER_PROCESS, _push_request
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 
@@ -550,19 +551,16 @@ class TestTransactionalPushSend(APIBaseTest):
     @parameterized.expand([("single", "push"), ("batch", "push_batch")])
     def test_a_push_waits_for_the_cdp_service_in_a_few_requests_at_most(self, mock_post, _flag, _capture, _name, route):
         url = f"/api/projects/{self.team.id}/messaging/send/{route}/"
-        body = dict(self.body)
+        body: dict[str, Any] = dict(self.body)
         if route == "push_batch":
             body = {
                 "template_id": body["template_id"],
                 "recipients": [{"distinct_id": "user-1", "idempotency_key": str(uuid4())}],
             }
-        held = [_push_requests.acquire(blocking=False) for _ in range(PUSH_REQUESTS_PER_PROCESS)]
-        self.addCleanup(lambda: [_push_requests.release() for acquired in held if acquired])
-
-        refused = self.client.post(url, body, format="json")
-        for _ in range(held.count(True)):
-            _push_requests.release()
-        held.clear()
+        with ExitStack() as held:
+            for _ in range(PUSH_REQUESTS_PER_PROCESS):
+                held.enter_context(_push_request())
+            refused = self.client.post(url, body, format="json")
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
         # More sends than there are places, so one that keeps its place is caught.
         sent = [self.client.post(url, body, format="json").status_code for _ in range(PUSH_REQUESTS_PER_PROCESS + 1)]
