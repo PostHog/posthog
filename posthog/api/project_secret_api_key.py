@@ -9,21 +9,20 @@ import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import (
-    DenyIDJagAccessToken,
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     request_subject,
@@ -350,9 +349,10 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
     return False
 
 
-class DenyIDJagProjectSecretAPIKeyWrites(DenyIDJagAccessToken):
-    """A project secret API key outlives the credential that issues it. The organization's identity provider mints an
-    ID-JAG token without the person approving it, so the token must not create or change a key."""
+class DenyIDJagProjectSecretAPIKeyWrites(BasePermission):
+    """A project secret API key has no expiry and no owner, so it keeps working after the identity provider revokes
+    the agent or deprovisions the person. An ID-JAG token exists only under that provider's control, so it must not
+    create or change a key."""
 
     message = (
         "ID-JAG tokens can't create or change project secret API keys, because a key outlives the token. "
@@ -360,7 +360,9 @@ class DenyIDJagProjectSecretAPIKeyWrites(DenyIDJagAccessToken):
     )
 
     def has_permission(self, request, view) -> bool:
-        return request.method in SAFE_METHODS or super().has_permission(request, view)
+        return request.method in SAFE_METHODS or not isinstance(
+            request.successful_authenticator, IDJagAccessTokenAuthentication
+        )
 
 
 @extend_schema(extensions={"x-product": "core"})
