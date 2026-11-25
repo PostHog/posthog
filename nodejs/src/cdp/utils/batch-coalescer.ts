@@ -14,14 +14,14 @@ export class BatchCoalescer<T> {
     private pending: PendingGroup<T> | null = null
 
     constructor(
-        private readonly process: (items: T[]) => Promise<void>,
+        private readonly process: (items: T[], batches: number) => Promise<void>,
         private readonly windowMs: number,
         private readonly maxBatches: number
     ) {}
 
     add(items: T[]): Promise<void> {
         if (!(this.windowMs > 0 && this.maxBatches > 1)) {
-            return this.run(items)
+            return this.run(items, 1)
         }
         if (!this.pending) {
             if (items.length === 0) {
@@ -46,7 +46,7 @@ export class BatchCoalescer<T> {
         }
         this.pending = null
         clearTimeout(group.timer)
-        this.run(group.items).then(group.resolve, group.reject)
+        this.run(group.items, group.batches).then(group.resolve, group.reject)
     }
 
     private startGroup(): PendingGroup<T> {
@@ -60,7 +60,7 @@ export class BatchCoalescer<T> {
         return { items: [], batches: 0, timer, done, resolve, reject }
     }
 
-    private run(items: T[]): Promise<void> {
-        return Promise.resolve().then(() => this.process(items))
+    private run(items: T[], batches: number): Promise<void> {
+        return Promise.resolve().then(() => this.process(items, batches))
     }
 }
