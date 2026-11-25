@@ -61,9 +61,9 @@ class LiteLLMSource(ResumableSource[LiteLLMSourceConfig, LiteLLMResumeConfig], V
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LiteLLM",
             keywords=["llm proxy", "llm gateway", "llm spend"],
-            caption="""Sync spend logs, keys, users, teams and models from your LiteLLM proxy into the PostHog Data warehouse.
+            caption="""Sync spend logs, keys, users, teams, organizations, customers, budgets, tags and models from your LiteLLM proxy into the PostHog Data warehouse.
 
-Enter the proxy's public https URL and the master key or an admin key. A key without admin rights only syncs its own spend logs.""",
+Enter the proxy's public https URL and the master key or an admin key. A key without admin rights only syncs its own spend logs. The organizations table needs a LiteLLM Enterprise license.""",
             iconPath="/static/services/litellm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/litellm",
             releaseStatus=ReleaseStatus.BETA,
