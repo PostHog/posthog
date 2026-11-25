@@ -92,6 +92,14 @@ class AEOSetupContextSerializer(DataclassSerializer):
                 "prompts and keywords but cannot queue the first run."
             },
             "website_days": {"help_text": "The window, in days, that pageview hosts among the websites cover."},
+            "ai_credits_billed": {
+                "help_text": "Whether AI visibility checks and suggestions use the organization's AI credits. "
+                "False while they are free."
+            },
+            "ai_credits_exhausted": {
+                "help_text": "Whether the organization has used up its AI credits. While true, no checks run and "
+                "suggestions and setup are refused until credits are added or the billing limit is raised."
+            },
             "prompt_target": {
                 "help_text": "How many prompts setup asks PostHog to suggest. One run makes about this many checks "
                 "per enabled engine."

@@ -7,6 +7,8 @@ runs, whatever its setting says.
 
 from __future__ import annotations
 
+import dataclasses
+
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
@@ -40,6 +42,7 @@ def list_engine_settings(team_id: int) -> list[EngineSetting]:
                 available=spec.is_configured(),
                 enabled=row.enabled if row else spec.default_enabled,
                 frequency=CheckFrequency(row.frequency) if row else CheckFrequency.DAILY,
+                estimated_credits_per_check=spec.estimated_credits_per_check,
             )
         )
     return settings_list
@@ -62,9 +65,7 @@ def update_engine_setting(team_id: int, engine: str, change: EngineSettingUpdate
             "frequency": frequency.value,
         },
     )
-    return EngineSetting(
-        engine=engine, mode=spec.mode, available=spec.is_configured(), enabled=enabled, frequency=frequency
-    )
+    return dataclasses.replace(current, enabled=enabled, frequency=frequency)
 
 
 def engine_schedule(team_id: int) -> EngineSchedule:

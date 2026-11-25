@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.aeo.backend import catalog, engine_settings, keyword_suggestions, suggestions
+from products.aeo.backend.credits import ai_visibility_billable, out_of_ai_credits
 from products.aeo.backend.facade.contracts import (
     MAX_SETUP_WEBSITES,
     SETUP_ENOUGH_KEYWORDS,
@@ -164,6 +165,8 @@ def read_context(team: Team) -> SetupContext:
         engines=tuple(engine_settings.list_engine_settings(team.id)),
         prompt_target=SETUP_PROMPT_COUNT,
         website_days=SETUP_WEBSITE_DAYS,
+        ai_credits_billed=ai_visibility_billable(),
+        ai_credits_exhausted=out_of_ai_credits(team),
     )
 
 

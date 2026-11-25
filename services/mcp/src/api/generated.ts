@@ -182,6 +182,11 @@ export namespace Schemas {
        * * `daily` - Daily
        * * `weekly` - Weekly */
       frequency: CheckFrequencyEnum;
+      /**
+         * About how many AI credits one check on this engine uses, from measured averages. 0 means the engine is not billed. Null when PostHog has no estimate for the engine.
+         * @nullable
+         */
+      estimated_credits_per_check: number | null;
     }
 
     export interface AEOKeyword {
@@ -1373,6 +1378,10 @@ export namespace Schemas {
       prompt_target: number;
       /** The window, in days, that pageview hosts among the websites cover. */
       website_days: number;
+      /** Whether AI visibility checks and suggestions use the organization's AI credits. False while they are free. */
+      ai_credits_billed: boolean;
+      /** Whether the organization has used up its AI credits. While true, no checks run and suggestions and setup are refused until credits are added or the billing limit is raised. */
+      ai_credits_exhausted: boolean;
     }
 
     /**

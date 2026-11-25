@@ -31,6 +31,8 @@ export const ContentAutopilotFirstRunCard = ({
 }): JSX.Element => {
     const {
         activeEngineCount,
+        activeCreditsPerPrompt,
+        setupContext,
         firstRunDisabledReason,
         starting,
         startError,
@@ -51,6 +53,14 @@ export const ContentAutopilotFirstRunCard = ({
 
     const skipReason =
         firstRunStep?.status === 'skipped' && firstRunStep.detail ? SKIP_REASONS[firstRunStep.detail] : undefined
+    const costNote = (
+        <ContentAutopilotSetupCostNote
+            prompts={prompts}
+            engines={activeEngineCount}
+            creditsPerPrompt={activeCreditsPerPrompt}
+            creditsBilled={setupContext?.ai_credits_billed}
+        />
+    )
 
     return (
         <LemonCard hoverEffect={false} className="p-6" data-attr="content-autopilot-first-run">
@@ -75,9 +85,7 @@ export const ContentAutopilotFirstRunCard = ({
                         see where you stand. After that, each engine checks them on its schedule.
                     </p>
                     <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                        <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
-                        </div>
+                        <div className="min-w-0 flex-1 basis-80">{costNote}</div>
                         <LemonButton
                             type="primary"
                             onClick={() => startFirstRun(true)}
@@ -96,9 +104,7 @@ export const ContentAutopilotFirstRunCard = ({
                         Each engine runs the first checks on its schedule. To see results sooner, run them now.
                     </p>
                     <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                        <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
-                        </div>
+                        <div className="min-w-0 flex-1 basis-80">{costNote}</div>
                         <LemonButton
                             type="primary"
                             onClick={() => startFirstRun(false)}

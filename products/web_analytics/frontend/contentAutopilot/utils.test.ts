@@ -2,9 +2,18 @@ import { AI_LAB_SHADES, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabSha
 
 import type { AEOPromptEngineCheckApi } from '../generated/api.schemas'
 import { EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
-import { engineColor, engineMark, promptSearches } from './utils'
+import { engineColor, engineMark, estimatedCreditsPerPrompt, promptSearches } from './utils'
 
 describe('utils', () => {
+    it.each([
+        ['sums the engines', [9, 13], 22],
+        ['counts an unbilled engine as free', [9, 0], 9],
+        ['gives no estimate when one engine has none', [9, null], null],
+    ])('estimatedCreditsPerPrompt %s', (_name, perCheck, expected) => {
+        const engines = perCheck.map((estimated_credits_per_check) => ({ estimated_credits_per_check }))
+        expect(estimatedCreditsPerPrompt(engines)).toEqual(expected)
+    })
+
     describe('engine identity', () => {
         it.each([
             ['claude-web-search', 'Claude', AI_LAB_SHADES.Anthropic[MAIN_LAB_SHADE]],

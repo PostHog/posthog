@@ -994,12 +994,54 @@ export const EXAMPLE_KEYWORD_MODIFIERS: AEOKeywordModifierReportApi = {
 }
 
 export const EXAMPLE_ENGINE_SETTINGS: AEOEngineSettingApi[] = [
-    { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-    { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-    { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
-    { engine: 'exa-answer', mode: 'web_search', available: true, enabled: false, frequency: 'daily' },
-    { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: true, frequency: 'weekly' },
-    { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
+    {
+        engine: 'claude-web-search',
+        mode: 'web_search',
+        available: true,
+        enabled: true,
+        frequency: 'daily',
+        estimated_credits_per_check: 9,
+    },
+    {
+        engine: 'openai-web-search',
+        mode: 'web_search',
+        available: true,
+        enabled: true,
+        frequency: 'daily',
+        estimated_credits_per_check: 13,
+    },
+    {
+        engine: 'perplexity-web-search',
+        mode: 'web_search',
+        available: false,
+        enabled: true,
+        frequency: 'daily',
+        estimated_credits_per_check: null,
+    },
+    {
+        engine: 'exa-answer',
+        mode: 'web_search',
+        available: true,
+        enabled: false,
+        frequency: 'daily',
+        estimated_credits_per_check: 0,
+    },
+    {
+        engine: 'claude-no-search',
+        mode: 'no_search',
+        available: true,
+        enabled: true,
+        frequency: 'weekly',
+        estimated_credits_per_check: null,
+    },
+    {
+        engine: 'openai-no-search',
+        mode: 'no_search',
+        available: true,
+        enabled: false,
+        frequency: 'daily',
+        estimated_credits_per_check: null,
+    },
 ]
 
 // Rows the overview's two HogQL tiles read. Rates follow a fixed pattern, so every render draws the same chart.

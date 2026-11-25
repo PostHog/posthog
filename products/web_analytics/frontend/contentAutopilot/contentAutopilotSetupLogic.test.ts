@@ -27,10 +27,33 @@ const CONTEXT: AEOSetupContextApi = {
     first_run_available: true,
     prompt_target: 20,
     website_days: 7,
+    ai_credits_billed: false,
+    ai_credits_exhausted: false,
     engines: [
-        { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-        { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
-        { engine: 'exa-answer', mode: 'web_search', available: true, enabled: false, frequency: 'daily' },
+        {
+            engine: 'claude-web-search',
+            mode: 'web_search',
+            available: true,
+            enabled: true,
+            frequency: 'daily',
+            estimated_credits_per_check: 9,
+        },
+        {
+            engine: 'perplexity-web-search',
+            mode: 'web_search',
+            available: false,
+            enabled: true,
+            frequency: 'daily',
+            estimated_credits_per_check: null,
+        },
+        {
+            engine: 'exa-answer',
+            mode: 'web_search',
+            available: true,
+            enabled: false,
+            frequency: 'daily',
+            estimated_credits_per_check: 0,
+        },
     ],
 }
 
@@ -57,6 +80,7 @@ describe('contentAutopilotSetupLogic', () => {
         expect(logic.values.selectedEngines).toEqual(['claude-web-search', 'perplexity-web-search'])
         expect(logic.values.runnableEngines).toEqual(['claude-web-search'])
         expect(logic.values.pendingEngines).toEqual(['perplexity-web-search'])
+        expect(logic.values.creditsPerPrompt).toEqual(9)
 
         logic.actions.toggleEngine('exa-answer', true)
         logic.actions.startSetup(runFirstCheck)

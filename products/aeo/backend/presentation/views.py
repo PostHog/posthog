@@ -1883,6 +1883,9 @@ class AEOEngineSettingSerializer(DataclassSerializer):
             "frequency": {
                 "help_text": "'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day."
             },
+            "estimated_credits_per_check": {
+                "help_text": "About how many AI credits one check on this engine uses, from measured averages. 0 means the engine is not billed. Null when PostHog has no estimate for the engine."
+            },
         }
 
 

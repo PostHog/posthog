@@ -781,6 +781,7 @@ class EngineSpec:
     default_enabled: bool
     build: Callable[[], CitationEngine]
     is_configured: Callable[[], bool]
+    estimated_credits_per_check: int | None = None
 
 
 def _gateway_configured() -> bool:
@@ -795,6 +796,7 @@ ENGINE_SPECS: tuple[EngineSpec, ...] = (
         default_enabled=True,
         build=ClaudeWebSearchEngine,
         is_configured=_gateway_configured,
+        estimated_credits_per_check=9,
     ),
     EngineSpec(
         engine=OPENAI_WEB_SEARCH,
@@ -802,6 +804,7 @@ ENGINE_SPECS: tuple[EngineSpec, ...] = (
         default_enabled=True,
         build=OpenAIWebSearchEngine,
         is_configured=_gateway_configured,
+        estimated_credits_per_check=13,
     ),
     EngineSpec(
         engine=PERPLEXITY_WEB_SEARCH,
@@ -816,6 +819,7 @@ ENGINE_SPECS: tuple[EngineSpec, ...] = (
         default_enabled=True,
         build=ExaAnswerEngine,
         is_configured=lambda: bool(settings.EXA_API_KEY),
+        estimated_credits_per_check=0,
     ),
     EngineSpec(
         engine=CLAUDE_NO_SEARCH,

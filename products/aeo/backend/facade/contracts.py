@@ -548,6 +548,7 @@ class EngineSetting:
     available: bool
     enabled: bool
     frequency: CheckFrequency
+    estimated_credits_per_check: int | None
 
 
 @frozen
@@ -934,6 +935,8 @@ class SetupContext:
     prompt_target: int
     # The window, in days, of the pageview hosts among the websites.
     website_days: int
+    ai_credits_billed: bool
+    ai_credits_exhausted: bool
 
 
 class SetupStep(LabeledStrEnum):

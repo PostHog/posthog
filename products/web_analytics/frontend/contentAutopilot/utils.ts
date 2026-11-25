@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import type {
+    AEOEngineSettingApi,
     AEOPromptCheckApi,
     AEOPromptApi,
     AEOPromptImportResultApi,
@@ -22,6 +23,15 @@ export const ENGINE_LABELS: Record<string, string> = {
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+export const estimatedCreditsPerPrompt = (
+    engines: Pick<AEOEngineSettingApi, 'estimated_credits_per_check'>[]
+): number | null =>
+    engines.reduce<number | null>(
+        (total, { estimated_credits_per_check: credits }) =>
+            total === null || credits === null ? null : total + credits,
+        0
+    )
 
 /** Topics that differ only in letter case are one topic, as the API counts them. */
 export const sameTopic = (a: string | null | undefined, b: string | null | undefined): boolean =>

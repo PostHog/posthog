@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { AEOSetupContextApi, AEOSetupJobApi } from '../generated/api.schemas'
+import { AiVisibilityCreditsExhaustedBanner } from './AiVisibilityCreditsExhaustedBanner'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
@@ -25,13 +26,57 @@ const CONTEXT: AEOSetupContextApi = {
     first_run_available: true,
     prompt_target: 20,
     website_days: 7,
+    ai_credits_billed: false,
+    ai_credits_exhausted: false,
     engines: [
-        { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-        { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-        { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: false, frequency: 'daily' },
-        { engine: 'exa-answer', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-        { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
-        { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
+        {
+            engine: 'claude-web-search',
+            mode: 'web_search',
+            available: true,
+            enabled: true,
+            frequency: 'daily',
+            estimated_credits_per_check: 9,
+        },
+        {
+            engine: 'openai-web-search',
+            mode: 'web_search',
+            available: true,
+            enabled: true,
+            frequency: 'daily',
+            estimated_credits_per_check: 13,
+        },
+        {
+            engine: 'perplexity-web-search',
+            mode: 'web_search',
+            available: false,
+            enabled: false,
+            frequency: 'daily',
+            estimated_credits_per_check: null,
+        },
+        {
+            engine: 'exa-answer',
+            mode: 'web_search',
+            available: true,
+            enabled: true,
+            frequency: 'daily',
+            estimated_credits_per_check: 0,
+        },
+        {
+            engine: 'claude-no-search',
+            mode: 'no_search',
+            available: true,
+            enabled: false,
+            frequency: 'daily',
+            estimated_credits_per_check: null,
+        },
+        {
+            engine: 'openai-no-search',
+            mode: 'no_search',
+            available: true,
+            enabled: false,
+            frequency: 'daily',
+            estimated_credits_per_check: null,
+        },
     ],
 }
 
@@ -132,6 +177,22 @@ export const AiDataProcessingNotApproved: StoryFn = () => (
 AiDataProcessingNotApproved.decorators = [mocks({ ...CONTEXT, ai_data_processing_approved: false })]
 AiDataProcessingNotApproved.parameters = {
     testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-consent-banner"]' },
+}
+
+export const AiCreditsBilledAndUsedUp: StoryFn = () => (
+    <Frame>
+        <div className="flex flex-col gap-4">
+            <AiVisibilityCreditsExhaustedBanner />
+            <ContentAutopilotSetupCard />
+        </div>
+    </Frame>
+)
+AiCreditsBilledAndUsedUp.decorators = [mocks({ ...CONTEXT, ai_credits_billed: true, ai_credits_exhausted: true })]
+AiCreditsBilledAndUsedUp.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr="ai-visibility-credits-exhausted-banner"]',
+        snapshotBrowsers: [],
+    },
 }
 
 const WithJob = ({ job, children }: { job: AEOSetupJobApi; children: JSX.Element }): JSX.Element => {

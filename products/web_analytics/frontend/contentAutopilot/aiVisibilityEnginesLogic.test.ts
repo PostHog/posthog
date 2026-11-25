@@ -19,6 +19,7 @@ const NO_SEARCH: AEOEngineSettingApi = {
     available: true,
     enabled: false,
     frequency: 'daily',
+    estimated_credits_per_check: null,
 }
 
 describe('aiVisibilityEnginesLogic', () => {

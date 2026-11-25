@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { AiVisibilityCreditsExhaustedBanner } from './AiVisibilityCreditsExhaustedBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
@@ -90,7 +91,10 @@ export const ContentAutopilot = (): JSX.Element => {
                             label: 'Overview',
                             content: (
                                 <FilteredTab tab="overview">
-                                    <ContentAutopilotPromptsOverview />
+                                    <>
+                                        <AiVisibilityCreditsExhaustedBanner />
+                                        <ContentAutopilotPromptsOverview />
+                                    </>
                                 </FilteredTab>
                             ),
                         },

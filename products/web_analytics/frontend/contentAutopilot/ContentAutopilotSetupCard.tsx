@@ -26,6 +26,7 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
         selectedEngines,
         runnableEngines,
         pendingEngines,
+        creditsPerPrompt,
         startDisabledReason,
         consentMissing,
         starting,
@@ -122,6 +123,8 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                     prompts={setupContext.prompt_target}
                     engines={runnableEngines.length}
                     pendingEngines={pendingEngines}
+                    creditsPerPrompt={creditsPerPrompt}
+                    creditsBilled={setupContext.ai_credits_billed}
                 />
             </div>
 
