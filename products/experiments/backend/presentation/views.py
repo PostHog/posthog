@@ -457,8 +457,6 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
     retrieve=extend_schema(
         description="Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
     ),
-    # GET /experiments/ pages through experiments_facade.list_experiments, which filters with
-    # ExperimentService.filter_experiments_queryset
     list=extend_schema(
         description="List experiments for the current project. Supports filtering by status and archival state.",
         parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
@@ -528,7 +526,6 @@ class EnterpriseExperimentsViewSet(
         return ExperimentSerializer
 
     def read_object(self) -> ExperimentDetail | None:
-        # The other actions still read the model, so get_object() falls back to the queryset for them.
         if self.action != "retrieve":
             raise NotImplementedError()
         return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
