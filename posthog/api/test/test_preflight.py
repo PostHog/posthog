@@ -137,6 +137,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "webmcp_available": False,
             "cimd_verification_token_issuer_url": "",
+            "experiment_exposure_event_cutoff": None,
             "is_test": True,
             **options,
         }

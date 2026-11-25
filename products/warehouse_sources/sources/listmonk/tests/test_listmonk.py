@@ -44,6 +44,22 @@ class TestListmonkLists:
         assert [row["id"] for row in result.rows] == [1, 2, 3]
         assert result.saved_states == [ListmonkResumeConfig(next_page=2), ListmonkResumeConfig(next_page=3)]
 
+    def test_templates_reads_one_unpaged_response(self) -> None:
+        templates = [
+            {"id": 1, "name": "Default campaign template", "type": "campaign", "body": "<html></html>"},
+            {"id": 2, "name": "Order receipt", "type": "tx", "subject": "Your receipt", "body": "<p>Hi</p>"},
+        ]
+        # Listmonk ignores `page` here, so a paged read would get this same answer forever.
+        result = _driver().run("templates", always(ScriptedResponse(json={"data": templates})))
+
+        assert result.raised is None
+        assert result.paths == ["/api/templates"]
+        request = result.requests[0]
+        assert request.param("no_body") == "false"
+        assert request.param("page") is None
+        assert request.param("per_page") is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+
     def test_resume_starts_from_the_saved_page(self) -> None:
         result = _driver().run("bounces", [_page([])], resume_state=ListmonkResumeConfig(next_page=5))
 

@@ -8,7 +8,9 @@ from products.warehouse_sources.sources.pabbly_subscriptions_billing._config imp
     PabblySubscriptionsBillingSourceConfig,
 )
 from products.warehouse_sources.sources.pabbly_subscriptions_billing.pabbly_subscriptions_billing import (
+    CHILD_REQUEST_TIMEOUT_SECONDS,
     PAGE_SIZE,
+    REQUEST_TIMEOUT_SECONDS,
     PabblyResumeConfig,
     PabblyRetryableError,
     check_access,
@@ -166,6 +168,24 @@ class TestGetRowsFanOut:
         )
         assert result.raised is None
         assert result.rows == [{"customer_id": "cus_2", "subscription_id": "sub_2"}]
+
+    @parameterized.expand(
+        [
+            ("paged_children", "transactions", {"id": "tra_1"}, [{"id": "tra_1"}]),
+            ("one_row_per_parent", "scheduled_changes", {"when_apply": "eot"}, {"when_apply": "eot"}),
+        ]
+    )
+    def test_hung_child_request_is_retried_on_the_short_timeout(
+        self, _name: str, endpoint: str, row: dict[str, str], child_data: Any
+    ) -> None:
+        result = _driver().run(endpoint, [_page([{"id": "par_1"}]), TimeoutError("read timed out"), _page(child_data)])
+        assert result.raised is None
+        assert [{key: r[key] for key in row} for r in result.rows] == [row]
+        assert [request.read_timeout for request in result.requests] == [
+            REQUEST_TIMEOUT_SECONDS,
+            CHILD_REQUEST_TIMEOUT_SECONDS,
+            CHILD_REQUEST_TIMEOUT_SECONDS,
+        ]
 
     def test_parent_row_without_an_id_fails_fast(self) -> None:
         # A parent row missing its primary key must raise rather than silently drop its children.

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 import { resolveGatewayAuth, tryResolveGatewayAuth } from "./gateway-auth";
 
 function fakeCtx(apiKey: string | undefined): ExtensionContext {
@@ -18,7 +18,7 @@ describe("resolveGatewayAuth", () => {
       fakeCtx("pha_from_registry"),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("us"),
+      baseUrl: getGatewayBaseUrl("us"),
       apiKey: "pha_static",
       headers: {},
     });
@@ -47,7 +47,7 @@ describe("resolveGatewayAuth", () => {
       fakeCtx("pha_from_registry"),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("eu"),
+      baseUrl: getGatewayBaseUrl("eu"),
       apiKey: "pha_from_registry",
       headers: {},
     });
@@ -75,7 +75,7 @@ describe("tryResolveGatewayAuth", () => {
       fakeCtx(undefined),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("us"),
+      baseUrl: getGatewayBaseUrl("us"),
       apiKey: "pha_static",
       headers: {},
     });

@@ -56,6 +56,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the campaign was last updated.",
         },
     },
+    "templates": {
+        "description": "Campaign and transactional email templates of the Listmonk instance.",
+        "docs_url": "https://listmonk.app/docs/apis/templates/",
+        "columns": {
+            "id": "Numeric identifier of the template. Campaigns refer to it as template_id.",
+            "name": "Name of the template.",
+            "type": "Template type: campaign, campaign_visual or tx (transactional).",
+            "subject": "Email subject of the template. Used by transactional templates only.",
+            "body": "HTML body of the template.",
+            "body_source": "Source of a visual template's body as built in the visual editor.",
+            "is_default": "Whether this is the default template for new campaigns.",
+            "created_at": "When the template was created.",
+            "updated_at": "When the template was last updated.",
+        },
+    },
     "bounces": {
         "description": "Bounces recorded against subscribers, with the campaign that caused them.",
         "docs_url": "https://listmonk.app/docs/apis/bounces/",

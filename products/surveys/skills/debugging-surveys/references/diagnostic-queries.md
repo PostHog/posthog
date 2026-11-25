@@ -90,12 +90,11 @@ Any `completed = false` rows ⇒ `enable_partial_responses` was `true` in that w
 `survey sent` rows include intermediate saves the UI collapses. Compare `events` vs `submissions`
 to see how much of the gap is partial saves.
 
-`(not set)` does **not** mean an old SDK on its own. Only the web SDK sets `$survey_completed` (and
-`$survey_submission_id`) at all — React Native's `sendSurveyEvent` sets neither, the other mobile
-SDKs don't support partial responses, and an `api`-type survey is captured by the customer's own
-code with whatever properties they choose. So `(not set)` means web SDK below 1.240.0 **or** a
-non-web SDK **or** a hand-rolled `survey sent`. Check the `lib` property before reading it as a
-version signal.
+`(not set)` usually means an SDK older than its partial-responses release: web below 1.240.0,
+React Native below 4.75.0, iOS below 3.79.0, or Android below 3.70.0. Flutter sends these through
+the native SDK, so it needs 5.48.0 or later. An `api`-type survey is captured by the customer's own
+code with whatever properties they choose, so `(not set)` there says nothing about versions. Check
+the `lib` and `lib_version` properties before reading it as a version signal.
 
 ## Full event funnel including abandonment
 
@@ -226,8 +225,8 @@ LIMIT 60
 In partial-response mode this measures **time to first answer**, because `LIMIT 1 BY submission_id`
 after an ascending sort keeps each submission's earliest row. That's the right signal for a stray
 click — how fast something got clicked — but it is not time to completion, so don't relabel it.
-Events with no submission id (non-web SDKs, pre-1.240.0 web) fall back to the event UUID and stay as
-separate rows.
+Events with no submission id (SDKs older than their partial-responses release, or `api` surveys) fall
+back to the event UUID and stay as separate rows.
 
 ## Replay link per response (watch a disputed submission)
 

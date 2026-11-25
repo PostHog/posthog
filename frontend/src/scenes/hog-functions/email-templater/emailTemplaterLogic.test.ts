@@ -397,6 +397,62 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).not.toHaveBeenCalled()
         })
 
+        it.each([
+            { when: 'after its conversion', settleFirst: true },
+            { when: 'before its conversion finishes', settleFirst: false },
+        ])('opens a new template on the starter when another email is left $when', async ({ settleFirst }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const templateProps = { type: 'native_email_template', layout: 'inline' } as const
+            const newTemplate = { ...templateProps, value: NEW_TEMPLATE.content.email as any }
+            const fresh = emailTemplaterLogic(makeProps(newTemplate))
+            fresh.mount()
+            const starter = fresh.values.documentEditorInitialDoc
+            fresh.unmount()
+
+            logic = emailTemplaterLogic(
+                makeProps({
+                    ...templateProps,
+                    emailKey: 'other',
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, preheader: 'Other preheader' },
+                })
+            )
+            logic.mount()
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setTemplatingEngine('hog')
+            if (settleFirst) {
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            emailTemplaterLogic(makeProps({ ...newTemplate, emailKey: 'new' }))
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                documentEditorInitialDoc: starter,
+                revealedAdvancedFields: [],
+                activeContentTab: 'visual',
+                templatingEngine: 'liquid',
+            })
+        })
+
+        it('keeps the conversion and the tab when the same email changes', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const props = makeProps({ type: 'native_email_template', layout: 'inline', emailKey: 'same' })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setActiveContentTab('plaintext')
+            const converted = logic.values.convertedEmailDocument
+
+            emailTemplaterLogic({ ...props, value: { ...DEFAULT_EMAIL_TEMPLATE, subject: 'New subject' } })
+
+            expect(converted).not.toBeNull()
+            expect(logic.values.convertedEmailDocument).toBe(converted)
+            expect(logic.values.activeContentTab).toBe('plaintext')
+        })
+
         it('keeps the destination email type on the old editor', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
@@ -761,6 +817,78 @@ describe('emailTemplaterLogic', () => {
             })
         })
 
+        it.each([
+            { trigger: 'a save', debounceMs: 0, start: () => logic.actions.flushPendingDesignEdit() },
+            { trigger: 'the debounce', debounceMs: 500, start: () => {} },
+        ])(
+            'hands an edit still being read by $trigger to its own email when another one opens',
+            async ({ debounceMs, start }) => {
+                jest.useFakeTimers()
+                let releaseExport = (): void => {}
+                logic.actions.setEmailEditorRef({
+                    editor: {
+                        ...fakeEditorRef().editor,
+                        exportHtml: (callback: (data: any) => void) => {
+                            releaseExport = () => callback({ html: '<p>edited</p>', design: DESIGN_EDITED })
+                        },
+                    },
+                } as unknown as EditorRef)
+                editorListeners['design:updated']()
+                start()
+                await jest.advanceTimersByTimeAsync(debounceMs)
+
+                const onNextChange = jest.fn()
+                const nextEmail = { ...DEFAULT_EMAIL_TEMPLATE, subject: 'Next email' }
+                emailTemplaterLogic({ ...logic.props, emailKey: 'next', value: nextEmail, onChange: onNextChange })
+                releaseExport()
+                await jest.advanceTimersByTimeAsync(1000)
+                jest.useRealTimers()
+
+                expect(onNextChange).not.toHaveBeenCalled()
+                expect(onChange).toHaveBeenCalledTimes(1)
+                expect(onChange).toHaveBeenCalledWith(
+                    expect.objectContaining({ subject: DEFAULT_EMAIL_TEMPLATE.subject, design: DESIGN_EDITED })
+                )
+                expect(logic.values.emailTemplate).toEqual(nextEmail)
+                expect(logic.values.latestEditUnsaved).toBe(false)
+            }
+        )
+
+        it.each([
+            { when: 'before another email opens', flushReadsFirst: true },
+            { when: 'after another email opens', flushReadsFirst: false },
+        ])(
+            'hands an edit over once when two reads of it end and the newer one ends $when',
+            async ({ flushReadsFirst }) => {
+                jest.useFakeTimers()
+                const heldExports: (() => void)[] = []
+                logic.actions.setEmailEditorRef({
+                    editor: {
+                        ...fakeEditorRef().editor,
+                        exportHtml: (callback: (data: any) => void) => {
+                            heldExports.push(() => callback({ html: '<p>edited</p>', design: DESIGN_EDITED }))
+                        },
+                    },
+                } as unknown as EditorRef)
+                editorListeners['design:updated']()
+                await jest.advanceTimersByTimeAsync(500)
+                logic.actions.flushPendingDesignEdit()
+                const [slowRead, flushRead] = heldExports
+                const openNext = (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next', onChange: jest.fn() })
+                }
+                const order = flushReadsFirst ? [flushRead, openNext, slowRead] : [openNext, flushRead, slowRead]
+                for (const step of order) {
+                    step()
+                    await jest.advanceTimersByTimeAsync(0)
+                }
+                jest.useRealTimers()
+
+                expect(onChange).toHaveBeenCalledTimes(1)
+                expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ design: DESIGN_EDITED }))
+            }
+        )
+
         it('propagates an edit made immediately after a design load', async () => {
             // The load rebaselines via design:loaded...
             expect(editorListeners['design:loaded']).toBeTruthy()
@@ -1027,6 +1155,44 @@ describe('emailTemplaterLogic', () => {
 
             await expect(saved).resolves.toBe(true)
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it.each([
+            {
+                how: 'another email opens',
+                leave: (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+                },
+            },
+            {
+                how: 'two more emails open',
+                leave: (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'third' })
+                },
+            },
+            { how: 'the editor closes', leave: (): void => logic.unmount() },
+        ])('blocks the save of an email whose edit could not be read when $how', async ({ leave }) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            const saved = saveWithLatestEmailEdit(save)
+            leave()
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+
+            expect(save).not.toHaveBeenCalled()
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
+
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+            expect(save).toHaveBeenCalledTimes(1)
+            toast.mockRestore()
         })
 
         it('lets a save through once the editor that held a failed edit is gone', async () => {

@@ -17,8 +17,8 @@
                         "type": "string"
                     },
                     "type": {
-                        "description": "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first.",
-                        "enum": ["string", "number", "boolean", "date"],
+                        "description": "A 'list' binds an array of text values for a multi-select filter. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first.",
+                        "enum": ["string", "number", "boolean", "date", "list"],
                         "type": "string"
                     },
                     "value": {
@@ -31,6 +31,13 @@
                             },
                             {
                                 "type": "boolean"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "maxItems": 100,
+                                "type": "array"
                             },
                             {
                                 "type": "null"

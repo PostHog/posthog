@@ -1,0 +1,94 @@
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { traceDrawerLogic } from '../trace/traceDrawerLogic'
+import { SessionPageHost } from './SessionPageHost'
+import {
+    SESSION_CELL_URLS,
+    SESSION_TURNS_URL,
+    makeSessionListItem,
+    makeSessionTurnPage,
+    sessionCellsMocks,
+    traceTurnsMocks,
+} from './testFixtures'
+
+const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
+
+describe('SessionPageHost', () => {
+    let pageRequests: Record<string, string>[]
+
+    beforeEach(() => {
+        pageRequests = []
+        useMocks({
+            get: {
+                [SESSION_URL]: [200, makeSessionListItem({ id: 'session-1' })],
+                [SESSION_TURNS_URL]: ({ request }) => {
+                    pageRequests.push(Object.fromEntries(new URL(request.url).searchParams))
+                    return [200, makeSessionTurnPage([3, 4], { previousCursor: 'cursor-before' })]
+                },
+            },
+            post: { ...sessionCellsMocks(), ...traceTurnsMocks() },
+        })
+        initKeaTests()
+        localStorage.clear()
+    })
+
+    afterEach(() => {
+        cleanup()
+        jest.restoreAllMocks()
+    })
+
+    it('trace param opens around that turn with the drawer', async () => {
+        router.actions.push(combineUrl(urls.aiObservabilitySession('session-1'), { trace: 'trace-4' }).url)
+        const view = render(<SessionPageHost sessionId="session-1" />)
+
+        await view.findByText('Answer of trace-4')
+        expect(pageRequests[0]).toMatchObject({ around: 'trace-4' })
+        expect(view.getByText('Why was I charged twice this month?')).toBeTruthy()
+        const drawer = traceDrawerLogic({ listId: 'session-turns' })
+        expect(drawer.values.openTraceId).toEqual('trace-4')
+        expect(drawer.values.position).toEqual({ index: 1, total: null })
+
+        router.actions.push(combineUrl(urls.aiObservabilitySession('session-1'), { trace: 'trace-3' }).url)
+
+        // The drawer may step up from the first loaded turn, because the session has earlier turns to load.
+        await waitFor(() => expect(drawer.values.canStepPrevious).toBe(true))
+        expect(drawer.values.previousTrace).toBeNull()
+        expect(pageRequests).toHaveLength(1)
+    })
+
+    it('a failed title offers a retry that reads it again', async () => {
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        useMocks({ post: { [SESSION_CELL_URLS.titles]: [500, { detail: 'boom' }] } })
+        router.actions.push(urls.aiObservabilitySession('session-1'))
+        const view = render(<SessionPageHost sessionId="session-1" />)
+        await view.findByLabelText("Couldn't load this. Select Retry to try again.")
+        useMocks({ post: sessionCellsMocks() })
+
+        fireEvent.click(view.getByText('Retry'))
+
+        await view.findByText('Why was I charged twice this month?')
+        expect(view.queryByText('Retry')).toBeNull()
+    })
+
+    it('unknown session shows the not-found state with a way back to the sessions list', async () => {
+        useMocks({ get: { [SESSION_URL]: [404, { detail: 'Session not found.' }] } })
+        router.actions.push(combineUrl(urls.aiObservabilitySession('session-1'), { date_from: '-30d' }).url)
+        const view = render(<SessionPageHost sessionId="session-1" />)
+
+        await view.findByText('Session not found')
+        fireEvent.click(view.getByText('Go to sessions'))
+
+        await waitFor(() =>
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.aiObservabilitySessions())
+        )
+        expect(router.values.searchParams).toEqual({ date_from: '-30d' })
+    })
+})

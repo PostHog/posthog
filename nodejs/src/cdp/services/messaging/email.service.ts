@@ -21,7 +21,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isClickTrackingEnabled, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -299,6 +299,22 @@ class UnverifiedEmailDomainError extends Error {
         super('The selected email integration domain is not verified')
         this.name = 'UnverifiedEmailDomainError'
     }
+}
+
+class SesSenderNotVerifiedError extends Error {}
+
+class EmailSenderNotFoundError extends Error {}
+
+const addressesIn = (text: string): string[] =>
+    (text.match(/[^\s<>",;:]+@[^\s<>",;:]+/g) ?? []).map((address) => address.replace(/\.$/, '').toLowerCase())
+
+function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolean {
+    return (
+        error instanceof Error &&
+        error.name === 'MessageRejected' &&
+        error.message.includes('not verified') &&
+        addressesIn(error.message).includes(senderEmail.toLowerCase())
+    )
 }
 
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
@@ -723,7 +739,9 @@ export class EmailService {
         isTest: boolean,
         senderEmail: string
     ): Promise<WorkflowRunTag | null> {
-        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+        // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
+        // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
@@ -779,6 +797,7 @@ export class EmailService {
         let trackingEnabled = true
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
+        let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
 
@@ -1027,6 +1046,10 @@ export class EmailService {
                 result.error = message
                 result.emailSendResult = { status: 'failed', reason: message }
                 result.finished = true
+                senderNotVerified =
+                    error instanceof UnverifiedEmailDomainError ||
+                    error instanceof SesSenderNotVerifiedError ||
+                    error instanceof EmailSenderNotFoundError
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
                         reason: 'unverified_domain',
@@ -1053,7 +1076,10 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            result.metrics.push(emailMetric(invocation, success ? 'email_sent' : 'email_failed'))
+            result.metrics.push({
+                ...emailMetric(invocation, success ? 'email_sent' : 'email_failed'),
+                prometheus_metric_name: senderNotVerified ? 'email_sender_unverified' : undefined,
+            })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
@@ -1192,7 +1218,7 @@ export class EmailService {
 
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
-                throw new Error(
+                throw new EmailSenderNotFoundError(
                     "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
                 )
             }
@@ -1843,8 +1869,11 @@ export class EmailService {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
-            const message = error instanceof Error ? error.message : String(error)
-            throw new Error(`Failed to send email via SES: ${message}`)
+            const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
+            if (sesNamedSenderAsUnverified(error, from.email)) {
+                throw new SesSenderNotVerifiedError(message)
+            }
+            throw new Error(message)
         }
     }
 

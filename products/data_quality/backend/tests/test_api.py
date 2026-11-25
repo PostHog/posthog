@@ -374,6 +374,7 @@ class TestMetricCheckAPI(APIBaseTest):
         assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 403
         assert self.client.get(f"{self.suites_url}/?{self.subject_query}").status_code == 403
         assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
+        assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/metric_subjects/").status_code == 403
 
     @parameterized.expand([("check_assertion", False), ("metric_definition", True)])
     def test_saved_expandable_sources_are_hidden_and_cannot_be_edited_or_run(

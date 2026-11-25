@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
@@ -130,6 +131,19 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         )
         assert Experiment.objects.filter(team=self.team).count() == 1
         assert ExperimentSavedMetric.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand(
+        [
+            ("duplicate", "Duplication is not supported for experiments using legacy metrics."),
+            ("copy_to_project", "Copying is not supported for experiments using legacy metrics."),
+        ]
+    )
+    def test_refuses_to_copy_a_legacy_experiment_before_reading_the_request(self, action: str, detail: str) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/{self.experiment.id}/{action}", {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"detail": detail}
+        assert Experiment.objects.filter(team=self.team).count() == 1
 
     def test_rejects_an_experiment_that_is_already_on_the_new_engine(self) -> None:
         Experiment.objects.filter(pk=self.experiment.pk).update(metrics=[])
