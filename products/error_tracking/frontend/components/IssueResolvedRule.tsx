@@ -1,4 +1,4 @@
-import type { ErrorTrackingIssueReadApi } from '../../generated/api.schemas'
+import type { ErrorTrackingIssueReadApi } from '../generated/api.schemas'
 
 export function IssueResolvedRule({
     resolvedUntil,

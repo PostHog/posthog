@@ -15,16 +15,19 @@ import {
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import type { ResolvedUntilEnumApi } from '../generated/api.schemas'
+import type { ErrorTrackingIssueReadApi, ResolvedUntilEnumApi } from '../generated/api.schemas'
 import { ISSUE_STATUS_CONFIG } from './Indicators'
+import { IssueResolvedRule } from './IssueResolvedRule'
 import { RESOLVE_MODES } from './resolveModes'
 
 export const IssueStatusButton = ({
     status,
+    latestRelease,
     onChange,
     loading = false,
 }: {
     status: ErrorTrackingIssue['status']
+    latestRelease: ErrorTrackingIssueReadApi['latest_release'] | undefined
     onChange: (status: ErrorTrackingIssue['status'], resolvedUntil?: ResolvedUntilEnumApi) => void
     loading?: boolean
 }): JSX.Element => {
@@ -55,7 +58,9 @@ export const IssueStatusButton = ({
                                 </Button>
                             }
                         />
-                        <TooltipContent>{plainResolve.description}</TooltipContent>
+                        <TooltipContent>
+                            <IssueResolvedRule resolvedUntil={plainResolve.value} latestRelease={latestRelease} />
+                        </TooltipContent>
                     </Tooltip>
                     <DropdownMenu>
                         <DropdownMenuTrigger
@@ -75,7 +80,9 @@ export const IssueStatusButton = ({
                             {RESOLVE_MODES.map((mode) => (
                                 <DropdownMenuItem
                                     key={mode.value}
-                                    description={mode.description}
+                                    description={
+                                        <IssueResolvedRule resolvedUntil={mode.value} latestRelease={latestRelease} />
+                                    }
                                     onClick={() => resolve(mode.value)}
                                     data-attr={`error-tracking-resolve-until-${mode.value.replace('_', '-')}`}
                                 >

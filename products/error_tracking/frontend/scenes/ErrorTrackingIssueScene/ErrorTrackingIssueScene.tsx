@@ -286,6 +286,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <IssueStatusButton
                                                     status={issue.status}
+                                                    latestRelease={issue.latest_release}
                                                     onChange={updateStatus}
                                                     loading={statusUpdateInFlightIds.includes(issue.id)}
                                                 />
@@ -326,6 +327,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton
                                             status={issue.status}
+                                            latestRelease={issue.latest_release}
                                             onChange={updateStatus}
                                             loading={statusUpdateInFlightIds.includes(issue.id)}
                                         />

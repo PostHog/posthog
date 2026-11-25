@@ -15,9 +15,9 @@ import {
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { getIssueStatusConfig, StatusIndicator } from '../../components/Indicators'
+import { IssueResolvedRule } from '../../components/IssueResolvedRule'
 import { RESOLVE_MODES } from '../../components/resolveModes'
 import type { ErrorTrackingIssueReadApi, ResolvedUntilEnumApi } from '../../generated/api.schemas'
-import { IssueResolvedRule } from './IssueResolvedRule'
 
 type IssueStatus = ErrorTrackingIssue['status']
 
@@ -86,7 +86,9 @@ export function IssueSceneStatusSelect({
                                     <ItemTitle>
                                         <StatusIndicator status="resolved" size="xsmall" />
                                     </ItemTitle>
-                                    <ItemDescription>{mode.description}</ItemDescription>
+                                    <ItemDescription className="max-w-80 line-clamp-none whitespace-normal">
+                                        <IssueResolvedRule resolvedUntil={mode.value} latestRelease={latestRelease} />
+                                    </ItemDescription>
                                 </ItemContent>
                             </Item>
                         </SelectItem>
