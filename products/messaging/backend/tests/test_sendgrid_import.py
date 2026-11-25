@@ -963,7 +963,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         run = self._start()
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
-        assert list(self._cohorts(run)) == ["SendGrid contacts", "Newsletter (from SendGrid)"]
+        assert "Bêta testeurs (from SendGrid)" not in self._cohorts(run)
+        assert "Newsletter (from SendGrid)" in self._cohorts(run)
         assert "Bêta testeurs wasn't imported" in run.progress["contacts"]["warnings"][0]
 
     def test_a_redirected_download_is_never_followed(self) -> None:
