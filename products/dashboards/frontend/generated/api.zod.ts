@@ -498,8 +498,8 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardV2QueryBatchCreateBodyQueriesMax)
         .describe("The panels' queries, at most 500."),
     format: zod
-        .enum(['result', 'frames'])
-        .describe('\* `result` - Result\n\* `frames` - Frames')
+        .enum(['frames', 'result'])
+        .describe('\* `frames` - Frames\n\* `result` - Result')
         .default(dashboardV2QueryBatchCreateBodyFormatDefault)
         .describe(
             "`result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.\n\n\* `result` - Result\n\* `frames` - Frames"

@@ -694,6 +694,8 @@ SPECTACULAR_SETTINGS = {
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
             "ImportProviderKeyEnum": "products.messaging.backend.models.provider_import_run.ImportProviderKey.choices",
+            # The query batch's result format and the cached tiles format both choose frames or the runner's result.
+            "CachedTileFormatEnum": "products.dashboards.backend.presentation.frames.CachedTileFormat",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #

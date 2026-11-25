@@ -439,15 +439,14 @@ export interface QueryBatchQueryApi {
 }
 
 /**
- * * `result` - Result
  * * `frames` - Frames
+ * * `result` - Result
  */
-export type QueryBatchResultFormatEnumApi =
-    (typeof QueryBatchResultFormatEnumApi)[keyof typeof QueryBatchResultFormatEnumApi]
+export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
 
-export const QueryBatchResultFormatEnumApi = {
-    Result: 'result',
+export const CachedTileFormatEnumApi = {
     Frames: 'frames',
+    Result: 'result',
 } as const
 
 export interface QueryBatchRequestApi {
@@ -460,7 +459,7 @@ export interface QueryBatchRequestApi {
      *
      * * `result` - Result
      * * `frames` - Frames */
-    format?: QueryBatchResultFormatEnumApi
+    format?: CachedTileFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -10441,17 +10440,6 @@ export interface CachedTileInsightResultApi {
     readonly query_scan: unknown
     query?: _InsightQuerySchemaApi | null
 }
-
-/**
- * * `frames` - Frames
- * * `result` - Result
- */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
-
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
-    Result: 'result',
-} as const
 
 export interface FrameMetaApi {
     /**
