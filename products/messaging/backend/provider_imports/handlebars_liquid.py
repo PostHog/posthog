@@ -415,7 +415,7 @@ class HandlebarsToLiquid:
         (collection,) = block.params
         if not isinstance(collection, _Path):
             raise _Unsupported
-        source = self._path(collection.source, frames)
+        source = self._value_path(collection, frames)
         names = block.block_params
         loop_name = names[0] if names and self._free_name(names[0]) else self._next_loop_name()
         frame = _Frame(
@@ -480,7 +480,7 @@ class HandlebarsToLiquid:
         (target,) = block.params
         if not isinstance(target, _Path):
             raise _Unsupported
-        this = self._path(target.source, frames)
+        this = self._value_path(target, frames)
         # Handlebars adds no level for a context that is already the current one, so `../` inside would point
         # one level further up than the frames say.
         if this == frames[-1].this:
