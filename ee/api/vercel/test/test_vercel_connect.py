@@ -24,6 +24,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
 from ee.api.vercel.crypto import encrypt_payload
+from ee.api.vercel.tasks import backfill_vercel_connectable_resources
 from ee.api.vercel.test.base import fake_vercel_token_endpoint
 from ee.api.vercel.vercel_connect import (
     CONNECT_NONCE_COOKIE_PREFIX,
@@ -40,6 +41,7 @@ from ee.api.vercel.vercel_connect import (
     _validate_next_url,
 )
 from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OAuthTokenResponse, OperationResult
+from ee.vercel.integration import _safe_vercel_sync
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
@@ -1372,6 +1374,32 @@ class TestSafeVercelSyncSelfHealing(VercelConnectTestBase):
         sync_called.assert_not_called()
 
 
+class TestNoResourceWithoutAVercelToken(VercelConnectTestBase):
+    @parameterized.expand([("self_healing_sync",), ("backfill",)])
+    def test_a_refused_token_creates_no_resource(self, entry_point: str) -> None:
+        vercel = fake_vercel_token_endpoint(self)
+        vercel.replace(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            status=503,
+            json={"error": {"code": "server_error", "message": "Try again later"}},
+        )
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_unreachable",
+            config={"type": "connectable"},
+            created_by=self.user,
+        )
+
+        if entry_point == "backfill":
+            backfill_vercel_connectable_resources()
+        else:
+            _safe_vercel_sync("test op", "item_1", self.team, MagicMock())
+
+        assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
+
+
 class TestBackfillVercelConnectableResources(VercelConnectTestBase):
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.vercel.client.VercelAPIClient")
@@ -1486,16 +1514,20 @@ class TestDeleteOrphanedIntegration(VercelConnectTestBase):
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestIsInstallationOrphaned(SimpleTestCase):
     @parameterized.expand(
-        [("installation_removed", "invalid_grant", True), ("client_rejected", "invalid_client", False)]
+        [
+            ("installation_removed", 400, "invalid_grant", True),
+            ("client_rejected", 400, "invalid_client", False),
+            ("server_error", 500, "invalid_grant", False),
+        ]
     )
-    def test_token_refusal(self, _name: str, error_code: str, orphaned: bool) -> None:
+    def test_token_refusal(self, _name: str, status_code: int, error_code: str, orphaned: bool) -> None:
         installation = OrganizationIntegration(integration_id=f"icfg_{uuid4().hex}")
 
         with responses.RequestsMock() as vercel:
             vercel.add(
                 responses.POST,
                 VERCEL_OAUTH_TOKEN_URL,
-                status=400,
+                status=status_code,
                 json={"error": {"code": error_code, "message": "Token request refused"}},
             )
             assert _is_installation_orphaned(installation) is orphaned

@@ -419,3 +419,19 @@ class TestVercelAPIClient:
         request = responses.calls[0].request
         assert parse_qs(request.body) == {"grant_type": ["client_credentials"], "installation_id": [installation_id]}
         assert request.headers["Authorization"] == f"Basic {base64.b64encode(b'client_id:client_secret').decode()}"
+
+    @responses.activate
+    def test_installation_token_survives_a_cache_outage(self, settings):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+
+        with (
+            patch("ee.vercel.client.cache.get", side_effect=ConnectionError("cache down")),
+            patch("ee.vercel.client.cache.set", side_effect=ConnectionError("cache down")),
+        ):
+            assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"

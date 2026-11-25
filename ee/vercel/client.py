@@ -473,7 +473,12 @@ def _token_error_code(detail: str | None) -> str | None:
 def get_installation_access_token(installation_id: str) -> str:
     """Return a short-lived token for one Vercel installation, from the cache when it has time left."""
     cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
-    cached = cache.get(cache_key)
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        # The cache only saves a token request, so an outage costs a request, not the call.
+        logger.warning("Vercel token cache read failed", installation_id=installation_id, integration="vercel")
+        cached = None
     if cached:
         try:
             return decrypt_payload(cached, salt=INSTALLATION_TOKEN_CACHE_SALT, ttl=INSTALLATION_TOKEN_MAX_AGE_SECONDS)[
@@ -491,9 +496,12 @@ def get_installation_access_token(installation_id: str) -> str:
 
     cache_timeout = min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
     if cache_timeout > 0:
-        cache.set(
-            cache_key,
-            encrypt_payload({"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False),
-            timeout=cache_timeout,
-        )
+        try:
+            cache.set(
+                cache_key,
+                encrypt_payload({"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False),
+                timeout=cache_timeout,
+            )
+        except Exception:
+            logger.warning("Vercel token cache write failed", installation_id=installation_id, integration="vercel")
     return token.access_token
