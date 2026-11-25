@@ -7,6 +7,7 @@
 """
 
 import re
+import sys
 import json
 import uuid
 import functools
@@ -14,6 +15,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from contextlib import ExitStack
+from types import ModuleType
 from typing import Any
 
 from django.apps import apps
@@ -38,6 +40,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authorization.backend.presentation import querysets as authorization_querysets
 
 # Findings that existed when these checks landed, as (check, "ViewSet.action" or "Model.field", model) -> reason.
 # Fix the code and delete the row; a new finding gets a fix, not a row.
@@ -51,11 +54,6 @@ KNOWN_GAPS: dict[tuple[str, str, str], str] = {
     ),
     ("referenced_object", "EventViewSet.list", "Action"): "Not fixed yet.",
     ("referenced_object", "InsightViewSet.create", "Action"): "Not fixed yet.",
-    ("referenced_object", "ReviewQueueItemViewSet.create", "ReviewQueue"): "Not fixed yet.",
-    ("referenced_object", "ReviewQueueItemViewSet.partial_update", "ReviewQueue"): "Not fixed yet.",
-    ("referenced_object", "TraceReviewViewSet.partial_update", "ScoreDefinition"): "Not fixed yet.",
-    ("referenced_object", "AutoresearchPipelineViewSet.create", "Action"): "Not fixed yet.",
-    ("referenced_object", "AutoresearchPipelineViewSet.validate_definition", "Action"): "Not fixed yet.",
     ("referenced_object", "DataWarehouseExpressionViewSet.create", "ExternalDataSource"): (
         "The built-in managed warehouse connection is open to the whole project, so get_direct_connection_source "
         "skips the object check for it."
@@ -95,6 +93,7 @@ def install() -> None:
     _wrap(UserAccessControl, "access_level_for_ref", _access_level_for_ref)
     _wrap(UserAccessControl, "bulk_object_access_levels", _bulk_object_access_levels)
     _wrap(UserAccessControl, "filter_queryset_by_access_level", _filter_queryset_by_access_level)
+    _wrap_function(authorization_querysets, "filter_queryset", _filter_queryset_by_access_level)
     _wrap(UserAccessControlSerializerMixin, "get_user_access_level", _display_access_level)
     _wrap(QuerySet, "_clone", _clone)
     _wrap(QuerySet, "_fetch_all", _fetch_all)
@@ -120,6 +119,19 @@ def _wrap(owner: type, name: str, wrapper: Callable[..., Any]) -> None:
         return wrapper(original, *args, **kwargs)
 
     setattr(owner, name, wrapped)
+
+
+def _wrap_function(owner: ModuleType, name: str, wrapper: Callable[..., Any]) -> None:
+    original = getattr(owner, name)
+
+    @functools.wraps(original)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        return wrapper(original, *args, **kwargs)
+
+    # Callers bind the function when they import it, so rebind it in each module that already did.
+    for module in list(sys.modules.values()):
+        if getattr(module, "__dict__", {}).get(name) is original:
+            setattr(module, name, wrapped)
 
 
 def _active() -> _Request | None:
@@ -439,8 +451,8 @@ def _dispatch(original: Callable[..., Any], self: APIView, request: Any, *args: 
                 subject,
                 label,
                 f"{subject} loaded {label} {pk} by an id from the request without an object-level access check. "
-                "Check it with user_access_control.check_access_level_for_object, or load it through "
-                "filter_queryset_by_access_level.",
+                "Check it with check from products.authorization.backend.facade.api, or load it through "
+                "filter_queryset from products.authorization.backend.presentation.querysets.",
             )
     if _needs_object_check(self, request) and not state.object_checked:
         _report(

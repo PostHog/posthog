@@ -104,7 +104,7 @@ In a test marked with `@covers_authentication(<class>)`, when the class returns 
 
 `posthog/test/access_control_checks.py` checks every API request a test makes, and the test fails on a finding.
 
-- **Check an object the request names by id.** When a view loads an access-controlled object by an id from the body or the query string, check it with `check_access_level_for_object` or `denied_object_ids`, or load it through `filter_queryset_by_access_level`. A reference already stored on the object being edited is exempt.
+- **Check an object the request names by id.** When a view loads an access-controlled object by an id from the body or the query string, check it with `check` from `products.authorization.backend.facade.api`, or load it through `filter_queryset` from `products.authorization.backend.presentation.querysets`. A reference already stored on the object being edited is exempt.
 - **Check the object of a detail action.** Load it with `self.get_object()`, or call `self.check_object_permissions(request, obj)`.
 - **Keep foreign keys in the project.** Validate an id from the request against the current project, for example with `TeamScopedPrimaryKeyRelatedField`.
 - **Fix a new finding.** `KNOWN_GAPS` lists findings that existed when the checks landed. Do not add a row for a new one.
