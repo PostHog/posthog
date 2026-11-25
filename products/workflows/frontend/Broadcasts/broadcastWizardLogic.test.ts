@@ -579,7 +579,8 @@ describe('broadcastWizardLogic', () => {
             draftLogic.mount()
             await expectLogic(draftLogic).toFinishAllListeners()
 
-            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected, sensitive })
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            expect(draftLogic.values.emailStepSensitive).toBe(sensitive)
             draftLogic.unmount()
         }
     )

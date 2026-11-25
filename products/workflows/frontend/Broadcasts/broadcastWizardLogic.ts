@@ -190,8 +190,6 @@ export interface BroadcastEmailSettings {
     trackingEnabled: boolean
     /** Connects tracked clicks to the sessions they start, unless the project turned that off. */
     runLinkTagEnabled: boolean
-    /** Read only: set on a step marked sensitive through the API, whose sends never connect clicks to sessions. */
-    sensitive?: boolean
     utmTagsEnabled: boolean
     /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
     skipFrequencyCap: boolean
@@ -331,7 +329,6 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         runLinkTagEnabled: config.run_link_tag_enabled !== false,
-        sensitive: findAction(broadcast, 'function_email')?.config?.sensitive === true,
         utmTagsEnabled: config.utm_tags_enabled === true,
         skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
@@ -440,6 +437,7 @@ export interface broadcastWizardLogicValues {
     emailBrandLoading: boolean
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
+    emailStepSensitive: boolean
     entrySource: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
@@ -820,6 +818,7 @@ export interface broadcastWizardLogicActions {
 export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        emailStepSensitive: (broadcast: HogFlowApi | null) => boolean
         channelReach: (
             channelReachCounts: BroadcastChannelReachCounts | null,
             blastRadius: BlastRadiusApi | null
@@ -1499,6 +1498,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     selectors({
+        // Read from the saved email step: the API sets it, and those sends never connect clicks to sessions.
+        emailStepSensitive: [
+            (s) => [s.broadcast],
+            (broadcast: HogFlowApi | null): boolean =>
+                !!broadcast && findAction(broadcast, 'function_email')?.config?.sensitive === true,
+        ],
         channelReach: [
             (s) => [s.channelReachCounts, s.blastRadius],
             (

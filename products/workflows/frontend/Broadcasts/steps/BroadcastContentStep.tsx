@@ -38,6 +38,7 @@ export function BroadcastContentStep(): JSX.Element {
         templatingErrors,
         selectedSender,
         emailSettings,
+        emailStepSensitive,
         aiEmailDraftStatus,
         channel,
     } = useValues(broadcastWizardLogic)
@@ -193,7 +194,7 @@ export function BroadcastContentStep(): JSX.Element {
                     bordered
                     data-attr="broadcast-tracking-toggle"
                 />
-                {emailSettings.trackingEnabled && !emailSettings.sensitive && (
+                {emailSettings.trackingEnabled && !emailStepSensitive && (
                     <RunLinkTagSwitch
                         label="Connect clicks to sessions"
                         checked={emailSettings.runLinkTagEnabled}
@@ -211,7 +212,7 @@ export function BroadcastContentStep(): JSX.Element {
                 />
             </div>
             {emailSettings.trackingEnabled ? (
-                !emailSettings.sensitive && <RunLinkTagHint />
+                !emailStepSensitive && <RunLinkTagHint />
             ) : (
                 <span className="text-xs text-secondary">
                     Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.

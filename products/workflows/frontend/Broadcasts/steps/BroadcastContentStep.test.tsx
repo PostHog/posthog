@@ -6,6 +6,8 @@ import { BindLogic } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 import { BroadcastContentStep } from './BroadcastContentStep'
 
@@ -48,7 +50,14 @@ describe('BroadcastContentStep', () => {
         async ({ trackingEnabled, sensitive, shown, hidden }) => {
             const wizard = broadcastWizardLogic({ id: 'new' })
             wizard.mount()
-            wizard.actions.setEmailSettings({ trackingEnabled, sensitive })
+            wizard.actions.setEmailSettings({ trackingEnabled })
+            if (sensitive) {
+                wizard.actions.draftAutosaved({
+                    id: 'broadcast-1',
+                    status: 'draft',
+                    actions: [{ id: 'email', type: 'function_email', config: { sensitive: true } }],
+                } as unknown as HogFlowApi)
+            }
 
             render(
                 <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
