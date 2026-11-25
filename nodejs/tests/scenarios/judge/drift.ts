@@ -97,7 +97,7 @@ export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
     params: z.object({}).strict(),
     unit: 'messages',
-    measure: ({ journal, truth, counters, unread, horizonAt, converged }) => {
+    measure: ({ journal, truth, counters, unread, horizonAt, converged, unsettled: stillSending }) => {
         if (counters === undefined) {
             return []
         }
@@ -105,7 +105,9 @@ export const counterDrift: MeasurementDefinition = {
         const sink = unread === undefined ? sinkCountsOf({ journal, truth }) : undefined
         const noCount = unknown('unread' in counters ? counters.unread : '')
         const noSink = unknown(`the truth could not be read: ${unread}`)
-        const unsettled = unknown('the run did not converge, so sends could still land while the counters were read')
+        const unsettled = unknown(
+            stillSending ?? 'the run did not converge, so sends could still land while the counters were read'
+        )
         const incomplete = read?.incomplete ? { incomplete: true as const } : {}
         return [
             {
@@ -121,7 +123,7 @@ export const counterDrift: MeasurementDefinition = {
                         ? noCount
                         : sink === undefined
                           ? noSink
-                          : converged === false
+                          : converged === false || stillSending !== undefined
                             ? unsettled
                             : { value: read.counted[counter] - sink[counter], ...incomplete }),
                 },

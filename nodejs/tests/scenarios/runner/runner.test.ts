@@ -1451,22 +1451,32 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
-    it('scores each email sent that no app metric counted as negative drift', async () => {
-        const result = await run('all', [], 'event_email', { measures: [{ name: 'counter_drift', params: {} }] })
+    it.each<['all' | 'all, leaving one job running', (sent: number) => number | null]>([
+        ['all', (sent) => -sent],
+        ['all, leaving one job running', () => null],
+    ])(
+        'scores the email sends no app metric counted when delivering %s',
+        async (delivering, drift) => {
+            const result = await run(delivering, [], 'event_email', {
+                measures: [{ name: 'counter_drift', params: {} }],
+            })
 
-        const sent = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(({ answer }) => answer.accepted)
-        expect(sent).not.toHaveLength(0)
-        expect(api.captured[0]?.properties).toMatchObject({
-            m_counter_drift_owed: sent.length,
-            m_counter_drift_email_sent: -sent.length,
-            m_counter_drift_email_sent_counted: 0,
-            m_counter_drift_email_sent_sink: sent.length,
-            m_counter_drift_email_failed: 0,
-        })
-        expect(evidenceOf(result, 'counters.json')).toEqual({
-            counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
-        })
-    }, 30_000)
+            const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
+                ({ kind, status }) => kind === 'ses.send' && status === 200
+            )
+            expect(sent).not.toHaveLength(0)
+            expect(api.captured[0]?.properties).toMatchObject({
+                m_counter_drift_email_sent: drift(sent.length),
+                m_counter_drift_email_sent_counted: 0,
+                m_counter_drift_email_sent_sink: sent.length,
+                m_counter_drift_email_failed_counted: 0,
+            })
+            expect(evidenceOf(result, 'counters.json')).toEqual({
+                counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
+            })
+        },
+        30_000
+    )
     it.each([
         ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],

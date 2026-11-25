@@ -47,7 +47,7 @@ const counted = (partial: Partial<Counted> = {}): Counted => ({
     ...partial,
 })
 
-type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt' | 'converged'>
+type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt' | 'converged' | 'unsettled'>
 
 const evidence = (journal: JournalEntry[], truth: TruthRecord[], judged: Judged): MeasureEvidence => ({
     journal,
@@ -172,6 +172,12 @@ describe('counter drift', () => {
             { counters: { counted: counted() }, converged: false },
             'email_sent',
             /did not converge/,
+        ],
+        [
+            'records why the drift is unknown when sends kept arriving through the final truth reads',
+            { counters: { counted: counted() }, unsettled: 'the edge kept accepting sends' },
+            'email_sent',
+            /kept accepting sends/,
         ],
         [
             'records why the truth could not be read',

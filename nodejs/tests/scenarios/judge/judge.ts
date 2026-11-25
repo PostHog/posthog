@@ -67,6 +67,7 @@ export interface Judge {
         truth: TruthRecord[]
         fetchRetries: number
         unread?: string
+        unsettled?: string
         horizonAt?: number
     }
 }
@@ -296,6 +297,7 @@ export function createJudge({
             truth: [...truth],
             fetchRetries,
             ...(unread !== undefined && { unread }),
+            ...(unsettled !== undefined && { unsettled }),
             ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
         }),
     }
