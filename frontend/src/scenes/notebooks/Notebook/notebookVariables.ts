@@ -1,18 +1,20 @@
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { collectNotebookFrameNodes, extractPythonIdentifiers } from '../Nodes/notebookNodeContent'
 import { NotebookNodeType } from '../types'
 
-export type NotebookVariableType = 'string' | 'number' | 'boolean' | 'date'
+export type NotebookVariableType = 'string' | 'number' | 'boolean' | 'date' | 'list'
 
-export const NOTEBOOK_VARIABLE_TYPES: NotebookVariableType[] = ['string', 'number', 'boolean', 'date']
+export const NOTEBOOK_VARIABLE_TYPES: NotebookVariableType[] = ['string', 'number', 'boolean', 'date', 'list']
 
 /** Mirrors MAX_VARIABLES_PER_NOTEBOOK / MAX_VARIABLE_VALUE_CHARS in sql_v2_serializers.py,
  * so the bar stops at the limit instead of letting a save fail. */
 export const MAX_NOTEBOOK_VARIABLES = 10
 export const MAX_NOTEBOOK_VARIABLE_VALUE_CHARS = 1000
+export const MAX_NOTEBOOK_VARIABLE_LIST_ITEMS = 100
 
-export type NotebookVariableValue = string | number | boolean | null
+export type NotebookVariableValue = string | number | boolean | string[] | null
 
 export type NotebookVariable = {
     name: string
@@ -65,13 +67,6 @@ function toVariableType(value: unknown): NotebookVariableType {
         : 'string'
 }
 
-function toVariableValue(value: unknown): NotebookVariableValue {
-    if (value === undefined || value === null) {
-        return null
-    }
-    return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null
-}
-
 /**
  * Read the declarations off a notebook. Tolerant on purpose: the column is plain JSON that
  * older clients and the API can write, and one malformed entry must not blank the rest.
@@ -90,18 +85,25 @@ export function parseNotebookVariables(value: unknown): NotebookVariable[] {
             {
                 name: typeof entry.name === 'string' ? entry.name.trim() : '',
                 type,
-                value: coerceNotebookVariableValue(type, toVariableValue(entry.value)),
+                value: coerceNotebookVariableValue(type, entry.value),
             },
         ]
     })
 }
 
+function coerceListValue(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.every((item): item is string => typeof item === 'string') ? value : []
+    }
+    return typeof value === 'string' && value !== '' ? [value] : []
+}
+
 /** Fit a value to its declared type, so a type switch in the editor never leaves a stale shape behind. */
-export function coerceNotebookVariableValue(
-    type: NotebookVariableType,
-    value: NotebookVariableValue
-): NotebookVariableValue {
-    if (value === null) {
+export function coerceNotebookVariableValue(type: NotebookVariableType, value: unknown): NotebookVariableValue {
+    if (type === 'list') {
+        return coerceListValue(value)
+    }
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
         return null
     }
     if (type === 'number') {
@@ -109,9 +111,9 @@ export function coerceNotebookVariableValue(
         return Number.isFinite(numeric) ? numeric : null
     }
     if (type === 'boolean') {
-        return typeof value === 'boolean' ? value : String(value).trim().toLowerCase() === 'true'
+        return String(value).trim().toLowerCase() === 'true'
     }
-    return typeof value === 'string' ? value : String(value)
+    return String(value)
 }
 
 /** Names a variable must not take: every cell's output dataframe, which shares the kernel namespace. */
@@ -207,13 +209,7 @@ export function droppedSavedNotebookVariables(
 
 /** Whether two declaration lists hold the same variables in the same order. */
 export function sameNotebookVariables(a: NotebookVariable[], b: NotebookVariable[]): boolean {
-    return (
-        a.length === b.length &&
-        a.every(
-            (variable, index) =>
-                variable.name === b[index].name && variable.type === b[index].type && variable.value === b[index].value
-        )
-    )
+    return objectsEqual(a, b)
 }
 
 /**

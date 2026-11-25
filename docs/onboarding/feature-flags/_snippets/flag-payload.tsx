@@ -33,10 +33,12 @@ export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         'node.js': dedent`
-            const matchedFlagPayload = await client.getFeatureFlagPayload('flag-key', 'distinct_id_of_your_user', isFeatureFlagEnabled)
+            const flags = await client.evaluateFlags('distinct_id_of_your_user', { flagKeys: ['flag-key'] })
+            const matchedFlagPayload = flags.getFlagPayload('flag-key')
         `,
         python: dedent`
-            matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+            flags = posthog.evaluate_flags('distinct_id_of_your_user', flag_keys=['flag-key'])
+            matched_flag_payload = flags.get_flag_payload('flag-key')
         `,
         php: dedent`
             // Payloads are returned as part of the flag evaluation

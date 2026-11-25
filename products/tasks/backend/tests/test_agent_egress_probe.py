@@ -210,6 +210,16 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             with self.assertRaises(x509.ExtensionNotFound):
                 leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName)
             self.assertEqual(leaf.not_valid_after_utc, ca.not_valid_after_utc)
+            self.assertEqual(issued.expires_at, leaf.not_valid_after_utc)
+            renewed = issuer.issue(
+                csr.public_bytes(serialization.Encoding.PEM).decode(), relay_key_sha256=issued.relay_key_sha256
+            )
+            self.assertEqual(renewed.relay_key_sha256, issued.relay_key_sha256)
+            self.assertNotEqual(
+                x509.load_pem_x509_certificate(renewed.certificate.encode()).serial_number, leaf.serial_number
+            )
+            with self.assertRaisesRegex(ValueError, "key has changed"):
+                issuer.issue(csr.public_bytes(serialization.Encoding.PEM).decode(), relay_key_sha256="other-key")
             spki = relay_key.public_key().public_bytes(
                 serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
             )

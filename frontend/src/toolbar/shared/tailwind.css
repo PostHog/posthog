@@ -1,0 +1,4 @@
+/* Stands in for @posthog/tailwind/tailwind.css in the toolbar builds. source(none) stops Tailwind scanning the whole working directory. */
+@import 'tailwindcss' source(none);
+@import '@posthog/tailwind/theme.css';
+@config "./tailwind.config.js";

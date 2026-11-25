@@ -6,6 +6,7 @@ export {
     PROFILES_DIR,
     ROLE_RESTART_BACKOFF_MS,
     load,
+    cardHashOf,
     loadText,
     readProfile,
 } from './load'

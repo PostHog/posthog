@@ -553,6 +553,8 @@ export interface HogQLQueryModifiers {
     sessionTimestampBufferMinutes?: integer
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean
     /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
@@ -674,7 +676,13 @@ export interface WarehouseSuggestionNote {
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
  */
-export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+export type QueryScanFindingKind =
+    | 'no_event_filter'
+    | 'no_start_date'
+    | 'persons_join'
+    | 'repeated_cte_expansion'
+    | 'cross_join_equality'
+    | 'date_arrays_before_breakdown_limit'
 
 /** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
 export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
@@ -807,6 +815,11 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: non_negative_integer
+    /**
+     * Rows to return in place of the default row limit, capped at the maximum for the query's context.
+     * Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL.
+     */
+    limit?: positive_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */
@@ -7092,6 +7105,8 @@ export type ExperimentExposureHealthFindingCode =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7133,6 +7148,8 @@ export type ExperimentExposureHealthCheckKey =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -8453,6 +8470,14 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /**
+     * Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every
+     * matching event. Leave unset to return every event.
+     * @asType integer
+     * @minimum 1
+     * @maximum 10000
+     */
+    eventsLimit?: number
 }
 
 export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
@@ -9357,6 +9382,10 @@ export interface MarketingAnalyticsRecommendationCpa {
 export type MarketingAnalyticsRecommendationsDataGapKind =
     | 'conversion_action_tables_not_synced'
     | 'performance_max_search_terms_count_primary_conversions'
+    | 'posthog_conversions_not_ready'
+    | 'posthog_conversion_goals_unusable'
+    | 'posthog_campaigns_unmatched'
+    | 'posthog_conversions_failed'
 
 export interface MarketingAnalyticsRecommendationsDataGap {
     kind: MarketingAnalyticsRecommendationsDataGapKind
@@ -9557,6 +9586,12 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * Defaults to false.
      */
     counts_as_revenue?: boolean
+    /**
+     * When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the
+     * conversions Google Ads reports. Conversions from every marked goal are added together, so marking
+     * two goals the same person completes counts that person twice. Defaults to false.
+     */
+    use_in_recommendations?: boolean
 }
 
 export enum AttributionMode {
@@ -10215,6 +10250,12 @@ export interface CustomerAnalyticsConfig {
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
     default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
+    role_default_pinned_properties?: CustomerAnalyticsRoleDefaultPinnedProperties[]
+}
+
+export interface CustomerAnalyticsRoleDefaultPinnedProperties {
+    role_id: string
+    pinned_properties: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

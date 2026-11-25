@@ -71,6 +71,14 @@ class QueryError(ExposedHogQLError):
     code_name = "hogql_query_error"
 
 
+class TransientQueryError(QueryError):
+    pass
+
+
+class ServerConfigurationQueryError(QueryError):
+    pass
+
+
 class AmbiguousFieldError(QueryError):
     def __init__(self, name: str, sources: list[str], hint: str):
         super().__init__(f"Ambiguous query. Found multiple sources for field: {name}")

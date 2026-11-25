@@ -25,7 +25,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -61,6 +61,7 @@ from products.dashboards.backend.presentation.views.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
+from products.groups.backend.facade.api import create_group_type_detail_dashboard
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -1605,15 +1606,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
-        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
+        dashboard_id = create_group_type_detail_dashboard(
+            self.team, self.user, group_type="organization", name_singular=None, name_plural=None
+        )
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard_id}, caller_tag="test")
 
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
         cache.set(cache_key, [{"stale": True}], 300)
         cache.set(stale_cache_key, [{"stale": True}], 300)
 
-        self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
         # Strong consistency bypasses the cache so this read doesn't re-populate the keys asserted above.
@@ -4875,11 +4878,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("insight", streamed_tile)
         self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 
-    def test_create_unlisted_dashboard_creates_tags(self):
-        """Test that unlisted dashboards get tags"""
+    @parameterized.expand(
+        [
+            (
+                "llm-analytics",
+                "AI observability default",
+                "Overview of your AI usage, costs, and performance",
+                9,
+                ["ai-observability"],
+            ),
+            ("mcp-analytics", "MCP Analytics Default", "Overview of your MCP usage.", 3, []),
+        ]
+    )
+    def test_create_unlisted_dashboard_creates_tags(
+        self,
+        tag: str,
+        expected_name: str,
+        expected_description: str,
+        expected_insight_count: int,
+        expected_insight_tags: list[str],
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
-            {"tag": "llm-analytics"},
+            {"tag": tag},
             format="json",
         )
 
@@ -4888,18 +4909,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "AI observability default")
+        self.assertEqual(
+            (dashboard.name, dashboard.description, dashboard.filters),
+            (expected_name, expected_description, {"date_from": "-7d"}),
+        )
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["llm-analytics"])
+        self.assertEqual(tags, [tag])
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
-        self.assertGreater(insights.count(), 0)
+        self.assertEqual(insights.count(), expected_insight_count)
         for insight in insights:
             self.assertEqual(
                 list(insight.tagged_items.values_list("tag__name", flat=True)),
-                ["ai-observability"],
+                expected_insight_tags,
             )
 
     def test_create_unlisted_dashboard_enforces_uniqueness(self):
@@ -4920,6 +4944,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    def test_create_unlisted_dashboard_reads_dashboards_from_the_writer(self) -> None:
+        # Tests configure no "replica" alias, so a Dashboard read routed to it raises instead of
+        # silently missing the uncommitted row the way a real replica does.
+        def route_dashboard_reads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reads_to_replica):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+                {"tag": "llm-analytics"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""

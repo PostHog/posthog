@@ -694,7 +694,7 @@ export interface NotebookVariableApi {
      * @maxLength 200
      */
     name: string
-    /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+    /** Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'. */
     type: string
     /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
     value?: unknown
@@ -889,9 +889,10 @@ export interface NotebookApi {
     readonly parent_resource: NotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
-    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
     app_published?: NotebookAppLayoutApi | null
     /**
      * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
@@ -952,9 +953,10 @@ export interface PatchedNotebookApi {
     readonly parent_resource?: PatchedNotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
-    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
     app_published?: NotebookAppLayoutApi | null
     /**
      * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
@@ -962,6 +964,38 @@ export interface PatchedNotebookApi {
      */
     app_revision?: number
     _create_in_folder?: string
+}
+
+export interface NotebookAppReleaseReviewApi {
+    has_previous: boolean
+    problems: string[]
+    /** @nullable */
+    results_as_of: string | null
+}
+
+export interface NotebookAppViewerRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+}
+
+export interface NotebookAppViewerQueryApi {
+    node_id: string
+    query: string
+    matches_defaults: boolean
+}
+
+export interface NotebookAppReleaseApi {
+    revision: number
+    /** @nullable */
+    published_at: string | null
+    /** @nullable */
+    results_as_of: string | null
+    title: string
+    layout: NotebookAppLayoutApi
+    markdown: string
+    variables: NotebookVariableApi[]
+    has_previous: boolean
 }
 
 export interface NotebookCollabCursorApi {
@@ -1438,7 +1472,7 @@ export interface NotebookSQLV2RunStatusResponseApi {
      * @nullable
      */
     error?: string | null
-    /** SQL (hogql) runs only: the full capped row set for client-side paging, present while the query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel (python/duckdb) runs, which keep only the envelope's first_page preview. */
+    /** Capped SQL rows for paging, available from the query cache or a retained app release. The result envelope also includes the first saved page. */
     rows?: unknown[][]
 }
 
