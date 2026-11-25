@@ -56,6 +56,7 @@ import {
     type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecInnerCallTracker,
+    type ExecToolOptions,
 } from '@/tools/exec'
 import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
 import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME, isExecDispatcher } from '@/tools/exec-names'
@@ -786,7 +787,30 @@ export class ToolExecutor {
             skillLookupMissKind: undefined,
             resultEmpty: false,
         }
-        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta, refuseWrites)
+        // Exec shortens a result before its guidance is known, so it reserves room for the notice a result
+        // like this one gets, and the same notice is attached after the call so a one-shot rule fires once.
+        let reservedGuidance: { resultEmpty: boolean; notice: Promise<GuidanceNotice | undefined> } | undefined
+        const guidanceBytes = async ({
+            toolName,
+            resultEmpty,
+        }: {
+            toolName: string
+            resultEmpty: boolean
+        }): Promise<number> => {
+            reservedGuidance ??= {
+                resultEmpty,
+                notice: this.guidanceFor(state, {
+                    toolName,
+                    execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                    args: parseExecCallInnerArgs(String(toolArgs.command)),
+                    isError: false,
+                    resultEmpty,
+                }),
+            }
+            const notice = await reservedGuidance.notice
+            return notice?.text ? byteLength(notice.text) : 0
+        }
+        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta, refuseWrites, guidanceBytes)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
 
@@ -879,13 +903,18 @@ export class ToolExecutor {
             const failureShape = innerFailure
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
-            const guidance = await this.guidanceFor(state, {
-                toolName: execToolName(),
-                execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
-                args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
-                isError: innerFailure !== undefined,
-                resultEmpty: execMetrics.resultEmpty,
-            })
+            const guidance =
+                reservedGuidance && !innerFailure && reservedGuidance.resultEmpty === execMetrics.resultEmpty
+                    ? await reservedGuidance.notice
+                    : await this.guidanceFor(state, {
+                          toolName: execToolName(),
+                          execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                          args: execMetrics.innerToolName
+                              ? parseExecCallInnerArgs(validation.data.command)
+                              : validation.data,
+                          isError: innerFailure !== undefined,
+                          resultEmpty: execMetrics.resultEmpty,
+                      })
             const duration = Date.now() - startMs
             const response = this.capResponse(
                 built,
@@ -1015,7 +1044,8 @@ export class ToolExecutor {
         state: ResolvedState,
         execMetrics: ExecMetricState,
         analyticsMeta: ToolCallAnalyticsMeta | undefined,
-        refuseWrites: boolean
+        refuseWrites: boolean,
+        guidanceBytes: ExecToolOptions['guidanceBytes']
     ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
@@ -1093,6 +1123,7 @@ export class ToolExecutor {
                 appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 toolResultTokenLimit: state.clientProfile.capabilities.toolResultTokenLimit,
+                guidanceBytes,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()

@@ -255,13 +255,24 @@ describe('boundText', () => {
         expect(bounded).toContain('steps[9000]:\n')
     })
 
-    it('counts a next offset in bytes when the pager reports no total length', () => {
+    it.each([
+        ['a chunk with more after it', 60_000],
+        ['the last chunk', null],
+    ])('counts a next offset in bytes from where %s starts', (_, nextOffset) => {
         const content = '💬 a comment line\n'.repeat(2_500)
-        const value = { content, content_next_offset: 60_000 }
+        const value = {
+            content,
+            content_truncated: nextOffset !== null,
+            content_offset: 4_000,
+            content_next_offset: nextOffset,
+        }
 
         const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
 
-        expect(bounded.content_next_offset).toBe(60_000 - byteLength(content) + byteLength(bounded.content))
+        expect(bounded).toMatchObject({
+            content_truncated: true,
+            content_next_offset: 4_000 + byteLength(bounded.content),
+        })
     })
 
     it('keeps a JSON string result a JSON string', () => {

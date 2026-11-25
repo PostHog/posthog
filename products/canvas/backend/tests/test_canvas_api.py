@@ -2145,6 +2145,7 @@ class TestCanvasComments(CanvasAPIBaseTest):
 
         assert first["content_truncated"] is True
         assert first["content"] + rest["content"] == body
+        assert rest["content_offset"] == first["content_next_offset"]
 
     def test_comments_on_a_canvas_in_a_space_you_cannot_see_are_not_found(self) -> None:
         other = self._create_user("canvas-comments-owner@example.com")

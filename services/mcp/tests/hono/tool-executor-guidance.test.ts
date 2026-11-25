@@ -142,6 +142,7 @@ describe('ToolExecutor guidance notices', () => {
             const returned = second.content.map((part) => part.text ?? '').join('')
             expect(returned).toContain('Replay Vision')
             expect(Buffer.byteLength(returned, 'utf8')).toBeLessThanOrEqual(40_000)
+            expect(returned.match(/\[Response shortened/g)).toHaveLength(1)
         }
     )
 

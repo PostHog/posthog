@@ -203,8 +203,9 @@ function commonPrefix(a: string, b: string): string {
 
 /**
  * A text field paged by `<field>_next_offset` would skip what the projection cut, so point it at the first
- * character the response no longer carries. A pager that reports `<field>_total_length` counts characters
- * (as `skill-get` pages its body); the comment pagers report no total and count UTF-8 bytes.
+ * character the response no longer carries, even on a last page whose offset was null. A pager that reports
+ * `<field>_total_length` counts characters (as `skill-get` pages its body); one that reports where the chunk
+ * starts in `<field>_offset` counts UTF-8 bytes (as the comment pagers do).
  */
 function realignPagedText(
     value: Record<string, unknown>,
@@ -219,12 +220,18 @@ function realignPagedText(
     }
     const next = value[nextKey]
     const total = value[`${key}_total_length`]
+    const start = value[`${key}_offset`]
     const keptPrefix = typeof shortened === 'string' ? commonPrefix(full, shortened) : ''
     if (typeof total === 'number') {
         const end = typeof next === 'number' ? next : total
         kept.set(nextKey, end - codePointLength(full) + codePointLength(keptPrefix))
-    } else if (typeof next === 'number') {
-        kept.set(nextKey, next - byteLength(full) + byteLength(keptPrefix))
+    } else if (typeof start === 'number') {
+        kept.set(nextKey, start + byteLength(keptPrefix))
+    } else {
+        return
+    }
+    if (kept.has(`${key}_truncated`)) {
+        kept.set(`${key}_truncated`, true)
     }
 }
 

@@ -289,6 +289,8 @@ export interface ExecToolOptions {
     appendTimeSeriesChartData?: boolean
     mcpClientName?: string | undefined
     toolResultTokenLimit?: number | undefined
+    /** Bytes of the guidance notice the executor will add to this result, which a shortened result leaves room for. */
+    guidanceBytes?: (outcome: { toolName: string; resultEmpty: boolean }) => Promise<number>
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -2557,7 +2559,15 @@ export function createExecTool(
                     const nextPageHint = useJson ? null : getNextPageHint(tool.name, result)
                     const fullText = `${outputText}${chartFooter}${nextPageHint ? `\n\n${nextPageHint}` : ''}`
                     const budget = responseTokenBudget(options.toolResultTokenLimit, input)
-                    if (budget === undefined || byteLength(fullText) <= maxResponseBytes(budget)) {
+                    const maxBytes =
+                        budget === undefined
+                            ? undefined
+                            : maxResponseBytes(budget) -
+                              ((await options.guidanceBytes?.({
+                                  toolName: tool.name,
+                                  resultEmpty: 'result_empty' in resultShape,
+                              })) ?? 0)
+                    if (budget === undefined || maxBytes === undefined || byteLength(fullText) <= maxBytes) {
                         outputText = fullText
                     } else {
                         // The executor's own cap then sees a text that fits, so it never counts this one.
@@ -2567,7 +2577,7 @@ export function createExecTool(
                         })
                         // Reserve the chart's bytes before re-serializing the result body. The next-page
                         // hint is dropped because it offsets past the rows the bound cuts.
-                        const bodyBudget = maxResponseBytes(budget) - byteLength(chartFooter)
+                        const bodyBudget = maxBytes - byteLength(chartFooter)
                         const body =
                             chartFooter && bodyBudget > 0
                                 ? boundText(outputText, budget, bodySource, bodyBudget)
@@ -2575,7 +2585,7 @@ export function createExecTool(
                         outputText =
                             body !== undefined && byteLength(body) <= bodyBudget
                                 ? body + chartFooter
-                                : boundText(outputText, budget, bodySource)
+                                : boundText(outputText, budget, bodySource, maxBytes)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
