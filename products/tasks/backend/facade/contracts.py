@@ -15,6 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
@@ -1247,6 +1248,15 @@ class AgentEgressRegistrationDTO:
     region: str
     lease_expires_at: datetime
     revoked: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressGitGrantDTO:
+    registration: AgentEgressRegistrationDTO
+    repository: str
+    credential_version: UUID
+    expires_at: datetime
+    token: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
