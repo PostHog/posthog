@@ -105,6 +105,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filter_preview import PREVIEW_MAX_CONDITIONS
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
     SourceFilterRunState,
@@ -717,23 +718,23 @@ class SourceFilterCatalogListSerializer(serializers.Serializer):
     )
 
 
-# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
-_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+# Wider than the expression limit, so a long expression reads back as an `expression_limit` error, not a 400.
+_SOURCE_FILTER_REQUEST_MAX_LENGTH = 16384
 
 
-class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+class SourceFilterExpressionRequestSerializer(serializers.Serializer):
     source_product = serializers.CharField(
         max_length=100,
-        help_text="Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     source_type = serializers.CharField(
         max_length=100,
-        help_text="Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+        help_text="Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.",
     )
     expression = serializers.CharField(
         allow_blank=True,
         trim_whitespace=False,
-        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        max_length=_SOURCE_FILTER_REQUEST_MAX_LENGTH,
         help_text=(
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
             "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
@@ -765,6 +766,10 @@ class SourceFilterPreviewRequestSerializer(serializers.Serializer):
         return [scope_id.strip() for scope_id in value]
 
 
+class SourceFilterPreviewRequestSerializer(SourceFilterExpressionRequestSerializer):
+    pass
+
+
 @extend_schema_field(
     {
         "oneOf": [
@@ -794,6 +799,17 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
         source="fields",
         child=_SourceFilterFieldValueField(),
         help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
+    )
+    failed_conditions = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text=(
+            "For an excluded record, the conditions of the expression that the record does not pass, as written in "
+            "the expression and in expression order. The conditions are the operands of a top-level AND, or the "
+            "whole expression when it is one condition. A condition that reads a malformed value fails. Null for "
+            "records that pass, and for every record when the expression's top level is OR or the expression "
+            f"has more than {PREVIEW_MAX_CONDITIONS} conditions."
+        ),
     )
 
 
@@ -852,6 +868,14 @@ class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     )
     excluded = SourceFilterPreviewRecordSerializer(
         many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
+
+
+class SourceFilterValidateResponseSerializer(FilterExpressionErrorSerializer):
+    valid = serializers.BooleanField(help_text="True when the expression can be saved as the source's filter.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the expression is invalid, as a message for people. Null when it is valid."
     )
 
 
@@ -5001,6 +5025,22 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+    )
+
+
+class SignalReportArtefactListQuerySerializer(serializers.Serializer):
+    # Plain CharField: the view checks each value against the types this caller may read, so a hidden type
+    # gets the same 400 as an unknown one.
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every "
+            "type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the "
+            "`## Verification plan`, and `task_run` records research and implementation runs. Values match the "
+            "`type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown "
+            "type returns 400 with the accepted values."
+        ),
     )
 
 
