@@ -11257,14 +11257,16 @@ Note: Read the official v5 overview and each listed object reference, then check
 
 Re-audited 2026-11-19 against: <https://developer.salesforce.com/docs/marketing/pardot/guide/version5overview.html>
 
-- [ ] `Tags (GET /api/v5/objects/tags)` — lookup of tag names used to segment prospects, campaigns and other objects (high)
-- [ ] `Tagged objects (GET /api/v5/objects/tagged-objects)` — join table linking tagId to objectType and objectId, to segment prospects and assets by tag (high)
-- [ ] `Engagement Studio programs (GET /api/v5/objects/engagement-studio-programs)` — nurture programs with status, for analysis of automated campaign setup (medium)
+- [x] `Tags (GET /api/v5/objects/tags)` — lookup of tag names used to segment prospects, campaigns and other objects (high)
+- [x] `Tagged objects (GET /api/v5/objects/tagged-objects)` — join table linking tagId to objectType and objectId, to segment prospects and assets by tag (high)
+- [x] `Engagement Studio programs (GET /api/v5/objects/engagement-studio-programs)` — nurture programs with status, for analysis of automated campaign setup (medium)
 - [ ] `Form fields (GET /api/v5/objects/form-fields)` — field definitions of each synced form, to read form structure (low)
 - [ ] `Tracker domains (GET /api/v5/objects/tracker-domains)` — tracking domains for visitor and page view analysis (low)
-- [ ] `Dynamic content (GET /api/v5/objects/dynamic-contents)` — dynamic content blocks with variations for personalization analysis (low)
+- [x] `Dynamic content (GET /api/v5/objects/dynamic-contents)` — dynamic content blocks with variations for personalization analysis (low)
 
 Note (2026-11-19): Read the v5 overview page and the per-object guide pages. Each object page lists a Query GET under /api/v5/objects/. All earlier gaps are built. Excluded: exports, imports, bulk actions, files, folders, layout templates, external activities (write only), and form handler fields (config). Tag and tagged-object are the useful new join data.
+
+Note (2026-11-25): Built tags (full refresh, because objectCount changes without updatedAt), tagged objects (full refresh, because removing a tag deletes its record), Engagement Studio programs and dynamic content. The v5 dynamic content object has no variations field; the nested Engagement Studio schedule and business-hours maps are left out.
 
 ## Particle — **thin**
 
