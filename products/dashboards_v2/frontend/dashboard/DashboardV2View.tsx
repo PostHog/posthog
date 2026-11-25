@@ -4,15 +4,20 @@ import clsx from 'clsx'
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
+// TODO(2026-11-25): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
+import { FilterBar } from '../filters/FilterBar'
+import { FiltersContext, appliedFilters } from '../filters/filtersContext'
 import type { DropTarget } from '../grid/dropTargets'
 import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { PresentedTile } from '../tiles/PresentedTile'
+import { TimeRangePicker } from '../time/TimeRangePicker'
 import { RefreshContext } from '../widgets/refreshContext'
 import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
@@ -152,6 +157,15 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     useEffect(() => () => mountScheduler.dispose(), [mountScheduler])
 
     const { activeTab, can, history } = state
+    const savedFilters = controller.dashboard.filters
+    const filterValues = controller.filters?.values
+    const filtersOn = !!controller.filters && !!controller.dashboard.allowFilters
+    const FilterBarComponent = controller.filters?.Bar ?? FilterBar
+    const applied = useMemo(
+        () => (filtersOn && filterValues ? appliedFilters(savedFilters ?? [], filterValues) : []),
+        [filtersOn, savedFilters, filterValues]
+    )
+    const time = controller.timeRange?.value ?? controller.dashboard.time ?? DEFAULT_TIME_RANGE
     const tiles = useMemo(
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns, sizeOf) : activeTab.tiles),
         [stacked, activeTab.tiles, sizeOf]
@@ -183,40 +197,75 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     return (
         <DashboardV2StateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
-                <TimeRangeContext.Provider value={controller.dashboard.time ?? DEFAULT_TIME_RANGE}>
-                    <RefreshContext.Provider value={refresh.count}>
-                        <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
-                            <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
-                                <div
-                                    ref={rootRef}
-                                    data-quill
-                                    className={clsx(
-                                        'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
-                                        downloadingImage && 'DashboardV2View--capturing'
-                                    )}
-                                >
-                                    {header}
-                                    <DashboardV2Tabs />
+                <TimeRangeContext.Provider value={time}>
+                    <FiltersContext.Provider value={applied}>
+                        <RefreshContext.Provider value={refresh.count}>
+                            <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
+                                <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
                                     <div
-                                        ref={containerRef as RefObject<HTMLDivElement>}
-                                        className="DashboardV2View__canvas"
-                                    >
-                                        {mounted && width > 0 && (
-                                            <DashboardTileGrid
-                                                key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                                gridId={activeTab.id}
-                                                tiles={tiles}
-                                                cols={GRID.columns}
-                                                width={width}
-                                                editable={can('placeTiles')}
-                                            />
+                                        ref={rootRef}
+                                        data-quill
+                                        className={clsx(
+                                            'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                            downloadingImage && 'DashboardV2View--capturing'
                                         )}
+                                    >
+                                        {header}
+                                        {(filtersOn || controller.timeRange) && (
+                                            <div className="flex items-start gap-2">
+                                                {controller.timeRange && (
+                                                    <TimeRangePicker
+                                                        value={time}
+                                                        onChange={controller.timeRange.onChange}
+                                                        ranges={controller.timeRange.ranges}
+                                                    />
+                                                )}
+                                                <div className="min-w-0 flex-1">
+                                                    {filtersOn && controller.filters && (
+                                                        <FilterBarComponent
+                                                            filters={savedFilters ?? []}
+                                                            types={controller.filters.types}
+                                                            values={controller.filters.values}
+                                                            onValueChange={controller.filters.onValueChange}
+                                                            onAdd={
+                                                                can('addFilter')
+                                                                    ? (filter) =>
+                                                                          state.onEdit({ edit: 'addFilter', filter })
+                                                                    : undefined
+                                                            }
+                                                            onRemove={
+                                                                can('removeFilter')
+                                                                    ? (id) => state.onEdit({ edit: 'removeFilter', id })
+                                                                    : undefined
+                                                            }
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <DashboardV2Tabs />
+                                        <div
+                                            ref={containerRef as RefObject<HTMLDivElement>}
+                                            className="DashboardV2View__canvas"
+                                        >
+                                            {mounted && width > 0 && (
+                                                <DashboardTileGrid
+                                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                                    gridId={activeTab.id}
+                                                    tiles={tiles}
+                                                    cols={GRID.columns}
+                                                    width={width}
+                                                    editable={can('placeTiles')}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                                <PresentedTile />
-                            </CapturingTileContext.Provider>
-                        </TileMountContext.Provider>
-                    </RefreshContext.Provider>
+                                    <PresentedTile />
+                                </CapturingTileContext.Provider>
+                            </TileMountContext.Provider>
+                        </RefreshContext.Provider>
+                    </FiltersContext.Provider>
                 </TimeRangeContext.Provider>
             </GridDragContext.Provider>
         </DashboardV2StateContext.Provider>

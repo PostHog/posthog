@@ -1,3 +1,5 @@
+// TODO(2026-11-25): Replace with quill once it can; quill has no markdown renderer yet.
+// oxlint-disable-next-line no-restricted-imports
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'

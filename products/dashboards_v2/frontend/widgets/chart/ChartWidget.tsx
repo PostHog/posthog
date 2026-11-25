@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useContext, useMemo } from 'react'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
+import { FiltersContext } from '../../filters/filtersContext'
 import { TimeRangeContext } from '../timeRangeContext'
 import { WidgetLoading } from '../WidgetLoading'
 import type { ChartConfig } from './chartSpec'
@@ -36,7 +37,12 @@ function ChartData({
     states?: ChartStates
 }): JSX.Element {
     const surroundingTime = useContext(TimeRangeContext)
-    const result = useQueryFrames({ query: widget.config.query, time: widget.config.time ?? surroundingTime }, runQuery)
+    const filters = useContext(FiltersContext)
+    const time = widget.config.time ?? surroundingTime
+    // Left out when empty, so a chart's cached result from before any filter existed still matches.
+    const request =
+        filters.length > 0 ? { query: widget.config.query, time, filters } : { query: widget.config.query, time }
+    const result = useQueryFrames(request, runQuery)
     const parsed = useMemo(
         () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
         [viz.optionsSchema, widget.config.viz.options]

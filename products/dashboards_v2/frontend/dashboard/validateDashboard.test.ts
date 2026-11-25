@@ -1,3 +1,5 @@
+import { propertyFilterSpec } from '../filters/property/propertyFilterSpec'
+import { selectFilterSpec } from '../filters/select/selectFilterSpec'
 import { kitchenSinkDashboard } from '../fixtures/kitchenSinkDashboard'
 import { chartSpec } from '../widgets/chart/chartSpec'
 import { barSpec } from '../widgets/chart/viz/bar/barSpec'
@@ -10,6 +12,7 @@ import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
 
 // Specs only, with no components, as a CI check or an MCP tool would load them.
 const SPECS = [chartSpec([statSpec, lineSpec, barSpec]), markdownSpec]
+const FILTER_SPECS = [selectFilterSpec([]), propertyFilterSpec([])]
 const withTiles = (tiles: unknown[]): unknown => ({
     version: 2,
     title: 'Test',
@@ -27,7 +30,7 @@ const nestedSections = (depth: number): unknown =>
 
 describe('validateDashboard', () => {
     it('accepts the kitchen sink fixture', () => {
-        expect(validateDashboard(kitchenSinkDashboard, SPECS)).toEqual([])
+        expect(validateDashboard(kitchenSinkDashboard, SPECS, FILTER_SPECS)).toEqual([])
     })
 
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([
@@ -184,6 +187,39 @@ describe('validateDashboard', () => {
             expected: [{ path: 'tabs[0].tiles[1].id', message: 'The id "a" is used by another tile or tab' }],
         },
         {
+            name: 'a filter of a kind the host does not support, and one missing its config',
+            document: {
+                ...(withTiles([]) as object),
+                filters: [
+                    { id: 'a', type: 'country-map', config: {} },
+                    { id: 'b', type: 'select', config: { key: '$browser' } },
+                ],
+            },
+            expected: [
+                {
+                    path: 'filters[0].type',
+                    message: 'Unknown filter type "country-map". Known types: select, property',
+                },
+                { path: 'filters[1].config.options', message: expect.any(String) },
+            ],
+        },
+        {
+            name: 'two filters on the same field',
+            document: {
+                ...(withTiles([]) as object),
+                filters: [
+                    { id: 'a', type: 'select', config: { key: '$browser', options: ['Chrome'] } },
+                    { id: 'b', type: 'select', config: { key: '$browser', options: ['Safari'] } },
+                ],
+            },
+            expected: [{ path: 'filters[1]', message: 'Another filter already narrows this field' }],
+        },
+        {
+            name: 'a time range the picker cannot read',
+            document: { ...(withTiles([]) as object), time: { from: 'now-7days', to: 'now' } },
+            expected: [{ path: 'time.from', message: expect.any(String) }],
+        },
+        {
             name: 'a document that is not a v2 dashboard',
             document: { version: 1, title: 'Old', tabs: [] },
             expected: [
@@ -192,7 +228,7 @@ describe('validateDashboard', () => {
             ],
         },
     ])('reports $name', ({ document, expected }) => {
-        expect(validateDashboard(document, SPECS)).toEqual(expected)
+        expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual(expected)
     })
 
     it('keeps the section type out of content widgets when the schema parses a document on its own', () => {
