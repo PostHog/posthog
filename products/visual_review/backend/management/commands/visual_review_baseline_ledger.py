@@ -162,8 +162,8 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--setup-check",
             default="",
-            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it. "
-            "Needs exactly one --run-type. --apply needs it.",
+            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it "
+            "and the 'Report no Visual Review run needed' job succeeded. Needs exactly one --run-type. --apply needs it.",
         )
         recheck.add_argument(
             "--pause",

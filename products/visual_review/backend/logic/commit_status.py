@@ -46,6 +46,9 @@ NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
 NO_SETUP_CHECK_DESCRIPTION = "No setup check given"
 NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
 RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
+NO_RUN_NOT_REPORTED_DESCRIPTION = "Re-run Visual Review: CI did not report that this commit needs no run"
+# The CI job that reports a commit needs no run. Its name has to match the job name in the workflow.
+NO_RUN_REPORT_CHECK = "Report no Visual Review run needed"
 CLAMPED_CHANGES_DESCRIPTION = "Merge master, then re-run Visual Review: this branch is older than the baseline history"
 # The state of a recheck verdict that posts nothing on the head.
 NO_STATUS_STATE = "skipped"
@@ -531,6 +534,12 @@ def _setup_check_skipped_at(repo: Repo, commit_sha: str, setup_check: str) -> da
     return min(moment for moment in completed if moment is not None)
 
 
+def _no_run_reported(repo: Repo, commit_sha: str) -> bool:
+    """Whether CI's job that reports that the commit needs no run succeeded. Lets `GITHUB_READ_REFUSED` through."""
+    check_runs = github_api.actions_check_runs(repo, commit_sha, NO_RUN_REPORT_CHECK, Priority.BATCH)
+    return bool(check_runs) and all(check_run.conclusion == "success" for check_run in check_runs)
+
+
 def _retargeted_since(repo: Repo, pr_numbers: tuple[int, ...], since: datetime) -> bool:
     """Whether a pull request with this head changed its base at or after `since`.
 
@@ -545,7 +554,8 @@ def _retargeted_since(repo: Repo, pr_numbers: tuple[int, ...], since: datetime) 
 
 
 def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str, pr_numbers: tuple[int, ...]) -> StatusVerdict:
-    """The status of a commit that has no run. It passes only when CI skipped the job that creates the run.
+    """The status of a commit that has no run. It passes only when CI skipped the job that creates the run,
+    and the job that reports that the commit needs no run succeeded.
 
     Retention deletes runs, also failed ones, so a missing run proves nothing, and neither does the
     commit's age. A skip decided before the pull request was retargeted gets no status, as a stacked
@@ -556,6 +566,10 @@ def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str, pr_numbe
     skipped_at = _setup_check_skipped_at(repo, commit_sha, setup_check)
     if skipped_at is None:
         return StatusVerdict(state="pending", description=RUN_GONE_DESCRIPTION)
+    # CI also skips the setup job when the build fails or the workflow is cancelled, so a skip alone
+    # does not show that CI decided the commit needs no run.
+    if not _no_run_reported(repo, commit_sha):
+        return StatusVerdict(state="pending", description=NO_RUN_NOT_REPORTED_DESCRIPTION)
     if _retargeted_since(repo, pr_numbers, skipped_at):
         return StatusVerdict(state=NO_STATUS_STATE, description="retargeted, no run")
     return StatusVerdict(state="success", description=NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION)

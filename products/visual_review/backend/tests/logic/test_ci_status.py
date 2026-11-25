@@ -1,5 +1,6 @@
 """Unit tests for logic/ci_status.py — Commit statuses and CI job reruns."""
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from io import StringIO
@@ -1018,6 +1019,7 @@ def _serve_heads(
     base_changes: tuple[timedelta, ...] | None = (),
     drafts: tuple[int, ...] = (),
     committed_ago: dict[str, timedelta | None] | None = None,
+    report_check_conclusions: tuple[str, ...] | None = ("success",),
 ) -> None:
     carried = statuses_by_commit or {}
     ages = committed_ago or {}
@@ -1031,16 +1033,21 @@ def _serve_heads(
     mocker.patch.object(
         github_api, "commit_statuses", side_effect=lambda repo, sha, priority: dict(carried.get(sha, {}))
     )
+
+    def check_runs(conclusions: Sequence[str] | None) -> list[github_api.CheckRun] | None:
+        if conclusions is None:
+            return None
+        return [github_api.CheckRun(conclusion=conclusion, completed_at=SETUP_CHECK_DONE) for conclusion in conclusions]
+
     if isinstance(setup_check_conclusions, Exception):
         mocker.patch.object(github_api, "actions_check_runs", side_effect=setup_check_conclusions)
     else:
-        check_runs = None
-        if setup_check_conclusions is not None:
-            check_runs = [
-                github_api.CheckRun(conclusion=conclusion, completed_at=SETUP_CHECK_DONE)
-                for conclusion in setup_check_conclusions
-            ]
-        mocker.patch.object(github_api, "actions_check_runs", return_value=check_runs)
+        by_name = {commit_status.NO_RUN_REPORT_CHECK: check_runs(report_check_conclusions)}
+        mocker.patch.object(
+            github_api,
+            "actions_check_runs",
+            side_effect=lambda repo, sha, name, priority: by_name.get(name, check_runs(setup_check_conclusions)),
+        )
     # Each base change is given by how long after the setup check finished it happened.
     changed_at = None if base_changes is None else [SETUP_CHECK_DONE + after for after in base_changes]
     mocker.patch.object(github_api, "pull_request_base_changes", return_value=changed_at)
@@ -1081,6 +1088,7 @@ def _recheck_command(
 
 
 RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
+NO_RUN_NOT_REPORTED = commit_status.NO_RUN_NOT_REPORTED_DESCRIPTION
 SETUP_CHECK_DONE = timezone.now() - timedelta(days=2)
 APP_BOT = "posthog-app[bot]"
 LEGACY = "PostHog Visual Review / storybook"
@@ -1564,20 +1572,34 @@ class TestLedgerRecheck:
             _recheck_command(repo, "--apply")
 
     @pytest.mark.parametrize(
-        ("conclusions", "without_run"),
+        ("conclusions", "report_conclusions", "without_run"),
         [
             pytest.param(
-                ["skipped"], ("success", commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION), id="setup_job_skipped"
+                ["skipped"],
+                ("success",),
+                ("success", commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION),
+                id="setup_job_skipped",
             ),
-            pytest.param(["success"], ("pending", RUN_GONE), id="setup_job_ran_and_the_run_is_gone"),
-            pytest.param([], ("pending", RUN_GONE), id="no_setup_job"),
-            pytest.param(None, ("pending", RUN_GONE), id="setup_job_unknown"),
+            pytest.param(["success"], ("skipped",), ("pending", RUN_GONE), id="setup_job_ran_and_the_run_is_gone"),
+            pytest.param([], (), ("pending", RUN_GONE), id="no_setup_job"),
+            pytest.param(None, None, ("pending", RUN_GONE), id="setup_job_unknown"),
+            pytest.param(["skipped"], ("skipped",), ("pending", NO_RUN_NOT_REPORTED), id="build_failed"),
+            pytest.param(["skipped"], ("failure",), ("pending", NO_RUN_NOT_REPORTED), id="report_failed"),
+            pytest.param(["skipped"], (), ("pending", NO_RUN_NOT_REPORTED), id="no_report_job"),
         ],
     )
-    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker, conclusions, without_run) -> None:
+    def test_the_recheck_posts_on_every_head(
+        self, repo, sender, mocker, conclusions, report_conclusions, without_run
+    ) -> None:
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
         _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
-        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, conclusions)
+        _serve_heads(
+            mocker,
+            {1: "head-1", 2: "head-2", 4: "head-4"},
+            {},
+            conclusions,
+            report_check_conclusions=report_conclusions,
+        )
 
         _recheck_command(repo, "--apply")
 
