@@ -139,11 +139,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         expected_status: str,
         expected_steps: list[tuple[str, str, int]],
     ) -> None:
-        job, _, first_run = self._run(
+        job, post, first_run = self._run(
             responses, run_first_check=run_first_check, first_run_available=first_run_available
         )
 
         assert job["status"] == expected_status
+        assert [call.kwargs["headers"]["X-PostHog-Product"] for call in post.call_args_list] == ["ai_visibility"] * len(
+            responses
+        )
         assert self._steps(job) == expected_steps
         assert list(AEOBrand.objects.for_team(self.team.id).values_list("domain", "kind")) == [
             ("example.com", BrandKind.OWN)
