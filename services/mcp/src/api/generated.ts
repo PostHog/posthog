@@ -14525,6 +14525,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `wrong_facts` - Wrong or made-up facts
+     * * `missed_question` - Missed the customer's question
+     * * `too_vague` - Too vague to act on
+     * * `wrong_tone` - Wrong tone or style
+     * * `should_not_run` - Should not have run on this ticket
+     */
+    export type AiFeedbackReasonEnum = typeof AiFeedbackReasonEnum[keyof typeof AiFeedbackReasonEnum];
+
+
+    export const AiFeedbackReasonEnum = {
+      WrongFacts: 'wrong_facts',
+      MissedQuestion: 'missed_question',
+      TooVague: 'too_vague',
+      WrongTone: 'wrong_tone',
+      ShouldNotRun: 'should_not_run',
+    } as const;
+
+    /**
      * * `good` - good
      * * `bad` - bad
      */
@@ -14555,6 +14573,11 @@ export namespace Schemas {
          * @maxLength 2000
          */
       feedback_text?: string;
+      /**
+         * Optional reasons for a bad rating. Ignored for a good rating.
+         * @maxItems 5
+         */
+      reasons?: AiFeedbackReasonEnum[];
     }
 
     /**
