@@ -15,6 +15,7 @@ import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -398,6 +399,27 @@ def test_query_deletion_selects_flag_evaluations_rows_older_than_the_coverage_st
     with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
         count = preview_event_deletion(
             query=f"SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = '{distinct_id}'",
+            variables={},
+            team=team,
+            user=user,
+        )
+
+    assert count == 1
+
+
+@pytest.mark.django_db
+def test_query_deletion_selects_events_older_than_the_events_retention_window(team, user):
+    distinct_id = f"erase-{uuid4()}"
+    team.event_retention_months = 12
+    team.save()
+    sync_execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, distinct_id) VALUES",
+        [(team.pk, "old event", uuid4(), datetime.now(UTC) - timedelta(days=400), distinct_id)],
+    )
+
+    with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
+        count = preview_event_deletion(
+            query=f"SELECT uuid FROM events WHERE distinct_id = '{distinct_id}'",
             variables={},
             team=team,
             user=user,

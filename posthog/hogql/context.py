@@ -179,7 +179,7 @@ class HogQLContext:
     # path, set it False. It is deliberately not a HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
     # The time this query derives the flag_evaluations coverage start from. flag_calls_now() sets it on first use.
-    # The swap, the union and the printer's coverage floor therefore pick the same UTC day.
+    # The swap, the union and the printer's coverage floor therefore pick the same UTC day. clear_reads() resets it.
     _flag_calls_now: Optional[datetime] = field(default=None, init=False, compare=False, repr=False)
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
