@@ -1,17 +1,43 @@
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
+from django.core.cache import caches
+
 import requests
 import structlog
+from cryptography.fernet import InvalidToken
 from requests import HTTPError, RequestException, Timeout
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.dataclasses import frozen
 from posthog.egress.vercel import vercel_request
 
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload
+
 logger = structlog.get_logger(__name__)
+
+VERCEL_OAUTH_TOKEN_URL = "https://api.vercel.com/v2/oauth/access_token"
+INSTALLATION_TOKEN_CACHE_PREFIX = "vercel_installation_token:"
+INSTALLATION_TOKEN_CACHE_SALT = "vercel_installation_token"
+INSTALLATION_TOKEN_MAX_AGE_SECONDS = 3600
+# A cached token must outlive the request it authorizes, including that request's retries.
+INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS = 300
+# Callers include a webhook delivery with an 8 second budget. Two attempts of at most two seconds, plus the
+# wait between them, keep a token request under five seconds.
+INSTALLATION_TOKEN_ATTEMPTS = 2
+INSTALLATION_TOKEN_ATTEMPT_SECONDS = 2
+INSTALLATION_TOKEN_LOCK_PREFIX = "vercel_installation_token_lock:"
+# The lock outlives the holder's token request, retries included, so it never expires mid-request.
+INSTALLATION_TOKEN_LOCK_SECONDS = 5
+# A waiter gives up after two seconds and requests its own token, which keeps it inside the webhook budget.
+INSTALLATION_TOKEN_LOCK_POLLS = 20
+INSTALLATION_TOKEN_LOCK_POLL_SECONDS = 0.1
+
+token_cache = caches["vercel_installation_tokens"]
 
 
 @frozen
@@ -44,6 +70,25 @@ class APIError(Exception):
 
     def __str__(self) -> str:
         return f"{self.message} (status: {self.status_code})"
+
+
+@dataclass(frozen=False)
+class InstallationTokenError(APIError):
+    code: str | None = None
+
+    @property
+    def is_transient(self) -> bool:
+        # A transport error carries no status. Any other 4xx than a rate limit is Vercel's answer and stays the
+        # same on a retry.
+        return self.code != "invalid_response" and (
+            self.status_code is None or self.status_code == 429 or self.status_code >= 500
+        )
+
+
+@frozen
+class InstallationToken:
+    access_token: str = field(repr=False)
+    expires_in: int
 
 
 @dataclass
@@ -79,6 +124,10 @@ class VercelAPIClient:
                 "Content-Type": "application/json",
             }
             self.session.headers.update(headers)
+
+    @classmethod
+    def for_installation(cls, installation_id: str, timeout: int = 30, fresh: bool = False) -> "VercelAPIClient":
+        return cls(bearer_token=get_installation_access_token(installation_id, fresh=fresh), timeout=timeout)
 
     @staticmethod
     def _should_retry_request(exc: BaseException) -> bool:
@@ -130,6 +179,7 @@ class VercelAPIClient:
         json_body: dict[str, Any] | None = None,
         data: str | None = None,
         headers: dict[str, str] | None = None,
+        auth: tuple[str, str] | None = None,
     ) -> requests.Response:
         if json_body is not None:
             data = json.dumps(json_body)
@@ -142,6 +192,7 @@ class VercelAPIClient:
                 installation_id=installation_id,
                 headers=headers,
                 data=data,
+                auth=auth,
                 session=self.session,
                 timeout=self.timeout,
             )
@@ -355,6 +406,34 @@ class VercelAPIClient:
                 error_description=str(e),
             )
 
+    @retry(
+        stop=stop_after_attempt(INSTALLATION_TOKEN_ATTEMPTS),
+        wait=wait_fixed(0.5),
+        retry=retry_if_exception(lambda exc: isinstance(exc, InstallationTokenError) and exc.is_transient),
+        reraise=True,
+    )
+    def request_installation_token(self, installation_id: str, client_id: str, client_secret: str) -> InstallationToken:
+        try:
+            response = self._request(
+                "POST",
+                VERCEL_OAUTH_TOKEN_URL,
+                installation_id=installation_id,
+                data=urlencode({"grant_type": "client_credentials", "installation_id": installation_id}),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                auth=(client_id, client_secret),
+            )
+            json_data = self._parse_json_response(response)
+        except APIError as e:
+            raise InstallationTokenError(
+                e.message, status_code=e.status_code, detail=e.detail, code=_token_error_code(e.detail)
+            ) from e
+
+        access_token = json_data.get("access_token")
+        expires_in = json_data.get("expires_in")
+        if not access_token or not isinstance(expires_in, int):
+            raise InstallationTokenError("Invalid token response", code="invalid_response")
+        return InstallationToken(access_token=access_token, expires_in=expires_in)
+
     def get_installation_account(self, installation_id: str) -> dict[str, Any]:
         response = self._request(
             "GET", f"{self.base_url}/installations/{installation_id}/account", installation_id=installation_id
@@ -406,3 +485,106 @@ class VercelAPIClient:
             logger.exception("SSO token exchange failed", error=str(e), integration="vercel")
 
             return None
+
+
+def _token_error_code(detail: str | None) -> str | None:
+    try:
+        error = json.loads(detail or "").get("error")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    if isinstance(error, dict):
+        return error.get("code")
+    return error if isinstance(error, str) else None
+
+
+def _read_cached_token(cache_key: str, installation_id: str) -> str | None:
+    try:
+        cached = token_cache.get(cache_key)
+    except Exception:
+        # The cache only saves a token request, so an outage costs a request, not the call.
+        logger.warning("Vercel token cache read failed", installation_id=installation_id, integration="vercel")
+        return None
+    if not cached:
+        return None
+    try:
+        return decrypt_payload(cached, salt=INSTALLATION_TOKEN_CACHE_SALT, ttl=INSTALLATION_TOKEN_MAX_AGE_SECONDS)[
+            "access_token"
+        ]
+    except (InvalidToken, KeyError):
+        # An entry from an earlier client secret; the next write replaces it.
+        return None
+
+
+def _acquire_token_lock(lock_key: str, installation_id: str) -> bool:
+    try:
+        return bool(token_cache.add(lock_key, True, timeout=INSTALLATION_TOKEN_LOCK_SECONDS))
+    except Exception:
+        logger.warning("Vercel token lock failed", installation_id=installation_id, integration="vercel")
+        return True
+
+
+def _release_token_lock(lock_key: str) -> None:
+    try:
+        token_cache.delete(lock_key)
+    except Exception:
+        pass  # The lock expires on its own.
+
+
+def _wait_for_token_from_lock_holder(cache_key: str, lock_key: str, installation_id: str) -> str | None:
+    for _ in range(INSTALLATION_TOKEN_LOCK_POLLS):
+        time.sleep(INSTALLATION_TOKEN_LOCK_POLL_SECONDS)
+        if token := _read_cached_token(cache_key, installation_id):
+            return token
+        try:
+            if token_cache.get(lock_key) is None:
+                return None  # The holder stopped without a token, so this caller requests its own.
+        except Exception:
+            return None
+    return None
+
+
+def get_installation_access_token(installation_id: str, *, fresh: bool = False) -> str:
+    """Return a short-lived token for one Vercel installation, from the cache when it has time left.
+
+    Callers that miss the cache together wait for one token request instead of each sending their own.
+    ``fresh`` skips the cached token and the wait, for a caller that acts on a 401 or 403 from Vercel.
+    """
+    cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
+    lock_key = f"{INSTALLATION_TOKEN_LOCK_PREFIX}{installation_id}"
+    if not fresh:
+        if cached_token := _read_cached_token(cache_key, installation_id):
+            return cached_token
+
+    client_id = settings.VERCEL_CLIENT_INTEGRATION_ID
+    client_secret = settings.VERCEL_CLIENT_INTEGRATION_SECRET
+    if not client_id or not client_secret:
+        raise InstallationTokenError("Vercel integration not configured", code="not_configured")
+
+    holds_lock = fresh or _acquire_token_lock(lock_key, installation_id)
+    if not holds_lock:
+        if holder_token := _wait_for_token_from_lock_holder(cache_key, lock_key, installation_id):
+            return holder_token
+
+    try:
+        token = VercelAPIClient(
+            bearer_token=None, timeout=INSTALLATION_TOKEN_ATTEMPT_SECONDS, source="installation_token"
+        ).request_installation_token(installation_id, client_id, client_secret)
+
+        cache_timeout = (
+            min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
+        )
+        if cache_timeout > 0:
+            try:
+                token_cache.set(
+                    cache_key,
+                    encrypt_payload(
+                        {"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False
+                    ),
+                    timeout=cache_timeout,
+                )
+            except Exception:
+                logger.warning("Vercel token cache write failed", installation_id=installation_id, integration="vercel")
+        return token.access_token
+    finally:
+        if holds_lock and not fresh:
+            _release_token_lock(lock_key)

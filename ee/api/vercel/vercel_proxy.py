@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
+from ee.vercel.client import InstallationTokenError, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -59,13 +60,6 @@ class VercelProxyRequestSerializer(serializers.Serializer):
             )
 
         return normalized
-
-
-def _extract_access_token(integration: OrganizationIntegration) -> str:
-    token = integration.sensitive_config.get("credentials", {}).get("access_token")
-    if not token:
-        raise ValueError(f"No access token found for integration {integration.integration_id}")
-    return token
 
 
 def proxy_endpoint_label(path: str) -> str:
@@ -156,12 +150,14 @@ class VercelProxyViewSet(viewsets.ViewSet):
             return None
 
     def _get_access_token(self, integration: OrganizationIntegration, organization_id: str) -> str | None:
+        if not integration.integration_id:
+            return None
         try:
-            return _extract_access_token(integration)
-        except ValueError as e:
+            return get_installation_access_token(integration.integration_id)
+        except InstallationTokenError as e:
             capture_exception(e, {"organization_id": organization_id, "config_id": integration.integration_id})
             logger.exception(
-                "Failed to extract Vercel access token",
+                "Failed to get Vercel access token",
                 organization_id=organization_id,
                 config_id=integration.integration_id,
             )

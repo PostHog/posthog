@@ -22,6 +22,7 @@ Size a budget from `vercel_api_requests_total` once it has production traffic, a
 No lanes, because nothing is gated.
 
 - `ee/vercel/client.py` (`VercelAPIClient`), source `integration`: feature flag and experiment sync, resource imports and secrets, installation and account lookups, and the OAuth and SSO token exchanges.
+- `ee/vercel/client.py` (`get_installation_access_token`), source `installation_token`: the short-lived installation token requests (`client_credentials` on `/v2/oauth/access_token`). Workers that miss the token cache together wait on a lock per installation, so one of them sends the request.
 - `ee/api/vercel/vercel_proxy.py`, source `billing_proxy`: the billing service's invoice and usage calls.
 
 ## Rate-limit headers
@@ -35,7 +36,7 @@ The billing proxy passes its own label, because the billing service chooses the 
 ## Auth
 
 The caller sends the installation's access token as a bearer token, through the `VercelAPIClient` session or its own headers.
-The token exchanges send the integration's client id and secret instead.
+The caller requests that token for each installation with the integration's client id and secret, and the token exchanges send the same client credentials.
 
 ## Sources
 
