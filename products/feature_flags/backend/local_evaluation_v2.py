@@ -85,13 +85,7 @@ def _build_flag_definitions_v2_batch(teams: list[Team]) -> _DefinitionsV2Batch:
 
     legacy_responses = _get_flags_response_for_local_evaluation_batch([team for team in teams if team.id in holder_ids])
 
-    survey_flag_ids: set[int] = set()
-    for survey_flags in (
-        Survey.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(team_id__in=holder_ids)
-        .values_list("targeting_flag_id", "internal_targeting_flag_id", "internal_response_sampling_flag_id")
-    ):
-        survey_flag_ids.update(flag_id for flag_id in survey_flags if flag_id is not None)
+    survey_flag_ids = Survey.get_internal_flag_ids(team_ids=holder_ids, using=DATABASE_FOR_LOCAL_EVALUATION)
     live_experiment_flag_ids = flag_ids_with_live_experiment(
         [flag.pk for flag in live_rows], using=DATABASE_FOR_LOCAL_EVALUATION
     )
@@ -158,6 +152,12 @@ def _mirror_holds_entry(team: Team) -> bool:
 
 def _remove_entry(team: Team, tracked_expiry_score: float | None) -> None:
     # Passing the score keeps the tracking member when a delete fails, so upkeep visits the team again.
+    if tracked_expiry_score is None:
+        # Writes score whole seconds, so a write during the removal re-scores this member and keeps it.
+        tracked_expiry_score = int(time.time()) + 0.5
+        get_client(flag_definitions_v2_hypercache.redis_url).zadd(
+            FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, {str(team.id): tracked_expiry_score}, nx=True
+        )
     flag_definitions_v2_hypercache.delete_cache_entry(
         team, strict_mirror=True, tracked_expiry_score=tracked_expiry_score
     )

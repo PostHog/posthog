@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
@@ -16,6 +17,7 @@ from django.core.cache.backends.locmem import LocMemCache
 from django.db.models.signals import post_init
 from django.test import override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from jsonschema import Draft202012Validator
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -30,9 +32,10 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage import cache_expiry_manager, object_storage
 from posthog.storage.hypercache import HyperCache
-from posthog.storage.hypercache_verifier import VerificationResult, verify_and_fix_all_teams
+from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerificationResult, verify_and_fix_all_teams
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.config import detect_config_format, v2_config_lookup
 from products.feature_flags.backend.local_evaluation import (
     _get_flags_response_for_local_evaluation,
@@ -48,6 +51,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
 )
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.tasks import (
     clear_team_definitions_cache,
@@ -348,6 +352,57 @@ class TestDefinitionsV2Body(DefinitionsV2TestCase):
 
         assert _stored(V2, self.team) == _stored(LEGACY, self.team) != ABSENT
 
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_v2_entries_carry_has_experiment_and_evaluation_contexts(
+        self, _name: str, experiment_state: str, expected: bool
+    ) -> None:
+        experiment_flag = _create_flag(self.team, "v2-experiment", EXPERIMENT_V2)
+        context_flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        if experiment_state != "none":
+            create_experiment(
+                team_id=self.team.id,
+                feature_flag_id=experiment_flag.id,
+                name="exp",
+                deleted=experiment_state == "deleted",
+            )
+        context = EvaluationContext.objects.create(team=self.team, name="production")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=context_flag, evaluation_context=context)
+
+        entries = {
+            entry["key"]: entry for entry in _build_flag_definitions_v2_batch([self.team]).bodies[self.team.id]["flags"]
+        }
+
+        assert {key: entry["has_experiment"] for key, entry in entries.items()} == {
+            "v2-boolean": False,
+            "v2-experiment": expected,
+        }
+        assert {key: entry["evaluation_contexts"] for key, entry in entries.items()} == {
+            "v2-boolean": ["production"],
+            "v2-experiment": [],
+        }
+
+    def test_a_batch_gives_each_holder_team_its_own_flags(self) -> None:
+        other = self._other_team()
+        legacy_only = self._other_team("Legacy only")
+        _create_flag(self.team, "alpha", V1_FILTERS)
+        _create_flag(self.team, "v2-mine", BOOLEAN_V2)
+        _create_flag(other, "beta", V1_FILTERS)
+        _create_flag(other, "v2-theirs", EXPERIMENT_V2)
+        _create_flag(legacy_only, "gamma", V1_FILTERS)
+
+        bodies = _build_flag_definitions_v2_batch([self.team, other, legacy_only]).bodies
+
+        assert {team_id: _keys(body) for team_id, body in bodies.items()} == {
+            self.team.id: ["alpha", "v2-mine"],
+            other.id: ["beta", "v2-theirs"],
+        }
+
 
 class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
     def test_entry_sits_beside_the_legacy_entry_on_the_same_redis_tiers(self) -> None:
@@ -461,6 +516,11 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
         assert _stored(V2, self.team) == ABSENT
         assert _tracked_score(self.team) is None
 
+    def test_a_soft_time_limit_propagates(self) -> None:
+        with patch(f"{MODULE}._build_flag_definitions_v2_batch", side_effect=SoftTimeLimitExceeded()):
+            with pytest.raises(SoftTimeLimitExceeded):
+                update_flag_definitions_v2_cache(self.team)
+
     def test_entry_goes_when_the_last_v2_flag_is_hard_deleted(self) -> None:
         flag = _create_flag(self.team, "reused", BOOLEAN_V2)
         self._rebuild()
@@ -553,6 +613,12 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         assert self._verify_and_fix().cache_mismatch_fixed == 1
         assert [flag["active"] for flag in _body(V2, self.team)["flags"]] == [False]
 
+        # A current body beside a stale ETag.
+        V2.cache_client.set(V2.get_etag_key(self.team), "0" * 16, timeout=60)
+        assert verify_team_flag_definitions_v2(self.team)["issue"] == "DATA_MISMATCH"
+        assert self._verify_and_fix().cache_mismatch_fixed == 1
+        assert [flag["active"] for flag in _body(V2, self.team)["flags"]] == [False]
+
     def test_upkeep_retries_a_removal_that_failed_on_the_mirror(self) -> None:
         mirror = LocMemCache("flag-definitions-v2-mirror", {})
         flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
@@ -564,6 +630,26 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
             assert _stored(V2, self.team) == ABSENT
             assert mirror.get(V2.get_cache_key(self.team)) is not None
             assert verify_team_flag_definitions_v2(self.team)["issue"] == "STALE_ENTRY"
+
+            maintain_flag_definitions_v2_cache_entries()
+
+            assert mirror.get_many([V2.get_cache_key(self.team), V2.get_etag_key(self.team)]) == {}
+            assert _tracked_score(self.team) is None
+
+    def test_upkeep_retries_a_failed_mirror_removal_of_an_untracked_entry(self) -> None:
+        mirror = LocMemCache("flag-definitions-v2-untracked-mirror", {})
+        self.addCleanup(mirror.clear)
+        flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        with patch.object(V2, "secondary_cache_client", mirror):
+            self._rebuild()
+            # As after a failed ZADD: the payload is stored, and the expiry set does not name the team.
+            get_client(V2.redis_url).zrem(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(self.team.id))
+            FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+            with patch.object(mirror, "delete", side_effect=ConnectionError("redis down")):
+                self._rebuild()
+            assert _stored(V2, self.team) == ABSENT
+            assert mirror.get(V2.get_cache_key(self.team)) is not None
+            assert _tracked_score(self.team) is not None
 
             maintain_flag_definitions_v2_cache_entries()
 
@@ -621,6 +707,34 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         maintain_flag_definitions_v2_cache_entries()
 
         assert _keys(_body(V2, self.team)) == ["v2-boolean", "v2-experiment", "v2-inactive"]
+
+    def test_upkeep_task_refreshes_and_cleans_up_the_v2_entries(self) -> None:
+        with (
+            patch.object(cache_expiry_manager, "refresh_expiring_caches") as refresh,
+            patch.object(cache_expiry_manager, "cleanup_stale_expiry_tracking", return_value=0) as cleanup,
+        ):
+            maintain_flag_definitions_v2_cache_entries()
+
+        assert refresh.call_args.kwargs["config"] is FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG
+        cleanup.assert_called_once_with(FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG)
+
+    def test_upkeep_task_refreshes_and_cleans_up_when_the_database_is_unreachable(self) -> None:
+        metric = "posthog_hypercache_verification_incomplete_runs_total"
+        labels = {"cache_type": FLAG_DEFINITIONS_V2_CACHE_TYPE, "reason": "db_unreachable"}
+        before = REGISTRY.get_sample_value(metric, labels) or 0.0
+        with (
+            patch(
+                "posthog.storage.hypercache_verifier.verify_and_fix_all_teams",
+                side_effect=TeamBatchFetchError("database unreachable"),
+            ),
+            patch.object(cache_expiry_manager, "refresh_expiring_caches") as refresh,
+            patch.object(cache_expiry_manager, "cleanup_stale_expiry_tracking", return_value=0) as cleanup,
+        ):
+            maintain_flag_definitions_v2_cache_entries()
+
+        refresh.assert_called_once()
+        cleanup.assert_called_once()
+        assert REGISTRY.get_sample_value(metric, labels) == before + 1
 
     def test_upkeep_task_skips_while_another_run_holds_the_lock(self) -> None:
         self._create_v2_flags()

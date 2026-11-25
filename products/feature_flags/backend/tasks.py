@@ -21,7 +21,7 @@ from posthog.storage.hypercache_manager import (
     HYPERCACHE_SIGNAL_UPDATE_COUNTER,
     get_cache_stats as get_cache_stats_generic,
 )
-from posthog.storage.hypercache_verifier import verify_and_fix_all_teams
+from posthog.tasks.hypercache_verification import _execute_verification_run
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -611,12 +611,14 @@ def maintain_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
 
     try:
         config = FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG
-        verification = verify_and_fix_all_teams(
+        # Logs its counts and records an unreachable database or a time limit as an incomplete run,
+        # so the refresh and the cleanup below still run.
+        _execute_verification_run(
             config=config,
             verify_team_fn=verify_team_flag_definitions_v2,
             cache_type=FLAG_DEFINITIONS_V2_CACHE_TYPE,
             chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
-            stop_time=time.monotonic() + self.soft_time_limit / 2,
+            soft_limit_seconds=self.soft_time_limit / 2,
         )
         refreshed = cache_expiry_manager.refresh_expiring_caches(
             config=config,
@@ -626,10 +628,6 @@ def maintain_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
         removed_count = cache_expiry_manager.cleanup_stale_expiry_tracking(config)
         logger.info(
             "Completed flag definitions v2 cache upkeep",
-            teams_verified=verification.total,
-            teams_fixed=verification.total_fixed,
-            fix_failures=verification.fix_failed,
-            verify_errors=verification.errors,
             refreshed=refreshed.successful,
             refresh_failures=refreshed.failed,
             stale_entries_removed=removed_count,
