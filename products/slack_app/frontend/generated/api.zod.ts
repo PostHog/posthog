@@ -105,6 +105,43 @@ export const SlackAppSettingsPersonalPartialUpdateBody = /* @__PURE__ */ zod.obj
         })
         .optional()
         .describe("Replaces this person's reaction choices. A reaction left out inherits the workspace choice."),
+    default_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "ID of the Slack integration of the project this person's mentions route to. Null uses the workspace default."
+        ),
+    untagged_followup_mode: zod
+        .enum(['auto', 'ask', 'never'])
+        .describe('\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up')
+        .optional()
+        .describe(
+            'What PostHog does with untagged replies in threads this person started.\n\n\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up'
+        ),
+    untagged_question_mode: zod
+        .enum(['auto', 'ask', 'never'])
+        .describe('\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up')
+        .optional()
+        .describe(
+            "What PostHog does with this person's top-level channel questions that do not tag it.\n\n\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up"
+        ),
+    thread_join_mode: zod
+        .enum(['never', 'ask_per_person', 'ask_per_thread', 'allow'])
+        .describe(
+            '\* `never` - Ignore them\n\* `ask_per_person` - Ask me for each person\n\* `ask_per_thread` - Ask me once per thread\n\* `allow` - Let anyone join'
+        )
+        .optional()
+        .describe(
+            'What PostHog does when someone else tags it in a thread this person started.\n\n\* `never` - Ignore them\n\* `ask_per_person` - Ask me for each person\n\* `ask_per_thread` - Ask me once per thread\n\* `allow` - Let anyone join'
+        ),
+    auto_model_choice: zod
+        .boolean()
+        .optional()
+        .describe('Whether PostHog picks the model for each task this person starts from Slack.'),
+    feature_tips_enabled: zod
+        .boolean()
+        .optional()
+        .describe('Whether PostHog sends this person short tips about Slack app features.'),
 })
 
 /**

@@ -33,6 +33,15 @@ class SlackChannelQuestionMode(LabeledStrEnum):
     NEVER = "never", "Only answers @-mentions"
 
 
+class SlackThreadJoinMode(LabeledStrEnum):
+    """What PostHog does when someone else tags it in a thread a person started. The values match the stored mode."""
+
+    NEVER = "never", "Ignore them"
+    ASK_PER_PERSON = "ask_per_person", "Ask me for each person"
+    ASK_PER_THREAD = "ask_per_thread", "Ask me once per thread"
+    ALLOW = "allow", "Let anyone join"
+
+
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"
