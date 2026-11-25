@@ -62,6 +62,30 @@ describe('parseCustomerioFiles', () => {
         expect(parseCustomerioFiles([JSON.stringify({ segment })]).segments).toEqual([segment])
     })
 
+    it('reads the snippet, layout and sender files the CLI saves', () => {
+        const parsed = parseCustomerioFiles([
+            JSON.stringify({ snippets: [{ id: 1, name: 'footer', value: '<p>Bye</p>' }], meta: {} }),
+            JSON.stringify({ layout: { id: 6, body: '<b>{{ content }}</b>' } }),
+            JSON.stringify({
+                template: { id: 11, subject: 'Hi', body: '<p>Hi</p>', layout_id: 5 },
+                layouts: [{ id: 5, name: 'Main', body: '<i>{{ content }}</i>' }],
+            }),
+            JSON.stringify({
+                identities: [
+                    { id: 4, email: 'team@example.com', name: null },
+                    { id: 5, email: '', phone: '+15550100' },
+                ],
+            }),
+            JSON.stringify({ template: { id: 12, subject: 'Hi', body: '' }, layouts: null }),
+        ])
+
+        expect(parsed).toMatchObject({
+            snippets: { footer: '<p>Bye</p>' },
+            layouts: { 5: '<i>{{ content }}</i>', 6: '<b>{{ content }}</b>' },
+            sender_identities: [{ id: '4', email: 'team@example.com', name: '' }],
+        })
+    })
+
     it('rejects a file that is not JSON', () => {
         expect(() => parseCustomerioFiles(['{nope'])).toThrow('One of the files is not valid JSON.')
     })

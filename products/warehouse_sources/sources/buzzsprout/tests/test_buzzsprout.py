@@ -39,6 +39,24 @@ class TestBuzzsproutRows:
         assert result.urls == [f"{BUZZSPROUT_BASE_URL}/podcasts.json"]
         assert "123456" not in result.urls[0]
 
+    @pytest.mark.parametrize(
+        "endpoint, row",
+        [
+            ("contributors", {"id": 3, "name": "Sam Host", "role": "Host"}),
+            ("fan_mail", {"id": 4, "created_at": "2025-03-01T10:00:00Z"}),
+            ("listings", {"id": None, "directory": "spotify", "status": "unlisted"}),
+            ("team", {"id": 5, "user_id": 50, "name": "Alex Admin", "role": "admin"}),
+            ("brand_affiliations", {"id": 6, "headline": "Example Co", "artwork_url": None}),
+            ("podrolls", {"id": 7, "feed_url": "https://feeds.example.com/show.rss", "position": 1}),
+        ],
+    )
+    def test_podcast_scoped_list_endpoint_is_read_in_one_request(self, endpoint: str, row: dict) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=[row])])
+
+        assert result.raised is None
+        assert result.rows == [row]
+        assert result.urls == [f"{BUZZSPROUT_BASE_URL}/123456/{endpoint}.json"]
+
     def test_surrounding_whitespace_in_podcast_id_is_stripped(self) -> None:
         result = _driver(podcast_id="  123456  ").run("episodes", [ScriptedResponse(json=[{"id": 1}])])
 

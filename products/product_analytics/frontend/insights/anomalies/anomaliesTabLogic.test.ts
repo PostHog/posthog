@@ -144,12 +144,11 @@ describe('anomaliesTabLogic', () => {
         jest.useRealTimers()
     })
 
-    it('appends the next page and groups its series under the insights already shown', async () => {
+    it('appends the next page after the series already shown', async () => {
         logic = anomaliesTabLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.series).toHaveLength(ANOMALIES_PAGE_SIZE)
-        expect(logic.values.insightGroups).toHaveLength(ANOMALIES_PAGE_SIZE)
         expect(logic.values.hasMore).toBe(true)
 
         logic.actions.loadMoreAnomalies()
@@ -158,13 +157,6 @@ describe('anomaliesTabLogic', () => {
         expect(logic.values.series.map((row) => row.series_key)).toEqual(
             Array.from({ length: TOTAL_ROWS }, (_, index) => `series-${index}`)
         )
-        expect(logic.values.insightGroups.map((group) => group.insightId)).toEqual(
-            Array.from({ length: ANOMALIES_PAGE_SIZE }, (_, index) => index)
-        )
-        expect(logic.values.insightGroups[0].series.map((row) => row.series_key)).toEqual([
-            'series-0',
-            `series-${ANOMALIES_PAGE_SIZE}`,
-        ])
         expect(logic.values.hasMore).toBe(false)
     })
 
@@ -260,19 +252,6 @@ describe('anomaliesTabLogic', () => {
         expect(dashboardSearches).toEqual([null, 'growth'])
         expect(picker.values.dashboardOptions.map((dashboard) => dashboard.name)).toEqual(['Growth'])
         picker.unmount()
-    })
-
-    it('collapses expanded insights when the filters change', async () => {
-        logic = anomaliesTabLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.toggleInsightExpanded(0, 0)
-        expect(logic.values.expandedInsightIds).toEqual({ 0: true })
-
-        logic.actions.setFilters({ dateFrom: '-30d' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.expandedInsightIds).toEqual({})
     })
 
     it('captures a rating once per change and keeps it for the flagged bucket it judged', async () => {

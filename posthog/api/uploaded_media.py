@@ -11,6 +11,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from PIL import Image, ImageOps
@@ -23,10 +24,13 @@ from statshog.defaults.django import statsd
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import UploadedMedia
+from posthog.models import Team, UploadedMedia
 from posthog.models.uploaded_media import (
+    CONVERSATIONS_REPLY_IMAGES_FLAG,
     MEDIA_PURPOSES,
     PRIVATE_MEDIA_PURPOSES,
+    UPLOAD_MEDIA_PURPOSES,
+    UPLOAD_ONLY_MEDIA_PURPOSES,
     ObjectStorageUnavailable,
     is_inline_safe_content_type,
     sniff_image,
@@ -214,13 +218,38 @@ class UploadedMediaSerializer(serializers.ModelSerializer):
 UPLOAD_URL_EXPIRATION_SECONDS = 900
 
 
+def conversations_reply_images_enabled(user: object, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                CONVERSATIONS_REPLY_IMAGES_FLAG,
+                str(distinct_id),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+def _check_purpose_enabled(purpose: str | None, user: object, team: Team) -> None:
+    if purpose in UPLOAD_ONLY_MEDIA_PURPOSES and not conversations_reply_images_enabled(user, team):
+        raise ValidationError(
+            {"purpose": [f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}."]}, code="unknown_purpose"
+        )
+
+
 def _validate_purpose(value: str) -> None:
-    if value not in MEDIA_PURPOSES:
-        raise serializers.ValidationError(f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}.")
+    if value not in UPLOAD_MEDIA_PURPOSES:
+        raise serializers.ValidationError(f"Unknown purpose. Valid values: {', '.join(UPLOAD_MEDIA_PURPOSES)}.")
 
 
 def _purpose_field(**kwargs) -> serializers.CharField:
-    """A library tag, checked against MEDIA_PURPOSES.
+    """A purpose tag for an upload, checked against UPLOAD_MEDIA_PURPOSES.
 
     Not a ChoiceField: a single-value choice set hashes by its values, so `["email"]` here
     would share one generated enum name with every unrelated `["email"]` field in the schema
@@ -232,7 +261,10 @@ def _purpose_field(**kwargs) -> serializers.CharField:
 
 class UploadedMediaStartUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=1000, help_text="The file's display name, e.g. 'logo.png'.")
-    purpose = _purpose_field(help_text="Library to add this image to once uploaded, e.g. 'email'.")
+    purpose = _purpose_field(
+        help_text="Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support "
+        "ticket reply image. No library lists those."
+    )
 
 
 class UploadedMediaUploadStartedSerializer(serializers.Serializer):
@@ -344,6 +376,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def start_upload(self, request, *args, **kwargs) -> Response:
         serializer = UploadedMediaStartUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        _check_purpose_enabled(serializer.validated_data["purpose"], request.user, self.team)
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -383,8 +416,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         description="Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its "
-        "real content type, and activates it — after this it appears in the library and is publicly "
-        "servable.",
+        "real content type, and activates it — after this it is publicly servable, and it appears in its "
+        "library unless its purpose is upload-only (`conversations`).",
         request=None,
         responses={
             200: UploadedMediaSerializer,
@@ -473,9 +506,10 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     },
                     "purpose": {
                         "type": "string",
-                        "enum": MEDIA_PURPOSES,
+                        "enum": UPLOAD_MEDIA_PURPOSES,
                         "description": "Library to add this image to. Omit to upload without "
-                        "joining a library (as dashboard text cards and notebooks do).",
+                        "joining a library (as dashboard text cards and notebooks do). "
+                        "`conversations` marks a support reply image, which no library lists.",
                     },
                 },
                 "required": ["image"],
@@ -488,6 +522,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         file = serializer.validated_data["image"]
         purpose = serializer.validated_data.get("purpose") or None
+        _check_purpose_enabled(purpose, request.user, self.team)
 
         if file.size > FOUR_MEGABYTES:
             raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")

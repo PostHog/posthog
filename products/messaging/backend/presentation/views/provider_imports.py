@@ -269,14 +269,16 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
-        provider = next((option for option in self._providers() if option.key == data["provider"]), None)
+        provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
         if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
+        if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
+            raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
         if provider.retains_credentials and not OrganizationAdminWritePermissions().has_permission(request, self):
             raise PermissionDenied(
                 "Only organization admins can start this import, because it stores the provider's API key as an integration."
             )
-
         try:
             run = start_provider_import(
                 self.team_id,
@@ -300,13 +302,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ProviderImportUnavailable as e:
             raise ProviderUnavailable(str(e)) from e
 
-        report_user_action(
-            request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
         report_user_action(
             request.user,
             "workflows import run",

@@ -8,7 +8,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -27,7 +27,9 @@ from posthog.rate_limit import (
 
 from products.metrics.backend.facade.api import (
     check_dashboard_panel_queries,
+    dismiss_dashboard_import,
     get_dashboard_import,
+    get_dashboard_import_input,
     list_dashboard_imports,
     start_dashboard_import,
 )
@@ -38,9 +40,11 @@ from products.metrics.backend.facade.contracts import (
     DashboardImportInProgress,
     DashboardImportNotAllowed,
     DashboardImportRequest,
+    DashboardImportStorageError,
     PanelQueryCheckRequest,
 )
 from products.metrics.backend.facade.enums import (
+    AgentActivityKind,
     DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
@@ -120,6 +124,24 @@ class DashboardImportPanelProgressSerializer(serializers.Serializer):
     )
 
 
+class DashboardImportAgentActivitySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=AgentActivityKind.choices,
+        help_text="What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.",
+    )
+    seconds = serializers.IntegerField(help_text="Seconds since the action started.")
+    idle_seconds = serializers.IntegerField(
+        help_text="Seconds since the agent's last logged activity. A high value can mean that the agent is stuck."
+    )
+    subject = serializers.CharField(
+        allow_null=True,
+        help_text="The search term, metric name or attribute key that the action works on, when it has one.",
+    )
+    panel_count = serializers.IntegerField(
+        allow_null=True, help_text="Number of panels that a 'checking_panels' action checks."
+    )
+
+
 class DashboardImportSerializer(serializers.Serializer):
     id = serializers.CharField(
         allow_null=True,
@@ -139,6 +161,9 @@ class DashboardImportSerializer(serializers.Serializer):
     panel_progress = DashboardImportPanelProgressSerializer(
         many=True, help_text="Where each panel is, while the import runs."
     )
+    agent_activity = DashboardImportAgentActivitySerializer(
+        allow_null=True, help_text="The agent's latest action, while the phase is 'matching'. Null otherwise."
+    )
     layout_rounds = serializers.IntegerField(
         allow_null=True,
         help_text="How many pictures of the dashboard the import compares with the screenshot, at most. "
@@ -151,6 +176,25 @@ class DashboardImportSerializer(serializers.Serializer):
     error = serializers.CharField(allow_null=True, help_text="Why the import failed, when it failed.")
     summary = DashboardImportSummarySerializer(allow_null=True, help_text="Panel counts, when the import ended.")
     panels = DashboardImportPanelSerializer(many=True, help_text="The outcome for each panel, when the import ended.")
+
+
+class DashboardImportInputSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=DashboardImportSource.choices, help_text="What the failed import read."
+    )
+    name = serializers.CharField(
+        allow_null=True, help_text="The dashboard name the user gave. Null when the user gave none."
+    )
+    grafana_json = serializers.CharField(
+        allow_null=True, help_text="The Grafana dashboard JSON model, when the source is 'grafana'."
+    )
+    image_base64 = serializers.CharField(
+        allow_null=True,
+        help_text="The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.",
+    )
+    image_content_type = serializers.CharField(
+        allow_null=True, help_text="Media type of `image_base64`, for example 'image/png'. Null without a screenshot."
+    )
 
 
 class PanelFilterSerializer(serializers.Serializer):
@@ -243,6 +287,11 @@ class PanelQueryCheckResponseSerializer(serializers.Serializer):
     results = PanelQueryCheckResultSerializer(many=True, help_text="One result for each checked panel.")
 
 
+class _StorageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "storage_unavailable"
+
+
 class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
@@ -253,6 +302,8 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "create":
             return ["metrics:read", "dashboard:write", "insight:write"]
+        if self.action == "dismiss":
+            return ["metrics:write"]
         return ["metrics:read"]
 
     def get_throttles(self) -> list[Any]:
@@ -331,6 +382,44 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if result is None:
             raise NotFound("No dashboard import with this id.")
         return Response(DashboardImportSerializer(asdict(result)).data)
+
+    @extend_schema(
+        responses={
+            200: DashboardImportInputSerializer,
+            404: OpenApiResponse(description="No failed import with this id, or its input expired."),
+        }
+    )
+    @action(detail=True, methods=["GET"], url_path="input")
+    def retry_input(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """What one of the user's failed imports read, so that a retry can start from it. Kept for 30 days."""
+        self._require_import_flag(request)
+        result = get_dashboard_import_input(team=self.team, user=cast(User, request.user), import_id=str(pk))
+        if result is None:
+            raise NotFound("No input is kept for this import.")
+        return Response(DashboardImportInputSerializer(asdict(result)).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The import no longer shows in the recent imports."),
+            404: OpenApiResponse(description="No dashboard import with this id."),
+            409: OpenApiResponse(description="The import is still running."),
+            503: OpenApiResponse(description="The stored input could not be deleted. The import stays listed."),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def dismiss(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Hide one of the user's ended imports from the recent imports and delete what it read."""
+        self._require_import_flag(request)
+        try:
+            found = dismiss_dashboard_import(team=self.team, user=cast(User, request.user), import_id=str(pk))
+        except DashboardImportInProgress as error:
+            raise Conflict(str(error))
+        except DashboardImportStorageError as error:
+            raise _StorageUnavailable(str(error))
+        if not found:
+            raise NotFound("No dashboard import with this id.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(request=PanelQueryCheckRequestSerializer, responses={200: PanelQueryCheckResponseSerializer})
     @action(detail=False, methods=["POST"])

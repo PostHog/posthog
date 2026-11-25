@@ -9,13 +9,15 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.integration.common import IntegrationError
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
@@ -28,12 +30,14 @@ from products.replay.backend.temporal.export_recordings.activities import (
     ByteBudget,
     CustomerBucket,
     SessionRow,
+    ViewportReader,
+    check_destination,
     destination_error,
     export_session,
     export_shard,
     fetch_blocks_in_order,
     list_shard_sessions,
-    load_session_metadata,
+    load_day_viewports,
     load_shard_session_ids,
     policy_statements,
     quote_storage_key,
@@ -47,6 +51,8 @@ from products.replay.backend.temporal.export_recordings.quote import (
     select_sessions,
 )
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
+    DayViewportsInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -55,10 +61,12 @@ from products.replay.backend.temporal.export_recordings.types import (
 
 
 def _list(input: ExportShardInput) -> list[SessionRow]:
-    return list_shard_sessions(input, load_shard_session_ids(input))
+    return list_shard_sessions(input, load_shard_session_ids(input.session_ids_prefix, input.day, input.shard))
 
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
+ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
+OUR_ROLE_ARN = "arn:aws:iam::210987654321:role/posthog-external-recording-exports"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
 BUCKET_OWNER = "123456789012"
 
@@ -130,7 +138,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         )
         create_person(team=self.team, distinct_ids=["d-s1"], properties={"email": "person@example.com"})
         flush_persons_and_events()
-        self.destination = ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports")
+        self.destination = ExportDestination(role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports")
         self.s3 = FakeS3()
         self.quote = self._quote(None)
         self.file_key = f"customer/exports/{self.team.pk}/run-1/{self.day.date().isoformat()}/s1.phrec"
@@ -168,7 +176,18 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             # A pool thread has its own connection and cannot see this test's uncommitted rows.
             patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
         ):
+            async_to_sync(self._load_viewports)(self.quote)
             return async_to_sync(self._run_activity)(env, self._shard_input())
+
+    async def _load_viewports(self, quote: Quote) -> None:
+        input = DayViewportsInput(
+            team_id=self.team.pk,
+            run_id="run-1",
+            day=self.day.date().isoformat(),
+            shards_per_day=quote.shards_per_day,
+            session_ids_prefix=quote.session_ids_prefix,
+        )
+        await ActivityEnvironment().run(load_day_viewports, input)
 
     def _shard_input(self, day: datetime | None = None, quote: Quote | None = None, shard: int = 0) -> ExportShardInput:
         return ExportShardInput(
@@ -191,6 +210,92 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             for line in body.decode().splitlines()
         ]
 
+    def _check_destination(
+        self, s3: FakeS3, validation_error: Exception | None = None, assume: AsyncMock | None = None
+    ) -> MagicMock:
+        validate = MagicMock(side_effect=validation_error)
+
+        @contextlib.asynccontextmanager
+        async def s3_client(*_: Any, **__: Any) -> AsyncIterator[FakeS3]:
+            yield s3
+
+        async def run_check() -> None:
+            check = CheckDestinationInput(team_id=self.team.pk, destination=self.destination, run_id="run-1")
+            await ActivityEnvironment().run(check_destination, check)
+
+        with (
+            self.settings(RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN=OUR_ROLE_ARN),
+            patch(f"{ACTIVITIES}.validate_aws_role_arn", validate),
+            patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume or AsyncMock()),
+            patch(f"{ACTIVITIES}.s3_client", s3_client),
+        ):
+            async_to_sync(run_check)()
+        return validate
+
+    def test_a_role_that_fails_validation_is_never_assumed_and_is_retried(self) -> None:
+        assume = AsyncMock()
+
+        with pytest.raises(ApplicationError) as raised:
+            self._check_destination(FakeS3(), IntegrationError("no external id condition"), assume)
+
+        # validate_aws_role_arn raises the same error for STS outages, so Temporal retries it a few times.
+        assert not raised.value.non_retryable
+        assume.assert_not_called()
+
+    def test_the_write_check_leaves_nothing_in_the_bucket(self) -> None:
+        s3 = FakeS3()
+
+        validate = self._check_destination(s3)
+
+        validate.assert_called_once_with(ROLE_ARN, OUR_ROLE_ARN, f"posthog-{self.organization.id}")
+        assert (s3.objects, s3.uploads) == ({}, {})
+        assert list(s3.request_args) == [f"customer/exports/{self.team.pk}/run-1/preflight"]
+
+    @parameterized.expand(
+        [
+            ("create_denied", "create_multipart_upload", None, 403, "AccessDenied", "s3:PutObject on s3://customer/"),
+            (
+                "part_denied_by_kms",
+                "upload_part",
+                "key-1",
+                403,
+                "AccessDenied",
+                "kms:Decrypt on arn:aws:kms:us-east-1:",
+            ),
+            ("no_bucket", "create_multipart_upload", None, 404, "NoSuchBucket", "The bucket refused a test upload"),
+            ("unavailable", "create_multipart_upload", None, 503, "ServiceUnavailable", None),
+            ("request_timeout", "create_multipart_upload", None, 400, "RequestTimeout", None),
+        ]
+    )
+    def test_a_failed_write_check_names_the_missing_permission_and_retries_only_transient_errors(
+        self, _: str, call: str, kms_key_id: str | None, status: int, code: str, missing: str | None
+    ) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id=kms_key_id)
+        s3 = FakeS3()
+        response: Any = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+
+        with patch.object(s3, call, side_effect=ClientError(response, call)), pytest.raises(Exception) as raised:
+            self._check_destination(s3)
+
+        if missing is None:
+            assert isinstance(raised.value, ClientError)
+        else:
+            assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
+            assert missing in str(raised.value)
+        assert s3.uploads == {}
+
+    def test_a_failed_abort_keeps_the_part_error(self) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id="key-1")
+        s3 = FakeS3()
+        denied: Any = {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}}
+
+        with (
+            patch.object(s3, "upload_part", side_effect=ClientError(denied, "UploadPart")),
+            patch.object(s3, "abort_multipart_upload", side_effect=ClientError(denied, "AbortMultipartUpload")),
+            pytest.raises(ApplicationError, match="kms:Decrypt"),
+        ):
+            self._check_destination(s3)
+
     def test_exports_listed_sessions_with_a_manifest(self) -> None:
         totals = self._run()
 
@@ -201,8 +306,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert magic == b"PHREC1"
         assert (header["session_id"], header["block_count"], header["distinct_id"]) == ("s1", 2, "d-s1")
         assert header["person"]["properties"] == {"email": "person@example.com"}
-        assert [(v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
-            ("1280", "720", "https://example.com/a")
+        assert [(v["timestamp"], v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
+            (int((self.day + timedelta(seconds=5)).timestamp() * 1000), "1280", "720", "https://example.com/a")
         ]
         # Blocks follow playback order, not the order of block_urls.
         assert blocks == EXPECTED_BLOCKS
@@ -253,7 +358,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_lost_shard_list_fails_the_shard_without_retrying(self) -> None:
         with pytest.raises(ApplicationError) as error:
-            load_shard_session_ids(self._shard_input(quote=dataclasses.replace(self.quote, session_ids_prefix="gone")))
+            load_shard_session_ids("gone", self.day.date().isoformat(), 0)
 
         assert error.value.non_retryable
 
@@ -436,21 +541,41 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
         )
 
-    def test_viewport_batches_that_hit_the_row_limit_are_split(self) -> None:
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d-s2",
-            timestamp=self.day + timedelta(seconds=5),
-            properties={"$session_id": "s2", "$viewport_width": 800, "$viewport_height": 600},
-        )
+    @parameterized.expand([("filtered_in_the_query", 10_000), ("filtered_after_the_query", 0)])
+    def test_day_viewports_go_to_each_listed_sessions_shard(self, _name: str, max_filtered_sessions: int) -> None:
+        for event, session_id, width in (
+            ("$screen", "s2", 800),
+            ("$autocapture", "s1", 1),
+            ("$pageview", "s9", 1),
+            ("$pageview", "s1", "wide"),
+            ("$pageview", "x" * 140_000, 1),
+        ):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=f"d-{session_id}",
+                timestamp=self.day + timedelta(seconds=5),
+                properties={"$session_id": session_id, "$viewport_width": width, "$viewport_height": 600},
+            )
         flush_persons_and_events()
-        sessions = [s for s in _list(self._shard_input()) if s.session_id in ("s1", "s2")]
+        quote = self._quote(None, shards_per_day=4)
 
-        with patch.object(activities, "VIEWPORT_ROW_LIMIT", 1):
-            viewports, _ = load_session_metadata(self.team.pk, sessions)
+        with (
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
+            patch.object(activities, "MAX_FILTERED_SESSIONS", max_filtered_sessions),
+        ):
+            async_to_sync(self._load_viewports)(quote)
 
-        assert {session_id: len(rows) for session_id, rows in viewports.items()} == {"s1": 1, "s2": 1}
+        day = self.day.date().isoformat()
+        by_shard = {}
+        for shard in range(4):
+            listed = {s.session_id for s in _list(self._shard_input(quote=quote, shard=shard))}
+            viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("", "~")
+            assert set(viewports) <= listed
+            by_shard.update({session_id: [v["width"] for v in rows] for session_id, rows in viewports.items()})
+        # s1's autocapture and non-numeric width are dropped, s9 is not in the quote, and an overlong session ID
+        # would otherwise break the line-by-line read.
+        assert by_shard == {"s1": ["1280"], "s2": ["800"]}
 
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()
@@ -494,9 +619,6 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
 
 
-ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
-
-
 @pytest.mark.parametrize(
     "kms_key_id,expected_kms_resource",
     [
@@ -509,31 +631,32 @@ def test_policy_allows_the_kms_key_only_when_one_is_set(
     kms_key_id: str | None, expected_kms_resource: str | None
 ) -> None:
     destination = ExportDestination(
-        integration_id=1, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
+        role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
     )
 
-    statements = policy_statements(destination, 7, "run-1", ROLE_ARN)
+    statements = policy_statements(destination, 7, "run-1")
 
     assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/run-1/*"
     assert [s["Resource"] for s in statements[1:]] == ([expected_kms_resource] if expected_kms_resource else [])
 
 
 @pytest.mark.parametrize(
-    "bucket,prefix,kms_key_id,error",
+    "role_arn,bucket,prefix,kms_key_id,error",
     [
-        ("customer", "exports", None, None),
-        ("customer", "exports", "arn:aws:kms:us-east-1:123456789012:key/abc-123", None),
-        ("*", "exports", None, "bucket name"),
-        ("customer", "ex*", None, "prefix"),
-        ("customer", "exports", "*", "KMS key"),
-        ("customer", "exports", "alias/replay", "KMS key"),
+        (ROLE_ARN, "customer", "exports", None, None),
+        (ROLE_ARN, "customer", "exports", "arn:aws:kms:us-east-1:123456789012:key/abc-123", None),
+        ("replay-export", "customer", "exports", None, "role ARN"),
+        (ROLE_ARN, "*", "exports", None, "bucket name"),
+        (ROLE_ARN, "customer", "ex*", None, "prefix"),
+        (ROLE_ARN, "customer", "exports", "*", "KMS key"),
+        (ROLE_ARN, "customer", "exports", "alias/replay", "KMS key"),
     ],
 )
 def test_destination_rejects_values_that_widen_the_session_policy(
-    bucket: str, prefix: str, kms_key_id: str | None, error: str | None
+    role_arn: str, bucket: str, prefix: str, kms_key_id: str | None, error: str | None
 ) -> None:
     destination = ExportDestination(
-        integration_id=1, bucket=bucket, region="us-east-1", prefix=prefix, kms_key_id=kms_key_id
+        role_arn=role_arn, bucket=bucket, region="us-east-1", prefix=prefix, kms_key_id=kms_key_id
     )
 
     message = destination_error(destination)
@@ -554,7 +677,7 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
     )
     input = ExportShardInput(
         team_id=1,
-        destination=ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports"),
+        destination=ExportDestination(role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports"),
         run_id="run-1",
         day="2026-01-01",
         shard=0,

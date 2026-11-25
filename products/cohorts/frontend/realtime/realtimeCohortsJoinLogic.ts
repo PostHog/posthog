@@ -1,9 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
@@ -134,7 +137,21 @@ export const realtimeCohortsJoinLogic = kea<realtimeCohortsJoinLogicType>([
                 // Every realtime cohorts screen reads the team's access, so they all switch with the reload.
                 actions.loadCurrentTeam()
                 if (values.sawSettingUp) {
-                    lemonToast.success('Realtime cohorts are on for this project.')
+                    const onCohortsList =
+                        stripTrailingSlash(removeProjectIdIfPresent(router.values.location.pathname)) === urls.cohorts()
+                    lemonToast.success(
+                        'Realtime cohorts are on for this project. Open a cohort and turn on realtime so feature flags can target it.',
+                        {
+                            button: onCohortsList
+                                ? undefined
+                                : {
+                                      label: 'View cohorts',
+                                      action: () => router.actions.push(urls.cohorts()),
+                                      // Autocapture insights find the click by this data-attr, so keep it unchanged.
+                                      dataAttr: 'realtime-cohorts-joined-view-cohorts',
+                                  },
+                        }
+                    )
                 }
             }
         },

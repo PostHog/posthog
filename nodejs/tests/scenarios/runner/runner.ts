@@ -57,10 +57,19 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
+import {
+    Admission,
+    Status,
+    admissionsOf,
+    judgedInvariantsOf,
+    statusOf,
+    unobservedReasonOf,
+    unobservedValvesOf,
+} from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
@@ -189,23 +198,6 @@ function seedingUrlOf(spec: RoleSpec): string {
     const url = new URL(databaseUrl)
     url.searchParams.set('statement_timeout', String(SEED_STATEMENT_TIMEOUT_MS))
     return url.toString()
-}
-
-function watchHealth(environment: Environment): () => Promise<string[]> {
-    const down = new Set<string>()
-    const stopped = new AbortController()
-    const watching = (async () => {
-        while (!stopped.signal.aborted) {
-            const health = await environment.dependencyHealth().catch(() => ({ down: ['health check'] }))
-            health.down.forEach((name) => down.add(name))
-            await sleep(HEALTH_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
-        }
-    })()
-    return async () => {
-        stopped.abort()
-        await watching
-        return [...down]
-    }
 }
 
 function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string) => Promise<void> {
@@ -524,7 +516,8 @@ export function createRunner(
                 admissions: [],
                 bars: [],
             }
-            let stopHealth: (() => Promise<string[]>) | undefined
+            let health: { stop(): Promise<DependencyLoss[]> } | undefined
+            let dependencies: DependencyLoss[] = []
             let sampler: Sampler | undefined
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
@@ -572,7 +565,10 @@ export function createRunner(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
                     )
                 }
-                stopHealth = watchHealth(environment)
+                health = watchDependencies(
+                    () => environment.dependencyHealth().then(({ down }) => down),
+                    HEALTH_INTERVAL_MS
+                )
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
@@ -656,9 +652,14 @@ export function createRunner(
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
-                const down = await stopHealth()
+                dependencies = await health.stop()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const checked = await judge.check(card.invariants, card.gates, { janitorResets })
+                const checked = await judge.check(
+                    card.invariants,
+                    card.gates,
+                    { janitorResets, unobserved: unobservedValvesOf(valves.timeline(), driveWindow) },
+                    signal
+                )
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)
@@ -710,7 +711,7 @@ export function createRunner(
                     admissions,
                     minOffered: card.drive.minOffered,
                     units,
-                    down,
+                    down: dependencies,
                     convergence,
                     invariants,
                     timeline: valves.timeline(),
@@ -750,7 +751,7 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                await stopHealth?.()
+                dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
                 await live.stop()
@@ -790,7 +791,7 @@ export function createRunner(
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
-                writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
                 }
