@@ -9,6 +9,7 @@ decision model decides anything. It never changes a verdict and never raises.
 
 import asyncio
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID
 
 import structlog
@@ -42,11 +43,14 @@ SHADOW_WINDOW_OVERLAP_BYTES = 256
 SHADOW_MAX_WINDOWS = 64
 SHADOW_CONCURRENCY = 4
 SHADOW_CALL_TIMEOUT_SECONDS = 10.0
-# The shadow runs after the primary verdicts inside classify_pending_documents_activity, so it must
-# leave time for the verdict writes. Documents it does not reach get no event.
+# Documents the shadow does not reach inside this budget get no event.
 SHADOW_BUDGET_SECONDS = 120.0
 # Not calibrated. The event carries the highest window probability so the threshold can be tuned offline.
 SHADOW_UNSAFE_PROBABILITY = 0.5
+
+# A timeout cancels the awaiter of a decision call, not its thread. A pool of their own keeps such
+# calls out of the default executor, which the verdict writes also use.
+_EXECUTOR = ThreadPoolExecutor(max_workers=SHADOW_CONCURRENCY, thread_name_prefix="bk-safety-shadow")
 
 _QUESTION_ID = "unsafe"
 _CRITERIA = {
@@ -164,7 +168,7 @@ async def _shadow_document(doc: PendingDocument, semaphore: asyncio.Semaphore) -
 
     async def _one(window: str) -> _WindowAnswer:
         async with semaphore:
-            return await asyncio.to_thread(_decide_window, doc, window)
+            return await asyncio.get_running_loop().run_in_executor(_EXECUTOR, _decide_window, doc, window)
 
     # Every window runs, with no early stop on an unsafe or failed one, so the token count is the full cost
     # and no request starts after this function returns.

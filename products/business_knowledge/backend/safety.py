@@ -41,7 +41,6 @@ from .constants import CLASSIFY_MAX_TOTAL_CHARS, CLASSIFY_WINDOW_CHARS, CLASSIFY
 from .llm_telemetry import INGEST_SAFETY_FEATURE, ingest_properties
 from .logic import PendingDocument
 from .models import SafetyVerdict
-from .safety_shadow import evaluate_shadow
 
 logger = structlog.get_logger(__name__)
 
@@ -330,6 +329,4 @@ async def classify_documents(docs: list[PendingDocument]) -> list[SafetyResult]:
 
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(_bounded(doc)) for doc in docs]
-    results = [task.result() for task in tasks]
-    await evaluate_shadow(docs, {result.document_id: result.verdict for result in results}, GEMINI_MODEL)
-    return results
+    return [task.result() for task in tasks]
