@@ -50,8 +50,9 @@ class TestStagePersonPropertyBatch:
         sink = _sink()
         sink.stage_chunk.side_effect = RuntimeError("staging blew up")
 
-        await _stage_person_property_batch(sink, 0, _batch(), fatal=False)
+        staged = await _stage_person_property_batch(sink, 0, _batch(), fatal=False)
 
+        assert staged is False
         sink.logger.awarning.assert_awaited_once()
 
 

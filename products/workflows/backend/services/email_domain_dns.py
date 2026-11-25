@@ -1,7 +1,9 @@
+import re
 import logging
 import ipaddress
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import field, replace
 
 import dns.rdata
 import dns.resolver
@@ -14,6 +16,7 @@ from dns.rdtypes.IN.A import A
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
+from posthog.domain_connect import organizational_domain
 from posthog.security.oob_domains import matched_oob_domain
 
 from products.workflows.backend.facade.contracts import EmailDomainStatusRecord
@@ -28,6 +31,21 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
+_DMARC_RECORD = re.compile(r"\s*[vV]\s*=\s*DMARC1(\s|;|\Z)")
+_DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
+_DMARC_REQUEST = r"none|quarantine|reject"
+_DMARC_TEXT = re.compile(r"[\t\x20-\x7e]*")
+_DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
+_DMARC_SHOWN_TAGS = {
+    name: re.compile(pattern, re.IGNORECASE)
+    for name, pattern in {
+        "p": _DMARC_REQUEST,
+        "sp": _DMARC_REQUEST,
+        "pct": r"100|0?[0-9]?[0-9]",
+        "adkim": r"[rs]",
+        "aspf": r"[rs]",
+    }.items()
+}
 
 
 @frozen
@@ -40,6 +58,7 @@ class _Lookup:
 class PublishedRecords:
     records: frozenset[EmailDomainStatusRecord]
     unanswered: frozenset[EmailDomainStatusRecord] = frozenset()
+    dmarc_policies: Mapping[EmailDomainStatusRecord, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def every_lookup_answered(self) -> bool:
@@ -59,7 +78,41 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
     authoritative = _authoritative_resolver(domain)
     from_zone = _published_with(authoritative, records) if authoritative else PublishedRecords(records=frozenset())
     from_public = _published_with(_system_resolver(), [record for record in records if record not in from_zone.records])
-    return PublishedRecords(records=from_zone.records | from_public.records, unanswered=from_public.unanswered)
+    return PublishedRecords(
+        records=from_zone.records | from_public.records,
+        unanswered=from_public.unanswered,
+        dmarc_policies={**from_zone.dmarc_policies, **from_public.dmarc_policies},
+    )
+
+
+def inherited_dmarc_record(domain: str, record: EmailDomainStatusRecord) -> EmailDomainStatusRecord | None:
+    parent = organizational_domain(domain)
+    if parent == domain:
+        return None
+    return replace(record, hostname=f"_dmarc.{parent}")
+
+
+def dmarc_record_in_force(
+    record: EmailDomainStatusRecord, inherited: EmailDomainStatusRecord | None, published: PublishedRecords
+) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    probe = frozenset({inherited} if inherited else ())
+    own = replace(published, records=published.records - probe, unanswered=published.unanswered - probe)
+    if record in published.records:
+        return _with_published_value(record, own)
+    if inherited is None or record in published.unanswered or record in published.dmarc_policies:
+        return record, own
+    if inherited in published.records:
+        return _with_published_value(inherited, own)
+    if inherited in published.unanswered:
+        return record, replace(own, unanswered=own.unanswered | {record})
+    return record, own
+
+
+def _with_published_value(
+    record: EmailDomainStatusRecord, published: PublishedRecords
+) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    in_force = replace(record, value=_policy_in_force(published.dmarc_policies[record][0]) or record.value)
+    return in_force, replace(published, records=(published.records - {record}) | {in_force})
 
 
 def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:
@@ -68,9 +121,15 @@ def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDoma
     lookups = {_lookup_for(record) for record in records}
     with ThreadPoolExecutor(max_workers=min(len(lookups), MAX_PARALLEL_LOOKUPS)) as pool:
         answers = dict(zip(lookups, pool.map(lambda lookup: _resolve(resolver, lookup), lookups)))
+    published = frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or []))
     return PublishedRecords(
-        records=frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or [])),
+        records=published,
         unanswered=frozenset(record for record in records if answers[_lookup_for(record)] is None),
+        dmarc_policies={
+            record: policies
+            for record in records
+            if record.kind == Kind.DMARC and (policies := _dmarc_policies(answers[_lookup_for(record)] or []))
+        },
     )
 
 
@@ -124,7 +183,7 @@ def _resolve(resolver: dns.resolver.Resolver, lookup: _Lookup) -> list[str] | No
 
 def _normalized_answer(rdata: dns.rdata.Rdata) -> str | None:
     if isinstance(rdata, TXT):
-        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip().strip('"')
+        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip(" \t")
     if isinstance(rdata, CNAME):
         return _normalized_hostname(rdata.target.to_text())
     if isinstance(rdata, MX):
@@ -137,9 +196,11 @@ def _normalized_hostname(hostname: str) -> str:
 
 
 def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
+    if record.kind == Kind.DMARC:
+        policies = _dmarc_policies(answers)
+        return len(policies) == 1 and _policy_in_force(policies[0]) is not None
+    answers = [answer.strip().strip('"') for answer in answers]
     match record.kind, record.type:
-        case Kind.DMARC, _:
-            return any(answer.lower().startswith("v=dmarc1") for answer in answers)
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
             # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
             spf_records = [answer for answer in answers if _is_spf(answer)]
@@ -152,6 +213,33 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return f"{record.priority} {_normalized_hostname(record.value)}" in answers
         case _:
             return record.value in answers
+
+
+def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
+    return tuple(answer for answer in answers if _DMARC_RECORD.match(answer))
+
+
+def _policy_in_force(policy: str) -> str | None:
+    specs = [spec.strip(" \t") for spec in policy.split(";")[1:]]
+    if specs and not specs[-1]:
+        specs.pop()
+    fields = [spec.partition("=") for spec in specs]
+    tags = [(name.strip(" \t").lower(), value.strip(" \t")) for name, _, value in fields]
+    names = ["v", *(name for name, _ in tags)]
+    if (
+        not _DMARC_VERSION.match(policy)
+        or not _DMARC_TEXT.fullmatch(policy)
+        or not all(separator for _, separator, _ in fields)
+        or not all(_DMARC_TAG_NAME.fullmatch(name) for name, _ in tags)
+        or len(names) != len(set(names))
+    ):
+        return None
+    shown = {
+        name: value for name, value in tags if name in _DMARC_SHOWN_TAGS and _DMARC_SHOWN_TAGS[name].fullmatch(value)
+    }
+    if not tags or tags[0][0] != "p" or "p" not in shown or ("sp" in names and "sp" not in shown):
+        return None
+    return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in shown.items())])
 
 
 def _is_spf(answer: str) -> bool:

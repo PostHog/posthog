@@ -29,6 +29,7 @@ from products.workflows.backend.facade.contracts import (
     ContactsCohortFilled,
     ContactsCohortGone,
     ContactsImportAccessLost,
+    ContactsPartMissing,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -218,8 +219,8 @@ def import_contact_chunk(
     """
     _require_creator(team_id, created_by_id)
     key = _chunk_key(storage_prefix, chunk)
-    people = read_people(key)
-    if send_events and people:
+    people = _read_chunk(key)
+    if send_events:
         _send(Team.objects.get(id=team_id), people, key)
     distinct_ids = [person["distinct_id"] for person in people]
     deadline = time.monotonic() + WAIT_FOR_PEOPLE_SECONDS
@@ -282,7 +283,7 @@ def fill_contacts_cohort(
     members = [
         person["distinct_id"]
         for chunk in range(chunks)
-        for person in read_people(_chunk_key(storage_prefix, chunk))
+        for person in _read_chunk(_chunk_key(storage_prefix, chunk))
         if person.get("member", True)
     ]
     replaced = replace_static_cohort_members(team_id=team_id, cohort_id=cohort_id, distinct_ids=members)
@@ -312,6 +313,14 @@ def staged_contact_imports() -> set[tuple[int, str]]:
         if team.startswith("team-") and team[5:].isdigit() and import_run:
             found.add((int(team[5:]), import_run))
     return found
+
+
+def _read_chunk(key: str) -> list[StagedPerson]:
+    people = read_people(key)
+    # A stored part is never empty. Reading a missing one as no people would remove its people from their cohort.
+    if not people:
+        raise ContactsPartMissing("A stored part of this contact list is missing.")
+    return people
 
 
 def _chunk_key(storage_prefix: str, chunk: int) -> str:

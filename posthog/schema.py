@@ -1459,6 +1459,14 @@ class CustomerAnalyticsPinnedProperty(BaseModel):
     kind: Kind
 
 
+class CustomerAnalyticsRoleDefaultPinnedProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    pinned_properties: list[CustomerAnalyticsPinnedProperty]
+    role_id: str
+
+
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5608,10 +5616,18 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
@@ -6777,6 +6793,16 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: PropertyGroupsMode | None = None
     pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionFilterGlobalJoin: bool | None = Field(
+        default=None,
+        description=(
+            "Filter the sessions join of an events query by its session property"
+            " filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once"
+            " instead of once per events shard. Applies only when every session filter"
+            " is an equality or `IN` against non-empty strings, which are false for an"
+            " event with no matching session."
+        ),
+    )
     sessionIdPushdown: bool | None = Field(
         default=None,
         description=(
@@ -11808,6 +11834,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int
@@ -32538,6 +32568,15 @@ class ConversionGoalFilter1(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32604,6 +32643,15 @@ class ConversionGoalFilter2(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32675,6 +32723,15 @@ class ConversionGoalFilter3(BaseModel):
     schema_map: dict[str, str | Any]
     table_name: str
     timestamp_field: str
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -36278,6 +36335,7 @@ class CustomerAnalyticsConfig(BaseModel):
     activity_event: EventsNode | ActionsNode
     default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
+    role_default_pinned_properties: list[CustomerAnalyticsRoleDefaultPinnedProperties] | None = None
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
@@ -36596,6 +36654,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(

@@ -34,6 +34,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.aeo.backend.catalog import own_domains
+from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
@@ -385,6 +386,13 @@ def _record_prompt_checks(
                 [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
             )
             write_facts(written)
+            try:
+                # A savepoint, so a parser bug costs the brand rows, not the checks. The resolve after
+                # the run writes what this left out.
+                with transaction.atomic():
+                    write_check_brands(written, BrandMatcher(catalog_identities(canonical_team_id)))
+            except Exception as e:
+                logger.exception("aeo_check_brands_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
             bump_data_version_on_commit(canonical_team_id)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])

@@ -124,7 +124,7 @@ export function SourceIntegrationChoice({
     return (
         <div className="flex flex-col gap-2">
             {oauthError && (
-                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), sourceKind)}</LemonBanner>
+                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), kind)}</LemonBanner>
             )}
             {blockedFromConnecting && (
                 <LemonBanner type="info">

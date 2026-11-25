@@ -16,7 +16,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, note_flat_route, record_scope_resolution
+from posthog.api.scope_resolution import (
+    CURRENT_ALIAS,
+    is_flat_route,
+    note_flat_route,
+    record_scope_resolution,
+    record_token_on_project_path,
+)
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -380,6 +386,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
             if is_flat_route(request) or CURRENT_ALIAS in self.kwargs.values():
                 record_scope_resolution(request, token_team=self._get_team_from_request)
+            elif self._is_team_view or self._is_project_view:
+                record_token_on_project_path(
+                    request, token_team=self._get_team_from_request, path_kwargs=self.parent_query_kwargs
+                )
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
