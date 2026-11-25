@@ -211,12 +211,14 @@ Segments past the 20th go into one "other" row, computed as the total delta from
 
 ### Ratio, from the table
 
-For each segment `s`, with `w` = the segment's share of the total denominator and `r` = the segment's own ratio:
+For each segment `s`, with `w` = the segment's share of the total denominator, `r` = the segment's own ratio and `R_base` = the overall base ratio:
 
-- mix effect: `(w_cur(s) - w_base(s)) * r_base(s)`
+- mix effect: `(w_cur(s) - w_base(s)) * (r_base(s) - R_base)`
 - rate effect: `w_cur(s) * (r_cur(s) - r_base(s))`
 
-The mix and rate effects over all segments add up to the change in the overall ratio.
+The mix effect is measured against the overall base ratio, so a segment with a below-average ratio that grows its share carries a **negative** mix effect (it pulls the overall ratio down), and one that shrinks carries a positive one.
+Measured against the segment's own ratio instead, a growing low-rate segment would read as pushing the ratio up, which is backwards.
+The mix and rate effects over all segments add up to the change in the overall ratio, because the shares sum to 1 in both windows.
 
 ```sql
 SELECT <dim> AS segment,
@@ -249,7 +251,12 @@ Skip it in the 20M-to-200M tier and say so in the evidence.
 | Ratio: the mix effect is larger than the rate effect            | The audience changed, not the behavior. Say so in the report.                                                                           |
 | Ratio: the rate effect is larger                                | The segment itself performs differently. The stronger finding.                                                                          |
 | Two dimensions both explain the move                            | They are probably the same segment (for example, a currency and a country). Report the more specific one and mention the other.         |
+| Segments pull both ways (`offsetting`)                          | The net move understates what happened: one segment drove it while another masked part of it. Name both; the one pushing with the move is the finding, the one pulling against it is the context. |
 | No dimension passes                                             | Remember the move. Check it again next run.                                                                                             |
+
+The script returns `offsetting` when the segments' deltas carry both signs and the net move is under half their gross sum.
+Invented example: a sign-up conversion rate falls 1.6 points; a new low-converting channel grew to 15% of sign-ups (pushing the rate down 4.9 points of mix) while the main channel's own rate rose 1.6 points (pulling it back up).
+Report the channel; mention the main channel's improvement, because a reader who only sees the net move would underrate both.
 
 With 5 dimensions and up to 20 segments each, some segments move by chance.
 Trust a driver only when its segment has at least 20 units in the base window and, at daily grain, the widen check holds.

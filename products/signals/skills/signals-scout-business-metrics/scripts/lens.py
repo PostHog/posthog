@@ -259,13 +259,19 @@ def _driver_verdict(rows: list[dict], total: float, ratio_base: float | None = N
     rest_relative = relative(rest) if rest else 0.0
     rest_holds = not rest or abs(rest_relative) < abs(top_relative) / 2
     same_sign = all((r["delta"] > 0) == (total > 0) for r in rows if r["delta"])
-    if top_share >= DRIVER_SHARE and rest_holds:
+    # Segments pulling both ways make shares exceed 100% and the net move understate what
+    # happened, so the largest absolute contributors are named instead of a "driver".
+    gross = sum(abs(r["delta"]) for r in rows)
+    offsetting = not same_sign and abs(total) < 0.5 * gross
+    if offsetting:
+        verdict = "offsetting"
+    elif top_share >= DRIVER_SHARE and rest_holds:
         verdict = "driver"
     elif same_sign:
         verdict = "broad"
     else:
         verdict = "none"
-    return {
+    result = {
         "verdict": verdict,
         "top_segments": [r["name"] for r in top],
         "top1_share_pct": _pct(top1_share),
@@ -273,6 +279,12 @@ def _driver_verdict(rows: list[dict], total: float, ratio_base: float | None = N
         "top_relative_move_pct": _pct(top_relative),
         "rest_relative_move_pct": _pct(rest_relative),
     }
+    if offsetting:
+        direction = 1 if total > 0 else -1
+        pushing = [r["name"] for r in rows if r["delta"] * direction > 0][:2]
+        pulling = [r["name"] for r in rows if r["delta"] * direction < 0][:2]
+        result.update({"pushing_with_the_move": pushing, "pulling_against_it": pulling, "gross_over_net": round(gross / abs(total), 1) if total else None})
+    return result
 
 
 def decompose_ratio(segments: list[dict]) -> dict:
@@ -291,7 +303,10 @@ def decompose_ratio(segments: list[dict]) -> dict:
             continue
         w_cur, w_base = den_cur / den_cur_total, den_base / den_base_total
         r_cur, r_base = float(s["num_cur"]) / den_cur, float(s["num_base"]) / den_base
-        mix = (w_cur - w_base) * r_base
+        # Mix is measured against the overall base ratio, so a growing low-rate segment carries
+        # a negative mix effect (it pulls the overall rate down) and a shrinking one a positive one.
+        # The segment effects still add up to the overall change, because the shares sum to 1.
+        mix = (w_cur - w_base) * (r_base - ratio_base)
         rate = w_cur * (r_cur - r_base)
         rows.append(
             {
