@@ -60,24 +60,12 @@ class QueryBatchTargetSerializer(serializers.Serializer):
         ),
     )
     query = serializers.CharField(max_length=200_000, help_text="The query text, read according to `language`.")
-    legend = serializers.CharField(
+    bucketed = serializers.BooleanField(
         required=False,
-        allow_blank=True,
-        trim_whitespace=False,
-        max_length=1000,
-        help_text="The series name template the panel draws. Returned unchanged on the target's line.",
-    )
-    format = serializers.ChoiceField(
-        required=False,
-        choices=QueryBatchTargetFormat.choices,
-        help_text="How the panel draws the result. Returned unchanged on the target's line.",
-    )
-    engine = serializers.ChoiceField(
-        required=False,
-        choices=QueryBatchEngine.choices,
+        default=False,
         help_text=(
-            "For query and hogql targets: 'new' runs on the new events schema and materialized views. "
-            "'classic', the default, runs as `/query` does."
+            "HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and "
+            "aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run."
         ),
     )
 
@@ -234,9 +222,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ref_id=item["target"]["refId"],
                     language=_language(item["target"]["language"]),
                     query=item["target"]["query"],
-                    legend=item["target"].get("legend"),
-                    format=QueryBatchTargetFormat(item["target"]["format"]) if "format" in item["target"] else None,
-                    engine=QueryBatchEngine(item["target"]["engine"]) if "engine" in item["target"] else None,
+                    bucketed=item["target"]["bucketed"],
                 ),
                 date_from=item["time"]["from"],
                 date_to=item["time"]["to"],

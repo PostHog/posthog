@@ -456,9 +456,8 @@ class QueryBatchTarget:
     ref_id: str
     language: QueryBatchLanguage
     query: str
-    legend: str | None = None
-    format: QueryBatchTargetFormat | None = None
-    engine: QueryBatchEngine | None = None
+    # HogQL only: keep the query's finished time buckets and rerun only missing and unfinished ones.
+    bucketed: bool = False
 
 
 @frozen

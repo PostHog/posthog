@@ -12,13 +12,14 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now
 
 import httpx
 import requests
@@ -1100,6 +1101,43 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         request.assert_not_called()
+
+
+# Its own class: a non-atomic class creates its team once and flushes it after the first test.
+class TestQueryBatchBucketedRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._enable_flag()
+
+    def test_a_bucketed_hogql_panel_answers_as_the_whole_range_run_and_reuses_its_finished_buckets(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        for hours_ago in range(2, 70, 3):
+            _create_event(
+                team=self.team, event="$pageview", distinct_id="d1", timestamp=now() - dt.timedelta(hours=hours_ago)
+            )
+        flush_persons_and_events()
+        sql = "select toStartOfHour(timestamp) as t, count() as c from events where {filters} group by t order by t limit 1000"
+        time = {"from": "now-3d", "to": "now"}
+
+        def panel(ref: str, query: str, bucketed: bool) -> dict:
+            return {"target": {"refId": ref, "language": "hogql", "query": query, "bucketed": bucketed}, "time": time}
+
+        # Bucketed runs never write the whole-range cache entry, so the warm run reads the bucket store.
+        cold, unqualified = self._lines(
+            [panel("bucketed", sql, True), panel("no_filter", "select count() from events where {filters}", True)]
+        )
+        (warm,) = self._lines([panel("bucketed", sql, True)])
+        (whole,) = self._lines([panel("whole", sql, False)])
+
+        expected = whole["result"]["result"]["results"]
+        self.assertEqual(len(expected), 23)
+        self.assertEqual(cold["result"]["result"]["results"], expected)
+        self.assertEqual(warm["result"]["result"]["results"], expected)
+        self.assertEqual(cold["result"]["provenance"]["bucketed"]["stored"], 0)
+        self.assertGreater(warm["result"]["provenance"]["bucketed"]["stored"], 20)
+        self.assertEqual(unqualified["result"]["provenance"]["mode"], "raw")
+        self.assertIn("first column", unqualified["result"]["provenance"]["reason"])
 
 
 class TestResolveQuery(SimpleTestCase):
