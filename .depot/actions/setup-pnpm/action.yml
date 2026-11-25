@@ -1,7 +1,7 @@
 name: Set up pnpm and Node
 description: |
     Puts pnpm and the `.nvmrc` Node on PATH. Installs nothing.
-    Turns off Turborepo telemetry for the rest of the job.
+    Turns off Turborepo and Next.js telemetry for the rest of the job.
 
     Pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
     master-gated save) so setup-node makes no GitHub API calls on a hit.
@@ -30,10 +30,14 @@ inputs:
 runs:
     using: composite
     steps:
-        # Turbo sends telemetry from CI unless this is set, and GITHUB_ENV carries it to every later turbo call.
-        - name: Disable Turborepo telemetry
+        # Turbo and Next.js send telemetry from CI unless these are set, and GITHUB_ENV carries them to every later step.
+        - name: Disable build tool telemetry
           shell: bash
-          run: echo "TURBO_TELEMETRY_DISABLED=1" >> "$GITHUB_ENV"
+          run: |
+              {
+                  echo "TURBO_TELEMETRY_DISABLED=1"
+                  echo "NEXT_TELEMETRY_DISABLED=1"
+              } >> "$GITHUB_ENV"
 
         # The action fetches pnpm from registry.npmjs.org on every job. npm's
         # default fetch-timeout is 5 minutes, so one stalled connection costs
@@ -52,14 +56,6 @@ runs:
               # alone exhausts a 5 minute job budget before any test runs.
               NPM_CONFIG_AUDIT: 'false'
               NPM_CONFIG_FUND: 'false'
-
-        - name: Turn off build tool telemetry
-          shell: bash
-          run: |
-              {
-                  echo "TURBO_TELEMETRY_DISABLED=1"
-                  echo "NEXT_TELEMETRY_DISABLED=1"
-              } >> "$GITHUB_ENV"
 
         - name: Fix node-gyp permissions
           shell: bash

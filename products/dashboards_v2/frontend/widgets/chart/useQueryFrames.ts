@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { RefreshContext } from '../refreshContext'
 import { cachedResult, runCachedQuery } from './queryCache'
@@ -31,24 +31,63 @@ export function afterRequestChange(previous: QueryFrames, cached: QueryFrames): 
     return unchanged(previous, cached) ? previous : cached
 }
 
-/** Runs a chart's query through the host's runner, and again when the query, its time range or the dashboard refresh changes. */
-export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): QueryFrames {
-    // An edit rebuilds the request object, so the query runs again only when its content changes.
-    const queryKey = JSON.stringify(request)
+/**
+ * Carries each query's last result over to its new request. A query is matched by its key, so removing one target does
+ * not hand its frames to the next. An edited query has a new key, and while the number of queries stays the same it
+ * keeps the result at its position.
+ */
+export function carryOverResults(
+    previousKeys: string[],
+    previous: QueryFrames[],
+    keys: string[],
+    fresh: (key: string) => QueryFrames
+): QueryFrames[] {
+    return keys.map((key, index) => {
+        const at = previousKeys.indexOf(key)
+        const match = at >= 0 ? previous[at] : keys.length === previousKeys.length ? previous[index] : undefined
+        return match ? afterRequestChange(match, fresh(key)) : fresh(key)
+    })
+}
+
+/** Runs a chart's queries through the host's runner, and again when a query, its time range or the dashboard refresh changes. */
+export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): QueryFrames[] {
+    // An edit rebuilds the request objects, so the queries run again only when their content changes.
+    const queryKeys = requests.map((request) => JSON.stringify(request))
+    const keysKey = JSON.stringify(queryKeys)
     const refresh = useContext(RefreshContext)
-    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey, refresh))
+    const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key, refresh)))
+    const resultKeys = useRef(queryKeys)
     useEffect(() => {
         let cancelled = false
-        const show = (next: QueryFrames): void => setResult((previous) => (unchanged(previous, next) ? previous : next))
-        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey, refresh)))
-        runCachedQuery(runQuery, queryKey, refresh).then(
-            (result) => !cancelled && show({ status: 'ready', refreshing: false, ...result }),
-            (error: unknown) =>
-                !cancelled && show({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+        const keys = JSON.parse(keysKey) as string[]
+        const previousKeys = resultKeys.current
+        resultKeys.current = keys
+        const show = (index: number, next: QueryFrames): void =>
+            setResults((previous) => {
+                if (previous[index] && unchanged(previous[index], next)) {
+                    return previous
+                }
+                const updated = [...previous]
+                updated[index] = next
+                return updated
+            })
+        setResults((previous) => {
+            const next = carryOverResults(previousKeys, previous, keys, (key) => initial(runQuery, key, refresh))
+            return next.length === previous.length && next.every((one, index) => one === previous[index])
+                ? previous
+                : next
+        })
+        keys.forEach((key, index) =>
+            runCachedQuery(runQuery, key, refresh).then(
+                (result) => !cancelled && show(index, { status: 'ready', refreshing: false, ...result }),
+                (error: unknown) =>
+                    !cancelled &&
+                    show(index, { status: 'error', message: error instanceof Error ? error.message : String(error) })
+            )
         )
         return () => {
             cancelled = true
         }
-    }, [queryKey, runQuery, refresh])
-    return result
+    }, [keysKey, runQuery, refresh])
+    return results
 }

@@ -35,7 +35,7 @@ them if they appear, but route them to the relevant team rather than diagnosing 
 | --------------------------------------------- | --------------------------------------------------------------- |
 | `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline   |
 | `external-data-sources-list`                  | All sources with status and latest error                        |
-| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error           |
+| `external-data-schemas-list`                  | All schemas with status, last_checked_at, latest_error          |
 | `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by the health tool) |
 
 The `data-warehouse-data-health-issues-retrieve` endpoint aggregates across the whole pipeline — it's the fastest path to a summary. Filter
@@ -80,7 +80,9 @@ covers webhook tables whose events stopped arriving.
 
 Call `data-warehouse-data-health-issues-retrieve` and keep the `source` and `external_data_sync` entries.
 
-If there are no source/sync issues, tell the user their sources are healthy and stop. Don't invent problems.
+If there are no source/sync issues, tell the user their sources are healthy and stop. Don't invent problems. When the
+user asked about stale data or for a broader audit, do not stop here: continue to Step 4, because this endpoint does
+not report stale `Completed` schemas.
 
 ### Step 2 — Group and prioritize
 
@@ -120,8 +122,42 @@ The exact format is less important than: prioritized, grouped, actionable, and h
 If the user wants more than just "what's on fire" — e.g. "what else should I look at?" — cross-check:
 
 **Stale but "Completed" schemas:**
-Call `external-data-schemas-list` and look for schemas with old `last_synced_at` relative to their `sync_frequency`.
-A schema on `1hour` frequency that last synced 3 days ago is effectively broken even if status says `Completed`.
+Call `external-data-schemas-list` with `compact: false`, because the compact rows leave out `sync_frequency`. For each
+enabled `Completed` schema, compare `last_checked_at` with `sync_frequency`. `last_checked_at` is the start of the last
+successful sync, including syncs that found no new rows. A schema on `1hour` frequency with a `last_checked_at` from 3
+days ago is effectively broken, even if status says `Completed`.
+
+A null `sync_frequency` on an enabled schema means the table has no sync frequency, so its sync cannot be scheduled.
+No sync runs and nothing repairs it, so do not compare timestamps.
+Report it as "no sync frequency, the sync cannot be scheduled", and tell the user to set a sync frequency.
+
+Do not judge staleness by `last_synced_at`. It moves only when a sync loads new rows. A quiet source, such as a table
+with few writes, can have an old `last_synced_at` while every sync succeeds. Report that as "no new data", not as a
+broken sync.
+
+`last_checked_at` is null until the first successful sync. For a schema whose last successful sync ran before PostHog
+recorded `last_checked_at`, the API returns `last_synced_at` in its place. So when `last_checked_at` is null, or is old
+and equal to `last_synced_at`, check the job history before you call the schema broken. Query
+`system.source_sync_jobs` with `execute-sql`:
+
+```sql
+SELECT status, rows_synced, created_at, finished_at
+FROM system.source_sync_jobs
+WHERE schema_id = '<schema id>'
+ORDER BY created_at DESC
+LIMIT 10
+```
+
+Do not select `latest_error` from this table. It holds the raw job error, which can contain connection secrets. The
+`latest_error` in `external-data-schemas-list` has the secrets removed, so quote that one.
+
+Use the newest finished job (`Completed` or `Failed`), and compare its `created_at` with `sync_frequency`:
+
+- The newest finished job is `Completed` and inside the expected interval → the sync works. An older `Failed` job does
+  not change this. `rows_synced = 0` only tells you that the source had no new data. This is not an issue.
+- The newest finished job is `Failed` → report the `latest_error` from `external-data-schemas-list` and hand off to
+  `diagnosing-failed-warehouse-syncs`.
+- No job started inside the expected interval → no sync runs. Report the schema as stale.
 
 **Sources with zero sync activity:**
 Sources where every schema has `should_sync: false` or `status = Paused`. These were set up and then abandoned —
@@ -168,6 +204,8 @@ Any fix should be confirmed explicitly before executing.
   (or will be, once they try to sync again). The user needs to understand the blast radius.
 - **Billing limits aren't technical problems.** Flag them but route to billing / quota discussion, not to a
   recovery action.
+- **An old `last_synced_at` alone does not prove a failed sync.** It moves only when new rows load. Judge staleness
+  with `last_checked_at`, and check the job history when that field is null or a legacy value.
 - **`data-warehouse-data-health-issues-retrieve` only surfaces active failures.** For staleness or abandoned sources you need to cross-check
   the list endpoints. Only do this when the user explicitly asks for a deeper audit.
 - **Webhook health is separate from schema health.** The data-health endpoint doesn't know about webhook state.

@@ -1,6 +1,7 @@
 import time
 from dataclasses import field as dataclass_field
 from functools import cached_property
+from hashlib import sha256
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -9,6 +10,7 @@ from django.core.exceptions import ValidationError
 import jwt
 import idna
 import structlog
+import redis.exceptions as redis_exceptions
 from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
@@ -22,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import email_domain
 from posthog.helpers.sso import validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.redis import get_client
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 BasicAuthCredentials = tuple[str, str]
@@ -37,6 +40,9 @@ OIDC_REQUEST_DURATION = Histogram(
     "OIDC request duration.",
     labelnames=["phase"],
 )
+
+# 30 minutes is probably enough. I think all IdPs have a max lifetime of 1-10 minutes for codes.
+OIDC_AUTHORIZATION_CODE_CACHE_TTL_SECONDS = 60 * 30
 
 
 OIDC_FETCH_TIMEOUT_SECONDS = 10
@@ -59,6 +65,45 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     def auth_complete(self, *args: Any, **kwargs: Any) -> UserProtocol | HttpResponseProtocol | None:
         self.authentication_started_at = int(time.time())
         return super().auth_complete(*args, **kwargs)
+
+    def _normalized_authorization_code(self) -> str | None:
+        """The callback's code, stripped in `self.data` so the claim and the exchange use the same value.
+
+        An IdP that matches codes leniently would otherwise redeem a padded replay of a claimed code.
+        """
+        code = self.data.get("code")
+        if not isinstance(code, str):
+            return None
+        normalized = code.strip()
+        self.data["code"] = normalized
+        return normalized or None
+
+    def _claim_authorization_code(self, code: str) -> None:
+        """Refuse an authorization code that already reached the callback.
+
+        An authorization code is single-use. The first callback claims it so a later replay cannot
+        redeem it twice. The key is global because the config is not trusted until the token
+        exchange.
+        """
+        key = f"oidc_authorization_code:{sha256(code.encode()).hexdigest()}"
+        try:
+            claimed = get_client().set(key, 1, nx=True, ex=OIDC_AUTHORIZATION_CODE_CACHE_TTL_SECONDS)
+        except redis_exceptions.RedisError as error:
+            # Fail closed: without the cache a replay cannot be detected, so the login cannot proceed.
+            logger.warning("oidc_authorization_code_cache_unavailable", exc_info=error)
+            raise AuthFailed(self, "OIDC login is temporarily unavailable. Try again in a moment.") from error
+        if not claimed:
+            raise AuthFailed(self, "This sign-in link has already been used. Start the sign-in again.")
+
+    def auth_complete_params(self, state: str | None = None) -> dict[str, Any]:
+        self._normalized_authorization_code()
+        return super().auth_complete_params(state)
+
+    def request_access_token(self, *args: Any, **kwargs: Any) -> dict[Any, Any]:
+        code = self._normalized_authorization_code()
+        if code:
+            self._claim_authorization_code(code)
+        return super().request_access_token(*args, **kwargs)
 
     def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
         validate_idp_partial(self, partial)

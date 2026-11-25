@@ -1359,6 +1359,8 @@ export namespace Schemas {
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
       active_prompts: number;
+      /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+      max_active_prompts: number;
       /** Unarchived prompts that are turned off. No run checks them. */
       paused_prompts: number;
       /** Keywords in the project's keyword list. */
@@ -1427,7 +1429,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
       detail?: string;
     }
 
@@ -1472,7 +1474,7 @@ export namespace Schemas {
       run_first_check?: boolean;
       /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
       only_first_run?: boolean;
-      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
     }
 
@@ -36927,7 +36929,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestCreate {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestCreateVariables;
@@ -36946,7 +36948,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestInput {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestInputVariables;
@@ -43624,19 +43626,19 @@ export namespace Schemas {
 
     export interface EmitReportResponse {
       /**
-         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
          * @nullable
          */
       report_id: string | null;
       /**
-         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
          * @nullable
          */
       report_status: string | null;
       /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
       emitted: boolean;
       /**
-         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
          * @nullable
          */
       skipped_reason: string | null;
@@ -90705,7 +90707,7 @@ export namespace Schemas {
 
     export interface PatchedAEOPromptUpdateRequest {
       /**
-         * Turn the prompt on or off for future runs.
+         * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
          * @nullable
          */
       active?: boolean | null;
@@ -123307,6 +123309,11 @@ export namespace Schemas {
       malformed: boolean;
       /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
       field_values: SourceFilterPreviewRecordFieldValues;
+      /**
+         * For an excluded record, the conditions of the expression that the record does not pass, as written in the expression and in expression order. The conditions are the operands of a top-level AND, or the whole expression when it is one condition. A condition that reads a malformed value fails. Null for records that pass, and for every record when the expression's top level is OR or the expression has more than 8 conditions.
+         * @nullable
+         */
+      failed_conditions: string[] | null;
     }
 
     export interface SourceFilterPreviewRequest {
@@ -129691,10 +129698,12 @@ export namespace Schemas {
       opened: number;
       /** Sends with at least one tracked link click. */
       clicked: number;
-      /** Delivered sends nobody clicked. */
+      /** Delivered sends nobody clicked, of those that tracked clicks. */
       not_clicked: number;
       /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
+      /** Sends that went out with opens tracked and click tracking off, counted like `untracked`. They can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends. */
+      clicks_untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
       /** Clicked sends and how many converted. Null without an event. */
@@ -129722,6 +129731,13 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+    }
+
+    export interface TransactionalEmailTracking {
+      /** False when the email went out with open tracking off, so it can never record an open. */
+      opens: boolean;
+      /** False when the email went out with click tracking off, so it can never record a click. */
+      clicks: boolean;
     }
 
     export interface TransactionalEmailLogDetail {
@@ -129777,6 +129793,8 @@ export namespace Schemas {
       action_id: string;
       /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
       sensitive: boolean;
+      /** What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it. */
+      tracking: TransactionalEmailTracking;
     }
 
     export interface TransactionalEmailLogEntry {

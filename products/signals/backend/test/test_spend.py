@@ -357,7 +357,12 @@ class TestSignalSpend(BaseTest):
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(
-                return_value=GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=cost - previous)
+                return_value=GatewayRequestCost(
+                    model="model-a",
+                    provider="provider-a",
+                    cost_microusd=cost - previous,
+                    standard_cost_microusd=cost - previous,
+                )
                 if cost is not None
                 else None
             ),
@@ -718,7 +723,11 @@ class TestSignalSpend(BaseTest):
 
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=61, standard_cost_microusd=123
+                )
+            ),
         ):
             with (
                 connection.execute_wrapper(refuse_owner_write),
@@ -833,7 +842,9 @@ class TestSignalSpend(BaseTest):
             assert owner.finalized_at is None
             self.temporal.start_workflow.assert_not_called()
             fetch.reset_mock()
-            fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)
+            fetch.return_value = GatewayRequestCost(
+                model="example", provider="example", cost_microusd=61_728, standard_cost_microusd=123_456
+            )
             self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
             fetch.assert_awaited_once_with("pending-request")
         if scout:
@@ -959,7 +970,11 @@ class TestSignalSpend(BaseTest):
         assert spend.finalized_at is None
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="example", provider="example", cost_microusd=123_456, standard_cost_microusd=123_456
+                )
+            ),
         ):
             settle_scout_spend(team_id=self.team.id, run_id=str(run.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
@@ -1016,7 +1031,13 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
             patch(
                 "products.signals.backend.llm_spend.fetch_gateway_cost",
                 new=AsyncMock(
-                    side_effect=[None, None, GatewayRequestCost(model="model", provider="provider", cost_microusd=cost)]
+                    side_effect=[
+                        None,
+                        None,
+                        GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=cost, standard_cost_microusd=cost
+                        ),
+                    ]
                     if cost is not None
                     else [None]
                 ),
@@ -1112,7 +1133,11 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
         generate = AsyncMock(return_value=response)
         with patch(
             "products.signals.backend.llm_spend.fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=12_345)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=12_345, standard_cost_microusd=12_345
+                )
+            ),
         ):
             priced = await generate_with_spend(
                 generate(),
@@ -1183,7 +1208,9 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
                 patch(
                     "products.signals.backend.llm_spend.fetch_gateway_cost",
                     new=AsyncMock(
-                        return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)
+                        return_value=GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                        )
                     ),
                 ),
                 self.assertRaises(json.JSONDecodeError if failure == "invalid_json" else APIResponseValidationError),
@@ -1252,7 +1279,11 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
             patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
             patch(
                 "products.signals.backend.llm_spend.fetch_gateway_cost",
-                new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+                new=AsyncMock(
+                    return_value=GatewayRequestCost(
+                        model="model", provider="provider", cost_microusd=61, standard_cost_microusd=123
+                    )
+                ),
             ),
         ):
             results = await asyncio.gather(call(drivers[0], "request-a"), call(drivers[1], "request-b"))
@@ -1306,7 +1337,9 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
                 patch(
                     "products.signals.backend.llm_spend.fetch_gateway_cost",
                     new=AsyncMock(
-                        return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)
+                        return_value=GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                        )
                     ),
                 ),
                 patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()),

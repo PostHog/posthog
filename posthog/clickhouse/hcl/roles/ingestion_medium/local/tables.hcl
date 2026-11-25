@@ -1,6 +1,6 @@
-node "medium" {
+node "ingestion_medium" {
   macros = {
-    hostClusterRole = "medium"
+    hostClusterRole = "ingestion_medium"
     hostClusterType = "online"
     replica         = "medium"
     shard           = "01"

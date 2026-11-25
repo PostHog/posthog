@@ -284,9 +284,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
+const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
+
 function respondWith(response: Partial<MarketingAnalyticsRecommendationsQueryResponse>): Mocks['post'] {
     return {
-        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+        [QUERY_URL]: () => [
             200,
             {
                 results: RESULTS,
@@ -361,17 +363,30 @@ type Story = StoryObj<typeof meta>
 
 export const Summary: Story = {}
 
+export const Loading: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [QUERY_URL]: () => new Promise(() => {}) } } },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-recommendations"] .Spinner',
+        },
+    },
+}
+
+async function openRecommendations(canvasElement: HTMLElement): Promise<void> {
+    const loaded = 'button:not([aria-disabled="true"]) *'
+    await userEvent.click(await within(canvasElement).findByText('Recommendations', { selector: loaded }))
+}
+
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
     },
 }
 
 export const ModalInstructions: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
@@ -380,8 +395,7 @@ export const ModalInstructions: Story = {
 
 export const ModalKeywordTracking: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Keyword tracking', { selector: 'button *' }))
     },
@@ -456,8 +470,7 @@ export const MissingTables: Story = {
 export const MissingTablesInModal: Story = {
     parameters: { msw: { mocks: MOCKS_WITH_GAPS } },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
     },
@@ -549,8 +562,7 @@ export const ResolvedInModal: Story = {
         },
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
@@ -566,16 +578,14 @@ export const AllDismissed: Story = {
 export const AllDismissedInModal: Story = {
     parameters: { msw: { mocks: ALL_DISMISSED } },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
     },
 }
 
 const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
 
 async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
-    const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    await openRecommendations(canvasElement)
     const modal = within(canvasElement.ownerDocument.body)
     await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
     await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
