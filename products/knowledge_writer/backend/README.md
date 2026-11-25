@@ -29,7 +29,8 @@ export KNOWLEDGE_WRITER_TEAM_ID=<team id>
 export KNOWLEDGE_WRITER_USER_ID=<user id>
 export KNOWLEDGE_WRITER_DOCS_REPOSITORY=<you>/posthog.com
 flox activate -- python manage.py knowledge_writer_pr_smoke \
-  --repo <you>/posthog.com --team-id <team id> [--installation-id <installation id>]
+  --repo <you>/posthog.com --team-id <team id> --author <your github login> \
+  [--installation-id <installation id>]
 ```
 
 ## Full run with the agent
@@ -50,14 +51,14 @@ export SANDBOX_AI_GATEWAY_PRODUCTS=background_agents
 
 On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010` and `SANDBOX_API_URL=http://localhost:8010`.
 
-Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode. Before any GitHub write, the command checks the env vars, GitHub App settings, flags, flags service, Temporal worker, AI gateway readiness with a test token mint, and GitHub integration, prints `MISSING <name>: <fix>` for each gap, and stops. It prints the task, publish workflow and docs pull request links as the run reaches them. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team, and add your GitHub login to the `knowledge-writer-open-prs-authors` person flag, which the command checks for its `--author`; otherwise intake runs in shadow mode. Before any GitHub write, the command checks the env vars, GitHub App settings, flags, flags service, Temporal worker, AI gateway readiness with a test token mint, and GitHub integration, prints `MISSING <name>: <fix>` for each gap, and stops. It prints the task, publish workflow and docs pull request links as the run reaches them. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \
-  --repo <you>/posthog.com --team-id <team id> \
+  --repo <you>/posthog.com --team-id <team id> --author <your github login> \
   --with-agent <merged pull request url>
 ```
 
-`--from-merge <merged pull request url>` sends that pull request through the merge check as a webhook delivery would, then waits for the verdict and, when it starts a writer, the docs pull request. The pull request must be in a public repository listed in `KNOWLEDGE_WRITER_SOURCE_REPOSITORIES` on the account the App is installed on, and the judge needs `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Before and after each run the command deletes the merge check workflow from local Temporal and releases the writer task's key, so the same pull request runs again. Each run writes its verdict, routed pages and changed files to `~/.cache/posthog/knowledge-writer-e2e/<owner>-<repo>-<number>/` and prints what changed since the previous run.
+`--from-merge <merged pull request url>` sends that pull request through the merge check as a webhook delivery would, then waits for the verdict and, when it starts a writer, the docs pull request. Pass that pull request's author as `--author`, since the writer asks the author flag about them. The pull request must be in a public repository listed in `KNOWLEDGE_WRITER_SOURCE_REPOSITORIES` on the account the App is installed on, and the judge needs `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Before and after each run the command deletes the merge check workflow from local Temporal and releases the writer task's key, so the same pull request runs again. Each run writes its verdict, routed pages and changed files to `~/.cache/posthog/knowledge-writer-e2e/<owner>-<repo>-<number>/` and prints what changed since the previous run.
 
 The run takes 1 to 4 minutes. The 240-minute limit (`--agent-timeout-minutes`) only stops a stuck run. When the run ends without a pull request, the command names the task and run.

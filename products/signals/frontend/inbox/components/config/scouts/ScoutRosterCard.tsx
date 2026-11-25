@@ -18,6 +18,7 @@ import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from 
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
+import { ScoutReportActionsTag } from './ScoutReportActionsTag'
 import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 import { ScoutToolsTag } from './ScoutToolsTag'
@@ -70,6 +71,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
+                        <ScoutReportActionsTag reportActions={config.report_actions} emit={config.emit} />
                         <ScoutToolsTag allowedTools={config.allowed_mcp_tools} />
                         <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />

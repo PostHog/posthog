@@ -21,6 +21,10 @@
         "the full suite wouldn't exercise them either. Changes there run `smoke_subset` (app boots,",
         "auth works) instead of everything. A scene must not appear in both `scenes` and",
         "`scenes_smoke_only` (test-enforced); when a scene gains a real spec, move it to `scenes`.",
+        "`products_smoke_only` does the same for `products/<name>/frontend/`. List a product only when",
+        "no spec visits it and nothing outside the product imports its frontend except the registries",
+        "build-products.mjs generates: an import from shared layout, queries, or onboarding puts it on",
+        "surfaces the suite does cover.",
         "`backend_smoke` lists backend Python paths (and their pytest snapshots) that run",
         "`backend_smoke_specs` instead of everything when no earlier rule maps them; a file that also",
         "falls in a `backend_explicit` area adds that area's specs. The merge queue and master pushes",
@@ -39,6 +43,25 @@
         ".agents/**",
         ".semgrep/**",
         ".github/workflows/**",
+        ".github/scripts/**",
+        ".github/CODEOWNERS",
+        ".github/owners.yaml",
+        ".github/.pinact.yaml",
+        ".github/actionlint.yaml",
+        ".github/dependabot.yml",
+        ".github/renovate.json5",
+        ".github/auto-assign-labels.json",
+        ".github/*-problem-matcher.json",
+        "posthog/test/repo_invariants/**",
+        "posthog/clickhouse/hcl/**",
+        "services/mcp/*",
+        "services/mcp/definitions/**",
+        "services/mcp/public/**",
+        "services/mcp/scripts/**",
+        "services/mcp/src/**",
+        "services/mcp/tests/**",
+        "frontend/snapshots.yml",
+        "frontend/jest.*",
         "common/storybook/**",
         "products/messaging/backend/tests/**",
         "products/messaging/backend/**/test_*.py",
@@ -57,6 +80,9 @@
         "tsconfig.json",
         "tsconfig.*.json",
         ".github/workflows/ci-e2e-playwright.yml",
+        ".github/scripts/verify-playwright-new-tests-and-snapshots.sh",
+        ".github/scripts/trunk-codeowners.sh",
+        ".github/scripts/post-playwright-section.mjs",
         "tools/playwright_spec_selection.py",
         "tools/playwright_area_map.json",
         "frontend/src/lib/**",
@@ -65,6 +91,7 @@
         "frontend/src/layout/**",
         "frontend/src/types.ts",
         "frontend/src/globals.ts",
+        "services/mcp/src/ui-apps/lib/**",
         "posthog/migrations/**",
         "posthog/**/migrations/**",
         "ee/migrations/**",
@@ -160,6 +187,7 @@
         "products/messaging/backend/**": ["products/messaging/frontend/e2e/"]
     },
     "scenes_smoke_only": ["groups", "integrations", "max", "web-analytics"],
+    "products_smoke_only": ["apm"],
     "products": {
         "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "billing": ["products/billing/frontend/e2e/"],
@@ -218,6 +246,7 @@
         "feature-flags": ["playwright/e2e/feature-flags.spec.ts", "products/surveys/frontend/e2e/quickcreate.spec.ts"]
     },
     "explicit": {
+        "services/mcp/schema/**": ["playwright/e2e/oauth-mcp-consent.spec.ts"],
         "products/web_analytics/frontend/heatmaps/**": ["playwright/e2e/auth.spec.ts"],
         "products/signals/frontend/inbox/**": ["playwright/e2e/auth.spec.ts"],
         "products/feature_flags/frontend/**": ["playwright/e2e/feature-flags.spec.ts"],
@@ -288,9 +317,5 @@
         "products/messaging/backend/templates/message_preferences/**": ["products/messaging/frontend/e2e/"],
         "frontend/public/message-preferences.css": ["products/messaging/frontend/e2e/"]
     },
-    "full_suite_only": [
-        "playwright/e2e/oauth-mcp-consent.spec.ts",
-        "playwright/e2e/system-status.spec.ts",
-        "playwright/e2e/ingestion-capture.spec.ts"
-    ]
+    "full_suite_only": ["playwright/e2e/system-status.spec.ts", "playwright/e2e/ingestion-capture.spec.ts"]
 }

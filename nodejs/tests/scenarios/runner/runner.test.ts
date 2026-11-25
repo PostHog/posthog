@@ -1489,6 +1489,27 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('ends a run invalid when Postgres refuses two checks in a row, and keeps the refusal in its evidence', async () => {
+        const refused = { name: 'postgres', reason: 'connect ECONNREFUSED 127.0.0.1:5432', unanswered: false }
+        const result = await createRunner(
+            { ...environmentOf('all'), dependencyHealth: () => Promise.resolve({ healthy: false, down: [refused] }) },
+            env
+        ).run(shortSmoke(), NEVER_ABORTED)
+        results.push(result)
+
+        expect({
+            status: result.status,
+            statusReason: result.statusReason,
+            dependencies: (evidenceOf(result, 'probes.json') as { dependencies: unknown[] }).dependencies[0],
+        }).toEqual({
+            status: 'invalid',
+            statusReason: expect.stringMatching(
+                /^dependencies went away: postgres (in the \d+x step|at \S+|after the drive, at \S+) \(connect ECONNREFUSED 127\.0\.0\.1:5432\)$/
+            ),
+            dependencies: expect.objectContaining({ name: 'postgres', kind: 'gone', reason: refused.reason }),
+        })
+    }, 30_000)
+
     it('spreads the intake offers over every cdp-api replica the profile starts', async () => {
         const received = [0, 0]
         const intakes = await Promise.all(
@@ -1726,6 +1747,7 @@ describe('runner through seed, drive and judge', () => {
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+                dependencies: [],
             })
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)
         },

@@ -5,7 +5,7 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const RUN_LINK_TAG_INFO =
-    "Connects each tracked link click in this email to the session it starts on your site, including its session replay when recording is on. It works for links to the domain you send from. When off, this email's links don't get the extra URL parameter that makes the connection."
+    "Connects each tracked link click in this email to the session it starts on your site, including its session replay when recording is on. It works for links to the main domain you send from, or any of its subdomains. When off, this email's links don't get the extra URL parameter that makes the connection."
 
 export interface RunLinkTagSwitchProps {
     checked: boolean

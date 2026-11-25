@@ -146,6 +146,13 @@ export interface WorkflowLogicProps {
     entrySource?: string
 }
 
+/** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
+function reportWorkflowName(props: WorkflowLogicProps, workflow: HogFlow): void {
+    if (props.id && props.id !== 'new') {
+        workflowSceneLogic.findMounted({ id: props.id })?.actions.setWorkflowName(workflow.name)
+    }
+}
+
 export function workflowLogicKey(props: WorkflowLogicProps): string {
     return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}-${props.messageTemplateId || 'default'}`
 }
@@ -5279,6 +5286,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            reportWorkflowName(props, originalWorkflow)
             const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
@@ -5338,6 +5346,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            reportWorkflowName(props, originalWorkflow)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.

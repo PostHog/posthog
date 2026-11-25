@@ -49,7 +49,8 @@ FROM (
     WHERE toDate(date) >= toDate(${escapeHogQLString(from)}) AND toDate(date) <= toDate(${escapeHogQLString(to)})
         AND (search_type = 'web' OR search_type IS NULL)
 )
-GROUP BY keyword`
+GROUP BY keyword
+LIMIT ${keywords.length}`
 
 export const keywordImpressionsFromRows = (rows: unknown[][]): Record<string, KeywordSearchImpressions> =>
     Object.fromEntries(

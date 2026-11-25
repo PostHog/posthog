@@ -10,7 +10,7 @@ import { isEventsQuery } from '~/queries/utils'
 import type { AnyPropertyFilter } from '../../../../frontend/src/types'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 
 export type AIObservabilityGenerationsLogicProps = Record<string, never>
 
