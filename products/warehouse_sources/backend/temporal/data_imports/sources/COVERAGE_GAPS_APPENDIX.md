@@ -15060,7 +15060,7 @@ Note: Docusaurus site; sitemap enumerated the full operation list and individual
 
 Re-audited 2026-11-19 against: <https://docs.tinyrelay.com/docs/tiny-email/list-templates>
 
-- [ ] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
+- [x] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
 
 Note (2026-11-19): Diffed the sitemap at docs.tinyemail.com (now served under docs.tinyrelay.com) against our tables. Templates are the only new readable list; it is paged with zero-based page, size and sort params (name, createdAt, updatedAt). Excluded account customer (single GET by email, no list), segment single lookups, bounce code reference page, and all write routes.
 
