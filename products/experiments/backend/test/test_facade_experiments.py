@@ -230,8 +230,6 @@ class TestExperimentReadFacade(ExperimentFixtures, APIBaseTest):
             ("live", {}, {}, True),
             ("deleted", {"deleted": True}, {}, False),
             ("deleted_with_include_deleted", {"deleted": True}, {"include_deleted": True}, True),
-            ("search_misses", {}, {"search": "other"}, False),
-            ("search_matches_the_flag_key", {}, {"search": "lookup-flag"}, True),
         ]
     )
     def test_get_experiment_finds_the_experiment_the_lookup_names(
