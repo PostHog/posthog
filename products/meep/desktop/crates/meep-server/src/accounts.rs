@@ -352,7 +352,7 @@ impl Accounts {
         if self.store.credential_version(id)? != Some(Uuid::nil()) {
             return Ok(vec![]);
         }
-        let Some(binding) = grant_binding(&grant.secrets, None) else {
+        let Some(binding) = grant_binding(&grant.secrets) else {
             return Ok(vec![]);
         };
         if self
@@ -370,12 +370,7 @@ impl Accounts {
             .map(|c| c.grants)
             .unwrap_or_default())
     }
-    pub(super) fn sign_out(
-        &self,
-        engine: &Engine,
-        id: &str,
-        legacy_user: Option<Uuid>,
-    ) -> Result<ConnectionInfo> {
+    pub(super) fn sign_out(&self, engine: &Engine, id: &str) -> Result<ConnectionInfo> {
         let _lock = self.writes.lock();
         let mut connection = self
             .store
@@ -388,7 +383,7 @@ impl Accounts {
             if connection.kind == "posthog" {
                 let binding = self
                     .get(id)
-                    .and_then(|a| grant_binding(&a.values, legacy_user))
+                    .and_then(|a| grant_binding(&a.values))
                     .unwrap_or(Value::Null);
                 let key = format!("\0topics/grant-owner/{id}");
                 let previous = self.checkpoints.load(&key)?;
@@ -654,11 +649,11 @@ impl meep_ingest::Connector for WebhookInbox {
     }
 }
 
-fn grant_binding(values: &Secrets, legacy_user: Option<Uuid>) -> Option<Value> {
+fn grant_binding(values: &Secrets) -> Option<Value> {
     Some(json!([
         values.get("region")?,
         values.get("project_id")?,
-        legacy_user.or_else(|| values.get("user_uuid")?.parse().ok())?
+        values.get("user_uuid")?.parse::<Uuid>().ok()?
     ]))
 }
 

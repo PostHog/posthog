@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from django.conf import settings
 from django.db import transaction
@@ -1691,6 +1691,7 @@ class SourceScout:
     skill_name: str
     enabled: bool
     created_at: datetime
+    display_name: str = ""
 
 
 @frozen
@@ -1714,6 +1715,43 @@ _STRUCTURED_OUTPUT_READ_LIMIT = 500
 _RUN_START_TOLERANCE = timedelta(seconds=1)
 
 
+class ScoutLifecycleRequest(Protocol):
+    """Request context passed to the Signals lifecycle service."""
+
+
+def set_source_scout_enabled(
+    *,
+    team: Team,
+    user: User,
+    source_product: str,
+    source_id: str,
+    config_id: uuid.UUID,
+    enabled: bool,
+    request: ScoutLifecycleRequest,
+) -> SourceScout | None:
+    """Apply a person's pause/resume to their source object's scout."""
+    from products.signals.backend.source_scout_lifecycle import set_source_scout_enabled as set_enabled
+
+    config = set_enabled(
+        team=team,
+        user=user,
+        source_product=source_product,
+        source_id=source_id,
+        config_id=config_id,
+        enabled=enabled,
+        request=request,
+    )
+    if config is None:
+        return None
+    return SourceScout(
+        config_id=str(config.id),
+        skill_name=config.skill_name,
+        enabled=config.enabled,
+        created_at=config.created_at,
+        display_name=config.display_name,
+    )
+
+
 def scouts_for_source(
     team_id: int, source_product: str, source_id: str, *, tag: str | None = None
 ) -> list[SourceScout]:
@@ -1722,10 +1760,16 @@ def scouts_for_source(
     if tag is not None:
         configs = configs.filter(tags__contains=[tag])
     return [
-        SourceScout(config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at)
-        for config_id, skill_name, enabled, created_at in configs.order_by("created_at").values_list(
-            "id", "skill_name", "enabled", "created_at"
+        SourceScout(
+            config_id=str(config_id),
+            skill_name=skill_name,
+            enabled=enabled,
+            created_at=created_at,
+            display_name=display_name,
         )
+        for config_id, skill_name, enabled, created_at, display_name in configs.order_by(
+            "created_at", "pk"
+        ).values_list("id", "skill_name", "enabled", "created_at", "display_name")
     ]
 
 

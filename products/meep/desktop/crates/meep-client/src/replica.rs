@@ -202,35 +202,16 @@ pub(crate) fn outbox_end(db: &Connection) -> Result<i64> {
     )
 }
 
-pub(crate) fn has_without_sort(db: &Connection) -> Result<bool> {
-    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM client_outbox WHERE json_extract(envelope,'$.command.kind')='CreateTopicWithoutSort')", [], |r| r.get(0))?)
-}
-
-pub(crate) fn has_context_sources(db: &Connection) -> Result<bool> {
-    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM client_outbox WHERE json_extract(envelope,'$.command.kind') IN ('SetContextSources','AddContextSource','RemoveContextSource'))", [], |r| r.get(0))?)
-}
-
 // Creation is a barrier: dependent edits require confirmation that this UUID belongs
 // to the new topic, and any requested grants must precede the next command.
-pub(crate) fn next_batch(
-    db: &Connection,
-    after: i64,
-    end: i64,
-    supports_without_sort: bool,
-    supports_context_sources: bool,
-) -> Result<(i64, Vec<Envelope>)> {
+pub(crate) fn next_batch(db: &Connection, after: i64, end: i64) -> Result<(i64, Vec<Envelope>)> {
     let mut stmt = db.prepare(
-        "SELECT seq,envelope FROM client_outbox WHERE seq>?1 AND seq<=?2 AND (?3 OR json_extract(envelope,'$.command.kind')!='CreateTopicWithoutSort') AND (?4 OR json_extract(envelope,'$.command.kind') NOT IN ('SetContextSources','AddContextSource','RemoveContextSource')) AND NOT EXISTS (SELECT 1 FROM client_command_retry r WHERE r.id=client_outbox.id AND r.due>unixepoch())
+        "SELECT seq,envelope FROM client_outbox WHERE seq>?1 AND seq<=?2 AND NOT EXISTS (SELECT 1 FROM client_command_retry r WHERE r.id=client_outbox.id AND r.due>unixepoch())
          AND NOT EXISTS (SELECT 1 FROM client_outbox creation WHERE creation.topic=client_outbox.topic
-             AND creation.seq<client_outbox.seq AND (json_extract(creation.envelope,'$.command.kind') IN ('CreateTopic','CreateTopicWithoutSort') OR (NOT ?4 AND json_extract(creation.envelope,'$.command.kind') IN ('SetContextSources','AddContextSource','RemoveContextSource'))))
+             AND creation.seq<client_outbox.seq AND json_extract(creation.envelope,'$.command.kind') IN ('CreateTopic','CreateTopicWithoutSort'))
          ORDER BY seq LIMIT 64",
     )?;
-    let mut rows = stmt.query(params![
-        after,
-        end,
-        supports_without_sort,
-        supports_context_sources
-    ])?;
+    let mut rows = stmt.query(params![after, end])?;
     let mut last = after;
     let mut commands = vec![];
     while let Some(row) = rows.next()? {

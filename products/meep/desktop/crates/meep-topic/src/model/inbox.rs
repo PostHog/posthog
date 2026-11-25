@@ -104,7 +104,6 @@ impl Source {
 
 /// An individual message in the inbox.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(from = "StoredMessage")]
 pub struct Message {
     /// Local message identity.
     pub id: MessageId,
@@ -120,46 +119,6 @@ pub struct Message {
     pub text: String,
     /// ID assigned by the source, when available.
     pub external_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StoredMessage {
-    id: MessageId,
-    producer: Option<Producer>,
-    origin: Option<Origin>,
-    source: Option<Source>,
-    author: String,
-    at: DateTime<Utc>,
-    text: String,
-    external_id: Option<String>,
-}
-
-impl From<StoredMessage> for Message {
-    fn from(m: StoredMessage) -> Self {
-        let (producer, origin) = match m.producer {
-            Some(producer) => (producer, m.origin),
-            None => {
-                let producer = if m.source == Some(Source::User) {
-                    Producer::User
-                } else {
-                    Producer::System
-                };
-                let origin = m
-                    .source
-                    .map(|s| s.into_origin(m.author.clone(), m.at, m.external_id.clone()));
-                (producer, origin)
-            }
-        };
-        Self {
-            id: m.id,
-            producer,
-            origin,
-            author: m.author,
-            at: m.at,
-            text: m.text,
-            external_id: m.external_id,
-        }
-    }
 }
 
 impl Message {

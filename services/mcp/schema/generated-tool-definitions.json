@@ -12657,17 +12657,32 @@
             "readOnlyHint": true
         }
     },
-    "meep-topic-create": {
-        "description": "Create a topic with a title and a mission in this project.",
+    "meep-scout-create": {
+        "description": "Create a native PostHog Scout for a requested recurring investigation. Its findings appear in the assigned Meep topic. Repeating the same definition returns the linked scout.",
         "category": "Meep",
         "feature": "meep",
-        "summary": "Create a Meep topic",
-        "title": "Create a Meep topic",
-        "required_scopes": ["meep:write"],
-        "api_operations": ["POST /api/projects/{project_id}/meep/topics/"],
+        "summary": "Set up a Scout for this topic",
+        "title": "Set up a Scout for this topic",
+        "required_scopes": ["meep_scout:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/scouts/"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "meep-scout-set-enabled": {
+        "description": "Set a linked native Scout's enabled state when the user asks to pause or resume monitoring.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Pause or resume a topic Scout",
+        "title": "Pause or resume a topic Scout",
+        "required_scopes": ["meep_scout:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/scout-status/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }

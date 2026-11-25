@@ -1408,6 +1408,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `meep` - Meep
  * * `analytics` - Product analytics
  * * `slack` - Slack
  * * `freshdesk` - Freshdesk
@@ -1571,6 +1572,7 @@ export const SignalSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Meep: 'meep',
     Analytics: 'analytics',
     Slack: 'slack',
     Freshdesk: 'freshdesk',
@@ -1785,6 +1787,7 @@ export interface InboxOnboardingSourceApi {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `meep` - Meep
      * * `analytics` - Product analytics
      * * `slack` - Slack
      * * `freshdesk` - Freshdesk
@@ -5249,6 +5252,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `meep` - meep
  * * `analytics` - analytics
  * * `slack` - slack
  * * `freshdesk` - freshdesk
@@ -5412,6 +5416,7 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Meep: 'meep',
     Analytics: 'analytics',
     Slack: 'slack',
     Freshdesk: 'freshdesk',
@@ -7334,6 +7339,7 @@ export interface SignalNodeApi {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `meep` - meep
      * * `analytics` - analytics
      * * `slack` - slack
      * * `freshdesk` - freshdesk

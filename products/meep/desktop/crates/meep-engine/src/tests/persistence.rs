@@ -52,115 +52,13 @@ async fn records_reopen_with_search_receipts_schedules_and_an_active_agent_handl
     Ok(())
 }
 
-fn write_legacy_topic(dir: &Path, topic: TopicId, body: Value) -> Result<()> {
-    let db = Database::open(dir.join("topics.sqlite"))?;
-    meep_store::initialize(&db)?;
-    meep_store::put(
-        &db,
-        "meep-sync/cache/topic",
-        &topic.to_string(),
-        &json!({"kind":"topic","id":topic,"rev":7,"body":body,"deleted":false}),
-    )?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn opens_plain_sync_topic_records_and_prevents_competing_workers_on_one_directory()
--> Result<()> {
+#[test]
+fn the_topic_directory_has_one_writer() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    let t = id();
-    let mut state = TopicState::new(Topic::new(t, "Imported", DateTime::UNIX_EPOCH));
-    state.add_task(
-        id(),
-        "Review history",
-        Actor::User,
-        None,
-        DateTime::UNIX_EPOCH,
-    )?;
-    write_legacy_topic(dir.path(), t, serde_json::to_value(&state)?)?;
-    let e = Engine::open(dir.path()).await?;
-    state.usage.hourly_cap = 60;
-    assert_eq!(e.topic(t)?, state);
-    assert_eq!(e.snapshot(t)?.revision, 8); // One revision publishes the host cap.
-    assert_eq!(e.search("history")?.len(), 1);
-    assert!(Engine::open(dir.path()).await.is_err());
-    drop(e);
-    assert_eq!(Engine::open(dir.path()).await?.topic(t)?, state);
-    Ok(())
-}
-
-#[tokio::test]
-async fn legacy_message_addresses_survive_snapshot_import_and_reload() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let topic = id();
-    let sender: TopicId = id();
-    let mut state = TopicState::new(Topic::new(topic, "Imported", DateTime::UNIX_EPOCH));
-    let msg = event("legacy", "Original text", Value::Null).message(id())?;
-    state.receive(msg.clone(), "legacy", id(), msg.at)?;
-    let mut snapshot = serde_json::to_value(state)?;
-    let stored = &mut snapshot["threads"][0]["messages"][0];
-    *stored = json!({"id":msg.id,"source":Source::Topic(sender),"text":msg.text,"author":msg.author,
-        "at":msg.at,"external_id":"legacy"});
-    write_legacy_topic(dir.path(), topic, snapshot)?;
-    for _ in 0..2 {
-        let engine = Engine::open(dir.path()).await?;
-        let state = engine.topic(topic)?;
-        let message = &state.threads[0].messages[0];
-        assert_eq!(message.producer, Producer::System);
-        assert_eq!(message.reply_target(), Some(Source::Topic(sender)));
-        let origin = message.origin.as_ref().unwrap();
-        assert_eq!(origin.external_id, msg.external_id);
-        assert_eq!((&origin.author, origin.at), (&msg.author, msg.at));
-        assert!(serde_json::to_value(message)?.get("source").is_none());
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn old_topic_watches_become_passive_references_and_survive_reload() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let topic = id();
-    let watch = watch();
-    let mut legacy = serde_json::to_value(TopicState::new(Topic::new(
-        topic,
-        "Legacy",
-        DateTime::UNIX_EPOCH,
-    )))?;
-    let object = legacy["topic"].as_object_mut().unwrap();
-    object.remove("context_sources");
-    let mut stage = object.remove("fallback").unwrap();
-    stage["external_id"] = json!(CHECK_FACTS);
-    stage["id"] = json!(CHECK_FACTS);
-    stage["enabled"] = json!(false);
-    object.remove("settings");
-    object.insert("routines".into(), json!([stage]));
-    legacy["topic"]["watch"] = json!([watch]);
-    legacy["revision"] = json!(7);
-    {
-        let db = Database::open(dir.path().join("topics.sqlite"))?;
-        meep_store::initialize(&db)?;
-        meep_store::put(&db, "engine/topic", &topic.to_string(), &legacy)?;
-        meep_store::put(&db, "engine/revision", &topic.to_string(), &7)?;
-    }
-    let engine = open_at_epoch(dir.path()).await?;
-    assert!(!engine.default_sort_pending(topic)?);
-    engine
-        .ingest(event("old", "First arrival", Value::Null))
-        .await?;
-    let state = engine.topic(topic)?;
-    assert!(!state.topic.settings.check_facts);
-    assert!(state.topic.routines.is_empty());
-    assert_eq!(state.topic.context_sources, vec![watch.clone()]);
-    assert_eq!(state.topic.watches().count(), 0);
-    assert!(state.threads.is_empty());
-    engine.shutdown().await;
-    drop(engine);
-    let db = Database::open(dir.path().join("topics.sqlite"))?;
-    let saved = meep_store::get::<Value>(&db, "engine/topic", &topic.to_string())?.unwrap();
-    assert!(saved["topic"].get("watch").is_none());
-    assert_eq!(saved["topic"]["context_sources"], json!([watch]));
-    assert_eq!(saved["topic"]["fallback"]["watches"], json!([]));
-    assert_eq!(open_at_epoch(dir.path()).await?.topic(topic)?, state);
+    let store = SqliteStore::open(dir.path())?;
+    assert!(SqliteStore::open(dir.path()).is_err());
+    drop(store);
+    SqliteStore::open(dir.path())?;
     Ok(())
 }
 
@@ -202,35 +100,6 @@ async fn moving_a_source_changes_its_only_route_and_leaves_failed_delivery_repla
     fresh.external_id = "fresh".into();
     engine.ingest(fresh).await?;
     assert_eq!(engine.topic(topic)?.threads.len(), 1);
-    Ok(())
-}
-
-#[test]
-fn legacy_tombstones_are_ignored_and_an_invalid_snapshot_rolls_back_the_import() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let live = TopicId(Uuid::from_u128(1));
-    let deleted = TopicId(Uuid::from_u128(2));
-    let invalid = TopicId(Uuid::from_u128(3));
-    let state = TopicState::new(Topic::new(live, "Live", DateTime::UNIX_EPOCH));
-    write_legacy_topic(dir.path(), live, serde_json::to_value(&state)?)?;
-    let db = Database::open(dir.path().join("topics.sqlite"))?;
-    let cache = "meep-sync/cache/topic";
-    meep_store::put(
-        &db,
-        cache,
-        &deleted.to_string(),
-        &json!({"kind":"topic", "id":deleted, "rev":8, "body":null, "deleted":true}),
-    )?;
-    write_legacy_topic(dir.path(), invalid, serde_json::to_value(&state)?)?;
-    assert!(SqliteStore::open(dir.path()).is_err());
-    assert!(meep_store::list::<StoredTopic>(&db, "engine/topic")?.is_empty());
-
-    meep_store::remove(&db, cache, &invalid.to_string())?;
-    let store = SqliteStore::open(dir.path())?;
-    let snapshots = store.load()?;
-    assert_eq!(snapshots.len(), 1);
-    assert_eq!(snapshots[0].state, state);
-    assert_eq!(snapshots[0].revision, 7);
     Ok(())
 }
 
@@ -505,48 +374,6 @@ async fn a_failed_index_write_rolls_back_the_snapshot_receipt_and_change_cursor(
     assert_eq!(e.snapshot(topic)?, before);
     assert_eq!(e.apply(request).await?.revision, 2);
     assert_eq!(e.search("transactional")?.len(), 1);
-    Ok(())
-}
-
-#[tokio::test]
-async fn legacy_local_workflows_become_failed_bindings_and_drop_pending_jobs_once() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    let t = id();
-    let flow = routine(
-        "review",
-        json!({"kind":"event","event":"taskAdded"}),
-        "topic.addFact",
-        json!({"text":"Migrated"}),
-    )?;
-    let mut record = serde_json::to_value(TopicState::new(Topic::new(
-        t,
-        "Legacy",
-        DateTime::UNIX_EPOCH,
-    )))?;
-    record["topic"]
-        .as_object_mut()
-        .expect("topic")
-        .remove("routines");
-    record["routines"] = json!({"review":{"workflow":flow,"next":null}});
-    record["jobs"] = json!([{"id":Uuid::new_v4(),"workflow":flow,"input":{},"cause":{"hops":0,"stack":[[t,"review"]]},"receipts":{}}]);
-    write_legacy_topic(dir.path(), t, record)?;
-    let e = Engine::open(dir.path()).await?;
-    let state = e.topic(t)?;
-    assert!(state.topic.facts.is_empty());
-    assert!(state.topic.routines.is_empty());
-    assert_eq!(
-        state
-            .activity
-            .iter()
-            .filter(|a| a.text.contains("Dropped pending local routine jobs"))
-            .count(),
-        1
-    );
-    e.shutdown().await;
-    drop(e);
-    let e = Engine::open(dir.path()).await?;
-    assert_eq!(e.topic(t)?, state);
-    assert!(e.routine_secret(t, "review").is_err());
     Ok(())
 }
 
@@ -876,7 +703,9 @@ async fn retention_keeps_latest_snapshots_and_bounds_receipt_replay() -> Result<
         e.apply(cmd).await?;
         assert_eq!(e.topic(t)?.activity.last().unwrap().at, clock.now());
         assert!(
-            matches!(store.receipt(key)?,Some(CommandReceipt::Accepted{issued_at:Some(at),..}) if at==issued.min(clock.now()))
+            store
+                .receipt(key)?
+                .is_some_and(|receipt| receipt.issued_at == issued.min(clock.now()))
         );
     }
     store.record_seen("fixture", "old")?;
@@ -996,7 +825,6 @@ async fn topic_created_without_sort_stays_opted_out_after_restart() -> Result<()
     }
     drop(engine);
     let engine = Engine::open(dir.path()).await?;
-    engine.enroll_legacy_default(topic).await?;
     engine.apply(create).await?;
     let slot = engine.slot(topic)?;
     let saved = slot.saved.read();
@@ -1034,67 +862,5 @@ async fn passive_context_survives_restart_without_watching_or_provisioning() -> 
     assert_eq!(engine.topic(topic)?.topic.context_sources, vec![reference]);
     assert_eq!(engine.topic(topic)?.topic.watches().count(), 0);
     assert!(!engine.default_sort_pending(topic)?);
-    Ok(())
-}
-
-#[tokio::test]
-async fn passive_context_storage_fails_closed_for_legacy_readers() -> Result<()> {
-    #[derive(serde::Deserialize)]
-    struct LegacyReader {
-        default_sort_removed: bool,
-    }
-    let dir = tempfile::tempdir()?;
-    let engine = open_at_epoch(dir.path()).await?;
-    let (topic, _) = engine.create_topic("Guarded", "").await?;
-    let db = Database::open(dir.path().join("topics.sqlite"))?;
-    let old: Value = meep_store::get(&db, "engine/topic", &topic.to_string())?.unwrap();
-    let legacy: LegacyReader = serde_json::from_value(old)?;
-    assert!(!legacy.default_sort_removed);
-    let source = watch();
-    engine
-        .apply(envelope(
-            topic,
-            Command::AddContextSource {
-                source: source.clone(),
-            },
-        ))
-        .await?;
-    let guarded: Value = meep_store::get(&db, "engine/topic", &topic.to_string())?.unwrap();
-    assert_eq!(guarded["default_sort_removed"], "passive-context-v1:false");
-    assert!(serde_json::from_value::<LegacyReader>(guarded.clone()).is_err());
-    let current: StoredTopic = serde_json::from_value(guarded)?;
-    assert!(!current.default_sort_removed);
-    assert_eq!(current.state.topic.context_sources, vec![source.clone()]);
-    let snapshot = serde_json::to_value(engine.snapshot(topic)?)?;
-    assert!(snapshot.get("default_sort_removed").is_none());
-    engine.shutdown().await;
-    drop(engine);
-    // Emulate an early build that wrote passive references without the guard.
-    let mut unguarded: Value = meep_store::get(&db, "engine/topic", &topic.to_string())?.unwrap();
-    unguarded["default_sort_removed"] = json!(false);
-    meep_store::put(&db, "engine/topic", &topic.to_string(), &unguarded)?;
-    let reopened = open_at_epoch(dir.path()).await?;
-    assert_eq!(reopened.topic(topic)?.topic.context_sources, vec![source]);
-    let upgraded: Value = meep_store::get(&db, "engine/topic", &topic.to_string())?.unwrap();
-    assert_eq!(upgraded["default_sort_removed"], "passive-context-v1:false");
-    assert!(serde_json::from_value::<LegacyReader>(upgraded).is_err());
-    Ok(())
-}
-
-#[test]
-fn retained_deleted_topic_context_keeps_downgrade_guard() -> Result<()> {
-    let topic = TopicState::new(Topic::new(id(), "Retired", DateTime::UNIX_EPOCH));
-    let mut stored: StoredTopic = serde_json::from_value(serde_json::to_value(&topic)?)?;
-    let mut retired = topic;
-    retired.topic.context_sources.push(watch());
-    stored.retired_state = Some(Box::new(retired));
-    let body: Value = serde_json::from_str(&crate::store::stored_body(&stored)?)?;
-    assert_eq!(body["default_sort_removed"], "passive-context-v1:false");
-    assert!(
-        body["topic"]["context_sources"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
     Ok(())
 }

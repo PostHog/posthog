@@ -60,8 +60,6 @@ pub struct DeviceTokens(PathBuf, OwnerId);
 #[derive(Serialize, Deserialize)]
 struct Registry {
     implicit: OwnerId,
-    #[serde(default)]
-    tokens_migrated: bool,
     owners: BTreeMap<OwnerId, Option<String>>,
 }
 
@@ -71,13 +69,12 @@ impl DeviceTokens {
         let mut tokens = Self(dir.as_ref().to_owned(), Uuid::nil());
         private_dir(dir.as_ref())?;
         let _lock = tokens.lock()?;
-        let mut registry = match fs::read(tokens.0.join("owners.json")) {
+        let registry = match fs::read(tokens.0.join("owners.json")) {
             Ok(data) => serde_json::from_slice::<Registry>(&data)?,
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let implicit = Uuid::new_v4();
                 let registry = Registry {
                     implicit,
-                    tokens_migrated: false,
                     owners: BTreeMap::from([(implicit, None)]),
                 };
                 tokens.save_registry(&registry)?;
@@ -104,18 +101,10 @@ impl DeviceTokens {
                 "Invalid token record"
             );
             let value = fs::read_to_string(records.join(name))?;
-            if value.is_empty() {
-                anyhow::ensure!(
-                    !registry.tokens_migrated,
-                    "Empty owner on a migrated device token"
-                );
-                private_write(&records, name, tokens.1.to_string().as_bytes())?;
-            } else {
-                anyhow::ensure!(
-                    registry.owners.contains_key(&value.parse()?),
-                    "Unknown token owner"
-                );
-            }
+            anyhow::ensure!(
+                registry.owners.contains_key(&value.parse()?),
+                "Unknown token owner"
+            );
         }
         let bootstrap = tokens.0.join("device-token");
         // Publish the desktop credential before its digest, so initialization is recoverable.
@@ -129,10 +118,6 @@ impl DeviceTokens {
                 None => tokens.record(token.trim(), tokens.1)?,
                 Some(id) => anyhow::ensure!(id == tokens.1, "Conflicting desktop token owner"),
             }
-        }
-        if !registry.tokens_migrated {
-            registry.tokens_migrated = true;
-            tokens.save_registry(&registry)?;
         }
         Ok(tokens)
     }

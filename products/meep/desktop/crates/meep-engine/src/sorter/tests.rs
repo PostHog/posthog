@@ -622,8 +622,8 @@ async fn system_one_reconciles_committed_memory_after_restart_and_humans_resolve
     );
     e.command(
         id,
-        meep_topic::Command::SetRoutineEnabled {
-            routine: meep_topic::CHECK_FACTS.into(),
+        meep_topic::Command::SetTopicSetting {
+            key: meep_topic::CHECK_FACTS.into(),
             enabled: false,
         },
     )

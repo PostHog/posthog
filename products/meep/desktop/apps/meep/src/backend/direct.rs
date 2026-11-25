@@ -3,13 +3,6 @@ use meep_client::{AccessToken, TransportError};
 use meep_posthog::oauth::RefreshToken;
 use tokio::sync::Mutex;
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Credentials {
-    identity: Identity,
-    user: uuid::Uuid,
-    values: BTreeMap<String, String>,
-}
-
 pub(crate) struct Account {
     key: String,
     user: uuid::Uuid,
@@ -19,42 +12,19 @@ pub(crate) struct Account {
 }
 
 async fn authorize_direct(root: &Path, region: Region) -> Result<Credentials> {
-    let scopes = [
-        "meep:read",
-        "meep:write",
-        "task:read",
-        "task:write",
-        "project:read",
-        "project:write",
-        "feature_flag:read",
-        "insight:read",
-        "query:read",
-        "event_definition:read",
-        "user:read",
-    ];
-    let (identity, values) = authorize(
-        &root.join("direct"),
+    authorize(
+        root,
         region,
         region.origin(),
         Callback::bind(43180).await?,
-        &scopes,
         |url| Ok(open::that_detached(url.as_str())?),
     )
-    .await?;
-    let user = values
-        .get("user_uuid")
-        .context("Missing account identity")?
-        .parse()?;
-    Ok(Credentials {
-        identity,
-        user,
-        values,
-    })
+    .await
 }
 
 pub(super) async fn connect(root: PathBuf, region: Region) -> Result<Backend> {
     let digest = Sha256::digest(root.canonicalize()?.as_os_str().as_encoded_bytes());
-    let key = format!("direct-{}-{digest:x}", region.key());
+    let key = format!("posthog-{}-{digest:x}", region.key());
     let saved = KeychainSecrets::new(KEYCHAIN).get(&key, "session")?;
     let credentials: Credentials = if let Some(value) = saved {
         serde_json::from_str(&value)?
@@ -68,17 +38,14 @@ pub(super) async fn connect(root: PathBuf, region: Region) -> Result<Backend> {
     let user = credentials.user;
     let project = identity.project;
     let account = Arc::new(Account {
-        key: key.clone(),
+        key,
         region,
         user,
         project,
         credentials: Mutex::new(Some(credentials)),
     });
     let transport = HttpTransport::posthog(region.origin(), project, account.clone())?;
-    let path = root.join(format!(
-        "replica-direct-{}-{project}-{user}.sqlite",
-        region.key()
-    ));
+    let path = root.join(format!("replica-{}-{project}-{user}.sqlite", region.key()));
     let client = Client::open(path, Arc::new(transport))?;
     client.set_preference("posthog-project", &identity)?;
     client.set_preference("signed-in", &true)?;
@@ -87,7 +54,6 @@ pub(super) async fn connect(root: PathBuf, region: Region) -> Result<Backend> {
         client,
         server: format!("{}/api/projects/{project}/meep", region.origin()),
         root,
-        credentials: key,
     })
 }
 
@@ -121,51 +87,26 @@ impl Account {
     }
 
     async fn token(&self, value: &mut Credentials) -> Result<String> {
-        let values = &mut value.values;
-        if values
-            .get("expires_at")
-            .and_then(|v| v.parse::<i64>().ok())
-            .is_none_or(|end| end <= chrono::Utc::now().timestamp() + 60)
-        {
+        if value.expires_at <= chrono::Utc::now().timestamp() + 60 {
             let issuer = Server::discover(self.region.origin()).await?;
-            let client = issuer.client_for_redirect(
-                values
-                    .get("client_id")
-                    .context("Missing client ID")?
-                    .clone(),
-                "http://127.0.0.1:43180/callback",
-            )?;
-            let refresh = values
-                .get("refresh_token")
-                .context("Missing refresh token")?
-                .clone();
-            let tokens = client.refresh(&RefreshToken::new(refresh)).await?;
+            let client = issuer
+                .client_for_redirect(value.client_id.clone(), "http://127.0.0.1:43180/callback")?;
+            let tokens = client
+                .refresh(&RefreshToken::new(value.refresh_token.clone()))
+                .await?;
             if let Some(refresh) = tokens.refresh_token() {
-                values.insert("refresh_token".into(), refresh.secret().clone());
+                value.refresh_token = refresh.secret().clone();
             }
-            values.insert(
-                "access_token".into(),
-                tokens.access_token().secret().clone(),
-            );
-            let ttl = tokens
-                .expires_in()
-                .unwrap_or(Duration::from_secs(300))
-                .as_secs();
-            values.insert(
-                "expires_at".into(),
-                (chrono::Utc::now().timestamp() + ttl as i64).to_string(),
-            );
+            value.access_token = tokens.access_token().secret().clone();
+            let ttl = tokens.expires_in().unwrap_or(Duration::from_secs(300));
+            value.expires_at = chrono::Utc::now().timestamp() + ttl.as_secs() as i64;
             KeychainSecrets::new(KEYCHAIN).set(
                 &self.key,
                 "session",
                 &serde_json::to_string(value)?,
             )?;
         }
-        Ok(value
-            .values
-            .get("access_token")
-            .context("Missing token")?
-            .clone())
+        Ok(value.access_token.clone())
     }
 }
 
@@ -186,13 +127,14 @@ impl AccessToken for Account {
     ) -> std::result::Result<serde_json::Value, TransportError> {
         let token = self.access_token().await?;
         let origin = self.region.origin();
-        let local_endpoint = format!("{origin}/mcp");
-        let endpoint = match origin {
-            "https://us.posthog.com" | "https://eu.posthog.com" => {
-                meep_posthog::mcp::DEFAULT_ENDPOINT
-            }
-            _ => &local_endpoint,
-        };
+        let configured_endpoint = std::env::var("POSTHOG_MCP_URL").ok();
+        let endpoint = configured_endpoint
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .unwrap_or(match self.region {
+                Region::Local => "http://localhost:8787/mcp",
+                Region::Us | Region::Eu => meep_posthog::mcp::DEFAULT_ENDPOINT,
+            });
         let read = async {
             let client = meep_posthog::mcp::McpClient::new(endpoint, Some(self.project))?;
             meep_posthog::mcp::view::read_source(

@@ -1391,28 +1391,17 @@ async fn sign_in_after_sign_out_restores_only_matching_topic_grants() -> Result<
     let topic = Uuid::new_v4().into();
     h.commands(vec![create(topic)]).await?;
     let user = Uuid::new_v4();
-    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let region = format!("http://{}", upstream.local_addr()?);
-    let provider = axum::Router::new().route(
-        "/api/users/@me/",
-        axum::routing::get(move || async move { axum::Json(json!({"uuid":user})) }),
-    );
-    let serving = tokio::spawn(async move { axum::serve(upstream, provider).await });
+    let region = "http://127.0.0.1:1";
     let grant = json!({"kind":"posthog","label":"PostHog","grants":[topic],
         "secrets":{"access_token":"fixture","region":region,"project_id":"7","user_uuid":user}});
-    for (field, value, restore, legacy) in [
-        ("access_token", "fresh-token".to_owned(), true, true),
-        ("access_token", "fresh-token".to_owned(), true, false),
-        ("project_id", "8".to_owned(), false, false),
-        ("user_uuid", Uuid::new_v4().to_string(), false, false),
-        ("region", "http://127.0.0.1:2".to_owned(), false, false),
+    for (field, value, restore) in [
+        ("access_token", "fresh-token".to_owned(), true),
+        ("project_id", "8".to_owned(), false),
+        ("user_uuid", Uuid::new_v4().to_string(), false),
+        ("region", "http://127.0.0.1:2".to_owned(), false),
     ] {
-        let mut old = grant.clone();
-        if legacy {
-            old["secrets"].as_object_mut().unwrap().remove("user_uuid");
-        }
         h.request(Method::PUT, "connections/posthog")
-            .json(&old)
+            .json(&grant)
             .send()
             .await?
             .error_for_status()?;
@@ -1434,7 +1423,6 @@ async fn sign_in_after_sign_out_restores_only_matching_topic_grants() -> Result<
             .await?;
         assert_eq!(info.grants.contains(&topic), restore, "{field}");
     }
-    serving.abort();
     h.close().await?;
     Ok(())
 }

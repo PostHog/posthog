@@ -688,17 +688,7 @@ async fn put_connection(
                 "This server connection belongs to another project.",
             ));
         }
-        let mut previous_user = existing.values.get("user_uuid").cloned();
-        if previous_user.is_none()
-            && grant.secrets.contains_key("user_uuid")
-            && !existing.public.grants.is_empty()
-            && let Some(project) = &existing.project
-        {
-            previous_user = Some(project.user_uuid().await.map_err(|_| Failure::bad(
-                "Could not verify the previous PostHog account. Sign out before reconnecting."
-            ))?.to_string());
-        }
-        if previous_user.is_some() && previous_user.as_ref() != grant.secrets.get("user_uuid") {
+        if existing.values.get("user_uuid") != grant.secrets.get("user_uuid") {
             return Err(Failure::bad(
                 "This server connection belongs to another account. Sign out before reconnecting.",
             ));
@@ -832,25 +822,12 @@ async fn sign_out(
 ) -> Result<Json<ConnectionInfo>> {
     require_connection(&a.s, &id)?;
     let _guard = a.s.engine.connection_guard(&id).await;
-    // Older registrations stored only project identity. Resolve the old token's user
-    // before revoking it. An offline sign-out still revokes it and requires a new grant.
-    let legacy_user = if let Some(account) = a.s.accounts.get(&id)
-        && !account.public.grants.is_empty()
-        && !account.values.contains_key("user_uuid")
-        && let Some(project) = &account.project
-    {
-        project.user_uuid().await.ok()
-    } else {
-        None
-    };
     a.s.accounts
         .jobs
         .clone()
         .spawn_blocking(move || {
             let _guard = _guard;
-            a.s.accounts
-                .sign_out(&a.s.engine, &id, legacy_user)
-                .map(Json)
+            a.s.accounts.sign_out(&a.s.engine, &id).map(Json)
         })
         .await
         .map_err(Failure::internal)?
@@ -981,12 +958,9 @@ async fn health(Extension(a): Extension<App>) -> Result<Json<ServerHealth>> {
     });
     Ok(Json(ServerHealth {
         owner_id: a.s.owner,
-        implicit_owner: a.s.owner == a.s.auth.implicit_owner(),
         version: env!("CARGO_PKG_VERSION").into(),
         cursor,
         posthog,
-        create_topic_without_sort: true,
-        context_sources: true,
     }))
 }
 

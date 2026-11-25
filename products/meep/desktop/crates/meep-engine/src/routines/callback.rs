@@ -912,7 +912,7 @@ impl Engine {
                         sort_step: true,
                         instructions,
                         thread,
-                        message: Some(message.id),
+                        message: message.id,
                         parent: None,
                         suggestion: None,
                         event: o.event.clone(),

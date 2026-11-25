@@ -5,8 +5,6 @@ edition = "2024"
 description = "Offline-first SQLite replica of a Meep server"
 
 [dependencies]
-sha2 = "0.10"
-meep-connections = { path = "../meep-connections" }
 anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -26,6 +24,7 @@ tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+meep-connections = { path = "../meep-connections" }
 async-stream = "0.3"
 axum = "0.8"
 meep-engine = { path = "../meep-engine" }

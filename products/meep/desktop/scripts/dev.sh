@@ -25,10 +25,5 @@ if [ "${1:-}" = "--local" ]; then
         printf '%s\n' 'Local PostHog is not answering at http://localhost:8010.' >&2
 fi
 
-if [ -n "${MEEP_LEGACY_SERVER:-}" ]; then
-    cargo build --locked -p meep-server
-    export PATH="$PWD/target/debug:$PATH"
-fi
-
 exec dx serve --hot-patch -p meep --bin meep --platform macos \
     --features hot-reload "$@"

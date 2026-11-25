@@ -272,11 +272,7 @@ impl Engine {
             PollTarget::Task(id) => s.runs.get(id) == Some(work),
             PollTarget::Delivery(key) => s.deliveries.get(key).is_some_and(|d| &d.work == work),
         });
-        if s.next_effect(now).is_some()
-            || !s.questions.is_empty()
-            || self.setup_due(s)
-            || session::next_step(s).is_some()
-        {
+        if s.next_effect(now).is_some() || self.setup_due(s) || session::next_step(s).is_some() {
             return Some(instant);
         }
         let tasks = s
@@ -358,19 +354,6 @@ impl Engine {
         }
         self.sort_pending(topic).await?;
         self.reconcile_facts(topic).await?;
-        let questions: Vec<_> = {
-            let saved = slot.saved.read();
-            saved
-                .state
-                .threads
-                .iter()
-                .map(|t| t.id)
-                .filter(|id| saved.questions.contains_key(id))
-                .collect()
-        };
-        for thread in questions {
-            self.answer_question(topic, thread).await?;
-        }
         // The conversation goes before other work, so a message it starts runs this pass.
         let session = self.drive_session(topic).await;
         let (starts, running) = {
@@ -437,40 +420,6 @@ impl Engine {
             first_error.get_or_insert(error);
         }
         first_error.map_or(Ok(()), Err)
-    }
-
-    /// A chat message saved by an older version as a pending question joins the inbox.
-    pub(super) async fn answer_question(
-        &self,
-        topic: TopicId,
-        thread: ThreadId,
-    ) -> Result<Applied> {
-        let slot = self.slot(topic)?;
-        if slot.saved.read().questions.contains_key(&thread) {
-            self.update(topic, &Default::default(), |s, _| {
-                if let Some(pending) = s.questions.remove(&thread)
-                    && let Some(message) = s
-                        .state
-                        .threads
-                        .iter()
-                        .find(|t| t.id == thread)
-                        .and_then(|t| t.messages.first())
-                {
-                    let task = match pending {
-                        Question::Chat(task) => task,
-                        Question::LegacyAnswer => TaskId(thread.0),
-                    };
-                    let text = message.text.clone();
-                    s.inbox.message(thread, task, &text, false);
-                }
-                Ok(vec![])
-            })
-            .await?;
-        }
-        Ok(Applied {
-            revision: slot.saved.read().revision,
-            changes: vec![],
-        })
     }
 
     async fn poll_delivery(&self, topic: TopicId, key: Uuid, approved: &Work) -> Result<()> {
@@ -994,25 +943,10 @@ fn report_to_conversation(s: &mut StoredTopic, task: &Task, outcome: &str, text:
     );
 }
 
-// A stopped start is ambiguous after a restart. Older snapshots also kept terminal
-// investigation diagnostics in the worker field of an In progress task.
+// A stopped start is ambiguous after a restart.
 fn stopped_problem(task: &Task) -> Option<&str> {
-    if task.column != Column::InProgress {
-        return None;
-    }
-    match task.worker.as_deref()? {
-        "Starting" => {
-            Some("Start outcome unknown after interruption. Check the provider before retrying.")
-        }
-        detail
-            if detail.starts_with("Start failed:")
-                || detail.starts_with("Failed:")
-                || detail.starts_with("Start outcome unknown after interruption.") =>
-        {
-            Some(detail)
-        }
-        _ => None,
-    }
+    (task.column == Column::InProgress && task.worker.as_deref() == Some("Starting"))
+        .then_some("Start outcome unknown after interruption. Check the provider before retrying.")
 }
 
 /// Tasks the worker starts or watches: open work, and the conversation while its run

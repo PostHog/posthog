@@ -457,11 +457,16 @@ impl Desktop {
                             .map(Detail::Task)
                             .collect(),
                         Tab::Routines => s
-                            .topic
-                            .routines
+                            .scouts
                             .iter()
-                            .filter(|r| r.binding.backend == "posthog")
-                            .map(|r| Detail::Routine(r.binding.id.clone()))
+                            .map(|scout| Detail::Scout(scout.id))
+                            .chain(
+                                s.topic
+                                    .routines
+                                    .iter()
+                                    .filter(|r| r.binding.backend == "posthog")
+                                    .map(|r| Detail::Routine(r.binding.id.clone())),
+                            )
                             .collect(),
                         Tab::Facts | Tab::Files => {
                             let prefix = if *tab != Tab::Files {
@@ -1192,7 +1197,7 @@ impl Desktop {
                     .gap(px(8.))
                     .child(ui::nav::glyph(Glyph::CloudOff, false))
                     .child(ui::caption(match status {
-                        Status::Unauthorized => "Device token needs renewal",
+                        Status::Unauthorized => "Sign in to PostHog again",
                         _ => "Offline",
                     })),
             ),
@@ -2042,7 +2047,7 @@ impl Desktop {
             SettingsPage::General => {
                 let account = if let Some(a) = &self.identity {
                     item(
-                        a.email.clone().unwrap_or_else(|| "PostHog".into()),
+                        a.email.clone(),
                         format!("{} · {}", a.label, a.region.key().to_uppercase()),
                         control("logout", "Sign out", false, cx, |s, w, cx| {
                             let b = s.backend.clone();

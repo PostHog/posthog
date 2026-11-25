@@ -19,3 +19,24 @@ export const MeepTopicsCreateBody = /* @__PURE__ */ zod.object({
 export const MeepTopicsConversationCreateBody = /* @__PURE__ */ zod.object({
     task_id: zod.uuid(),
 })
+
+export const MeepTopicsSetScoutEnabledBody = /* @__PURE__ */ zod.object({
+    scout_id: zod.uuid(),
+    enabled: zod.boolean(),
+})
+
+export const meepTopicsCreateScoutBodyNameMax = 100
+
+export const meepTopicsCreateScoutBodyInstructionsMax = 16000
+
+export const meepTopicsCreateScoutBodyCronMax = 100
+
+export const MeepTopicsCreateScoutBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(meepTopicsCreateScoutBodyNameMax),
+    instructions: zod.string().max(meepTopicsCreateScoutBodyInstructionsMax),
+    cron: zod
+        .string()
+        .max(meepTopicsCreateScoutBodyCronMax)
+        .optional()
+        .describe("Optional five-field schedule in the project's timezone. Defaults to the native scout cadence."),
+})

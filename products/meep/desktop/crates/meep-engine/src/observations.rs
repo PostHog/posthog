@@ -25,9 +25,6 @@ pub(super) struct Observation {
     pub(super) reserved: bool,
     #[serde(default)]
     dispatch_uncertain: bool,
-    // None means a legacy record whose pre-dispatch state is unknown.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    dispatch_attempt: Option<bool>,
     due: DateTime<Utc>,
 }
 
@@ -102,7 +99,6 @@ impl StoredTopic {
             awaiting_default: false,
             reserved: false,
             dispatch_uncertain: false,
-            dispatch_attempt: Some(false),
             due: now,
         });
         self.publish_observation(&binding.id, &report);
@@ -305,36 +301,6 @@ impl Engine {
             hops: 0,
             stack: vec![(topic, obs.binding.id.clone())],
         };
-        // Older pending records with a reserved start may have crashed after
-        // sending. Their provider idempotency key can expire, so never guess.
-        if obs.dispatch_attempt.is_none()
-            && obs.reserved
-            && obs.report.invocation.is_none()
-            && !obs.dispatch_uncertain
-        {
-            return self
-                .update(topic, &cause, |s, now| {
-                    if let Some(o) = s
-                        .observations
-                        .iter_mut()
-                        .find(|o| o.pending(key) && o.report.invocation.is_none())
-                    {
-                        o.dispatch_attempt = Some(true);
-                        o.dispatch_uncertain = true;
-                        o.due = now + chrono::TimeDelta::seconds(30);
-                        let reason = DispatchUncertain.to_string();
-                        if !o.report.failures.contains(&reason) {
-                            o.report.failures.push(reason);
-                        }
-                        // Preserve the legacy report timestamp: it bounds safe history lookup.
-                        let report = o.report.clone();
-                        let binding = o.binding.id.clone();
-                        s.publish_observation(&binding, &report);
-                    }
-                    Ok(vec![])
-                })
-                .await;
-        }
         if obs.dispatch_uncertain {
             // Use a deliberately conservative bound: do not infer uniqueness
             // when the earliest possible match may have fallen out of history.
@@ -386,7 +352,6 @@ impl Engine {
                         return Ok(vec![]);
                     };
                     o.dispatch_uncertain = false;
-                    o.dispatch_attempt = Some(false);
                     o.report.invocation = Some(run.invocation_id);
                     o.due = now + chrono::TimeDelta::seconds(5);
                     if let Some(routine) = s
@@ -593,7 +558,6 @@ impl Engine {
                     }) else {
                         return Ok(vec![]);
                     };
-                    o.dispatch_attempt = Some(true);
                     o.dispatch_uncertain = true;
                     o.due = now + chrono::TimeDelta::seconds(30);
                     o.report.at = now;
@@ -624,7 +588,6 @@ impl Engine {
             let ambiguous =
                 matches!(&run, Err(Error::Integration(error)) if error.is::<DispatchUncertain>());
             if !polling && (!ambiguous || !o.report.outcome.pending()) {
-                o.dispatch_attempt = Some(false);
                 o.dispatch_uncertain = false;
                 o.report
                     .failures

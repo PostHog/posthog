@@ -18,12 +18,14 @@ import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
+import { GENERATED_TOOLS as meepTools } from '@/tools/generated/meep'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import {
     type FlagGatedTool,
     getFlagGatedTools,
     getRequiredFeatureFlags,
     getScopeGatedTools,
+    getToolDefinitions,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
 import type {
@@ -168,6 +170,23 @@ export function resolveMode(args: {
 
 export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
     return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
+}
+
+// Product sessions are established by Tasks. User-supplied headers alone cannot enable the tools.
+export function meepToolsToExclude(
+    taskId: string | undefined,
+    credentialTaskId: string | undefined,
+    scopes: readonly string[]
+): string[] {
+    const names = Object.keys(meepTools)
+    if (!taskId || taskId !== credentialTaskId || !scopes.includes('meep_scout:read')) {
+        return names
+    }
+    const definitions = getToolDefinitions()
+    return names.filter(
+        (name) =>
+            definitions[name]?.required_scopes?.includes('meep_scout:write') && !scopes.includes('meep_scout:write')
+    )
 }
 
 /**
@@ -391,6 +410,7 @@ export class RequestStateResolver {
         const excludeTools = [
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
+            ...meepToolsToExclude(props.taskId, _apiKey?.sandbox_task_id, apiKeyScopes),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
             // The API refuses to create an organization for a key scoped to specific organizations.
             ...(_apiKey?.scoped_organizations?.length ? ['organization-create'] : []),

@@ -20,7 +20,6 @@ meep-policy = { path = "../meep-policy" }
 meep-store = { path = "../meep-store" }
 meep-connections = { path = "../meep-connections" }
 meep-ingest = { path = "../meep-ingest" }
-meep-workflows = { path = "../meep-render/meep-workflows" }
 meep-posthog = { path = "../meep-posthog", features = ["tasks", "chat", "workflows"], optional = true }
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }

@@ -12,7 +12,6 @@ pub(super) enum Tab {
     Inbox,
     Tasks,
     /// Saved layouts from before the rename say `Data`.
-    #[serde(alias = "Data")]
     Files,
     Routines,
     Mission,
@@ -63,6 +62,7 @@ pub(super) enum Detail {
     File(String),
     Table(String),
     Routine(String),
+    Scout(Uuid),
     Problem(String),
 }
 /// Scroll state and measurements for the current topic's conversation.
@@ -108,7 +108,6 @@ pub(super) struct Section {
     pub name: String,
     pub collapsed: bool,
     /// Topic and view keys in this section, top to bottom.
-    #[serde(default)]
     pub items: Vec<String>,
 }
 /// The sidebar's arrangement, kept on this Mac: loose items above the
@@ -117,16 +116,7 @@ pub(super) struct Section {
 pub(super) struct Layout {
     pub sections: Vec<Section>,
     /// Items in no section, in their order.
-    #[serde(default)]
     pub loose: Vec<String>,
-    /// Older layouts: each topic's section. Read once by `migrate`.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub homes: BTreeMap<TopicId, Uuid>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub view_homes: BTreeMap<Uuid, Uuid>,
-    /// Whether the older homes have been folded into the sections.
-    #[serde(default)]
-    pub arranged: bool,
 }
 /// Destinations in the settings sidebar.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -272,10 +262,6 @@ pub(super) struct Desktop {
     /// Dedicated query editor for the global search sheet.
     pub search: Entity<InputState>,
     pub name: Entity<InputState>,
-    /// Public HTTPS address typed in Advanced settings.
-    pub public_url: Entity<InputState>,
-    /// Outcome of the last public address save.
-    pub public_url_note: Option<String>,
     /// Inline board editor, independently of the new-topic sheet.
     pub routine_prompt: Entity<TextareaState>,
     /// Follow-up question about the open handled thread.
@@ -325,7 +311,6 @@ impl Desktop {
     pub(super) fn new(
         backend: Backend,
         rt: Arc<Runtime>,
-        notice: Option<String>,
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -398,8 +383,6 @@ impl Desktop {
         });
         let search = cx.new(|cx| InputState::new(w, cx).placeholder("Search Meep"));
         let name = cx.new(|cx| InputState::new(w, cx));
-        let public_url =
-            cx.new(|cx| InputState::new(w, cx).placeholder("https://meep.example.com"));
         let mission = cx.new(|cx| {
             TextareaState::new(w, cx)
                 .auto_grow(2, 5)
@@ -578,8 +561,6 @@ impl Desktop {
             editing_review: None,
             search,
             name,
-            public_url,
-            public_url_note: None,
             routine_prompt: cx.new(|cx| {
                 let mut input = TextareaState::new(w, cx).auto_grow(2, 5);
                 input.set_placeholder("Describe the routine…", w, cx);
@@ -619,7 +600,7 @@ impl Desktop {
             }),
             draft,
             composer,
-            error: notice,
+            error: None,
             expanded: Default::default(),
             activity: cx.new(|_| ActivityIndicator::default()),
             sidebar_activity: cx.new(|_| ActivityIndicator::sidebar()),
@@ -653,14 +634,7 @@ impl Desktop {
             .client()
             .preference("sidebar-archived-open")?
             .unwrap_or(false);
-        self.layout = self
-            .client()
-            .preference::<Layout>("sidebar")?
-            .map(Layout::migrate)
-            .unwrap_or(Layout {
-                arranged: true,
-                ..Default::default()
-            });
+        self.layout = self.client().preference("sidebar")?.unwrap_or_default();
         if self.client().preference("signed-in")? == Some(true) {
             self.identity = self.client().preference("posthog-project")?;
         }
@@ -760,32 +734,6 @@ impl Desktop {
         })
         .detach()
     }
-    /// Send the typed key (or clear it) to the server; the field empties either way.
-    pub(super) fn save_public_url(&mut self, w: &mut Window, cx: &mut Context<Self>) {
-        let base = self.public_url.read(cx).value().trim().to_owned();
-        if base.is_empty() {
-            return;
-        }
-        let c = self.client().clone();
-        self.job(
-            async move { c.set_public_base_url(&base).await },
-            w,
-            cx,
-            |s, r, _, _| {
-                // Which models get Meep tools depends on the address; load them again.
-                if r.is_ok() {
-                    s.chat_models_topic.set(None);
-                }
-                s.public_url_note = Some(match r {
-                    Ok(a) => format!(
-                        "Saved. PostHog will reach this server at {}.",
-                        a.public_base_url
-                    ),
-                    Err(e) => e.to_string(),
-                })
-            },
-        );
-    }
     /// Report a failure to the person. A server that is briefly unreachable is
     /// not news: the sidebar already says offline and work resumes on its own.
     pub(super) fn fail(&mut self, e: impl Into<anyhow::Error>) {
@@ -796,7 +744,7 @@ impl Desktop {
         self.error = match transport {
             Some(meep_client::TransportError::Unavailable(_)) => return,
             Some(meep_client::TransportError::Unauthorized) => {
-                Some("This Mac needs to sign in to the Meep server again.".into())
+                Some("This Mac needs to sign in to PostHog again.".into())
             }
             Some(meep_client::TransportError::Api { message, .. }) if !message.is_empty() => {
                 Some(message.clone())
@@ -1021,8 +969,7 @@ impl Desktop {
         self.navigate(page, w, cx)
     }
     pub(super) fn navigate(&mut self, page: Page, w: &mut Window, cx: &mut Context<Self>) {
-        // Older saved layouts and links may still address a review as an inbox
-        // thread. Preserve access to it on the appropriate review surface.
+        // Open a thread from any inbox link on the tab for its current state.
         let page = match page {
             Page::Topic(topic, Tab::Inbox, Some(Detail::Thread(thread))) => {
                 let tab = self
@@ -1053,29 +1000,6 @@ impl Desktop {
             self.chat_reference = None;
             // Uploaded files stay in the topic they were saved to; only the draft lets go.
             self.chat_files.clear();
-        }
-        if page == Page::Settings
-            && self.page != Page::Settings
-            && let Some(account) = self.identity.clone().filter(|a| a.email.is_none())
-        {
-            let backend = self.backend.clone();
-            self.job(
-                async move { backend.restore_email(account.region).await },
-                w,
-                cx,
-                move |s, result, _, _| {
-                    if let Ok(email) = result
-                        && s.identity.as_ref() == Some(&account)
-                    {
-                        let mut updated = account;
-                        updated.email = Some(email);
-                        if let Err(e) = s.client().set_preference("posthog-project", &updated) {
-                            s.fail(e);
-                        }
-                        s.identity = Some(updated);
-                    }
-                },
-            );
         }
         if page == Page::Settings && self.settings_page == SettingsPage::Connections {
             self.mcp_request(meep_wire::mcp_store::Operation::Browse, w, cx);
@@ -1200,6 +1124,14 @@ impl Desktop {
                 path.rsplit('/').next().unwrap_or(path).to_owned(),
                 String::new(),
             ),
+            (_, Some(Detail::Scout(key))) => {
+                let scout = state.scouts.iter().find(|scout| scout.id == *key)?;
+                (
+                    Glyph::Binoculars,
+                    scout.name.clone(),
+                    format!("About the scout \"{}\" ({})", scout.name, scout.skill_name),
+                )
+            }
             (_, Some(Detail::Routine(key))) => {
                 let r = t.routines.iter().find(|x| x.binding.id == *key)?;
                 (
@@ -1217,6 +1149,7 @@ impl Desktop {
             Page::Topic(_, tab, detail) => match (tab, detail) {
                 (_, Some(Detail::File(_))) => "Ask about this file",
                 (_, Some(Detail::Thread(_))) => "Discuss this report",
+                (_, Some(Detail::Scout(_))) => "Ask about this scout",
                 (_, Some(Detail::Routine(_))) => "Ask to change this routine",
                 (_, Some(Detail::Goal(_))) => "Change the target, or how it's measured",
                 (_, Some(Detail::Fact(_))) => "Correct this, or ask where it came from",
@@ -1224,7 +1157,7 @@ impl Desktop {
                 (Tab::Tasks, None) => "Ask about tasks, or start a new one",
                 (Tab::Inbox, None) => "Ask about the inbox",
                 (Tab::Files, None) => "Ask about these files",
-                (Tab::Routines, None) => "Ask for a new routine",
+                (Tab::Routines, None) => "Ask for a scout or a routine",
                 (Tab::Mission, None) => "Tell it how the mission should change",
                 (Tab::Goals, None) => "Ask for a new goal, or change one",
                 (Tab::Facts, None) => "Tell it something it should know",

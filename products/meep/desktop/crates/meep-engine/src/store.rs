@@ -27,39 +27,27 @@ pub struct ViewRun {
     /// Remote task and run identity.
     pub handle: RunHandle,
 }
-/// Durable command identity. Legacy stores retained only the owning topic.
+/// The operation accepted for one command ID.
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CommandReceipt {
-    /// Identity and original operation of a newly accepted command.
-    Accepted {
-        /// Owning topic.
-        topic: TopicId,
-        /// Display time supplied by the client, bounded by the accepting server clock.
-        #[serde(default)]
-        issued_at: Option<DateTime<Utc>>,
-        /// Original operation and arguments.
-        command: Box<Command>,
-    },
-    /// Topic recorded before payload validation was introduced.
-    Legacy(TopicId),
+pub struct CommandReceipt {
+    /// Owning topic.
+    pub topic: TopicId,
+    /// Display time bounded by the accepting server clock.
+    pub issued_at: DateTime<Utc>,
+    /// Original operation and arguments.
+    pub command: Box<Command>,
 }
 
 impl CommandReceipt {
     fn new(envelope: &Envelope) -> Self {
-        Self::Accepted {
+        Self {
             topic: envelope.topic,
-            issued_at: Some(envelope.issued_at),
+            issued_at: envelope.issued_at,
             command: Box::new(envelope.command.clone()),
         }
     }
     pub(super) fn matches(&self, envelope: &Envelope) -> bool {
-        match self {
-            Self::Accepted { topic, command, .. } => {
-                *topic == envelope.topic && command.as_ref() == &envelope.command
-            }
-            Self::Legacy(topic) => *topic == envelope.topic,
-        }
+        self.topic == envelope.topic && self.command.as_ref() == &envelope.command
     }
 }
 
@@ -150,19 +138,6 @@ pub struct SqliteStore {
     _lock: std::fs::File,
 }
 
-// The previous store wrapped every topic snapshot in this JSON envelope.
-// Require its original fields so malformed records still abort the import.
-#[derive(Deserialize)]
-struct LegacyRecord {
-    #[serde(rename = "kind")]
-    _kind: String,
-    #[serde(rename = "id")]
-    _id: String,
-    rev: u64,
-    body: serde_json::Value,
-    deleted: bool,
-}
-
 impl SqliteStore {
     fn page(
         &self,
@@ -196,7 +171,7 @@ impl SqliteStore {
         Ok(result)
     }
 
-    /// Open or initialize a private directory, importing previous sync-format snapshots.
+    /// Open or initialize a private fixture store.
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
         std::fs::create_dir_all(dir)?;
@@ -209,67 +184,18 @@ impl SqliteStore {
         lock.try_lock()
             .context("another engine owns this topic directory")?;
         let path = dir.join("topics.sqlite");
-        let mut db = Database::open(&path)?;
+        let db = Database::open(&path)?;
         db.pragma_update(None, "journal_mode", "WAL")?;
         meep_store::initialize(&db)?;
-        meep_store::transaction(&mut db, |tx| {
-            tx.execute_batch("CREATE TABLE IF NOT EXISTS topic_revisions (
-                cursor INTEGER PRIMARY KEY AUTOINCREMENT, topic TEXT NOT NULL, revision INTEGER NOT NULL
-            )")?;
-            let has_time:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('topic_revisions') WHERE name='committed_at')",[],|r|r.get(0))?;
-            if !has_time {
-                tx.execute_batch("ALTER TABLE topic_revisions ADD COLUMN committed_at INTEGER NOT NULL DEFAULT 0;
-                    UPDATE topic_revisions SET committed_at=unixepoch()")?;
-            }
-            tx.execute_batch(
-                "CREATE INDEX IF NOT EXISTS topic_cursor ON topic_revisions(topic,cursor)",
-            )?;
-            for (id, record) in meep_store::list::<LegacyRecord>(tx, "meep-sync/cache/topic")? {
-                if record.deleted
-                    || meep_store::get::<StoredTopic>(tx, "engine/topic", &id)?.is_some()
-                {
-                    continue;
-                }
-                let mut saved: StoredTopic = serde_json::from_value(record.body)?;
-                ensure!(
-                    saved.state.topic.id.to_string() == id,
-                    "topic record contains a different ID"
-                );
-                saved.revision = record.rev.max(1);
-                routines::migrate(&mut saved);
-                save_sql(tx, 0, &saved, None, None, &stored_body(&saved)?)?;
-            }
-            for (_, body) in meep_store::list::<serde_json::Value>(tx, "engine/topic")? {
-                let legacy_passive = body["topic"].get("context_sources").is_none();
-                let unguarded = body["default_sort_removed"].is_boolean()
-                    || body.get("default_sort_removed").is_none();
-                let old_context = body["topic"].get("fallback").is_none()
-                    || body["topic"]["settings"].get("assign_tasks").is_some()
-                    || body["tasks"]
-                        .as_array()
-                        .is_some_and(|tasks| tasks.iter().any(|t| t.get("assignee").is_some()));
-                let mut saved: StoredTopic = serde_json::from_value(body)?;
-                if old_context
-                    || ((legacy_passive || unguarded)
-                        && !saved.state.topic.context_sources.is_empty())
-                    || !saved.jobs.is_empty()
-                    || saved.routines.values().any(|r| r.workflow.is_some())
-                {
-                    let previous = saved.revision;
-                    routines::migrate(&mut saved);
-                    saved.revision += 1;
-                    save_sql(tx, previous, &saved, None, None, &stored_body(&saved)?)?;
-                }
-            }
-            if meep_store::get::<bool>(tx, "engine/meta", "full-search")? != Some(true) {
-                tx.execute("DELETE FROM search_documents", [])?;
-                for (_, topic) in meep_store::list::<StoredTopic>(tx, "engine/topic")? {
-                    reindex(tx, None, &topic.state)?;
-                }
-                meep_store::put(tx, "engine/meta", "full-search", &true)?;
-            }
-            Ok(())
-        })?;
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS topic_revisions (
+                cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                committed_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS topic_cursor ON topic_revisions(topic,cursor)",
+        )?;
         Ok(Self {
             db: Mutex::new(db),
             reader: Mutex::new(Database::open(&path)?),
@@ -278,26 +204,6 @@ impl SqliteStore {
             _lock: lock,
         })
     }
-}
-
-fn has_passive_context(topic: &StoredTopic) -> bool {
-    !topic.state.topic.context_sources.is_empty()
-        || topic
-            .retired_state
-            .as_ref()
-            .is_some_and(|state| !state.topic.context_sources.is_empty())
-}
-
-pub(super) fn stored_body(topic: &StoredTopic) -> Result<String> {
-    let mut body = serde_json::to_value(topic)?;
-    if has_passive_context(topic) {
-        body["default_sort_removed"] = serde_json::json!(if topic.default_sort_removed {
-            "passive-context-v1:true"
-        } else {
-            "passive-context-v1:false"
-        });
-    }
-    Ok(serde_json::to_string(&body)?)
 }
 
 fn save_sql(
@@ -317,7 +223,6 @@ fn save_sql(
             "DELETE FROM records WHERE kind='engine/command' AND json_extract(body,'$.topic')=?1",
             [&key],
         )?;
-        meep_store::remove(db, "meep-sync/cache/topic", &key)?;
     }
     if let Some(id) = command {
         let receipt = CommandReceipt::new(id);
@@ -415,7 +320,7 @@ impl Store for SqliteStore {
         command: Option<&Envelope>,
         _changes: &[Change],
     ) -> Result<()> {
-        let body = stored_body(next)?;
+        let body = serde_json::to_string(next)?;
         meep_store::transaction(&mut self.db.lock(), |tx| {
             save_sql(tx, previous, next, command, None, &body)
         })
@@ -427,7 +332,7 @@ impl Store for SqliteStore {
         command: Option<&Envelope>,
         _changes: &[Change],
     ) -> Result<()> {
-        let body = stored_body(next)?;
+        let body = serde_json::to_string(next)?;
         meep_store::transaction(&mut self.db.lock(), |tx| {
             save_sql(tx, prior.revision, next, command, Some(&prior.state), &body)
         })
@@ -538,7 +443,7 @@ impl Store for MemoryStore {
             );
         }
         if next.state.deleted && previous != next.revision {
-            m.commands.retain(|_, receipt| !matches!(receipt, CommandReceipt::Accepted{topic: t,..} if *t == topic));
+            m.commands.retain(|_, receipt| receipt.topic != topic);
         }
         if m.index.is_none() {
             let db = Database::open_in_memory()?;

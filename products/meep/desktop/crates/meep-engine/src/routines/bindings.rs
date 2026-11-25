@@ -68,7 +68,6 @@ impl Engine {
                 observation_only: false,
                 secret: Uuid::new_v4(),
                 bound_by: Some(command),
-                workflow: None,
                 invocations: BTreeMap::new(),
                 receipts: BTreeMap::new(),
                 pending_sends: BTreeMap::new(),

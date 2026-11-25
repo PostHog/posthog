@@ -64,37 +64,12 @@ impl Client {
         let end = self
             .local((), |c| replica::outbox_end(&c.0.reader.lock()))
             .await?;
-        let has_without_sort = self
-            .local((), |c| replica::has_without_sort(&c.0.reader.lock()))
-            .await?;
-        let supports_without_sort = if has_without_sort {
-            self.0
-                .transport
-                .supports_create_topic_without_sort()
-                .await?
-        } else {
-            false
-        };
-        let has_context_sources = self
-            .local((), |c| replica::has_context_sources(&c.0.reader.lock()))
-            .await?;
-        let supports_context_sources = if has_context_sources {
-            self.0.transport.supports_context_sources().await?
-        } else {
-            false
-        };
         self.grant_created_topics(cycle).await?;
         let mut after = 0;
         while after < end {
             let (last, commands) = self
                 .local((), move |c| {
-                    replica::next_batch(
-                        &c.0.reader.lock(),
-                        after,
-                        end,
-                        supports_without_sort,
-                        supports_context_sources,
-                    )
+                    replica::next_batch(&c.0.reader.lock(), after, end)
                 })
                 .await?;
             if commands.is_empty() {

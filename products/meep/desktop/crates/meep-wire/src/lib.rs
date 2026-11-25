@@ -478,20 +478,12 @@ pub type OwnerId = uuid::Uuid;
 pub struct ServerHealth {
     /// Private namespace of the authenticated device.
     pub owner_id: OwnerId,
-    /// This owner inherited replicas created before owner-aware pairing.
-    pub implicit_owner: bool,
     /// Build version.
     pub version: String,
     /// Current stream cursor.
     pub cursor: u64,
     /// Whether the server holds working PostHog credentials.
     pub posthog: bool,
-    /// Whether creation without automatic Sort inbox is supported.
-    #[serde(default)]
-    pub create_topic_without_sort: bool,
-    /// Whether passive context sources are supported.
-    #[serde(default)]
-    pub context_sources: bool,
 }
 
 /// Error body for any non-2xx response.

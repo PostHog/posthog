@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     MeepConversationBindingApi,
+    MeepScoutApi,
+    MeepScoutCreateApi,
+    MeepScoutStatusApi,
     MeepTopicApi,
     MeepTopicDetailsApi,
     MeepTopicsListParams,
@@ -107,5 +110,41 @@ export const meepTopicsConversationCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(meepConversationBindingApi),
+    })
+}
+
+export const getMeepTopicsSetScoutEnabledUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/scout-status/`
+}
+
+export const meepTopicsSetScoutEnabled = async (
+    projectId: string,
+    id: string,
+    meepScoutStatusApi: MeepScoutStatusApi,
+    options?: RequestInit
+): Promise<MeepScoutApi> => {
+    return apiMutator<MeepScoutApi>(getMeepTopicsSetScoutEnabledUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepScoutStatusApi),
+    })
+}
+
+export const getMeepTopicsCreateScoutUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/scouts/`
+}
+
+export const meepTopicsCreateScout = async (
+    projectId: string,
+    id: string,
+    meepScoutCreateApi: MeepScoutCreateApi,
+    options?: RequestInit
+): Promise<MeepScoutApi> => {
+    return apiMutator<MeepScoutApi>(getMeepTopicsCreateScoutUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepScoutCreateApi),
     })
 }

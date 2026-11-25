@@ -38328,26 +38328,71 @@
             "validators": []
         }
     },
-    "meep-topic-create": {
-        "name": "meep-topic-create",
+    "meep-scout-create": {
+        "name": "meep-scout-create",
         "kind": "http",
         "requires": [],
         "hooks": null,
         "uiApp": null,
         "request": {
             "method": "POST",
-            "path": "/api/projects/{project_id}/meep/topics/",
-            "pathParams": [],
+            "path": "/api/projects/{project_id}/meep/topics/{id}/scouts/",
+            "pathParams": ["id"],
             "fallbacks": [],
             "query": null,
             "body": [
                 {
-                    "param": "title",
-                    "key": "title"
+                    "param": "name",
+                    "key": "name"
                 },
                 {
-                    "param": "mission",
-                    "key": "mission"
+                    "param": "instructions",
+                    "key": "instructions"
+                },
+                {
+                    "param": "cron",
+                    "key": "cron"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "meep-scout-set-enabled": {
+        "name": "meep-scout-set-enabled",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/scout-status/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "scout_id",
+                    "key": "scout_id"
+                },
+                {
+                    "param": "enabled",
+                    "key": "enabled"
                 }
             ],
             "injectBody": {},

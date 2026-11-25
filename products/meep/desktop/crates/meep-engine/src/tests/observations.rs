@@ -712,51 +712,6 @@ async fn interrupted_dispatch_after_history_window_never_resends_or_guesses() ->
 }
 
 #[tokio::test]
-async fn legacy_reserved_observation_is_reconciled_without_a_second_dispatch() -> Result<()> {
-    let flow = Arc::new(Flow::default());
-    flow.transient.store(true, Ordering::Relaxed);
-    let clock = Arc::new(ManualClock::new(DateTime::UNIX_EPOCH));
-    let engine = open(
-        flow.clone(),
-        Arc::new(MemoryStore::default()),
-        clock.clone(),
-    )
-    .await?;
-    let (topic, _) = engine.create_topic("Legacy", "").await?;
-    bind(&engine, topic).await?;
-    engine
-        .ingest(event("legacy-reserved", "Synthetic", Value::Null))
-        .await?;
-    engine
-        .update(topic, &Causality::default(), |state, _| {
-            let mut value = serde_json::to_value(&state.observations[0])?;
-            value.as_object_mut().unwrap().remove("dispatch_attempt");
-            value["reserved"] = json!(true);
-            value["dispatch_uncertain"] = json!(false);
-            state.observations[0] = serde_json::from_value(value)?;
-            Ok(vec![])
-        })
-        .await?;
-    flow.transient.store(false, Ordering::Relaxed);
-    clock.advance(TimeDelta::seconds(31));
-    engine.tick_topic(topic).await?;
-    assert!(flow.requests.lock().is_empty());
-    let report = &engine.topic(topic)?.topic.routines[0].observations[0];
-    assert_eq!(report.outcome, ObservationOutcome::Pending);
-    assert!(
-        report
-            .failures
-            .iter()
-            .any(|failure| failure.contains("outcome is unknown"))
-    );
-    clock.advance(TimeDelta::seconds(31));
-    engine.tick_topic(topic).await?;
-    assert!(flow.requests.lock().is_empty());
-    assert_eq!(flow.recovery_calls.load(Ordering::SeqCst), 1);
-    Ok(())
-}
-
-#[tokio::test]
 async fn source_reports_cite_observations_and_consume_each_once() -> Result<()> {
     let flow = Arc::new(Flow::default());
     let clock = Arc::new(ManualClock::new(DateTime::UNIX_EPOCH));

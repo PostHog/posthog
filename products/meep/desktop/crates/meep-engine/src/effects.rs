@@ -59,7 +59,6 @@ pub(super) struct Effect {
     subject: Ref,
     #[serde(default)]
     claimed: bool,
-    // Legacy scheduled retries lack proof that the previous request failed before delivery.
     #[serde(default)]
     safe_retry: bool,
     #[serde(default)]
@@ -142,30 +141,6 @@ impl StoredTopic {
             self.evidence_holds.remove(&task);
         }
         Ok(changes)
-    }
-
-    pub(super) fn restore_legacy_deliveries(&mut self) {
-        self.runs.retain(|task, work| {
-            if !matches!(work, Work::Approved(_) | Work::Routine { .. }) {
-                return true;
-            }
-            let task_log_len = self
-                .state
-                .tasks
-                .iter()
-                .find(|t| t.id == *task)
-                .map(|t| t.log.len());
-            self.deliveries.insert(
-                id(),
-                Delivery {
-                    task: *task,
-                    work: work.clone(),
-                    action_label: None,
-                    task_log_len,
-                },
-            );
-            false
-        });
     }
 
     pub(super) fn queue_reply(&mut self, thread: ThreadId, text: &str, key: Uuid) {
@@ -570,8 +545,7 @@ impl Engine {
             );
             let unsafe_retry =
                 manual_run || matches!(effect.target, Target::Proposal(Proposer::Agent(_)));
-            let legacy_retry = manual_run && effect.retry_at.is_some() && !effect.safe_retry;
-            let result = if (unsafe_retry && effect.claimed) || legacy_retry {
+            let result = if unsafe_retry && effect.claimed {
                 if manual_run {
                     Err(anyhow::Error::new(DispatchUncertain))
                 } else {

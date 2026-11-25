@@ -171,6 +171,7 @@ fn account() -> Result<(Lab, TopicId, ThreadId, ThreadId, TaskId)> {
         "New web navigation",
         "Make it easier to find saved work from the sidebar.",
     );
+    web.scouts.push(navigation_scout());
     let mut pr = topic(3, "PR reviews", "Keep the web team’s review queue moving.");
     let mut checkout = topic(
         4,
@@ -796,25 +797,26 @@ fn account() -> Result<(Lab, TopicId, ThreadId, ThreadId, TaskId)> {
         .topic
         .default_watches_mut()
         .push(web.topic.watches().next().unwrap().clone());
-    let sections: Vec<_> = ["Personal", "Product engineering", "Planning"]
-        .into_iter()
-        .enumerate()
-        .map(|(i, n)| Section {
-            id: Uuid::from_u128(i as u128 + 1),
-            name: n.into(),
-            collapsed: false,
-            items: vec![],
-        })
-        .collect();
-    let homes = [
-        (me.topic.id, 0),
-        (id, 1),
-        (pr.topic.id, 1),
-        (checkout.topic.id, 1),
-        (planning.topic.id, 2),
+    let sections = [
+        ("Personal", vec![me.topic.id]),
+        (
+            "Product engineering",
+            vec![id, pr.topic.id, checkout.topic.id],
+        ),
+        ("Planning", vec![planning.topic.id]),
     ]
-    .map(|(t, i)| (t, sections[i].id))
-    .into();
+    .into_iter()
+    .enumerate()
+    .map(|(i, (name, topics))| Section {
+        id: Uuid::from_u128(i as u128 + 1),
+        name: name.into(),
+        collapsed: false,
+        items: topics
+            .into_iter()
+            .map(super::super::sidebar::topic_key)
+            .collect(),
+    })
+    .collect();
     let subscriptions: Vec<_> = web
         .topic
         .watches()
@@ -828,8 +830,7 @@ fn account() -> Result<(Lab, TopicId, ThreadId, ThreadId, TaskId)> {
         "sidebar",
         &Layout {
             sections,
-            homes,
-            ..Default::default()
+            loose: vec![],
         },
     )?;
     client.set_preference(
@@ -1035,9 +1036,7 @@ pub(crate) fn preview_main_screens() -> Result<()> {
                     ..Default::default()
                 },
                 cx,
-                |w, cx| {
-                    cx.new(|cx| Desktop::new(lab.backend.clone(), lab.runtime.clone(), None, w, cx))
-                },
+                |w, cx| cx.new(|cx| Desktop::new(lab.backend.clone(), lab.runtime.clone(), w, cx)),
             )
         })
     };
@@ -1249,6 +1248,14 @@ pub(crate) fn preview_main_screens() -> Result<()> {
             "inbox-skipped",
             Page::Topic(TopicId(Uuid::from_u128(1)), Tab::Inbox, None),
         ),
+        (
+            "scout-details",
+            Page::Topic(
+                id,
+                Tab::Routines,
+                Some(Detail::Scout(navigation_scout().id)),
+            ),
+        ),
         ("routines-overview", Page::Topic(id, Tab::Routines, None)),
         (
             "routines",
@@ -1410,7 +1417,7 @@ pub(crate) fn preview_main_screens() -> Result<()> {
                     "agent-tasks" | "agent-task" => Some(Tab::Tasks),
                     "agent-inbox" | "agent-report" => Some(Tab::Inbox),
                     "agent-files" => Some(Tab::Files),
-                    "agent-routines" => Some(Tab::Routines),
+                    "agent-routines" | "scout-details" => Some(Tab::Routines),
                     "agent-goals" | "agent-goal" => Some(Tab::Goals),
                     "agent-facts" => Some(Tab::Facts),
                     "agent-linked" | "agent-linked-item" => Some(Tab::Linked),

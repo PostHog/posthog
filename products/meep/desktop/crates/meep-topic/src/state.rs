@@ -87,10 +87,6 @@ pub enum TopicError {
     /// Topic lifecycle prevents the requested edit.
     #[error("Topic is archived or deleted")]
     InactiveTopic,
-    /// A legacy client requested autonomous task creation.
-    #[error("Create a task by selecting a suggested next step.")]
-    AgentTaskCreation,
-
     /// A planned task named an owner other than the person, the agent or a sub-agent.
     #[error("A planned task is for the person, the topic agent or a sub-agent")]
     PlannedTaskOwner,
@@ -157,9 +153,6 @@ pub enum TopicError {
     /// A person's answer was not offered on the thread.
     #[error("choice was not offered on thread {0}")]
     SuggestionNotOffered(ThreadId),
-    /// An older device tried to edit a retired follow-up setting.
-    #[error("Follow-up settings have been replaced by start-follow-up rules.")]
-    RetiredFollowUpSetting,
     /// A pending start requires explicit approval.
     #[error("approve task {0} before starting it")]
     StartNeedsApproval(TaskId),
@@ -266,6 +259,35 @@ pub struct RoutineReportRun {
     pub threads: Vec<ThreadId>,
 }
 
+/// A PostHog Signals scout linked to this topic.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LinkedScout {
+    /// Native scout configuration ID.
+    pub id: uuid::Uuid,
+    /// Display name from PostHog.
+    pub name: String,
+    /// Stable name used by the PostHog scout detail route.
+    pub skill_name: String,
+    /// Whether the scout is active.
+    pub enabled: bool,
+    /// Recent findings from the scout, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reports: Vec<ScoutReport>,
+}
+
+/// A scout finding delivered to a topic.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScoutReport {
+    /// Upstream finding ID.
+    pub id: uuid::Uuid,
+    /// Finding headline.
+    pub title: String,
+    /// Short description of what the scout found.
+    pub summary: String,
+    /// Time PostHog received the finding.
+    pub filed_at: DateTime<Utc>,
+}
+
 /// A topic, its work and its serializable history.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TopicState {
@@ -295,13 +317,15 @@ pub struct TopicState {
     /// Inbox conversations.
     pub threads: Vec<Thread>,
     /// Task board.
-    #[serde(deserialize_with = "read_board")]
     pub tasks: Vec<Task>,
     /// Human-readable history in mutation order.
     pub activity: Vec<Activity>,
     /// Completed workflow analyses used for the folded routine history in chat.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub routine_report_runs: Vec<RoutineReportRun>,
+    /// PostHog scouts linked to the topic, included in the device replica.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scouts: Vec<LinkedScout>,
     /// Latest data published by a bound routine for each workspace view.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub view_data: std::collections::BTreeMap<uuid::Uuid, serde_json::Value>,
@@ -312,18 +336,6 @@ pub struct TopicState {
 pub type Changes = Vec<Change>;
 
 type Transition = Result<Changes, TopicError>;
-
-fn read_board<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Vec<Task>, D::Error> {
-    let mut tasks = Vec::<Task>::deserialize(input)?;
-    for task in tasks.iter_mut().filter(|t| t.queued) {
-        if task.column == Column::InProgress {
-            task.column = Column::Todo;
-            task.worker = None;
-        }
-        task.queued = task.column == Column::Todo;
-    }
-    Ok(tasks)
-}
 
 impl TopicState {
     /// Opens an empty inbox and board for the supplied context.
@@ -341,6 +353,7 @@ impl TopicState {
             tasks: vec![],
             activity: vec![],
             routine_report_runs: vec![],
+            scouts: vec![],
             view_data: Default::default(),
             history: vec![],
         };

@@ -52,14 +52,6 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>;
 /// The remote operations used by the replica. Implementations preserve command order and IDs.
 #[async_trait]
 pub trait Transport: Send + Sync {
-    /// Whether this server accepts creation without automatic Sort inbox.
-    async fn supports_create_topic_without_sort(&self) -> Result<bool> {
-        Ok(false)
-    }
-    /// Whether the server accepts passive context sources.
-    async fn supports_context_sources(&self) -> Result<bool> {
-        Ok(false)
-    }
     /// Enumerate the authoritative workspace view collection.
     async fn views(&self) -> Result<Vec<View>> {
         Ok(vec![])
@@ -246,10 +238,6 @@ pub trait Transport: Send + Sync {
     /// Revoke a connection's stored credentials.
     async fn sign_out(&self, _id: &str) -> Result<ConnectionInfo> {
         Err(protocol("Sign out unavailable"))
-    }
-    /// Set the public callback address.
-    async fn set_public_address(&self, _base: &str) -> Result<meep_wire::PublicAddress> {
-        Err(protocol("Address settings unavailable"))
     }
     /// Read a topic file at its latest revision.
     async fn get_file(&self, topic: TopicId, path: &str) -> Result<FileRevision>;
@@ -511,12 +499,6 @@ async fn decode_file(response: Response) -> Result<FileRevision> {
 
 #[async_trait]
 impl Transport for HttpTransport {
-    async fn supports_create_topic_without_sort(&self) -> Result<bool> {
-        Ok(self.health().await?.create_topic_without_sort)
-    }
-    async fn supports_context_sources(&self) -> Result<bool> {
-        Ok(self.health().await?.context_sources)
-    }
     async fn replica_page(
         &self,
         replica: uuid::Uuid,
@@ -895,16 +877,6 @@ impl Transport for HttpTransport {
         json(
             self.request(Method::DELETE, &["connections", id, "credentials"])
                 .await?,
-        )
-        .await
-    }
-    async fn set_public_address(&self, base: &str) -> Result<meep_wire::PublicAddress> {
-        json(
-            self.request(Method::PUT, &["settings", "public-base-url"])
-                .await?
-                .json(&meep_wire::PublicAddress {
-                    public_base_url: base.into(),
-                }),
         )
         .await
     }

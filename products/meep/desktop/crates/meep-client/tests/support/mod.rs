@@ -45,8 +45,6 @@ type Gate = (oneshot::Sender<()>, oneshot::Receiver<()>);
 pub struct App {
     pub engine: Engine,
     pub offline: AtomicBool,
-    pub without_sort_supported: AtomicBool,
-    pub context_sources_supported: AtomicBool,
     pub unauthorized: AtomicBool,
     pub retry_next: AtomicBool,
     pub lose_receipt: AtomicBool,
@@ -64,8 +62,6 @@ impl Server {
         let app = Arc::new(App {
             engine: Engine::in_memory().await?,
             offline: false.into(),
-            without_sort_supported: true.into(),
-            context_sources_supported: true.into(),
             unauthorized: false.into(),
             retry_next: false.into(),
             lose_receipt: false.into(),
@@ -78,7 +74,7 @@ impl Server {
             stream_cursor: watch::channel(None).0,
         });
         let router = Router::new()
-            .route("/v1/health", get(|State(app): State<Arc<App>>| async move { Json(serde_json::json!({"owner_id": uuid::Uuid::nil(), "implicit_owner": false, "version": "test", "cursor": 0, "posthog": false, "create_topic_without_sort": app.without_sort_supported.load(SeqCst), "context_sources": app.context_sources_supported.load(SeqCst)})) }))
+            .route("/v1/health", get(|| async { Json(serde_json::json!({"owner_id": uuid::Uuid::nil(), "version": "test", "cursor": 0, "posthog": false})) }))
             .route("/v1/commands", post(commands))
             .route("/v1/changes", get(changes))
             .route(

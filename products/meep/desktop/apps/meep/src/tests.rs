@@ -113,7 +113,6 @@ impl Lab {
                 Backend {
                     direct: None,
                     client,
-                    credentials: address.clone(),
                     server: address,
                     root: root.to_owned(),
                 },
@@ -847,7 +846,7 @@ fn fixture<'a>(
     let mut view = None;
     let (_, ui) = cx.add_window_view(|w, cx| {
         w.set_visual_inspection_enabled(true);
-        let v = cx.new(|cx| Desktop::new(lab.backend.clone(), lab.runtime.clone(), None, w, cx));
+        let v = cx.new(|cx| Desktop::new(lab.backend.clone(), lab.runtime.clone(), w, cx));
         view = Some(v.clone());
         gpui_kit::base::Root::new(v, w, cx)
     });
@@ -1010,6 +1009,70 @@ fn sidebar_sections_group_rename_drag_and_ungroup_like_view(cx: &mut TestAppCont
     center(ui, &format!("topic-{id}"));
 }
 
+fn navigation_scout() -> LinkedScout {
+    LinkedScout {
+        id: Uuid::from_u128(0x5c07),
+        name: "Navigation adoption".into(),
+        skill_name: "navigation-adoption".into(),
+        enabled: true,
+        reports: vec![ScoutReport {
+            id: Uuid::from_u128(0x5c08),
+            title: "Saved views are easier to find".into(),
+            summary: "Pilot teams opened saved views more often after the sidebar rollout.".into(),
+            filed_at: chrono::Utc::now() - chrono::Duration::hours(2),
+        }],
+    }
+}
+
+#[gpui::test]
+fn linked_scout_stays_folded_until_opened_and_survives_offline(cx: &mut TestAppContext) {
+    let topic = TopicId(Uuid::new_v4());
+    let mut state = TopicState::new(Topic::new(topic, "New web", chrono::Utc::now()));
+    let scout = navigation_scout();
+    let key = scout.id;
+    state.scouts.push(scout);
+    let mut lab = Lab::with_snapshots([state]).unwrap();
+    lab.runtime
+        .block_on(lab.backend.client.sync_once())
+        .unwrap();
+    lab.disconnect().unwrap();
+    let (view, ui) = fixture(&lab, cx);
+    ui.update(|w, cx| {
+        view.update(cx, |s, cx| {
+            s.go(Page::Topic(topic, Tab::Chat, None), w, cx);
+            s.overview_overlay = true;
+            cx.notify();
+        })
+    });
+    draw(ui);
+    assert!(!labels(ui).iter().any(|s| s == "Navigation adoption"));
+    click(ui, "overview-Routines");
+    assert!(ui.update(|_, cx| view.read(cx).on_chat()));
+    click(ui, &format!("ov-scout-{key}"));
+    ui.update(|_, cx| {
+        let desktop = view.read(cx);
+        assert_eq!(
+            desktop.page,
+            Page::Topic(topic, Tab::Routines, Some(Detail::Scout(key)))
+        );
+        assert_eq!(desktop.page_subject().unwrap().1, "Navigation adoption");
+        assert_eq!(
+            desktop
+                .identity
+                .as_ref()
+                .unwrap()
+                .inbox_url("scouts", "navigation-adoption")
+                .as_str(),
+            "https://us.posthog.com/project/7/inbox/scouts/navigation-adoption"
+        );
+    });
+    assert!(
+        labels(ui)
+            .iter()
+            .any(|s| s == "Saved views are easier to find")
+    );
+}
+
 #[gpui::test]
 fn running_a_bound_workflow_updates_its_detail_through_the_server(cx: &mut TestAppContext) {
     let lab = Lab::open().unwrap();
@@ -1145,7 +1208,7 @@ fn running_a_bound_workflow_updates_its_detail_through_the_server(cx: &mut TestA
             .is_none()
     );
     assert!(lab.server.engine().routine_secret(id, "review").is_err());
-    assert!(labels(ui).iter().any(|s| s == "No routines yet."));
+    assert!(labels(ui).iter().any(|s| s == "No scouts or routines yet."));
 }
 
 #[gpui::test]
@@ -1401,22 +1464,14 @@ fn source_catalog_files_and_workflows_are_account_data_cached_in_the_replica() -
 }
 
 #[test]
-fn browser_sign_in_registers_the_real_project_and_saves_a_local_credential_copy() -> Result<()> {
-    use meep_connections::{MemorySecrets, SecretStore};
+fn browser_sign_in_supports_dynamic_and_configured_posthog_clients() -> Result<()> {
     let lab = Lab::open()?;
     lab.runtime.block_on(async {
-        let mut secrets = MemorySecrets::default();
         for (region, configured) in [
             (Region::Us, false),
             (Region::Us, true),
             (Region::Local, true),
         ] {
-            lab.backend.client.set_preference(
-                "posthog-project",
-                &json!({
-                    "label":"Design", "email":"design@example.test", "region":region, "project":7
-                }),
-            )?;
             if configured {
                 std::fs::write(
                     lab.backend.root.join(if region == Region::Local {
@@ -1427,158 +1482,43 @@ fn browser_sign_in_registers_the_real_project_and_saves_a_local_credential_copy(
                     "fixture-provisioned",
                 )?;
             }
-            let identity = lab
-                .backend
-                .login_with(
-                    region,
-                    &lab.origin,
-                    meep_posthog::oauth::Callback::bind(0).await?,
-                    &mut secrets,
-                    |url| {
-                        let params: BTreeMap<_, _> = url.query_pairs().collect();
-                        assert!(
-                            !params["scope"]
-                                .split_whitespace()
-                                .any(|s| s == "llm_gateway:read")
-                        );
-                        assert_eq!(params["code_challenge_method"], "S256");
-                        let mut callback = reqwest::Url::parse(&params["redirect_uri"])?;
-                        callback
-                            .query_pairs_mut()
-                            .append_pair("code", "approved")
-                            .append_pair("state", &params["state"]);
-                        tokio::spawn(async move {
-                            reqwest::get(callback).await.expect("loopback callback");
-                        });
-                        Ok(())
-                    },
-                )
-                .await?;
-            assert_eq!(identity.label, "Navigation team");
-            assert_eq!(identity.email.as_deref(), Some("design@example.test"));
-            let saved: Value = serde_json::from_str(
-                &secrets
-                    .get(&lab.backend.server, "posthog")?
-                    .context("missing local credentials")?,
-            )?;
-            assert_eq!(saved["refresh_token"], "signed-in-refresh");
+            let credentials = crate::backend::authorize(
+                &lab.backend.root,
+                region,
+                &lab.origin,
+                meep_posthog::oauth::Callback::bind(0).await?,
+                |url| {
+                    let params: BTreeMap<_, _> = url.query_pairs().collect();
+                    assert!(
+                        !params["scope"]
+                            .split_whitespace()
+                            .any(|s| s == "llm_gateway:read")
+                    );
+                    assert_eq!(params["code_challenge_method"], "S256");
+                    let mut callback = reqwest::Url::parse(&params["redirect_uri"])?;
+                    callback
+                        .query_pairs_mut()
+                        .append_pair("code", "approved")
+                        .append_pair("state", &params["state"]);
+                    tokio::spawn(async move {
+                        reqwest::get(callback).await.expect("loopback callback");
+                    });
+                    Ok(())
+                },
+            )
+            .await?;
+            assert_eq!(credentials.identity.label, "Navigation team");
+            assert_eq!(credentials.identity.email, "design@example.test");
+            assert_eq!(credentials.refresh_token, "signed-in-refresh");
             assert_eq!(
-                saved["client_id"],
+                credentials.client_id,
                 if configured {
                     "fixture-provisioned"
                 } else {
                     "native-client"
                 }
             );
-            assert_eq!(saved["project_id"], "7");
-            assert_eq!(saved["region"], lab.origin);
-            if region == Region::Local {
-                let config: Value =
-                    serde_json::from_str(saved["config"].as_str().context("missing MCP config")?)?;
-                assert_eq!(config["mcp_endpoint"], "http://localhost:8787/mcp");
-            } else {
-                assert!(saved.get("config").is_none());
-            }
-            assert_eq!(
-                lab.backend.client.connections()?.connections[0]
-                    .account
-                    .as_deref(),
-                Some("Navigation team")
-            );
         }
-        Ok(())
-    })
-}
-
-/// Optional end-to-end development check against a separately provisioned local PostHog.
-#[test]
-#[ignore = "requires a local PostHog, a fixture account, and a consent helper"]
-fn local_posthog_browser_sign_in_registers_with_the_real_server() -> Result<()> {
-    use meep_connections::{MemorySecrets, SecretStore};
-    let server_data = std::env::var("MEEP_LIVE_SERVER_DATA")?;
-    let client_file = std::env::var("MEEP_LIVE_OAUTH_CLIENT_ID_FILE")?;
-    let helper = std::env::var("MEEP_LIVE_OAUTH_HELPER")?;
-    let root = tempfile::tempdir()?;
-    std::fs::copy(client_file, root.path().join("posthog-local-client-id"))?;
-    let device_token =
-        std::fs::read_to_string(std::path::Path::new(&server_data).join("device-token"))?;
-    let port = std::env::var("MEEP_DEV_PORT").unwrap_or_else(|_| "47951".into());
-    let address = format!("http://127.0.0.1:{port}");
-    let address = address.as_str();
-    let client = Client::open(
-        root.path().join("replica.sqlite"),
-        Arc::new(HttpTransport::new(address, device_token.trim())?),
-    )?;
-    let backend = Backend {
-        direct: None,
-        client,
-        server: address.into(),
-        root: root.path().to_owned(),
-        credentials: "test-local".into(),
-    };
-    let runtime = Runtime::new()?;
-    runtime.block_on(async {
-        let mut keychain = MemorySecrets::default();
-        let identity = backend
-            .login_with(
-                Region::Local,
-                "http://localhost:8010",
-                meep_posthog::oauth::Callback::bind(43180).await?,
-                &mut keychain,
-                |url| {
-                    let state = url
-                        .query_pairs()
-                        .find(|(key, _)| key == "state")
-                        .map(|(_, value)| value.into_owned())
-                        .context("Missing OAuth state")?;
-                    let mut callback = reqwest::Url::parse("http://127.0.0.1:43180/callback")?;
-                    callback
-                        .query_pairs_mut()
-                        .append_pair("state", &state)
-                        .append_pair("error", "fixture_helper_failed");
-                    let target = format!(
-                        "{}?{}",
-                        callback.path(),
-                        callback.query().context("Missing callback query")?
-                    );
-                    let mut child = std::process::Command::new(&helper)
-                        .env("MEEP_LIVE_AUTHORIZE_URL", url.as_str())
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::inherit())
-                        .spawn()?;
-                    std::thread::spawn(move || {
-                        if !child.wait().is_ok_and(|status| status.success()) {
-                            eprintln!("Fixture consent helper failed; ending OAuth test");
-                            use std::io::Write as _;
-                            if let Ok(mut socket) = std::net::TcpStream::connect("127.0.0.1:43180")
-                            {
-                                let _ = write!(
-                                    socket,
-                                    "GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-                                );
-                            }
-                        }
-                    });
-                    Ok(())
-                },
-            )
-            .await?;
-        assert!(identity.region == Region::Local);
-        let saved: Value = serde_json::from_str(
-            &keychain
-                .get("test-local", "posthog")?
-                .context("missing sign-in")?,
-        )?;
-        assert_eq!(saved["region"], "http://localhost:8010");
-        assert!(
-            saved["refresh_token"]
-                .as_str()
-                .is_some_and(|s| !s.is_empty())
-        );
-        let config: Value =
-            serde_json::from_str(saved["config"].as_str().context("missing MCP endpoint")?)?;
-        assert_eq!(config["mcp_endpoint"], "http://localhost:8787/mcp");
         Ok(())
     })
 }
@@ -2288,18 +2228,6 @@ mod table_records {
         );
         Ok(())
     }
-}
-
-#[test]
-fn hosted_pairing_rejects_credentials_on_the_command_line() {
-    let args = [
-        "topics",
-        "--server",
-        "https://topics.test",
-        "--token",
-        "secret",
-    ];
-    assert!(Options::try_parse_from(args).is_err());
 }
 
 #[gpui::test]

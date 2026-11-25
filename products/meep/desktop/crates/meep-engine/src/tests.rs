@@ -3,7 +3,6 @@ use anyhow::Result;
 use chrono::TimeDelta;
 use meep_ingest::{Event, FixtureConnector};
 use meep_store::Connection as Database;
-use meep_workflows::Workflow;
 use serde_json::{Value, json};
 
 mod inbox;
@@ -81,12 +80,6 @@ fn action() -> Action {
         done_label: "Reply sent in #rail".into(),
         payload: json!({"channel":"#rail"}),
     }
-}
-
-fn routine(name: &str, trigger: Value, tool: &str, args: Value) -> Result<Workflow> {
-    Workflow::parse(
-        json!({"version":2,"id":name,"title":name,"trigger":trigger,"steps":[{"id":"run","kind":"source","source":"topic","tool":tool,"arguments":args}]}),
-    )
 }
 
 fn scripted() -> FixtureAgent {

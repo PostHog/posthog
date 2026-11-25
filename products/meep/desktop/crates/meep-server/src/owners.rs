@@ -1,7 +1,7 @@
 //! Routing and worker lifetime for the independent services on one listener.
 use super::*;
 use parking_lot::Mutex;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 use tokio::sync::OnceCell;
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;

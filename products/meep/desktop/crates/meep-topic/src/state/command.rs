@@ -17,20 +17,6 @@ pub struct Envelope {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Command {
-    // Keep older device outboxes and durable command receipts decodable.
-    #[doc(hidden)]
-    #[serde(rename = "SetFollowUpMode")]
-    RetiredFollowUpMode {
-        #[doc(hidden)]
-        mode: String,
-    },
-    #[doc(hidden)]
-    #[serde(rename = "SetFollowUpLimit")]
-    RetiredFollowUpLimit {
-        #[doc(hidden)]
-        automatic_limit: Option<u32>,
-    },
-
     /// Open a named topic with its initial mission.
     CreateTopic {
         /// Display name.
@@ -126,7 +112,7 @@ pub enum Command {
     },
     /// Create an explicitly agent-assigned task with run preferences.
     AddConfiguredTask {
-        /// Offer the task to the worker immediately. Older requests start immediately.
+        /// Offer the task to the worker immediately. Defaults to true.
         #[serde(default = "crate::model::enabled_by_default")]
         start: bool,
         /// Stable task identity.
@@ -148,13 +134,6 @@ pub enum Command {
         /// The title is a placeholder; PostHog names the task when it starts.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untitled: bool,
-    },
-    /// Legacy proposal from a device using the retired task creation tool.
-    AddAgentTask {
-        /// Stable task identity.
-        id: TaskId,
-        /// Proposed work.
-        title: String,
     },
     /// Create a separate task from a recommendation selected by the person.
     AcceptTaskSuggestion {
@@ -181,7 +160,7 @@ pub enum Command {
     Approve {
         /// Task under review.
         task: TaskId,
-        /// Version of the review displayed to the person. Older clients address the initial review.
+        /// Version of the review displayed to the person. An omitted version addresses the initial review.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expected_review: Option<u64>,
         /// Final text when edited.
@@ -202,7 +181,7 @@ pub enum Command {
     SendBack {
         /// Reviewed task.
         task: TaskId,
-        /// Version of the review displayed to the person. Older clients address the initial review.
+        /// Version of the review displayed to the person. An omitted version addresses the initial review.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expected_review: Option<u64>,
         /// Revision request.
@@ -361,13 +340,6 @@ pub enum Command {
     ReleaseSource {
         /// Stable watch identity.
         key: WatchId,
-    },
-    /// Legacy stage switch.
-    SetRoutineEnabled {
-        /// Built-in stage ID.
-        routine: String,
-        /// Whether the stage runs.
-        enabled: bool,
     },
     /// Request a workflow invocation.
     StartRoutine {
@@ -656,16 +628,12 @@ impl TopicState {
                     [ChangeKind::RuleAdded(rule)],
                 ))
             }
-            Command::RetiredFollowUpMode { .. } | Command::RetiredFollowUpLimit { .. } => {
-                Err(TopicError::RetiredFollowUpSetting)
-            }
             Command::CreateTopic { .. } | Command::CreateTopicWithoutSort { .. } => {
                 Err(TopicError::ExistingTopic(envelope.topic))
             }
             Command::AcceptTaskSuggestion { parent, id, title } => {
                 self.accept_suggestion(parent, id, title, now)
             }
-            Command::AddAgentTask { .. } => Err(TopicError::AgentTaskCreation),
             Command::AddConfiguredTask {
                 start,
                 id,
@@ -956,8 +924,7 @@ impl TopicState {
             Command::SetTopicSetting {
                 key: routine,
                 enabled,
-            }
-            | Command::SetRoutineEnabled { routine, enabled } => {
+            } => {
                 let flag = self
                     .topic
                     .settings

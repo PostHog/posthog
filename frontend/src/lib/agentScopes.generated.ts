@@ -147,7 +147,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'field_note:read',
     'field_note:write',
     'meep:read',
-    'meep:write',
     'uploaded_media:read',
     'uploaded_media:write',
     'usage_metric:read',

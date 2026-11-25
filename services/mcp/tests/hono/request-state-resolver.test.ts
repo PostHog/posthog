@@ -1163,6 +1163,28 @@ describe('RequestStateResolver MCP client contexts', () => {
         )
     })
 
+    it.each(['cli', 'tools'] as const)('resolves Meep tools only for the bound credential in %s mode', async (mode) => {
+        const catalog = new ToolCatalog()
+        await catalog.warmup()
+        const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
+        mockGetApiKey.mockResolvedValue({
+            ...mockApiKey,
+            scopes: ['meep:read', 'meep_scout:read', 'meep_scout:write'],
+            sandbox_task_id: 'bound-task',
+        })
+        const session = { mode, taskOriginProduct: 'meep', mcpConsumer: 'posthog-code' }
+        const bound = await resolver.resolve(makeProps({ ...session, taskId: 'bound-task' }))
+        expect(
+            bound.allTools
+                .filter((tool) => tool.name.startsWith('meep-'))
+                .map((tool) => tool.name)
+                .sort()
+        ).toEqual(['meep-scout-create', 'meep-scout-set-enabled', 'meep-topic-get', 'meep-topic-list'])
+        const other = await resolver.resolve(makeProps({ ...session, taskId: 'another-task' }))
+        expect(other.allTools.some((tool) => tool.name.startsWith('meep-'))).toBe(false)
+        expect(other.findScopeGatedTool('meep-scout-create')).toBeUndefined()
+    })
+
     // A gated hint outside the held set would send the agent after a tool it can never get.
     it('limits the roster and the gated hints to the held tool set', async () => {
         mockApiKey.scopes = ['project:read']

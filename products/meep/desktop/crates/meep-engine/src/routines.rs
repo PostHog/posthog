@@ -3,7 +3,6 @@ mod callback;
 pub use callback::{RoutineAsk, RoutineOp, RoutineReports, RoutineSortContext};
 
 use super::*;
-use meep_workflows::Workflow;
 use serde_json::{Value, json};
 
 #[derive(PartialEq, Eq)]
@@ -35,8 +34,6 @@ pub(super) struct Routine {
     pub(super) defer_sort: bool,
     #[serde(default)]
     pub(super) observation_only: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) workflow: Option<Workflow>,
     #[serde(default = "Uuid::new_v4")]
     secret: Uuid,
     #[serde(default)]
@@ -123,21 +120,5 @@ pub(super) fn on_changes<'a>(
 ) {
     for change in changes {
         s.queue_topic_change(change, cause);
-    }
-}
-
-pub(super) fn migrate(saved: &mut StoredTopic) {
-    saved.routines.retain(|_, r| r.workflow.is_none());
-    if !saved.jobs.is_empty() {
-        saved.jobs.clear();
-        saved.state.activity.push(Activity {
-            delivery: None,
-            at: Utc::now(),
-            actor: Actor::User,
-            subject: Ref::Topic,
-            text:
-                "Dropped pending local routine jobs because local routines are no longer supported."
-                    .into(),
-        });
     }
 }

@@ -218,7 +218,6 @@ impl Engine {
                 );
             }
             Command::ArchiveThread { thread } => {
-                next.questions.remove(thread);
                 next.intake.retain(|p| p.thread != *thread);
                 next.refresh_sort_retry(*thread);
                 next.parked_sorts.retain(|_, p| p.thread != *thread);
@@ -332,9 +331,6 @@ impl Engine {
             } => {
                 next.inbox
                     .message(ThreadId(message_id.0), *task_id, text.trim(), *queue);
-            }
-            Command::Reply { thread, .. } => {
-                next.questions.remove(thread);
             }
             Command::SetRoutine { routine } => changes.extend(
                 self.configure_routine(&mut next, routine, envelope.id, now)

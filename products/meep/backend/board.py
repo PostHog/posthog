@@ -9,7 +9,7 @@ from posthog.models import User
 from products.meep.backend.chat import check_access, environment
 from products.meep.backend.domain import transition
 from products.meep.backend.models import BoardRun, CommandReceipt, Topic
-from products.meep.backend.task_profiles import MEEP
+from products.meep.backend.task_profiles import MEEP, agent_instructions
 from products.tasks.backend.facade import api
 from products.tasks.backend.facade.profiles import TaskRunOptions
 
@@ -39,7 +39,7 @@ def apply_board_action(topic: Topic, state: dict, command: dict) -> dict:
         profile=MEEP,
         create_pr=False,
         title=item["title"],
-        description=f"Use working-with-meep to investigate this board task for topic {topic.pk}.\nMission: {topic.mission}\n{item['title']}\n{item.get('instructions') or ''}\nReturn your findings in reply.",
+        description=f"{agent_instructions()}\n\nInvestigate this board task for topic {topic.pk}.\nMission: {topic.mission}\n{item['title']}\n{item.get('instructions') or ''}\nReturn your findings in reply.",
         sandbox_environment_id=str(environment(topic.team_id)),
         extra_run_state={"meep_board_item": item_id},
         options=TaskRunOptions(

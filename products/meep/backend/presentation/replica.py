@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
 from products.meep.backend.facade import api
+from products.meep.backend.presentation.scout_access import show_scouts
 
 
 class FileParser(BaseParser):
@@ -54,12 +55,9 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             {
                 "owner_id": request.user.uuid,
-                "implicit_owner": False,
                 "version": "1",
                 "cursor": api.cursor(self.team_id, request.user.pk),
                 "posthog": True,
-                "create_topic_without_sort": True,
-                "context_sources": True,
             }
         )
 
@@ -83,13 +81,13 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         cursor = serializers.IntegerField(min_value=0, max_value=2**63 - 1).run_validation(
             request.query_params.get("cursor", 0)
         )
-        return Response(api.changes(self.team_id, request.user.pk, cursor))
+        return Response(api.changes(self.team_id, request.user.pk, cursor, include_scouts=show_scouts(self)))
 
     @action(
         detail=False, methods=["get"], url_path=r"topics/(?P<topic_id>[0-9a-fA-F-]{36})", required_scopes=["meep:read"]
     )
     def topic_snapshot(self, request: Request, topic_id: UUID, **kwargs: Any) -> Response:
-        return Response(api.topic_snapshot(self.team_id, request.user.pk, topic_id))
+        return Response(api.topic_snapshot(self.team_id, request.user.pk, topic_id, include_scouts=show_scouts(self)))
 
     @action(detail=False, methods=["get"], required_scopes=["meep:read"])
     def connections(self, request: Request, **kwargs: Any) -> Response:

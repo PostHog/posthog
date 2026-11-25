@@ -1,7 +1,7 @@
 use anyhow::Result;
 use meep_connections::SecretStore;
 use meep_server::{Auth, DeviceTokens, FileSecrets};
-use std::{fs, process::Command};
+use std::fs;
 
 #[test]
 fn concurrent_first_opens_share_one_desktop_token_and_new_tokens_work_without_restart() -> Result<()>
@@ -20,24 +20,13 @@ fn concurrent_first_opens_share_one_desktop_token_and_new_tokens_work_without_re
     let desktop = fs::read_to_string(dir.path().join("device-token"))?;
     assert_eq!(tokens.list()?.len(), 1);
     assert!(tokens.accepts(&desktop)?);
-    let cli = |command| {
-        Command::new(env!("CARGO_BIN_EXE_meep-server"))
-            .arg("--data-dir")
-            .arg(dir.path())
-            .args(["token", command])
-            .output()
-    };
-    let created = cli("create")?;
-    assert!(created.status.success());
-    let new = String::from_utf8(created.stdout)?;
-    assert_ne!(new.trim(), desktop);
-    assert!(tokens.accepts(new.trim())?);
+    let new = tokens.create()?;
+    assert_ne!(new, desktop);
+    assert!(tokens.accepts(&new)?);
     assert!(!tokens.accepts("")?);
-    let listed = cli("list")?;
-    assert!(listed.status.success());
-    let ids = String::from_utf8(listed.stdout)?;
-    assert_eq!(ids.lines().count(), 2);
-    assert!(!ids.contains(new.trim()) && !ids.contains(&desktop));
+    let ids = tokens.list()?;
+    assert_eq!(ids.len(), 2);
+    assert!(!ids.contains(&new) && !ids.contains(&desktop));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -82,12 +71,7 @@ fn revoking_the_bootstrap_fingerprint_disables_that_token_after_reopen() -> Resu
     let desktop = fs::read_to_string(dir.path().join("device-token"))?;
     let fingerprint = tokens.list()?.remove(0);
     let other = tokens.create()?;
-    let status = Command::new(env!("CARGO_BIN_EXE_meep-server"))
-        .arg("--data-dir")
-        .arg(dir.path())
-        .args(["token", "revoke", &fingerprint])
-        .status()?;
-    assert!(status.success());
+    tokens.revoke(&fingerprint)?;
     assert!(!tokens.accepts(&desktop)?);
     let reopened = DeviceTokens::open(dir.path())?;
     assert!(!reopened.accepts(&desktop)?);

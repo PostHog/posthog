@@ -136,45 +136,6 @@ async fn uncertain_manual_run_survives_health_checks_and_restart_until_acknowled
             .is_err()
     );
     assert_eq!(backend.0.load(Ordering::SeqCst), 2);
-    let (legacy_topic, _) = restored.create_topic("Legacy", "").await?;
-    let legacy_binding = RoutineBinding {
-        id: "legacy".into(),
-        name: "Legacy".into(),
-        trigger: "Manual".into(),
-        backend: "fixture".into(),
-        external_id: "legacy".into(),
-        watches: vec![],
-    };
-    restored
-        .bind_routine(legacy_topic, legacy_binding.clone())
-        .await?;
-    let (_, generation) = restored.binding(legacy_topic, "legacy")?;
-    let legacy_key = Uuid::new_v4();
-    restored
-        .update(legacy_topic, &Default::default(), |s, now| {
-            s.queue_effect(
-                legacy_key,
-                crate::effects::Target::Run {
-                    binding: legacy_binding.clone(),
-                    generation,
-                    variables: Default::default(),
-                },
-                meep_topic::Ref::Topic,
-            );
-            s.effects.back_mut().unwrap().retry_at = Some(now);
-            Ok(vec![])
-        })
-        .await?;
-    restored.tick_topic(legacy_topic).await?;
-    assert_eq!(
-        backend.0.load(Ordering::SeqCst),
-        2,
-        "legacy uncertain retry must not dispatch"
-    );
-    assert_eq!(
-        restored.topic(legacy_topic)?.topic.routines[0].uncertain_manual_run,
-        Some(CommandId(legacy_key))
-    );
     Ok(())
 }
 
@@ -906,7 +867,7 @@ fn topic_brief_selects_evidence_and_bounds_only_the_tool_enabled_snapshot() -> R
         "topic_name":"Test","mission":"Track evidence","rules":[],"started_at":now,
         "facts":[linked,dependency,cited,unrelated],"disputed_fact_ids":[disputed["id"]],
         "watches":[watch],"routines":[{"id":"sort","name":"Sort inbox","trigger":"event","backend":"system","external_id":"sort","health":"Ok","watches":[watch]}],
-        "task":{"id":Uuid::new_v4(),"title":"source title","added_by":{"Inbox":thread},"from_thread":thread,"column":"Todo","created_at":now,"updated_at":now,
+        "task":{"id":Uuid::new_v4(),"title":"source title","queued":false,"added_by":{"Inbox":thread},"from_thread":thread,"column":"Todo","created_at":now,"updated_at":now,
                 "log":[{"at":now,"text":"inbound evidence"}],"action":{"kind":"publish","label":"Post","done_label":"Posted","depends_on_facts":[dependency["id"]],"payload":{}}},
         "thread":{"id":thread,"subject":"source subject","summary":"source summary","state":"Handled","messages":messages,"outcomes":[],"key":"fixture","unseen":false,"created_at":now,"updated_at":now}
     }))?;

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -11,13 +13,25 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
-MEEP_MCP_SCOPES = [
+
+def agent_instructions() -> str:
+    # Use the product skill as the source of instructions for every Meep task.
+    skill = Path(__file__).resolve().parents[1] / "skills/working-with-meep/SKILL.md"
+    return skill.read_text().split("---", 2)[2].strip()
+
+
+MEEP_READ_SCOPES = [
     "user:read",
     "query:read",
     "insight:read",
     "meep:read",
+    "inbox:read",
+    "signal_scout:read",
+    "meep_scout:read",
     "feature_flag:read",
 ]
+
+MEEP_MCP_SCOPES = [*MEEP_READ_SCOPES, "meep_scout:write"]
 
 MEEP = TaskProfile(
     key="meep",

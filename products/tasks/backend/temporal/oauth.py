@@ -253,6 +253,11 @@ def create_oauth_access_token(
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
     withheld = set(SUBSCRIPTION_RUN_WITHHELD_SCOPES) if run_uses_own_subscription(run_state) else set()
+    # Only a server-created Meep profile may carry the topic-scoped scout grants.
+    # A client-supplied origin or explicit scope list cannot opt another task into Meep.
+    meep_grants = {"meep_scout:read", "meep_scout:write"}.intersection(resolve_scopes(scopes))
+    if meep_grants and (task.stored_profile is None or task.stored_profile.key != "meep"):
+        withheld.update(meep_grants)
     if "internal_run:write" in resolve_scopes(scopes):
         # Flat scopes regain shared internal grants when resolved again during minting.
         withheld.update(RESEARCH_WITHHELD_SCOPES)

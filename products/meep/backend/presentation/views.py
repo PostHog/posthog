@@ -13,6 +13,35 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 
 from products.meep.backend.facade import api
+from products.meep.backend.presentation.scout_access import canonical_scout_access, show_scouts
+from products.signals.backend.facade.source_scouts import cron_schedule_error
+
+
+class MeepScoutCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    instructions = serializers.CharField(max_length=16000)
+    cron = serializers.CharField(
+        required=False,
+        max_length=100,
+        help_text="Optional five-field schedule in the project's timezone. Defaults to the native scout cadence.",
+    )
+
+    def validate_cron(self, value: str) -> str:
+        if error := cron_schedule_error(value):
+            raise serializers.ValidationError(error)
+        return value
+
+
+class MeepScoutStatusSerializer(serializers.Serializer):
+    scout_id = serializers.UUIDField()
+    enabled = serializers.BooleanField()
+
+
+class MeepScoutSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    skill_name = serializers.CharField()
+    enabled = serializers.BooleanField()
 
 
 class MeepConversationBindingSerializer(serializers.Serializer):
@@ -57,7 +86,9 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
         topic = api.read_topic(self.team_id, request.user.pk, pk, self._conversation(request))
         detail = dict(MeepTopicSerializer(topic).data)
-        detail["context"] = api.topic_context(self.team_id, request.user.pk, pk, self._conversation(request))
+        detail["context"] = api.topic_context(
+            self.team_id, request.user.pk, pk, self._conversation(request), include_scouts=show_scouts(self)
+        )
         return Response(detail)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -77,3 +108,48 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data.is_valid(raise_exception=True)
         topic = api.bind_conversation(self.team_id, request.user.pk, pk, data.validated_data["task_id"])
         return Response(MeepTopicSerializer(topic).data)
+
+    @extend_schema(
+        operation_id="meep_topics_create_scout",
+        request=MeepScoutCreateSerializer,
+        responses={200: MeepScoutSerializer, 201: MeepScoutSerializer},
+    )
+    @action(methods=["post"], detail=True, url_path="scouts", required_scopes=["meep_scout:write"])
+    def create_scout(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        task_id = self._conversation(request)
+        if task_id is None or not canonical_scout_access(self):
+            raise PermissionDenied("Create this scout from its Meep topic in a project you can access.")
+        payload = MeepScoutCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        scout, created = api.create_topic_scout(
+            team=self.team,
+            user=request.user,
+            task_id=task_id,
+            topic_id=pk,
+            name=payload.validated_data["name"],
+            instructions=payload.validated_data["instructions"],
+            cron=payload.validated_data.get("cron"),
+            request=request,
+        )
+        return Response(MeepScoutSerializer(scout).data, status=201 if created else 200)
+
+    @extend_schema(
+        operation_id="meep_topics_set_scout_enabled", request=MeepScoutStatusSerializer, responses=MeepScoutSerializer
+    )
+    @action(methods=["post"], detail=True, url_path="scout-status", required_scopes=["meep_scout:write"])
+    def scout_status(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        task_id = self._conversation(request)
+        if task_id is None or not canonical_scout_access(self):
+            raise PermissionDenied("Manage this scout from its Meep topic in a project you can access.")
+        payload = MeepScoutStatusSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        scout = api.set_topic_scout_enabled(
+            team=self.team,
+            user=request.user,
+            task_id=task_id,
+            topic_id=pk,
+            scout_id=payload.validated_data["scout_id"],
+            enabled=payload.validated_data["enabled"],
+            request=request,
+        )
+        return Response(MeepScoutSerializer(scout).data)

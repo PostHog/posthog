@@ -67084,6 +67084,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `meep` - Meep
      * * `analytics` - Product analytics
      * * `slack` - Slack
      * * `freshdesk` - Freshdesk
@@ -67248,6 +67249,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      Meep: 'meep',
       Analytics: 'analytics',
       Slack: 'slack',
       Freshdesk: 'freshdesk',
@@ -67462,6 +67464,7 @@ export namespace Schemas {
        * * `health_checks` - Health checks
        * * `endpoints` - Endpoints
        * * `replay_vision` - Replay Vision
+       * * `meep` - Meep
        * * `analytics` - Product analytics
        * * `slack` - Slack
        * * `freshdesk` - Freshdesk
@@ -76229,6 +76232,30 @@ export namespace Schemas {
 
     export interface MeepConversationBinding {
       task_id: string;
+    }
+
+    export interface MeepScout {
+      id: string;
+      name: string;
+      skill_name: string;
+      enabled: boolean;
+    }
+
+    export interface MeepScoutCreate {
+      /** @maxLength 100 */
+      name: string;
+      /** @maxLength 16000 */
+      instructions: string;
+      /**
+         * Optional five-field schedule in the project's timezone. Defaults to the native scout cadence.
+         * @maxLength 100
+         */
+      cron?: string;
+    }
+
+    export interface MeepScoutStatus {
+      scout_id: string;
+      enabled: boolean;
     }
 
     export interface MeepTopic {
@@ -113787,6 +113814,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `meep` - meep
      * * `analytics` - analytics
      * * `slack` - slack
      * * `freshdesk` - freshdesk
@@ -113951,6 +113979,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      Meep: 'meep',
       Analytics: 'analytics',
       Slack: 'slack',
       Freshdesk: 'freshdesk',
@@ -114590,6 +114619,7 @@ export namespace Schemas {
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
+       * * `meep` - meep
        * * `analytics` - analytics
        * * `slack` - slack
        * * `freshdesk` - freshdesk

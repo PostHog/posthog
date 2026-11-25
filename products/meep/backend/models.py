@@ -12,6 +12,8 @@ class Topic(TeamScopedRootMixin):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
     title = models.CharField(max_length=255)
     mission = models.TextField()
+    # Version of the Signals projection last announced to replicas. Signals owns the scout and report rows.
+    scout_digest = models.CharField(max_length=64, null=True)
     chat_model = models.CharField(max_length=255, blank=True)
     state = models.JSONField(default=dict)
     revision = models.PositiveBigIntegerField(default=1)

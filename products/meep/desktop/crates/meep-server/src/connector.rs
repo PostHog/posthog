@@ -8,10 +8,7 @@ use meep_ingest::{Connector, Event, RoutedEvent};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 /// Builds connector-specific pollers and webhook decoders for a registered connection.
 pub trait ConnectorFactory: Send + Sync {
@@ -42,71 +39,9 @@ impl ConnectorFactory for Connectors {
 #[derive(Default, Serialize, Deserialize)]
 struct Delivery {
     checkpoint: Option<Value>,
-    #[serde(with = "pending_format")]
     pending: Vec<RoutedEvent>,
-    // Read the briefly used sidecar format as an upgrade path.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    targets: BTreeMap<String, meep_topic::WatchId>,
 }
 
-// Targeted entries use a distinct envelope so binaries predating targeted
-// routing reject the batch instead of silently delivering it to every watch.
-mod pending_format {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Stored {
-        Targeted {
-            event: Event,
-            watch: meep_topic::WatchId,
-        },
-        Legacy(Event),
-    }
-    #[derive(Serialize)]
-    #[serde(untagged)]
-    enum StoredRef<'a> {
-        Targeted {
-            event: &'a Event,
-            watch: meep_topic::WatchId,
-        },
-        Legacy(&'a Event),
-    }
-    pub fn serialize<S: Serializer>(
-        events: &[RoutedEvent],
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        events
-            .iter()
-            .map(|r| match r.watch {
-                Some(watch) => StoredRef::Targeted {
-                    event: &r.event,
-                    watch,
-                },
-                None => StoredRef::Legacy(&r.event),
-            })
-            .collect::<Vec<_>>()
-            .serialize(serializer)
-    }
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Vec<RoutedEvent>, D::Error> {
-        Ok(Vec::<Stored>::deserialize(deserializer)?
-            .into_iter()
-            .map(|item| match item {
-                Stored::Targeted { event, watch } => RoutedEvent {
-                    event,
-                    watch: Some(watch),
-                },
-                Stored::Legacy(event) => RoutedEvent { event, watch: None },
-            })
-            .collect())
-    }
-}
-
-// Connectors checkpoint during poll. Hold that write until its corresponding
-// events can be committed with it. After a crash the engine deduplicates replay.
 struct Journal {
     durable: Arc<dyn StateStore>,
     staged: Mutex<Option<Value>>,
@@ -133,23 +68,11 @@ impl StateStore for Journal {
 impl Journal {
     fn delivery(&self, id: &str) -> Result<(Option<Value>, Delivery)> {
         let old = self.durable.load(id)?;
-        let mut batch: Delivery = old
+        let batch: Delivery = old
             .clone()
             .map(serde_json::from_value)
             .transpose()?
             .unwrap_or_default();
-        for (id, target) in std::mem::take(&mut batch.targets) {
-            let routed = batch
-                .pending
-                .iter_mut()
-                .find(|r| r.event.external_id == id)
-                .context("Orphaned connector routing target")?;
-            ensure!(
-                routed.watch.is_none_or(|watch| watch == target),
-                "Conflicting connector routing target"
-            );
-            routed.watch = Some(target);
-        }
         Ok((old, batch))
     }
 }
@@ -188,7 +111,7 @@ impl Poller {
         let id = self.name().to_owned();
         let journal = self.journal.clone();
         let store = self.store.clone();
-        let (mut old, mut batch) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let (old, mut batch) = tokio::task::spawn_blocking(move || -> Result<_> {
             let (old, mut batch) = journal.delivery(&id)?;
             let mut pending = Vec::with_capacity(batch.pending.len());
             for routed in batch.pending {
@@ -200,25 +123,6 @@ impl Poller {
             Ok((old, batch))
         })
         .await??;
-        // Upgrade the temporary sidecar format before polling, even if the
-        // source is offline or idle, so a downgrade fails closed thereafter.
-        if old
-            .as_ref()
-            .and_then(|v| v.get("targets"))
-            .and_then(Value::as_object)
-            .is_some_and(|m| !m.is_empty())
-        {
-            let next = serde_json::to_value(&batch)?;
-            let expected = old.clone();
-            let journal = self.journal.clone();
-            let id = self.name().to_owned();
-            let saved = next.clone();
-            tokio::task::spawn_blocking(move || {
-                journal.durable.commit(&id, expected.as_ref(), &saved)
-            })
-            .await??;
-            old = Some(next);
-        }
         // Retain unrouted events, but do not let an old unmatched watch stop new
         // polls. The durable batch remains replayable when a binding reappears.
         if self.idle {
@@ -479,8 +383,7 @@ mod tests {
         Ok(())
     }
     #[tokio::test]
-    async fn journal_preserves_targeted_events_across_restart_and_reads_legacy_batches()
-    -> Result<()> {
+    async fn journal_preserves_targeted_events_across_restart() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let store = Arc::new(MemoryStore::default());
         let target = uuid::Uuid::new_v4().into();
@@ -502,19 +405,8 @@ mod tests {
                 store.clone(),
             )
         };
-        #[derive(Deserialize)]
-        struct PreviousDelivery {
-            pending: Vec<Event>,
-        }
         let first = open()?.poll_routed(Utc::now()).await?;
         assert!(first.iter().all(|e| e.watch == Some(target)));
-        let persisted = StoreState::new(meep_store::Connection::open(
-            dir.path().join("connector.sqlite"),
-        )?)?
-        .load("usage")?
-        .unwrap();
-        // A previous binary expects plain Events and must reject targeted envelopes.
-        assert!(serde_json::from_value::<PreviousDelivery>(persisted).is_err());
         let reopened = open()?;
         let next = reopened.poll_routed(Utc::now()).await?;
         for old in &first {
@@ -524,68 +416,6 @@ mod tests {
                 )
             );
         }
-        // Old journals have no target sidecar and retain broad routing.
-        let legacy_dir = tempfile::tempdir()?;
-        let legacy = Arc::new(StoreState::new(meep_store::Connection::open(
-            legacy_dir.path().join("legacy.sqlite"),
-        )?)?);
-        legacy.commit(
-            "usage",
-            None,
-            &json!({"checkpoint":null,"pending":[first[0].event]}),
-        )?;
-        let legacy_raw = legacy.load("usage")?.unwrap();
-        assert_eq!(
-            serde_json::from_value::<PreviousDelivery>(legacy_raw)?
-                .pending
-                .len(),
-            1
-        );
-        let poller = Poller::new(
-            &factory,
-            "usage",
-            Value::Null,
-            &Secrets::new(),
-            legacy,
-            store.clone(),
-        )?;
-        let batch = poller.poll_routed(Utc::now()).await?;
-        assert!(
-            batch
-                .iter()
-                .any(|e| e.event.external_id == first[0].event.external_id && e.watch.is_none())
-        );
-        // Upgrade the short-lived sidecar format without losing its destination.
-        let sidecar_dir = tempfile::tempdir()?;
-        let sidecar = Arc::new(StoreState::new(meep_store::Connection::open(
-            sidecar_dir.path().join("sidecar.sqlite"),
-        )?)?);
-        sidecar.commit("usage", None, &json!({"checkpoint":null,"pending":[first[0].event],"targets":{first[0].event.external_id.clone():target}}))?;
-        let sidecar_poller = Poller::new(
-            &factory,
-            "usage",
-            Value::Null,
-            &Secrets::new(),
-            sidecar.clone(),
-            store,
-        )?;
-        factory.1.store(true, Ordering::SeqCst);
-        assert!(sidecar_poller.poll_routed(Utc::now()).await.is_err());
-        assert!(
-            serde_json::from_value::<PreviousDelivery>(sidecar.load("usage")?.unwrap()).is_err()
-        );
-        factory.1.store(false, Ordering::SeqCst);
-        assert!(
-            sidecar_poller
-                .poll_routed(Utc::now())
-                .await?
-                .iter()
-                .any(|e| e.event.external_id == first[0].event.external_id
-                    && e.watch == Some(target))
-        );
-        assert!(
-            serde_json::from_value::<PreviousDelivery>(sidecar.load("usage")?.unwrap()).is_err()
-        );
         Ok(())
     }
 }

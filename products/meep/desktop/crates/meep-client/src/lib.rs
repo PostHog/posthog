@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-mod pairing;
-pub use pairing::Pairing;
 mod queries;
 mod replica;
 mod sync;
@@ -404,16 +402,6 @@ impl Client {
         self.issue(topic, Command::RestoreRule { rule })
     }
 
-    /// Enable or pause a built-in topic stage through the durable command outbox.
-    pub fn set_routine_enabled(
-        &self,
-        topic: TopicId,
-        routine: String,
-        enabled: bool,
-    ) -> Result<Changes> {
-        self.issue(topic, Command::SetRoutineEnabled { routine, enabled })
-    }
-
     /// Creates a topic offline and durably requests access to its selected account.
     pub fn create_topic(
         &self,
@@ -429,13 +417,7 @@ impl Client {
         )
     }
 
-    /// Check whether the currently reachable server supports creating without Sort inbox.
-    pub async fn supports_create_topic_without_sort(&self) -> Result<bool> {
-        self.observe(self.0.transport.supports_create_topic_without_sort().await)
-    }
-
-    /// Creates a topic offline using the compatible creation command for the server.
-    /// Other workflows remain available. Older servers reject this command.
+    /// Create a topic offline with automatic inbox sorting disabled.
     pub fn create_topic_without_sort(
         &self,
         topic: TopicId,
@@ -622,11 +604,6 @@ impl Client {
         self.save_connection(info.clone(), guard).await?;
         Ok(info)
     }
-    /// Persist and apply the public HTTPS address for future callbacks.
-    pub async fn set_public_base_url(&self, base: &str) -> Result<meep_wire::PublicAddress> {
-        self.observe(self.0.transport.set_public_address(base).await)
-    }
-
     /// Reads the latest locally cached revision of a file without making a request.
     pub fn cached_file(&self, topic: TopicId, path: &str) -> Result<Option<FileRevision>> {
         replica::cached_file(&self.0.reader.lock(), topic, path)

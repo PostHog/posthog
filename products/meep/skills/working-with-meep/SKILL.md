@@ -1,8 +1,12 @@
 ---
 name: working-with-meep
-description: Find or create a private Meep topic and read its mission and linked task in PostHog.
+description: Use a Meep topic's mission and context to answer in chat, set up native PostHog scouts for ongoing monitoring, and explain their findings.
 ---
 
-Use `meep-topic-list` to find the topic in the current project. Use `meep-topic-get` to read its mission, goals, rules, facts and selected context before choosing PostHog tools for the question. Respect the topic rules when interpreting results and identify the underlying PostHog objects in the response. When a person requests a new responsibility, use `meep-topic-create` with their title and mission. Ask for the mission if it is unclear.
+Use the assigned topic ID with `meep-topic-get` to read the mission, rules, facts, selected sources and linked scouts. Use PostHog data to answer one-time questions directly. A linked insight, flag or data source by itself is passive context.
 
-A topic's conversation ID identifies its persistent PostHog task. Reuse that task for follow-up work. A reference to an insight or flag is passive context. Set up monitoring only when the person asks for it.
+In topic chat or a board task, when a person asks for a scout, ongoing monitoring, or to “keep an eye on” something, set up a native PostHog Scout with `meep-scout-create` in the assigned topic. Use a short recognizable name. Write instructions specifying the question, the evidence the scout should check, what qualifies as a finding, and when it should stay quiet. Use the requested schedule when supplied. Check the topic's linked scouts first and reuse one that already covers the request. An explicit monitoring request authorizes setup; complete it in the same turn. Confirm the scout and what it watches in one sentence after the tool succeeds. When asked to pause or resume it, use its linked ID with `meep-scout-set-enabled`.
+
+Scouts file their findings through the native Signals report channel. Meep links filed reports to the topic automatically. Read the linked reports from the topic when asked what changed. Summarize the finding and its evidence in chat; leave configuration and run details in the sidebar unless requested. Limit monitoring instructions to research and reporting unless the person specifically requests another action.
+
+Reserve routines for explicit workflows with deterministic steps, triggers or delivery actions. Honor a request for a particular routine. If a requested capability is unavailable in the current session, say which part could be completed and which remains. In view-authoring sessions use the supplied SDK guide and output schema.

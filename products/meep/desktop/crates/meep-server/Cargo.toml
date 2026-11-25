@@ -2,7 +2,7 @@
 name = "meep-server"
 version = "0.1.0"
 edition = "2024"
-description = "Authenticated HTTP service for the Meep engine"
+description = "Fixture HTTP host for Meep desktop tests"
 
 [features]
 fixture-host = []
@@ -14,9 +14,6 @@ async-stream = "0.3"
 async-trait = "0.1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4", features = ["derive", "env"] }
-dirs = "6"
-env_logger = "0.11"
 futures-util = "0.3"
 log = "0.4"
 meep-connectors = { path = "../meep-connectors" }
@@ -36,7 +33,7 @@ sha2 = "0.10"
 toon-format = { version = "0.7", default-features = false }
 subtle = "2"
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 uuid = { version = "1", features = ["serde", "v4"] }
 

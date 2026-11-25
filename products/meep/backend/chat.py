@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models import Team, User
 
 from products.meep.backend.models import ChatTurn, CommandReceipt, Topic
-from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES
+from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES, agent_instructions
 from products.tasks.backend.facade import access, api, usage
 from products.tasks.backend.facade.profiles import TaskRunOptions
 
@@ -47,7 +47,7 @@ def start_turn(topic: Topic, owner: User, message_id: UUID, text: str) -> bool:
             create_pr=False,
             sandbox_environment_id=str(environment(topic.team_id)),
             description=(
-                f"Use the working-with-meep skill. Your private topic in project {topic.team_id} is {topic.pk}. "
+                f"{agent_instructions()}\n\nYour private topic in project {topic.team_id} is {topic.pk}. "
                 "Use PostHog MCP to read the topic and research its mission. Return the answer in the reply field.\n\n"
                 f"Mission: {topic.mission}\n\n{text}"
             ),

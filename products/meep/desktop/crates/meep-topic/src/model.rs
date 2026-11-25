@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 /// The context a topic uses to understand incoming work.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(from = "StoredTopicContext")]
 pub struct Topic {
     /// Stable identity across edits and renames.
     pub id: TopicId,
@@ -71,121 +70,6 @@ impl TopicSettings {
         }
     }
 }
-#[derive(Deserialize)]
-struct StoredTopicContext {
-    id: TopicId,
-    name: String,
-    mission: String,
-    goals: Vec<Goal>,
-    rules: Vec<Rule>,
-    facts: Vec<Fact>,
-    #[serde(default)]
-    context_sources: Option<Vec<Watch>>,
-    #[serde(default)]
-    routines: Vec<RoutineInfo>,
-    #[serde(default)]
-    default_sort: Option<String>,
-    #[serde(default)]
-    fallback: Option<RoutineInfo>,
-    #[serde(default)]
-    settings: TopicSettings,
-    #[serde(default, alias = "watches")]
-    watch: Vec<Watch>,
-    #[serde(default)]
-    follow_ups: LegacyFollowUps,
-    created_at: DateTime<Utc>,
-}
-
-impl From<StoredTopicContext> for Topic {
-    fn from(stored: StoredTopicContext) -> Self {
-        let migrate_context = stored.context_sources.is_none();
-        let mut routines = stored.routines;
-        let mut fallback = stored.fallback.unwrap_or_else(|| {
-            let mut fallback = RoutineInfo::sort_inbox(SORT_INBOX_ID.into());
-            // Older topic-level watches explicitly used the built-in sorter.
-            fallback.enabled = !stored.watch.is_empty();
-            fallback
-        });
-        let mut settings = stored.settings;
-        let mut released = stored.watch;
-        routines.retain_mut(|r| {
-            if r.binding.is_builtin_sorter() {
-                fallback = r.clone();
-                false
-            } else if r.binding.backend == "system" {
-                if let Some(flag) = settings.setting_mut(&r.binding.external_id) {
-                    *flag = r.enabled;
-                }
-                false
-            } else if r.binding.backend == "local" {
-                released.append(&mut r.binding.watches);
-                false
-            } else {
-                true
-            }
-        });
-        if routines.iter().any(|r| r.binding.id == fallback.binding.id) {
-            fallback.binding.id = (1..)
-                .map(|n| format!("{SORT_INBOX_ID}-{n}"))
-                .find(|id| routines.iter().all(|r| r.binding.id != *id))
-                .expect("available sorter ID");
-        }
-        let mut topic = Self {
-            fallback,
-            settings,
-            default_sort: stored
-                .default_sort
-                .filter(|id| routines.iter().any(|r| r.binding.id == *id)),
-            id: stored.id,
-            name: stored.name,
-            mission: stored.mission,
-            goals: stored.goals,
-            rules: stored.rules,
-            facts: stored.facts,
-            context_sources: stored.context_sources.unwrap_or_default(),
-
-            created_at: stored.created_at,
-            routines,
-        };
-        if stored.follow_ups.mode.as_deref() == Some("Automatic") {
-            // Stable across independent replica loads, even if a rule already uses the topic UUID.
-            let mut value = topic.id.0.as_u128();
-            while topic.rules.iter().any(|r| r.id.0.as_u128() == value) {
-                value = value.wrapping_add(1);
-            }
-            topic.rules.insert(
-                0,
-                Rule {
-                    id: RuleId(uuid::Uuid::from_u128(value)),
-                    text: "Always allow starting follow-ups.".into(),
-                    effect: RuleEffect::Allow(ActionKind::start_follow_up()),
-                    from_task: None,
-                    created_at: topic.created_at,
-                },
-            );
-        }
-        let mut owned: std::collections::HashSet<_> = topic.watches().map(|w| w.id).collect();
-        topic
-            .default_watches_mut()
-            .extend(released.into_iter().filter(|w| owned.insert(w.id)));
-        if migrate_context {
-            // Before passive context existed, the Context UI stored its selections on
-            // the default sorter. Preserve the references without retaining implicit watches.
-            let mut sources = std::mem::take(&mut topic.fallback.binding.watches);
-            if let Some(default) = topic.default_sort.clone()
-                && let Some(routine) = topic.routines.iter_mut().find(|r| r.binding.id == default)
-            {
-                sources.append(&mut routine.binding.watches);
-            }
-            let mut ids = std::collections::HashSet::new();
-            topic
-                .context_sources
-                .extend(sources.into_iter().filter(|w| ids.insert(w.id)));
-        }
-        topic
-    }
-}
-
 impl RoutineInfo {
     fn sort_inbox(id: String) -> Self {
         let mut info = Self::system(id, "", "Sort inbox", "Source event");
@@ -266,11 +150,6 @@ impl Topic {
     }
 }
 
-#[derive(Default, Deserialize)]
-struct LegacyFollowUps {
-    mode: Option<String>,
-}
-
 /// Work on a topic board.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Task {
@@ -307,11 +186,10 @@ pub struct Task {
     /// Source metadata for work that can exist independently of a thread.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
-    /// Assignment made by inbox triage. Older and manually created tasks use host routing.
+    /// Assignment made by inbox triage. Manually created tasks use host routing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignment: Option<InboxAssignment>,
     /// Waiting for an explicit start from the person.
-    #[serde(default, alias = "assignee", deserialize_with = "read_queue_flag")]
     pub queued: bool,
     /// Parent task when an automation creates follow-up work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -348,27 +226,6 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
     /// Time of latest update.
     pub updated_at: DateTime<Utc>,
-}
-
-// Old boards recorded the holding state as a person assignment.
-fn read_queue_flag<'de, D: serde::Deserializer<'de>>(input: D) -> Result<bool, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Stored {
-        Queued(bool),
-        Assignee(Option<String>),
-    }
-    match Stored::deserialize(input)? {
-        Stored::Queued(value) => Ok(value),
-        Stored::Assignee(value) => match value.as_deref() {
-            None | Some("agent") => Ok(false),
-            Some("person") => Ok(true),
-            Some(other) => Err(serde::de::Error::unknown_variant(
-                other,
-                &["agent", "person"],
-            )),
-        },
-    }
 }
 
 /// One entry in a task's history.
@@ -673,7 +530,7 @@ pub struct RoutineBinding {
 }
 
 impl RoutineBinding {
-    /// The built-in source sorter, including legacy bindings with a suffixed ID.
+    /// Whether this binding is the built-in source sorter.
     pub fn is_builtin_sorter(&self) -> bool {
         self.is_system_stage("")
     }
@@ -827,7 +684,7 @@ pub struct RoutineInfo {
     /// Engine event that starts this workflow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<EventSubscription>,
-    /// Whether the fixed stage is enabled. Older snapshots default to enabled.
+    /// Whether the fixed stage is enabled.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     /// Recent source observations, oldest first.

@@ -892,44 +892,10 @@ async fn offline_create_without_sort_survives_restart_and_syncs_dependent_edits(
 }
 
 #[tokio::test]
-async fn unsupported_without_sort_does_not_block_other_topics() -> Result<()> {
-    let (_dir, server, client) = setup().await?;
-    server.app.without_sort_supported.store(false, SeqCst);
-    let held = TopicId(Uuid::new_v4());
-    client.issue(
-        held,
-        Command::CreateTopicWithoutSort {
-            name: "Held".into(),
-            mission: "".into(),
-        },
-    )?;
-    add(&client, held, "Held task")?;
-    let other = create(&client)?;
-    client.sync_once().await?;
-    assert!(server.app.engine.topic(held).is_err());
-    assert!(server.app.engine.topic(other).is_ok());
-    server.app.without_sort_supported.store(true, SeqCst);
-    client.sync_once().await?;
-    assert_eq!(server.app.engine.topic(held)?.tasks.len(), 1);
-    Ok(())
-}
-
-#[test]
-fn old_health_response_does_not_advertise_without_sort() -> Result<()> {
-    let health: meep_wire::ServerHealth = serde_json::from_value(serde_json::json!({
-        "owner_id": Uuid::nil(), "implicit_owner": false, "version": "old",
-        "cursor": 0, "posthog": false
-    }))?;
-    assert!(!health.create_topic_without_sort);
-    Ok(())
-}
-
-#[tokio::test]
-async fn passive_context_waits_for_server_support_without_blocking_other_topics() -> Result<()> {
+async fn passive_context_and_subsequent_edits_sync_after_reopening() -> Result<()> {
     let (dir, server, client) = setup().await?;
     let topic = create(&client)?;
     client.sync_once().await?;
-    server.app.context_sources_supported.store(false, SeqCst);
     let source = meep_topic::Watch {
         id: Uuid::new_v4().into(),
         connection: "posthog".into(),
@@ -952,23 +918,11 @@ async fn passive_context_waits_for_server_support_without_blocking_other_topics(
         vec![source.clone()]
     );
     client.sync_once().await?;
-    assert!(
-        server
-            .app
-            .engine
-            .topic(topic)?
-            .topic
-            .context_sources
-            .is_empty()
-    );
-    assert!(server.app.engine.topic(topic)?.tasks.is_empty());
-    assert!(server.app.engine.topic(other).is_ok());
-    server.app.context_sources_supported.store(true, SeqCst);
-    client.sync_once().await?;
     assert_eq!(
         server.app.engine.topic(topic)?.topic.context_sources,
         vec![source]
     );
     assert_eq!(server.app.engine.topic(topic)?.tasks.len(), 1);
+    assert!(server.app.engine.topic(other).is_ok());
     Ok(())
 }

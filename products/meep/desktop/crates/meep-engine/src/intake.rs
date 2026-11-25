@@ -18,8 +18,7 @@ pub(super) struct Pending {
     pub thread: ThreadId,
     #[serde(default)]
     pub parent: Option<TaskId>,
-    #[serde(default)]
-    pub message: Option<MessageId>,
+    pub message: MessageId,
     pub event: Event,
     pub cause: Causality,
     #[serde(default)]
@@ -80,14 +79,11 @@ impl Engine {
                 .iter()
                 .find(|t| t.id == job.thread)
                 .context("Missing intake thread")?;
-            let index = match job.message {
-                Some(id) => incoming
-                    .messages
-                    .iter()
-                    .position(|m| m.id == id)
-                    .context("Missing intake message")?,
-                None => 0, // Older jobs were only written for newly opened threads.
-            };
+            let index = incoming
+                .messages
+                .iter()
+                .position(|m| m.id == job.message)
+                .context("Missing intake message")?;
             let message = incoming
                 .messages
                 .get(index)

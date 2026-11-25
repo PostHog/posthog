@@ -43,6 +43,30 @@ export interface MeepConversationBindingApi {
     task_id: string
 }
 
+export interface MeepScoutStatusApi {
+    scout_id: string
+    enabled: boolean
+}
+
+export interface MeepScoutApi {
+    id: string
+    name: string
+    skill_name: string
+    enabled: boolean
+}
+
+export interface MeepScoutCreateApi {
+    /** @maxLength 100 */
+    name: string
+    /** @maxLength 16000 */
+    instructions: string
+    /**
+     * Optional five-field schedule in the project's timezone. Defaults to the native scout cadence.
+     * @maxLength 100
+     */
+    cron?: string
+}
+
 export type MeepTopicsListParams = {
     /**
      * Number of results to return per page.

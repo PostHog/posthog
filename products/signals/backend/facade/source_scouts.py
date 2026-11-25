@@ -8,6 +8,7 @@ what the run reads.
 from django.utils.module_loading import import_string
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import cron_schedule_error as cron_schedule_error
 
 # `LLMSkill.metadata` keys where a source product records the template a scout's text came from, and that text's hash.
 SOURCE_TEMPLATE_METADATA_KEY = "source_template"

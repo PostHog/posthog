@@ -294,7 +294,9 @@ impl Desktop {
                 .find(|m| m.id == *t)
                 .map(|m| self.task(state, m, false, w, cx)),
             // Routines, goals and linked sources open in the page itself.
-            Detail::Routine(_) | Detail::Goal(_) | Detail::Linked(_) => return div(),
+            Detail::Routine(_) | Detail::Scout(_) | Detail::Goal(_) | Detail::Linked(_) => {
+                return div();
+            }
             Detail::Fact(f) => state.topic.facts.iter().find(|v| v.id == *f).map(|f| {
                 Pane::new(
                     if state.disputed_facts().contains(&f.id) {
@@ -2404,46 +2406,6 @@ impl Desktop {
     /// The task's composer: the model it runs on where the topic chat has its picker,
     /// and one action that follows the run. A queued task starts, a running one
     /// stops while the draft is empty, and otherwise a message goes to the agent.
-    /// Said once, before anyone starts work: without a public address no model has
-    /// Meep's tools, so agents can read the brief but cannot change the topic.
-    fn tools_notice(&self, cx: &Context<Self>) -> Option<Div> {
-        let models = &self.catalogue.models;
-        (!models.is_empty() && !models.iter().any(|m| m.meep_tools)).then(|| {
-            ui::row()
-                .gap(px(8.))
-                .mb(px(8.))
-                .px(px(10.))
-                .py(px(7.))
-                .rounded(px(8.))
-                .bg(rgb(warning()).opacity(0.08))
-                .child(
-                    Icon::new(Glyph::TriangleAlert)
-                        .size(px(13.))
-                        .text_color(rgb(warning())),
-                )
-                .child(
-                    ui::caption(
-                        "Agents can’t change this topic until the server has a public address.",
-                    )
-                    .flex_1()
-                    .min_w_0(),
-                )
-                .child(
-                    div()
-                        .id("tools-notice-settings")
-                        .role(Role::Link)
-                        .flex_none()
-                        .cursor_pointer()
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Set it up")
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            s.settings_page = SettingsPage::Advanced;
-                            s.go(Page::Settings, w, cx)
-                        })),
-                )
-        })
-    }
     fn run_composer(
         &self,
         state: &TopicState,
@@ -2498,7 +2460,6 @@ impl Desktop {
             .flex_none()
             .px(px(self.chat_inset(w)))
             .pb(px(12.))
-            .children(self.tools_notice(cx))
             .child(
                 meep_shell::composer::surface(input.focus_handle(cx).contains_focused(w, cx))
                     .w_full()
@@ -2872,8 +2833,7 @@ impl Desktop {
                 ))
             }
         }
-        pane.children(self.tools_notice(cx))
-            .children(self.briefing(state, w, cx))
+        pane.children(self.briefing(state, w, cx))
             .children(self.session_prompt(state, cx))
             .children(self.session_bar(state))
             .child(self.topic_composer(state, answering, w, cx))

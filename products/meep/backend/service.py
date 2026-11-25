@@ -10,7 +10,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.models import User
 
-from products.meep.backend import authoring, replication
+from products.meep.backend import authoring, replication, scouts
 from products.meep.backend.board import finish_board
 from products.meep.backend.chat import finish_turn
 from products.meep.backend.domain import transition
@@ -97,8 +97,10 @@ def command(
     return replication.apply_command(team_id, User.objects.get(pk=owner_id), command_id, topic_id, body)
 
 
-def changes(team_id: int, owner_id: int, after: int) -> dict[str, JsonValue]:
+def changes(team_id: int, owner_id: int, after: int, include_scouts: bool = False) -> dict[str, JsonValue]:
     topics = _topics(team_id, owner_id)
+    if include_scouts and cache.add(f"meep:scouts:{team_id}:{owner_id}", 1, timeout=60):
+        scouts.reconcile_scouts(team_id, owner_id)
     if cache.add(f"meep:reconcile:{team_id}:{owner_id}", 1, timeout=60):
         for run_id in BoardRun.objects.filter(topic__in=topics, finished=False).values_list("run_id", flat=True):
             finish_board(run_id, team_id)
@@ -113,14 +115,24 @@ def changes(team_id: int, owner_id: int, after: int) -> dict[str, JsonValue]:
     )
     page = entries[:64]
     return {
-        "topics": [replication.snapshot(t) for t in topics.filter(pk__in=[i for _, i in page])],
+        "topics": [
+            _snapshot(t, include_scouts) for t in topics.filter(pk__in=[i for _, i in page]).select_related("team")
+        ],
         "cursor": page[-1][0] if page else after,
         "more": len(entries) > 64,
     }
 
 
-def topic_snapshot(team_id: int, owner_id: int, topic_id: UUID) -> dict[str, JsonValue]:
-    return replication.snapshot(get_object_or_404(_topics(team_id, owner_id), pk=topic_id))
+def _snapshot(topic: Topic, include_scouts: bool) -> dict[str, JsonValue]:
+    snapshot = replication.snapshot(topic)
+    if topic.scout_digest:
+        # The Signals projection is read-only; it never enters the replicated command state.
+        snapshot["state"] = {**snapshot["state"], "scouts": scouts.linked_scouts(topic) if include_scouts else []}
+    return snapshot
+
+
+def topic_snapshot(team_id: int, owner_id: int, topic_id: UUID, include_scouts: bool = False) -> dict[str, JsonValue]:
+    return _snapshot(get_object_or_404(_topics(team_id, owner_id).select_related("team"), pk=topic_id), include_scouts)
 
 
 def grants(team_id: int, owner_id: int) -> list[str]:
@@ -222,10 +234,14 @@ def chat_models(
     }
 
 
-def topic_context(team_id: int, owner_id: int, topic_id: UUID, conversation: UUID | None) -> dict[str, JsonValue]:
+def topic_context(
+    team_id: int, owner_id: int, topic_id: UUID, conversation: UUID | None, include_scouts: bool = False
+) -> dict[str, JsonValue]:
     read_topic(team_id, owner_id, topic_id, conversation)
-    state = topic_snapshot(team_id, owner_id, topic_id)["state"]
-    return {k: state["topic"][k] for k in ("goals", "facts", "rules", "context_sources")}
+    state = topic_snapshot(team_id, owner_id, topic_id, include_scouts)["state"]
+    context = {k: state["topic"][k] for k in ("goals", "facts", "rules", "context_sources")}
+    context["scouts"] = state.get("scouts", [])
+    return context
 
 
 def view_source(team_id: int, owner_id: int, view_id: UUID, topic_id: UUID, tool: str, path: str | None) -> JsonValue:

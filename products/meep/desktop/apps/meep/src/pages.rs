@@ -1068,6 +1068,9 @@ impl Desktop {
                         .pb(px(12.))
                         .child({
                             let content = match (tab, detail) {
+                                (Tab::Routines, Some(Detail::Scout(key))) => {
+                                    self.scout_page(state, *key)
+                                }
                                 (_, Some(Detail::Goal(g))) => self.goal_page(state, *g, cx),
                                 (_, Some(Detail::Linked(k))) => self.linked_page(state, k, cx),
                                 _ => match tab {
@@ -1139,6 +1142,12 @@ impl Desktop {
         }
         let header = (!own_header).then(|| {
             let current = match detail {
+                Some(Detail::Scout(id)) => state.scouts.iter().find(|s| s.id == *id).map(|s| {
+                    (
+                        Some(ui::nav::glyph(Glyph::Binoculars, false).into_any_element()),
+                        s.name.clone(),
+                    )
+                }),
                 Some(Detail::Goal(g)) => topic.goals.iter().find(|x| x.id == *g).map(|x| {
                     (
                         Some(ui::nav::glyph(Glyph::Target, false).into_any_element()),
@@ -2310,8 +2319,43 @@ impl Desktop {
             return self.routine_flow(id, routine, cx);
         }
         let mut list = ui::column().w_full().gap_0();
-        if workflows().next().is_none() {
-            return list.py(px(24.)).child(ui::caption("No routines yet."));
+        if workflows().next().is_none() && state.scouts.is_empty() {
+            return list
+                .py(px(24.))
+                .child(ui::caption("No scouts or routines yet."));
+        }
+        for scout in &state.scouts {
+            let key = scout.id;
+            let row = line(format!("scout-{key}"), false)
+                .w_full()
+                .gap(px(12.))
+                .px(px(12.))
+                .py(px(12.))
+                .border_b_1()
+                .border_color(ui::ink(16))
+                .child(ui::nav::glyph(Glyph::Binoculars, false))
+                .child(
+                    ui::column()
+                        .flex_1()
+                        .min_w_0()
+                        .gap(px(3.))
+                        .child(
+                            div()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(scout.name.clone()),
+                        )
+                        .child(ui::caption("Scout")),
+                )
+                .child(ui::caption(if scout.enabled { "On" } else { "Off" }))
+                .child(ui::nav::glyph(Glyph::ChevronRight, false));
+            list = list.child(row.on_click(cx.listener(move |s, _, w, cx| {
+                s.go(
+                    Page::Topic(id, Tab::Routines, Some(Detail::Scout(key))),
+                    w,
+                    cx,
+                )
+            })));
         }
         // A routine can't be healthy while the topic's connection is down.
         let waiting_on = self.needs.iter().find_map(|n| match n {
@@ -2360,6 +2404,7 @@ impl Desktop {
                 .py(px(12.))
                 .border_b_1()
                 .border_color(ui::ink(16))
+                .child(ui::nav::glyph(Glyph::Repeat, false))
                 .child(
                     ui::column()
                         .flex_1()
@@ -2380,6 +2425,67 @@ impl Desktop {
             })));
         }
         list
+    }
+
+    fn scout_page(&self, state: &TopicState, id: Uuid) -> Div {
+        let page = ui::column().w_full().gap(px(16.));
+        let Some(scout) = state.scouts.iter().find(|scout| scout.id == id) else {
+            return page.child(ui::caption("This scout is no longer linked to this topic."));
+        };
+        let heading = ui::row()
+            .items_start()
+            .gap(px(12.))
+            .child(
+                ui::column()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(6.))
+                    .child(super::details::item_title("Scout", scout.name.clone()))
+                    .child(ui::caption(if scout.enabled { "On" } else { "Off" })),
+            )
+            .children(self.identity.as_ref().map(|identity| {
+                let url = identity.inbox_url("scouts", &scout.skill_name);
+                ui::icon_button("open-scout", Glyph::ExternalLink, "Open scout in PostHog")
+                    .tooltip("Open scout in PostHog")
+                    .on_click(move |_, _, cx| cx.open_url(url.as_str()))
+            }));
+        let mut page = page.child(heading);
+        if scout.reports.is_empty() {
+            return page.child(ui::caption("No findings yet."));
+        }
+        page = page.child(ui::caption("Recent findings"));
+        for report in &scout.reports {
+            page = page.child(
+                ui::column()
+                    .gap(px(5.))
+                    .child(
+                        ui::row()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(report.title.clone()),
+                            )
+                            .child(ui::caption(ago(chrono::Utc::now() - report.filed_at)))
+                            .children(self.identity.as_ref().map(|identity| {
+                                let url = identity.inbox_url("reports", &report.id.to_string());
+                                ui::icon_button(
+                                    format!("open-report-{}", report.id),
+                                    Glyph::ExternalLink,
+                                    "Open report in PostHog",
+                                )
+                                .tooltip("Open report in PostHog")
+                                .on_click(move |_, _, cx| cx.open_url(url.as_str()))
+                            })),
+                    )
+                    .child(meep_shell::transcript::chat_markdown(
+                        format!("scout-finding-{}", report.id).into(),
+                        report.summary.clone(),
+                    )),
+            );
+        }
+        page
     }
 
     /// A routine page's bar: "Routines › name", when it runs, and its quiet

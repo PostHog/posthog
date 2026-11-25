@@ -220,10 +220,11 @@ impl Desktop {
                 (Glyph::FileText, n.to_string(), false)
             }
             Tab::Routines => {
-                if t.routines.is_empty() {
+                if t.routines.is_empty() && state.scouts.is_empty() {
                     return None;
                 }
-                let on = t.routines.iter().filter(|r| r.enabled).count();
+                let on = t.routines.iter().filter(|r| r.enabled).count()
+                    + state.scouts.iter().filter(|s| s.enabled).count();
                 (Glyph::Repeat, format!("{on} on"), false)
             }
             Tab::Mission => {
@@ -434,6 +435,29 @@ impl Desktop {
                 }
             }
             Tab::Routines => {
+                for scout in &state.scouts {
+                    let key = scout.id;
+                    body = body.child(
+                        line(format!("ov-scout-{key}"), selected(&Detail::Scout(key)))
+                            .aria_label(format!("Scout: {}", scout.name))
+                            .child(ui::nav::glyph(Glyph::Binoculars, false))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(scout.name.clone()),
+                            )
+                            .when(!scout.enabled, |row| row.child(ui::caption("Off")))
+                            .on_click(cx.listener(move |s, _, w, cx| {
+                                s.go(
+                                    Page::Topic(id, Tab::Routines, Some(Detail::Scout(key))),
+                                    w,
+                                    cx,
+                                )
+                            })),
+                    );
+                }
                 for r in &t.routines {
                     let key = r.binding.id.clone();
                     let open = key.clone();

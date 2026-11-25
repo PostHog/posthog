@@ -40,35 +40,6 @@ pub(super) struct Arrangement {
 }
 
 impl Layout {
-    /// Older layouts kept a forced "Topics" section and a home per item.
-    /// Their sections now hold their items; the default section's items
-    /// become loose. Runs once; the old maps are then dropped.
-    pub(super) fn migrate(mut self) -> Self {
-        if self.arranged {
-            return self;
-        }
-        let homes: Vec<(String, Uuid)> = self
-            .homes
-            .iter()
-            .map(|(t, s)| (topic_key(*t), *s))
-            .chain(self.view_homes.iter().map(|(v, s)| (view_key(*v), *s)))
-            .collect();
-        for (key, home) in homes {
-            if let Some(section) = self
-                .sections
-                .iter_mut()
-                .find(|s| s.id == home && !home.is_nil())
-                && !section.items.contains(&key)
-            {
-                section.items.push(key);
-            }
-        }
-        self.sections.retain(|s| !s.id.is_nil());
-        self.homes.clear();
-        self.view_homes.clear();
-        self.arranged = true;
-        self
-    }
     /// The section holding `key`, if any.
     pub(super) fn home(&self, key: &str) -> Option<Uuid> {
         self.sections
@@ -645,25 +616,22 @@ mod tests {
     use super::*;
 
     #[::core::prelude::v1::test]
-    fn old_layouts_migrate_and_items_move_within_and_between_sections() {
+    fn items_move_within_and_between_sections() {
         let (a, b, c) = (
             TopicId(Uuid::from_u128(1)),
             TopicId(Uuid::from_u128(2)),
             Uuid::from_u128(3),
         );
         let product = Uuid::from_u128(9);
-        // The old shape: a forced default section, a home per topic and view.
-        let old: Layout = serde_json::from_value(serde_json::json!({
-            "sections": [
-                {"id": Uuid::nil(), "name": "Topics", "collapsed": false},
-                {"id": product, "name": "Product", "collapsed": true}
-            ],
-            "homes": {a.0.to_string(): product},
-            "view_homes": {c.to_string(): product}
-        }))
-        .unwrap();
-        let layout = old.migrate();
-        assert_eq!(layout.sections.len(), 1, "the default section is gone");
+        let layout = Layout {
+            sections: vec![Section {
+                id: product,
+                name: "Product".into(),
+                collapsed: true,
+                items: vec![topic_key(a), view_key(c)],
+            }],
+            loose: vec![topic_key(b)],
+        };
         let present = [topic_key(a), topic_key(b), view_key(c)].map(String::from);
         let mut arr = Arrangement::of(&layout, &present);
         assert_eq!(arr.loose, [topic_key(b)]);

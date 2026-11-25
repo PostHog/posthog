@@ -1,6 +1,5 @@
 use super::*;
 use crate::http;
-use meep_connections::MemorySecrets;
 use meep_topic::{Command, Envelope, TopicId};
 use meep_wire::{CommandResult, CommandResults};
 use reqwest::{Method, StatusCode};
@@ -265,111 +264,6 @@ async fn device_reads_commands_and_references_use_only_the_authenticated_namespa
     assert_eq!(
         f.get(&f.bob, &format!("topics/{bob}")).await?["state"]["topic"]["mission"],
         "Boreal private mission"
-    );
-    f.close().await
-}
-
-#[tokio::test]
-async fn legacy_migration_and_pairing_preserve_only_the_owners_data() -> Result<()> {
-    use sha2::{Digest, Sha256};
-    let data = tempfile::tempdir()?;
-    let dir = data.path();
-    let tokens = Arc::new(DeviceTokens::open(dir)?);
-    let original = std::fs::read_to_string(dir.join("device-token"))?;
-    let storage = Arc::new(FixtureStorage { root: data, tokens });
-    let owner = storage.tokens.implicit_owner();
-    let view = Uuid::new_v4();
-    let (file_topic, cursor) = {
-        let old = storage.open(owner).await?;
-        old.views.command(meep_wire::views::ViewEnvelope {
-            id: Uuid::new_v4(),
-            at: Utc::now(),
-            view,
-            command: meep_wire::views::ViewCommand::Create {
-                prompt: "Legacy view".into(),
-                options: Default::default(),
-            },
-        })?;
-        let (id, _) = old.engine.create_topic("Legacy", "Keep my files").await?;
-        for bytes in [b"one", b"two"] {
-            old.engine
-                .write_file(id, "summary".into(), bytes.to_vec(), Uuid::new_v4(), None)
-                .await?;
-        }
-        old.accounts
-            .checkpoints
-            .commit(&format!("chat-model/{id}"), None, &json!("legacy"))?;
-        (id, old.accounts.store.cursor()?)
-    };
-    // Resume a migration with the registry written and a legacy digest still empty.
-    let dir = storage.root.path();
-    let registry = dir.join("owners.json");
-    let mut record: Value = serde_json::from_slice(&std::fs::read(&registry)?)?;
-    record["tokens_migrated"] = false.into();
-    std::fs::write(registry, serde_json::to_vec(&record)?)?;
-    std::fs::write(
-        dir.join("tokens")
-            .join(format!("{:x}", Sha256::digest(&original))),
-        "",
-    )?;
-    for _ in 0..2 {
-        assert_eq!(DeviceTokens::open(dir)?.owner(&original)?, Some(owner));
-        let restored = storage.open(owner).await?;
-        assert_eq!(restored.accounts.store.cursor()?, cursor);
-        assert_eq!(restored.views.read(view)?.turns[0].prompt, "Legacy view");
-        assert_eq!(
-            restored.accounts.chat_model(file_topic)?.as_deref(),
-            Some("legacy")
-        );
-        assert_eq!(
-            restored
-                .engine
-                .blobs()
-                .get(file_topic, "summary", Some(1))?
-                .unwrap()
-                .bytes,
-            b"one"
-        );
-    }
-    let f = Fixture::start(storage).await?;
-    let root = tempfile::tempdir()?;
-    let mut keys = MemorySecrets::default();
-    let legacy = meep_client::Client::open(
-        root.path().join(format!(
-            "replica-hosted-{:x}.sqlite",
-            Sha256::digest(&f.origin)
-        )),
-        Arc::new(meep_client::HttpTransport::new(&f.origin, &f.alice)?),
-    )?;
-    let topic = Uuid::new_v4().into();
-    legacy.issue(
-        topic,
-        Command::CreateTopic {
-            name: "Alice private".into(),
-            mission: String::new(),
-        },
-    )?;
-    legacy.get_file(file_topic, "summary").await?;
-    let b = meep_client::Client::pair(root.path(), &f.origin, Some(&f.bob), &mut keys).await?;
-    assert_eq!(b.owner_id, f.bob_id);
-    assert!(b.client.topic(topic)?.is_none());
-    assert!(b.client.cached_file(file_topic, "summary")?.is_none());
-    b.client.sync_once().await?;
-    assert!(
-        f.get(&f.bob, "changes").await?["topics"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    let rotated = f.storage.tokens.create()?;
-    let a = meep_client::Client::pair(root.path(), &f.origin, Some(&rotated), &mut keys).await?;
-    assert!(a.client.topic(topic)?.is_some());
-    a.client.sync_once().await?;
-    assert!(
-        f.get(&f.alice, "changes")
-            .await?
-            .to_string()
-            .contains("Alice private")
     );
     f.close().await
 }

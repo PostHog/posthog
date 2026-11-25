@@ -649,13 +649,6 @@ async fn a_dispatched_action_reports_failure_after_a_board_move_and_restart() ->
     e.tick().await?;
     e.approve(topic, task, None, false).await?;
     e.deliver_effects(topic).await?;
-    // Older servers persisted confirmed executions in the card's worker slot.
-    e.update(topic, &Default::default(), |s, _| {
-        let (_, delivery) = s.deliveries.pop_first().context("missing delivery")?;
-        s.runs.insert(task, delivery.work);
-        Ok(vec![])
-    })
-    .await?;
     e.shutdown().await;
     drop(e);
 

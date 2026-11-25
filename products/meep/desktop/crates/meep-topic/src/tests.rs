@@ -894,29 +894,6 @@ fn a_queued_start_rechecks_permission_and_rejects_a_new_denial() -> Result<(), T
 }
 
 #[test]
-fn legacy_follow_up_settings_migrate_once_to_plain_rules() {
-    for mode in ["Automatic", "Learn", "Ask"] {
-        let mut snapshot = serde_json::to_value(state().topic).unwrap();
-        snapshot["follow_ups"] =
-            serde_json::json!({"mode":mode,"approvals":{"investigate":3},"automatic_limit":1});
-        let topic: Topic = serde_json::from_value(snapshot.clone()).unwrap();
-        assert_eq!(topic, serde_json::from_value(snapshot).unwrap());
-        if mode == "Automatic" {
-            assert_eq!(topic.rules.len(), 1);
-            assert_eq!(
-                topic.rules[0].effect,
-                RuleEffect::Allow(ActionKind::start_follow_up())
-            );
-        } else {
-            assert!(topic.rules.is_empty());
-        }
-        let saved = serde_json::to_value(&topic).unwrap();
-        assert!(saved.get("follow_ups").is_none());
-        assert_eq!(topic, serde_json::from_value(saved).unwrap());
-    }
-}
-
-#[test]
 fn routine_question_task_keeps_source_context_and_custom_titles() {
     let body = "How should we handle this item?\n\nThe flag is now inactive.\n\nRollout details.";
     for (producer, offered, expected) in [
@@ -958,41 +935,6 @@ fn routine_question_task_keeps_source_context_and_custom_titles() {
         assert_eq!(task.source_message, Some(id(1)));
         assert_eq!(s.threads[0].messages[0].text, body);
     }
-}
-
-#[test]
-fn legacy_context_migration_preserves_explicit_routine_watches() {
-    let mut topic = Topic::new(id(1), "Legacy", NOW);
-    let fallback = Watch {
-        id: id(2),
-        connection: "posthog".into(),
-        kind: "flag".into(),
-        key: "passive".into(),
-        label: "Passive".into(),
-    };
-    let monitored = Watch {
-        id: id(3),
-        connection: "posthog".into(),
-        kind: "event".into(),
-        key: "explicit".into(),
-        label: "Explicit".into(),
-    };
-    topic.fallback.binding.watches.push(fallback.clone());
-    let mut routine = topic.fallback.clone();
-    routine.binding.id = "explicit".into();
-    routine.binding.backend = "posthog".into();
-    routine.binding.watches = vec![monitored.clone()];
-    topic.routines.push(routine);
-    let mut old = serde_json::to_value(topic).unwrap();
-    old.as_object_mut().unwrap().remove("context_sources");
-    let migrated: Topic = serde_json::from_value(old).unwrap();
-    assert_eq!(migrated.context_sources, vec![fallback]);
-    assert_eq!(
-        migrated.watches().cloned().collect::<Vec<_>>(),
-        vec![monitored]
-    );
-    let reopened: Topic = serde_json::from_value(serde_json::to_value(&migrated).unwrap()).unwrap();
-    assert_eq!(reopened, migrated);
 }
 
 #[test]

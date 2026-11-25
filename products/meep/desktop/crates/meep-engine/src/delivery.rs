@@ -522,7 +522,7 @@ impl Engine {
             suggestion: None,
             parent: None,
             thread,
-            message: Some(message),
+            message,
             event: event.clone(),
             cause: cause.clone(),
             receipt: group_key(event).is_none().then_some(receipt),
@@ -804,24 +804,11 @@ pub(super) fn receive_event(
     let thread_id: ThreadId = id();
     let key = if let Some(hint) = group_key(event) {
         let key = serde_json::to_string(&(&event.connection, &event.channel, hint))?;
-        let key = if source_material {
+        if source_material {
             format!("observation/{key}")
         } else {
             key
-        };
-        // Existing stores used the raw hint. Only migrate conversations from this source.
-        for previous in &mut state.threads {
-            if previous.source_material == source_material
-                && previous.key == hint
-                && previous
-                    .messages
-                    .first()
-                    .is_some_and(|m| m.reply_target() == message.reply_target())
-            {
-                previous.key = key.clone();
-            }
         }
-        key
     } else {
         thread_id.to_string()
     };

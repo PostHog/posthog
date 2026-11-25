@@ -179,27 +179,6 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
-// Older servers deserialize this field as a boolean. SQLite records with passive
-// references carry a tagged value so an older server refuses to erase them.
-fn deserialize_sort_removed<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<bool, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Guard {
-        Boolean(bool),
-        Tagged(String),
-    }
-    match Guard::deserialize(deserializer)? {
-        Guard::Boolean(value) => Ok(value),
-        Guard::Tagged(value) if value == "passive-context-v1:true" => Ok(true),
-        Guard::Tagged(value) if value == "passive-context-v1:false" => Ok(false),
-        Guard::Tagged(_) => Err(serde::de::Error::custom(
-            "unsupported topic storage version",
-        )),
-    }
-}
-
 /// Persisted server record, including private credentials and resumable work.
 /// Send only the public [`TopicSnapshot`] to replicas.
 #[derive(Clone, Serialize, Deserialize)]
@@ -211,7 +190,7 @@ pub struct StoredTopic {
     retired_state: Option<Box<TopicState>>,
     #[serde(default)]
     default_sort_request: Option<TaskId>,
-    #[serde(default, deserialize_with = "deserialize_sort_removed")]
+    #[serde(default)]
     default_sort_removed: bool,
     #[serde(default)]
     default_create_claimed: bool,
@@ -253,8 +232,6 @@ pub struct StoredTopic {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     activation_aliases: BTreeMap<TaskId, TaskId>,
     #[serde(default)]
-    questions: BTreeMap<ThreadId, Question>,
-    #[serde(default)]
     intake: VecDeque<intake::Pending>,
     #[serde(default)]
     parked_sorts: BTreeMap<MessageId, intake::Pending>,
@@ -263,22 +240,11 @@ pub struct StoredTopic {
     #[serde(default)]
     routines: BTreeMap<String, Routine>,
     #[serde(default)]
-    jobs: VecDeque<serde_json::Value>,
-    #[serde(default)]
     starts: RunWindow,
     #[serde(default, skip_serializing_if = "setup::Setup::is_none")]
     setup: setup::Setup,
     #[serde(default, skip_serializing_if = "session::Inbox::is_empty")]
     inbox: session::Inbox,
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-enum Question {
-    /// A chat message for the topic agent, with the task reserved in case it starts one.
-    #[serde(alias = "Classify")]
-    Chat(TaskId),
-    #[serde(rename = "Queued", alias = "Answering")]
-    LegacyAnswer,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -819,12 +785,10 @@ impl Engine {
             evidence_holds: BTreeSet::new(),
             activation_aliases: BTreeMap::new(),
             proposals: BTreeMap::new(),
-            questions: BTreeMap::new(),
             intake: VecDeque::new(),
             parked_sorts: Default::default(),
             fact_checks: VecDeque::new(),
             routines: BTreeMap::new(),
-            jobs: VecDeque::new(),
             starts: RunWindow::default(),
             setup,
             inbox: Default::default(),
@@ -970,8 +934,7 @@ impl Slot {
         let current = self.saved.read().clone();
         current.as_ref().clone()
     }
-    fn new(mut saved: StoredTopic) -> Arc<Self> {
-        saved.restore_legacy_deliveries();
+    fn new(saved: StoredTopic) -> Arc<Self> {
         Arc::new(Self {
             wake: tokio::sync::watch::channel(()).0,
             saved: RwLock::new(Arc::new(saved)),

@@ -57,24 +57,7 @@ impl Project {
     ) -> Result<meep_wire::mcp_store::Outcome> {
         meep_posthog::mcp::store::execute(&self.origin, self.project, &self.token, request).await
     }
-    pub async fn user_uuid(&self) -> Result<uuid::Uuid> {
-        #[derive(serde::Deserialize)]
-        struct User {
-            uuid: uuid::Uuid,
-        }
-        let user: User = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(3))
-            .build()?
-            .get(format!("{}/api/users/@me/", self.origin))
-            .bearer_auth(&self.token)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        Ok(user.uuid)
-    }
+
     pub async fn check(&self) -> Result<()> {
         self.health.get_response(&self.token, "?limit=1").await?;
         Ok(())

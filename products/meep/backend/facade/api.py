@@ -1,3 +1,4 @@
+from products.meep.backend.scouts import create_topic_scout, set_topic_scout_enabled
 from products.meep.backend.service import (
     acknowledge,
     bind_conversation,
@@ -27,6 +28,8 @@ __all__ = [
     "topic_context",
     "command",
     "create_topic",
+    "create_topic_scout",
+    "set_topic_scout_enabled",
     "cursor",
     "edit_view",
     "files",

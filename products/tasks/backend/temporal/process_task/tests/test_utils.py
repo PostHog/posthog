@@ -294,36 +294,25 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 )
             ]
 
-    def test_custom_scopes_with_write(self) -> None:
+    @parameterized.expand(
+        [
+            (["feature_flag:read", "feature_flag:write"], False),
+            (["meep:read", "meep_scout:read", "meep_scout:write"], False),
+            (["meep:read", "meep_scout:read"], True),
+            (["feature_flag:read", "insight:read"], True),
+        ]
+    )
+    def test_custom_scopes_read_only_header(self, scopes: list[str], read_only: bool) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
-            configs = get_sandbox_ph_mcp_configs(
-                self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "feature_flag:write"]
-            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=scopes)
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
                     url="https://mcp.us.posthog.com/mcp",
-                    headers=self._expected_headers(read_only=False),
-                    description=POSTHOG_MCP_DESCRIPTION,
-                )
-            ]
-
-    def test_custom_scopes_read_only(self) -> None:
-        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
-            configs = get_sandbox_ph_mcp_configs(
-                self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "insight:read"]
-            )
-            assert configs == [
-                McpServerConfig(
-                    type="http",
-                    name="posthog",
-                    url="https://mcp.us.posthog.com/mcp",
-                    headers=self._expected_headers(read_only=True),
+                    headers=self._expected_headers(read_only=read_only),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]

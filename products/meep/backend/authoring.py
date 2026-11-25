@@ -10,7 +10,7 @@ from posthog.models import User
 from products.meep.backend.chat import check_access, environment
 from products.meep.backend.domain import transition
 from products.meep.backend.models import ViewJob, WorkspaceView
-from products.meep.backend.task_profiles import MEEP
+from products.meep.backend.task_profiles import MEEP, MEEP_READ_SCOPES, agent_instructions
 from products.tasks.backend.facade import api
 from products.tasks.backend.facade.profiles import TaskRunOptions
 
@@ -35,7 +35,7 @@ def advance(view: WorkspaceView) -> None:
                 raise ValidationError("Remove attachments before asking the PostHog authoring worker.")
             latest = view.state["revisions"][-1] if view.state["revisions"] else None
             prompt = (
-                "Build a Meep native script view. Use this SDK guide and return the complete JavaScript in source, "
+                f"{agent_instructions()}\n\nBuild a Meep native script view. Use this SDK guide and return the complete JavaScript in source, "
                 "a short pane title in title, and a message for the person in reply. "
                 "Use topics with tasks, threads or facts as the source when the request identifies a topic.\n\n"
                 + _GUIDE.read_text()
@@ -53,6 +53,7 @@ def advance(view: WorkspaceView) -> None:
                 description=prompt,
                 sandbox_environment_id=str(environment(view.team_id)),
                 options=TaskRunOptions(
+                    mcp_scopes=MEEP_READ_SCOPES,
                     output_schema=_OUTPUT,
                     model=turn.get("options", {}).get("model"),
                     reasoning_effort=turn.get("options", {}).get("effort"),

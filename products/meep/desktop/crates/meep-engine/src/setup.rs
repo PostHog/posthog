@@ -203,31 +203,6 @@ impl Engine {
             .map(|r| r.binding.clone()))
     }
 
-    /// Enroll a restored topic that predates automatic workflow provisioning.
-    pub async fn enroll_legacy_default(&self, topic: TopicId) -> Result<()> {
-        fn eligible(s: &StoredTopic) -> bool {
-            !s.state.archived
-                && !s.state.deleted
-                && !s.default_sort_removed
-                && s.default_sort_request.is_none()
-                && s.default_flow.is_none()
-                && s.state.topic.default_sort.is_none()
-                && !s.routines.contains_key("default:sort-inbox")
-        }
-        if self.0.setup.load(std::sync::atomic::Ordering::SeqCst)
-            && eligible(&self.slot(topic)?.saved.read())
-        {
-            self.update(topic, &Default::default(), |s, _| {
-                if eligible(s) {
-                    s.default_sort_request = Some(id());
-                }
-                Ok(vec![])
-            })
-            .await?;
-        }
-        Ok(())
-    }
-
     /// Whether this topic was created with a pending hosted inbox workflow.
     pub fn default_sort_pending(&self, topic: TopicId) -> Result<bool> {
         Ok(self

@@ -118,10 +118,8 @@ impl Host {
             let result = task.await.map_err(anyhow::Error::from).and_then(|r| r);
             let _ = this.update_in(cx, |s, w, cx| {
                 match result {
-                    Ok((backend, notice)) => {
-                        s.view = Some(
-                            cx.new(|cx| Desktop::new(backend, s.runtime.clone(), notice, w, cx)),
-                        )
+                    Ok(backend) => {
+                        s.view = Some(cx.new(|cx| Desktop::new(backend, s.runtime.clone(), w, cx)))
                     }
                     Err(e) => s.error = Some(format!("{e:#}")),
                 }

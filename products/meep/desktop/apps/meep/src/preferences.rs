@@ -309,46 +309,15 @@ impl Desktop {
                         .min_w_0()
                         .gap(px(2.))
                         .child(meep_shell::settings::copy(
-                            "Meep server",
+                            "PostHog",
                             match self.client().status() {
                                 Status::Online => "Connected",
                                 Status::Syncing => "Syncing",
                                 Status::Offline { .. } => "Offline",
-                                Status::Unauthorized => "Device token expired",
+                                Status::Unauthorized => "Sign in again",
                             },
                         ))
                         .child(ui::mono(self.backend.server.clone()).truncate()),
-                )
-                .into_any_element()]))
-            .child(section(
-                "Public address",
-                "Routines, agent tools and view authoring need PostHog to reach this server over HTTPS.",
-                None,
-                false,
-            ))
-            .child(group([ui::column()
-                .gap_0()
-                .pb(px(12.))
-                .child(item(
-                    "Address",
-                    self.public_url_note
-                        .clone()
-                        .unwrap_or_else(|| "For example, a tunnel to this Mac.".into()),
-                    div(),
-                ))
-                .child(
-                    ui::row()
-                        .px(px(meep_shell::settings::ROW_X))
-                        .gap(px(6.))
-                        .child(div().flex_1().min_w_0().h(px(28.)).child(Styled::h_full(
-                            Input::new(&self.public_url).aria_label("Public address"),
-                        )))
-                        .child(
-                            control("save-public-url", "Save", true, cx, |s, w, cx| {
-                                s.save_public_url(w, cx)
-                            })
-                            .disabled(self.public_url.read(cx).value().trim().is_empty()),
-                        ),
                 )
                 .into_any_element()]))
             .child(section("Local storage", "", None, false));

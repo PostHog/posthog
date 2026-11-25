@@ -39,21 +39,10 @@ use meep_connections::SecretStore;
 use meep_connectors::{StateStore, StoreState};
 use meep_engine::{Blobs, Clock, DirBlobs, Engine, SqliteStore, Store, WorkflowSorter};
 use meep_policy::Limits;
-use std::{
-    future::Future,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{future::Future, path::Path, sync::Arc};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use vault::Vault;
-
-/// Resolve the platform's default server data directory.
-pub fn data_dir() -> Result<PathBuf> {
-    Ok(dirs::data_dir()
-        .context("Could not locate the application data directory")?
-        .join("Meep/server"))
-}
 
 struct ServiceClock;
 impl Clock for ServiceClock {
@@ -79,7 +68,7 @@ pub struct Server {
     auth: Arc<dyn Auth>,
 }
 impl Server {
-    /// Open SQLite records and connector checkpoints, directory blobs and OS-specific credentials.
+    /// Open a fixture directory with SQLite records, blobs and test credentials.
     pub async fn open(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
         let root = dir.to_owned();
@@ -88,14 +77,9 @@ impl Server {
             root: dir.to_owned(),
             tokens: auth.clone(),
         };
-        let server = Self::open_directory(dir, auth)
+        Ok(Self::open_directory(dir, auth)
             .await?
-            .with_owner_services(Arc::new(factory));
-        if let Ok(base) = std::env::var("MEEP_PUBLIC_BASE_URL") {
-            server.with_public_base(&base)
-        } else {
-            Ok(server)
-        }
+            .with_owner_services(Arc::new(factory)))
     }
 
     /// Supply the private storage factory for additional owners.
@@ -111,15 +95,6 @@ impl Server {
             tokio::task::spawn_blocking(move || -> Result<_> {
                 let dir = &root;
                 auth::private_dir(dir)?;
-                #[cfg(target_os = "macos")]
-                let secrets = {
-                    use sha2::{Digest, Sha256};
-                    Box::new(meep_connections::KeychainSecrets::new(format!(
-                        "meep-server.{:x}",
-                        Sha256::digest(dir.canonicalize()?.as_os_str().as_encoded_bytes())
-                    )))
-                };
-                #[cfg(not(target_os = "macos"))]
                 let secrets = Box::new(FileSecrets::open(dir.join("secrets"))?);
                 let checkpoints = meep_store::Connection::open(dir.join("connectors.sqlite"))?;
                 checkpoints.pragma_update(None, "journal_mode", "WAL")?;

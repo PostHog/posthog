@@ -13,6 +13,7 @@ from products.meep.backend.chat import start_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.files import choose_revision
 from products.meep.backend.models import CommandReceipt, Topic
+from products.meep.backend.scouts import pause_scouts
 
 
 def snapshot(topic: Topic) -> dict[str, Any]:
@@ -58,6 +59,8 @@ def apply_command(
             raise ValidationError("Topic unavailable.")
         topic = Topic(id=topic_id, team_id=team_id, owner=owner)
     else:
+        if command["kind"] in {"DeleteTopic", "ArchiveTopic"}:
+            pause_scouts(topic)
         state = apply_board_action(topic, state, command)
         if command.get("kind") == "Answer":
             choose_revision(topic, state, command, command_id)
