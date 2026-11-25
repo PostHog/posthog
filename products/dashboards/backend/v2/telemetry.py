@@ -33,7 +33,7 @@ from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_en
 from posthog.models.team import Team
 from posthog.models.team.team_event_volume import events_last_year_for
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_enabled, user_can_access_resource
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
@@ -170,8 +170,10 @@ def _align(moment: datetime, step: int) -> datetime:
 
 
 def assert_can_read_logs(team: Team, user: User, user_access_control: UserAccessControl) -> None:
-    """The batch calls this once, before any LogQL target runs, so access rules load once per batch."""
-    user_access_control.assert_access_level_for_resource("logs", "viewer")
+    """The batch calls this once, before any LogQL target runs, with the rules it loaded to plan the other
+    panels, so access rules load once per batch."""
+    if not user_can_access_resource(team, user, "logs", "viewer", user_access_control=user_access_control):
+        raise UserAccessControlError("logs", "viewer")
     # LogQL runs through Snuffle, which has its own private-alpha flag, as the Loki API does.
     if not posthog_feature_flag_enabled(
         SNUFFLE_API_FEATURE_FLAG, str(user.distinct_id), organization_id=team.organization_id, team_id=team.pk

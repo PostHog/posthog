@@ -31,6 +31,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.waiting import wait_until
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.dashboards.backend.facade.api import query_batch_stream
@@ -687,6 +688,27 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
 
         self.assertEqual(lines, [{"i": 0, "error": "Unsupported time expression: 'now-99999999y'."}])
+
+    @parameterized.expand([("no_access", "none", False), ("viewer", "viewer", True)])
+    def test_a_member_runs_logql_only_with_logs_access(self, _name: str, access_level: str, runs: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="logs", team=self.team, access_level=access_level)
+        self.client.force_login(self._create_user("logs-member@posthog.com", level=OrganizationMembership.Level.MEMBER))
+
+        with _snuffle_requests() as request:
+            [line] = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        if runs:
+            self.assertEqual(line["result"]["result"]["results"], _matrix(0)["data"])
+        else:
+            self.assertEqual(
+                line,
+                {"i": 0, "error": "Access control failure. You don't have `viewer` access to the `logs` resource."},
+            )
+            request.assert_not_called()
 
     @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])
     def test_flag_off_runs_nothing(self, language: str, query: str) -> None:
