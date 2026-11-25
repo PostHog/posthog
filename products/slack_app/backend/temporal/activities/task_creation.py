@@ -288,8 +288,6 @@ _ASK_IN_PROSE_LINE = (
     "requester a clarifying question, write it as plain text in your reply."
 )
 
-_FORK_TAG = "forked_slack_thread"
-
 
 def _build_fork_task_description(
     *,
@@ -309,6 +307,10 @@ def _build_fork_task_description(
     the requester can see in Slack. The channel id and the timestamps are given next to
     the permalinks because the Slack MCP's thread reader takes those, and a permalink is
     not always available.
+
+    Wrapped in the same ``<slack_thread_context>`` tag as a mention's thread copy. PostHog
+    Desktop and the feed previews fold that tag into a Slack context chip, and a tag of its
+    own would show up as raw markup in the task view until every reader learned it.
     """
     thread_location = f"channel `{source_channel}`, thread ts `{source_thread_ts}`"
     if permalink:
@@ -347,7 +349,7 @@ def _build_fork_task_description(
     lines.append(_ASK_IN_PROSE_LINE)
     body = "\n".join(lines)
     return (
-        f"<{_FORK_TAG}>\n{body}\n</{_FORK_TAG}>\n\n{title}\n\n"
+        f"<{_THREAD_CONTEXT_TAG}>\n{body}\n</{_THREAD_CONTEXT_TAG}>\n\n{title}\n\n"
         "Continue the work from the fork point. Pick up where it stopped. If the next step is not clear, "
         "summarize where the thread stands at the fork point and ask the requester what to do next."
     )

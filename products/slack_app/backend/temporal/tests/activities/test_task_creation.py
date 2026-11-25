@@ -213,6 +213,9 @@ def _fork_description(**overrides):
 
 def test_fork_description_links_the_thread_and_the_fork_point_instead_of_copying_them():
     out = _fork_description()
+    # Same tag as a mention's thread copy, so the task views fold it like one instead of showing raw markup.
+    assert out.startswith("<slack_thread_context>\n")
+    assert "\n</slack_thread_context>\n\nFork: the retry logic looks wrong\n" in out
     # The Slack MCP reads a thread by channel and ts, so both must be there even next to the permalink.
     assert "Thread: https://slack.test/archives/C1/p1 (channel `C1`, thread ts `1.000`)." in out
     assert "Fork point: https://slack.test/archives/C1/p2 (message ts `2.000`). Continue from that message." in out
