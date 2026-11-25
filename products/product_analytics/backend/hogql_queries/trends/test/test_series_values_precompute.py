@@ -142,7 +142,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == jobs
         rows = sync_execute(
             """
-            SELECT toString(time_window_start), series_key, value
+            SELECT toString(time_window_start), toString(time_window_end), series_key, value
             FROM series_values_preaggregated
             WHERE team_id = %(team_id)s
             ORDER BY time_window_start
@@ -150,13 +150,35 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk},
         )
         assert rows == [
-            ("2024-01-09 05:00:00.000000", "", 1.0),
-            ("2024-01-10 15:00:00.000000", "", 2.0),
-            ("2024-01-13 23:00:00.000000", "", 1.0),
-            ("2024-01-14 03:00:00.000000", "", 1.0),
-            ("2024-01-14 07:00:00.000000", "", 1.0),
-            ("2024-01-14 08:00:00.000000", "", 1.0),
+            ("2024-01-09 05:00:00.000000", "2024-01-09 06:00:00.000000", "", 1.0),
+            ("2024-01-10 15:00:00.000000", "2024-01-10 16:00:00.000000", "", 2.0),
+            ("2024-01-13 23:00:00.000000", "2024-01-14 00:00:00.000000", "", 1.0),
+            ("2024-01-14 03:00:00.000000", "2024-01-14 04:00:00.000000", "", 1.0),
+            ("2024-01-14 07:00:00.000000", "2024-01-14 08:00:00.000000", "", 1.0),
+            ("2024-01-14 08:00:00.000000", "2024-01-14 09:00:00.000000", "", 1.0),
         ]
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_a_row_without_a_window_end_is_not_read(self) -> None:
+        self._seed()
+        query = _query(properties=[_PRO])
+        before = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+        job = PreaggregationJob.objects.get(
+            team_id=self.team.pk,
+            time_range_start__lte="2024-01-14T00:00:00Z",
+            time_range_end__gt="2024-01-14T00:00:00Z",
+        )
+        sync_execute(
+            """
+            INSERT INTO sharded_series_values_preaggregated (team_id, job_id, time_window_start, series_key, value)
+            VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '', 5)
+            """,
+            {"team_id": self.team.pk, "job_id": str(job.id)},
+        )
+
+        after = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert before is not None and after == before
 
     def test_day_built_before_late_events_settle_is_rebuilt(self) -> None:
         self._seed()

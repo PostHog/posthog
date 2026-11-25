@@ -32,6 +32,9 @@ class SeriesValuesPreaggregatedTable(Table):
         "time_window_start": DateTimeDatabaseField(
             name="time_window_start", description="Start of the time window this row covers."
         ),
+        "time_window_end": DateTimeDatabaseField(
+            name="time_window_end", description="End of the time window this row covers, exclusive."
+        ),
         "series_key": StringDatabaseField(
             name="series_key", description="Identifies the series within the job; empty for single-series jobs."
         ),

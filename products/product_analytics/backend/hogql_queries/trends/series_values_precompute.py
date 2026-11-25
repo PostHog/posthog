@@ -42,6 +42,7 @@ logger = structlog.get_logger(__name__)
 INSERT_QUERY_TEMPLATE = """
 SELECT
     hour AS time_window_start,
+    hour + toIntervalHour(1) AS time_window_end,
     '' AS series_key,
     toFloat(count()) AS value
 FROM (
@@ -227,7 +228,8 @@ def _read_values(
 SELECT {_BUCKET_EXPRS[_interval(runner)]} AS bucket, sum(value) AS value
 FROM {DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE()}
 WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
-  AND time_window_start >= %(range_start)s AND time_window_start < %(range_end)s
+  AND time_window_start >= %(range_start)s AND time_window_end <= %(range_end)s
+  AND time_window_end > time_window_start
 GROUP BY bucket
 """
     with tags_context(query_type="series_values_read"):
