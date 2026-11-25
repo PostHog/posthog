@@ -23,6 +23,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
@@ -959,7 +960,12 @@ class TestSavedQuery(APIBaseTest):
         assert "Invalid query" in response_json["detail"]
 
     def test_create_with_jev_saves_without_model_call(self):
-        with patch("httpx.AsyncClient.post") as post:
+        with (
+            patch("httpx.AsyncClient.post") as post,
+            patch.object(
+                HogQLQueryExecutor, "plan_prompt_jev", autospec=True, side_effect=HogQLQueryExecutor.plan_prompt_jev
+            ) as plan,
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -977,6 +983,8 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201, response.content
         assert [column["name"] for column in response.json()["columns"]] == ["id", "verdict"]
         post.assert_not_called()
+        # Each plan runs the jev source query on ClickHouse, so validation and the column read share one.
+        assert plan.call_count == 1
 
     def test_create_with_jev_over_budget_returns_planner_error(self):
         query = "SELECT jev(toString(event), 'Topic?') AS a, jev(toString(event), 'Tone?') AS b FROM events LIMIT 600"
