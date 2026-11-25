@@ -123,7 +123,7 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
-        _refuse_incidents_the_source_never_sends(configuration.source_kind, destinations)
+        _refuse_incidents_the_source_never_sends(configuration.source_kind, configuration.alert_kind, destinations)
         _refuse_duplicates(team_id, configuration.id, destinations, hog_function_groups)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
@@ -403,10 +403,12 @@ def _names_subscribers(row: AlertDestination) -> bool:
     return row.type == DestinationType.IN_APP or (row.type == DestinationType.EMAIL and "email_user_ids" in row.config)
 
 
-def _refuse_incidents_the_source_never_sends(source_kind: str, destinations: Sequence[NewAlertDestination]) -> None:
+def _refuse_incidents_the_source_never_sends(
+    source_kind: str, alert_kind: str, destinations: Sequence[NewAlertDestination]
+) -> None:
     # A source with no incident events never opens or resolves an incident, so an incident manager on
     # its alert would be saved and never hear anything.
-    spec = source_configs.spec(SourceKind(source_kind))
+    spec = source_configs.spec(SourceKind(source_kind), alert_kind)
     if spec is None or spec.incident_event_ids is not None:
         return
     for destination in destinations:
