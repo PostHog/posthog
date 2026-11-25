@@ -122398,7 +122398,7 @@ export namespace Schemas {
       catalog_version: number;
       /** The preview reads records created in this many past days. */
       lookback_days: number;
-      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
       total_count: number;
       /** Records in the window that pass the filter. */
       passing_count: number;
