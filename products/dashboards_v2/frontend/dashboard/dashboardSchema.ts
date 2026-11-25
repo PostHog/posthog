@@ -21,12 +21,15 @@ import { AccessControlLevel } from '~/types'
  * - `metrics`: a `MetricsQuery` node, as the metrics product builds it.
  * - `traces`: a `TraceSpansQuery` or `TraceSpansAggregationQuery` node, as tracing and APM build them.
  * - `insight`: any query node `/query` runs, such as a `TrendsQuery`, for teams that already build their own nodes.
+ * - `promql` and `logql`: an expression, run as a range query over the chart's time range.
  */
 export type WidgetQuery =
     | { language: 'hogql'; query: string }
     | { language: 'metrics'; query: MetricsQuery }
     | { language: 'traces'; query: TraceSpansQuery | TraceSpansAggregationQuery }
     | { language: 'insight'; query: QuerySchema }
+    | { language: 'promql'; query: string }
+    | { language: 'logql'; query: string }
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const widgetQuerySchema = z.union([
@@ -42,6 +45,8 @@ export const widgetQuerySchema = z.union([
         }),
     }),
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
+    z.strictObject({ language: z.literal('promql'), query: z.string().min(1) }),
+    z.strictObject({ language: z.literal('logql'), query: z.string().min(1) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
 /**

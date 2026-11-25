@@ -12,6 +12,11 @@ const TRENDS: QueryRequest = {
     query: { language: 'insight', query: { kind: NodeKind.TrendsQuery, series: [] } },
     time: TIME,
 }
+const LATENCY: QueryRequest = {
+    query: { language: 'promql', query: 'histogram_quantile(0.95, sum by (le) (rate(latency_bucket[5m])))' },
+    time: TIME,
+    legend: 'p95 {{service}}',
+}
 const DAY_1 = Date.UTC(2026, 10, 1)
 
 interface OpenStream {
@@ -50,6 +55,7 @@ describe('createQueryBatchRunner', () => {
         const runQuery = createQueryBatchRunner(7)
         const first = runQuery(SQL)
         const second = runQuery(TRENDS)
+        void runQuery(LATENCY).catch(() => {})
         await flush()
 
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
@@ -60,6 +66,10 @@ describe('createQueryBatchRunner', () => {
             queries: [
                 { target: { refId: '0', language: 'hogql', query: 'select 1 as total' }, time: TIME },
                 { target: { refId: '1', language: 'query', query: '{"kind":"TrendsQuery","series":[]}' }, time: TIME },
+                {
+                    target: { refId: '2', language: 'promql', query: LATENCY.query.query, legend: 'p95 {{service}}' },
+                    time: TIME,
+                },
             ],
         })
 
@@ -68,7 +78,7 @@ describe('createQueryBatchRunner', () => {
             labels: {},
             fields: [
                 { name: 'day', type: 'time', unit: 'date', values: [DAY_1] },
-                { name: 'total', type: 'number', values: [42] },
+                { name: 'total', type: 'number', unit: 's', values: [42] },
             ],
             meta: {},
             hash: 'h',
@@ -82,7 +92,7 @@ describe('createQueryBatchRunner', () => {
                 {
                     fields: [
                         { name: 'day', type: 'time', values: ['2026-11-01'] },
-                        { name: 'total', type: 'number', values: [42] },
+                        { name: 'total', type: 'number', values: [42], unit: 's' },
                     ],
                 },
             ],
