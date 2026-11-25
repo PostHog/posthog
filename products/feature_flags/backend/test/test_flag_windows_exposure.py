@@ -1,7 +1,8 @@
 import dataclasses
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import (
     BaseTest,
@@ -10,6 +11,7 @@ from posthog.test.base import (
     _create_flag_evaluations,
     flush_persons_and_events,
 )
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase
@@ -18,6 +20,7 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.group.util import raw_create_group_ch
 from posthog.test.persons import create_group_type_mapping, create_person
@@ -34,6 +37,7 @@ from products.feature_flags.backend.flag_windows.query import (
     split_counts,
 )
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test.flag_window_fixtures import exposure_counts, split
 
 START = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=10)
@@ -72,28 +76,6 @@ EVERYONE = WatchedCondition(position=0, properties=())
 Event = tuple[str, int, dict[str, Any]]
 # (bucket start in minutes after START, then the in_bucket exposed, unexposed and by_variant)
 ExpectedBucket = tuple[int, int, int, dict[str, int]]
-
-
-def split(exposed: int, unexposed: int, errors: tuple[int, int] = (0, 0)) -> SplitCounts:
-    return SplitCounts(
-        with_flag=exposed + unexposed,
-        exposed=exposed,
-        unexposed=unexposed,
-        exposed_with_errors=errors[0],
-        unexposed_with_errors=errors[1],
-        unexposed_one_in=1,
-    )
-
-
-def counts(
-    exposed: int,
-    unexposed: int,
-    by_variant: Mapping[str, int] | None = None,
-    in_condition: Mapping[ConditionMatch, SplitCounts] | None = None,
-) -> ExposureCounts:
-    return ExposureCounts(
-        **dataclasses.asdict(split(exposed, unexposed)), by_variant=by_variant or {}, in_condition=in_condition or {}
-    )
 
 
 def _text_compared_with_a_number(team: Team) -> dict[str, Any]:
@@ -235,7 +217,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 edit.id: [
                     (
                         START + timedelta(minutes=minutes),
-                        counts(exposed, unexposed, by_variant),
+                        exposure_counts(split(exposed, unexposed), by_variant),
                     )
                     for minutes, exposed, unexposed, by_variant in expected
                 ]
@@ -263,13 +245,13 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 edit.id: [
                     ExposureBucket(
                         start=START + timedelta(minutes=10),
-                        in_bucket=counts(1, 1),
-                        since_edit=counts(1, 1),
+                        in_bucket=exposure_counts(split(1, 1)),
+                        since_edit=exposure_counts(split(1, 1)),
                     ),
                     ExposureBucket(
                         start=START + timedelta(minutes=20),
-                        in_bucket=counts(3, 0),
-                        since_edit=counts(3, 0),
+                        in_bucket=exposure_counts(split(3, 0)),
+                        since_edit=exposure_counts(split(3, 0)),
                     ),
                 ]
             },
@@ -338,6 +320,49 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         since_edit = exposure[edit.id][-1].since_edit
         self.assertEqual(
             {name: getattr(since_edit, name) for name in dataclasses.asdict(expected)}, dataclasses.asdict(expected)
+        )
+
+    def test_a_flag_above_the_exact_count_takes_the_unexposed_from_the_sample_of_its_people(self) -> None:
+        candidates = [str(UUID(int=number)) for number in range(1, 200)]
+        rows = sync_execute(
+            "SELECT id FROM (SELECT arrayJoin(%(ids)s) AS id) WHERE cityHash64(toUUID(id)) % 16 = 0",
+            {"ids": candidates},
+        )
+        sampled = [row[0] for row in rows][:3]
+        others = [candidate for candidate in candidates if candidate not in {row[0] for row in rows}][:3]
+        on, off = {"$feature/new-checkout": True}, {"$feature/new-checkout": False}
+        for person_uuid, event, properties in (
+            (sampled[0], "$pageview", on),
+            (sampled[1], "$exception", off),
+            (sampled[2], "$pageview", off),
+            (others[0], "$exception", on),
+            (others[1], "$exception", off),
+            (others[2], "$exception", off),
+        ):
+            create_person(team=self.team, distinct_ids=[person_uuid], uuid=person_uuid)
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=person_uuid,
+                timestamp=START + timedelta(minutes=1),
+                properties=properties,
+            )
+        flush_persons_and_events()
+
+        with patch("products.feature_flags.backend.flag_windows.query.EXACT_COUNT", 3):
+            exposure = exposure_by_bucket(self.team, [BOOLEAN], START, START + BUCKET, BUCKET)
+
+        self.assertEqual(
+            exposure[BOOLEAN.id][0].since_edit,
+            ExposureCounts(
+                with_flag=6,
+                exposed=2,
+                unexposed=2 * 16,
+                exposed_with_errors=1,
+                unexposed_with_errors=1 * 16,
+                unexposed_one_in=16,
+                by_variant={},
+            ),
         )
 
     def test_counts_in_the_watched_conditions_by_reason_and_by_properties(self) -> None:
@@ -520,10 +545,9 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
             {
-                "boolean": counts(1, 0, in_condition=by_reason),
-                "healthy": counts(
-                    1,
-                    0,
+                "boolean": exposure_counts(split(1, 0), in_condition=by_reason),
+                "healthy": exposure_counts(
+                    split(1, 0),
                     in_condition=by_reason_and_properties if healthy_keeps_properties else by_reason,
                 ),
             },
@@ -585,16 +609,15 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
             {
-                "group": counts(
-                    2,
-                    1,
+                "group": exposure_counts(
+                    split(2, 1),
                     by_variant={"control": 1, "test": 1},
                     in_condition={
                         ConditionMatch.REASON: split(1, 1),
                         ConditionMatch.PROPERTIES: split(1, 1),
                     },
                 ),
-                "boolean": counts(1, 0, in_condition=in_condition),
+                "boolean": exposure_counts(split(1, 0), in_condition=in_condition),
             },
         )
 
@@ -668,15 +691,15 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 "boolean": [
                     ExposureBucket(
                         start=START + timedelta(minutes=10),
-                        in_bucket=counts(1, 0),
-                        since_edit=counts(1, 0),
+                        in_bucket=exposure_counts(split(1, 0)),
+                        since_edit=exposure_counts(split(1, 0)),
                     ),
                 ],
                 "multivariate": [
                     ExposureBucket(
                         start=START,
-                        in_bucket=counts(2, 0, by_variant={"control": 1, "test": 1}),
-                        since_edit=counts(2, 0, by_variant={"control": 1, "test": 1}),
+                        in_bucket=exposure_counts(split(2, 0), by_variant={"control": 1, "test": 1}),
+                        since_edit=exposure_counts(split(2, 0), by_variant={"control": 1, "test": 1}),
                     )
                 ],
             },
@@ -709,12 +732,12 @@ class TestSplitCounts(SimpleTestCase):
     def test_the_unexposed_come_from_the_largest_exact_sample(
         self, _name: str, values: list[int], expected: tuple[int, int, int]
     ) -> None:
-        counts = split_counts(values)
+        result = split_counts(values)
 
         self.assertEqual(
-            (counts.with_flag, counts.exposed, counts.exposed_with_errors), (values[1], values[2], values[0])
+            (result.with_flag, result.exposed, result.exposed_with_errors), (values[1], values[2], values[0])
         )
-        self.assertEqual((counts.unexposed, counts.unexposed_with_errors, counts.unexposed_one_in), expected)
+        self.assertEqual((result.unexposed, result.unexposed_with_errors, result.unexposed_one_in), expected)
 
 
 class TestExposureByBucketInput(SimpleTestCase):

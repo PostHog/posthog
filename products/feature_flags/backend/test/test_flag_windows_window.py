@@ -12,7 +12,7 @@ from parameterized import param, parameterized
 from products.feature_flags.backend.exposure_change import FlagExposureConfig
 from products.feature_flags.backend.flag_windows.baseline import HOUR
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
-from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
 from products.feature_flags.backend.flag_windows.last_values import LastValueBucket
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, SplitCounts, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import ScoreParameters
@@ -24,6 +24,7 @@ from products.feature_flags.backend.flag_windows.window import (
     WindowState,
     advance_window,
 )
+from products.feature_flags.backend.test.flag_window_fixtures import exposure_counts, split
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 PEOPLE = 1000
@@ -81,23 +82,6 @@ def _window(state: WindowState = OPEN, enables: bool = False) -> ObservationWind
     return ObservationWindow(edit=edit, config_before=BEFORE, config_after=AFTER, state=state)
 
 
-def _split(exposed: int, unexposed: int, errors: tuple[int, int] = (0, 0)) -> SplitCounts:
-    return SplitCounts(
-        with_flag=exposed + unexposed,
-        exposed=exposed,
-        unexposed=unexposed,
-        exposed_with_errors=errors[0],
-        unexposed_with_errors=errors[1],
-        unexposed_one_in=1,
-    )
-
-
-def _exposure_counts(
-    split: SplitCounts, in_condition: Mapping[ConditionMatch, SplitCounts] | None = None
-) -> ExposureCounts:
-    return ExposureCounts(**dataclasses.asdict(split), by_variant={}, in_condition=in_condition or {})
-
-
 def _exposure(
     shares: Sequence[float],
     exposed: int = PEOPLE,
@@ -107,8 +91,8 @@ def _exposure(
     return [
         ExposureBucket(
             start=EDITED_AT + index * HOUR,
-            in_bucket=_exposure_counts(_split(round(share * PEOPLE), PEOPLE - round(share * PEOPLE))),
-            since_edit=_exposure_counts(_split(exposed, 2 * PEOPLE - exposed, errors), in_condition),
+            in_bucket=exposure_counts(split(round(share * PEOPLE), PEOPLE - round(share * PEOPLE))),
+            since_edit=exposure_counts(split(exposed, 2 * PEOPLE - exposed, errors), in_condition=in_condition),
         )
         for index, share in enumerate(shares)
     ]
@@ -119,8 +103,8 @@ def _last_values(exposure: Sequence[ExposureBucket], errors: tuple[int, int] = (
     return [
         LastValueBucket(
             start=bucket.start,
-            in_bucket=_split(bucket.in_bucket.exposed, bucket.in_bucket.unexposed, errors),
-            since_edit=_split(bucket.since_edit.exposed, bucket.since_edit.unexposed, errors),
+            in_bucket=split(bucket.in_bucket.exposed, bucket.in_bucket.unexposed, errors),
+            since_edit=split(bucket.since_edit.exposed, bucket.since_edit.unexposed, errors),
         )
         for bucket in exposure
     ]
@@ -209,7 +193,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 hours_since_edit=12,
                 exposure=_exposure(
                     RISING,
-                    in_condition={ConditionMatch.REASON: _split(0, 50)},
+                    in_condition={ConditionMatch.REASON: split(0, 50)},
                 ),
                 condition_match=ConditionMatch.REASON,
                 expected=_closed(CloseReason.NO_REACH),
@@ -286,7 +270,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 exposure=_exposure(
                     [0.0] * 12,
                     exposed=0,
-                    in_condition={ConditionMatch.REASON: _split(0, 0)},
+                    in_condition={ConditionMatch.REASON: split(0, 0)},
                 ),
                 last_values=_last_values(_exposure(_rising_then_flat(12))),
                 condition_match=ConditionMatch.REASON,
@@ -299,7 +283,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 exposure=_exposure(
                     [0.0] * 12,
                     exposed=0,
-                    in_condition={ConditionMatch.REASON: _split(0, 50)},
+                    in_condition={ConditionMatch.REASON: split(0, 50)},
                 ),
                 last_values=_last_values(_exposure(_rising_then_flat(12))),
                 condition_match=ConditionMatch.REASON,

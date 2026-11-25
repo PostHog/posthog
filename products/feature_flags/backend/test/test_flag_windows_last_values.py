@@ -30,6 +30,7 @@ from products.feature_flags.backend.flag_windows import query as flag_window_que
 from products.feature_flags.backend.flag_windows.last_values import LOOKBACK, last_values_by_bucket
 from products.feature_flags.backend.flag_windows.query import SplitCounts, WatchedEdit
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test.flag_window_fixtures import split
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=30)
@@ -87,14 +88,7 @@ def call(
 
 
 def counts(exposed: int = 0, unexposed: int = 0, errors: tuple[int, int] = (0, 0), people: int = 1) -> SplitCounts:
-    return SplitCounts(
-        with_flag=people,
-        exposed=exposed,
-        unexposed=unexposed,
-        exposed_with_errors=errors[0],
-        unexposed_with_errors=errors[1],
-        unexposed_one_in=1,
-    )
+    return dataclasses.replace(split(exposed, unexposed, errors), with_flag=people)
 
 
 NOBODY = counts(people=0)

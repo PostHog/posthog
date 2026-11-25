@@ -252,7 +252,7 @@ def split_counts(values: Sequence[int]) -> SplitCounts:
     samples = [(one_in, by_sample[3 * index : 3 * index + 3]) for index, one_in in enumerate(SAMPLES)]
     _, (with_flag, exposed, _) = samples[0]
     one_in, (sampled_with_flag, sampled_exposed, sampled_exposed_or_with_errors) = next(
-        (sample for sample in samples if sample[1][0] <= EXACT_COUNT), samples[-1]
+        ((one_in, counts) for one_in, counts in samples if counts[0] <= EXACT_COUNT), samples[-1]
     )
     # Above the limit of the last sample, the counts are separate estimates, so a part can come out above the whole.
     unexposed = max(0, sampled_with_flag - sampled_exposed)

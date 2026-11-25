@@ -15,10 +15,11 @@ from parameterized import parameterized
 
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
-from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
 from products.feature_flags.backend.flag_windows.last_values import LastValueBucket
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, SplitCounts, WatchedCondition, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import ScoreParameters, WindowScore, score_window
+from products.feature_flags.backend.test.flag_window_fixtures import exposure_counts, split
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 PEOPLE = 1000
@@ -59,25 +60,8 @@ PARAMETERS = ScoreParameters(
 )
 
 
-def _split(exposed: int, unexposed: int, errors: tuple[int, int] = (0, 0)) -> SplitCounts:
-    return SplitCounts(
-        with_flag=exposed + unexposed,
-        exposed=exposed,
-        unexposed=unexposed,
-        exposed_with_errors=errors[0],
-        unexposed_with_errors=errors[1],
-        unexposed_one_in=1,
-    )
-
-
-def _exposure_counts(
-    split: SplitCounts, in_condition: Mapping[ConditionMatch, SplitCounts] | None = None
-) -> ExposureCounts:
-    return ExposureCounts(**dataclasses.asdict(split), by_variant={}, in_condition=in_condition or {})
-
-
 def _share_split(share: float) -> SplitCounts:
-    return _split(round(share * PEOPLE), PEOPLE - round(share * PEOPLE))
+    return split(round(share * PEOPLE), PEOPLE - round(share * PEOPLE))
 
 
 def _exposure(
@@ -89,8 +73,8 @@ def _exposure(
     return [
         ExposureBucket(
             start=EDITED_AT + index * HOUR,
-            in_bucket=_exposure_counts(_share_split(share)),
-            since_edit=_exposure_counts(_split(exposed, 2 * PEOPLE - exposed, errors), in_condition),
+            in_bucket=exposure_counts(_share_split(share)),
+            since_edit=exposure_counts(split(exposed, 2 * PEOPLE - exposed, errors), in_condition=in_condition),
         )
         for index, share in enumerate(shares)
     ]
@@ -112,7 +96,7 @@ def _last_values(
         LastValueBucket(
             start=EDITED_AT + index * HOUR,
             in_bucket=_share_split(share),
-            since_edit=_split(exposed, 2 * PEOPLE - exposed, errors),
+            since_edit=split(exposed, 2 * PEOPLE - exposed, errors),
         )
         for index, share in enumerate(shares)
     ]
@@ -338,7 +322,7 @@ class TestScoreWindow(SimpleTestCase):
         condition_match: ConditionMatch | None,
         significant: bool | None,
     ) -> None:
-        in_condition = {ConditionMatch.REASON: _split(PEOPLE // 2, PEOPLE // 2, errors=(40, 5))}
+        in_condition = {ConditionMatch.REASON: split(PEOPLE // 2, PEOPLE // 2, errors=(40, 5))}
         exposure = _exposure([0.5], errors=(40, 40), in_condition=in_condition)
 
         result = _score(exposure, _errors(80), [BASELINE_RATE], edit=edit, condition_match=condition_match)
@@ -368,9 +352,9 @@ class TestScoreWindow(SimpleTestCase):
     def test_level_1_trusts_sampled_unexposed_people_as_much_as_their_sample(
         self, _name: str, unexposed_one_in: int, significant: bool
     ) -> None:
-        split = dataclasses.replace(_split(50_000, 2_000, errors=(500, 0)), unexposed_one_in=unexposed_one_in)
+        counts = dataclasses.replace(split(50_000, 2_000, errors=(500, 0)), unexposed_one_in=unexposed_one_in)
         exposure = [
-            ExposureBucket(start=EDITED_AT, in_bucket=_exposure_counts(split), since_edit=_exposure_counts(split))
+            ExposureBucket(start=EDITED_AT, in_bucket=exposure_counts(counts), since_edit=exposure_counts(counts))
         ]
 
         result = _score(exposure, _errors(500), [BASELINE_RATE])
@@ -378,7 +362,7 @@ class TestScoreWindow(SimpleTestCase):
         assert result.level_1 is not None and result.level_1.is_significant is significant
 
     def test_the_minimum_volume_applies_to_the_people_that_level_1_compares(self) -> None:
-        in_condition = {ConditionMatch.REASON: _split(20, 500, errors=(20, 5))}
+        in_condition = {ConditionMatch.REASON: split(20, 500, errors=(20, 5))}
         exposure = _exposure([0.5], errors=(40, 40), in_condition=in_condition)
 
         result = _score(exposure, _errors(80), [BASELINE_RATE], condition_match=ConditionMatch.REASON)
