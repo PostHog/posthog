@@ -252,6 +252,8 @@ Models that invalidate the flags cache:
 
 Deleting a `Team` clears its flags, local evaluation and team metadata entries from Redis and S3 after the deletion commits.
 Celery tasks run the clears, because the process that deletes the team can lack `FLAGS_REDIS_URL`.
+The flags clear needs `FLAGS_REDIS_URL` on the worker, and returns without deleting when the worker lacks it. The other two clears do not check the setting.
+A clear retries when a delete fails. An entry whose clear fails on every retry keeps its expiry tracking member, so the daily cleanup task deletes it.
 The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
 A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
 A refresh run that loaded the team before the deletion can write an entry again. The daily cleanup task deletes that entry from Redis and S3.

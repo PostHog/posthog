@@ -469,6 +469,7 @@ def delete_entry_keeping_failed_delete_tracked(hypercache: HyperCache, identifie
 
     The member moves to a retry score first, and leaves the sorted set only after every delete succeeds.
     After a failed delete, cleanup_stale_expiry_tracking still finds the entry of a deleted team.
+    A failed delete of the shared Redis copy raises too, so a calling task retries it.
     An identifier with no member gets one only when a tier holds the entry after the delete.
 
     Returns:

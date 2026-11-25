@@ -1014,19 +1014,21 @@ class TestServiceFlagsSignals(BaseTest):
         assert flags_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
 
-    def test_team_delete_succeeds_when_the_broker_rejects_the_clear(self):
+    @parameterized.expand([("clear_team_evaluation_cache",), ("clear_team_definitions_cache",)])
+    def test_team_delete_succeeds_when_the_broker_rejects_the_clear(self, task_name):
         team = Team.objects.create(organization=self.organization, name="Doomed team")
         team_id = team.id
 
         with (
             patch(
-                "products.feature_flags.backend.tasks.clear_team_evaluation_cache.delay",
+                f"products.feature_flags.backend.tasks.{task_name}.delay",
                 side_effect=ConnectionError("broker down"),
-            ),
+            ) as mock_delay,
             self.captureOnCommitCallbacks(execute=True),
         ):
             team.delete()
 
+        mock_delay.assert_called_once_with(team_id)
         assert not Team.objects.filter(id=team_id).exists()
 
 
