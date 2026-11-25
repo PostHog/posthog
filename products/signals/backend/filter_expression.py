@@ -80,6 +80,13 @@ class FilterExpression:
             if operand.start is None or operand.end is None:
                 return None
             conditions.append(self._source[operand.start : operand.end])
+        # Parser spans can disagree with the source text (a leading BOM shifts them), so a cut that is not a
+        # valid expression on its own means no conditions rather than a failed preview.
+        try:
+            for condition in conditions:
+                FilterExpression(condition, self._fields)
+        except FilterValidationError:
+            return None
         return tuple(conditions)
 
     def _require(self, valid: bool, node: ast.Expr, message: str) -> None:

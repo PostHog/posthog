@@ -161,6 +161,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         ]
         assert failed_conditions("project_name = 'Web' OR assignee_id IS NULL") is None
         assert failed_conditions(" AND ".join(["priority = 2"] * 8 + ["assignee_id IS NULL"])) is None
+        assert failed_conditions("\ufeffproject_name = 'Web' AND assignee_id IS NULL") is None
 
     def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
         """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""

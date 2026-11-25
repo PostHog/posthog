@@ -155,6 +155,7 @@ class TestFilterExpression(SimpleTestCase):
                 ("NOT (project_name = 'Core' AND priority = 1)",),
             ),
             ("blank", "  ", None),
+            ("leading_bom", "\ufeffproject_name = 'Core' AND priority = 1", None),
         ]
     )
     def test_conditions(self, _name: str, expression: str, expected: tuple[str, ...] | None) -> None:
