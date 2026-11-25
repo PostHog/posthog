@@ -126,6 +126,7 @@ from ..logic.traces.trace_metrics_queries import (
     metrics_insight_queries,
 )
 from ..logic.traces.trace_metrics_store import cached_trace_metrics
+from ..logic.traces.trace_paging import next_cursor, page_after, rows_to_read
 from ..logic.traces.trace_queries import (
     PageTraceRows,
     PersonRow,
@@ -155,10 +156,9 @@ from ..logic.traces.trace_selection import (
     TraceSelection as TraceSelection,
     TraceWindow,
     decode_cursor,
-    encode_cursor,
     resolve_window,
 )
-from ..logic.traces.trace_selection_queries import SelectionCounts, load_selection_page
+from ..logic.traces.trace_selection_queries import SelectionCounts, load_rows_after
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.turn import Turn, missing_reason, preview
 from ..logic.traces.usage import Usage
@@ -228,20 +228,21 @@ def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None)
 def load_trace_list(
     team: Team, user: User, selection: TraceSelection, *, cursor: str | None, limit: int
 ) -> Callable[[], contracts.TraceList]:
-    """Loads a page of the selected traces, newest first, and returns the step that builds it into the list, each
-    trace read the way `get_trace` reads it. Counts come with the first page only. Raises `InvalidTraceCursorError`
-    for a cursor this read did not hand out, before any read.
+    """Loads a page of the selected traces, in the selection's order, and returns the step that builds it into the
+    list, each trace read the way `get_trace` reads it. Counts come with the first page only. Raises
+    `InvalidTraceCursorError` for a cursor this read did not hand out, before any read.
 
     The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
     after = decode_cursor(cursor) if cursor is not None else None
-    page = load_selection_page(team, user, selection, after=after, limit=limit)
+    read = load_rows_after(team, user, selection, after=after, take=rows_to_read(limit))
+    page = page_after(read.rows, limit)
     loaded = _load_page_rows(team, user, page.positions)
     return lambda: contracts.TraceList(
         items=_list_items(team, user, selection.window, page.positions, loaded),
-        counts=_to_list_counts(page.counts) if cursor is None else None,
-        next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+        counts=_to_list_counts(read.counts) if cursor is None and read.counts is not None else None,
+        next_cursor=next_cursor(page),
     )
 
 

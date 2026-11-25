@@ -32,6 +32,8 @@ from posthog.utils import get_delta_mapping_for, relative_date_parse_with_delta_
 QuickFilter = Literal["errors", "feedback"]
 QUICK_FILTERS: tuple[QuickFilter, ...] = ("errors", "feedback")
 
+TraceOrder = Literal["newest_first", "oldest_first"]
+
 CAPTURE_BUFFER = timedelta(minutes=10)
 DEFAULT_WINDOW = timedelta(days=7)
 ALL_TIME_LOOKBACK = timedelta(days=365)
@@ -100,9 +102,26 @@ class TraceSelection:
     person_id: str | None = None
     group: TraceGroupScope | None = None
     quick_filter: QuickFilter | None = None
+    session_id: str | None = None
+    order: TraceOrder = "newest_first"
 
     def __post_init__(self) -> None:
         _check_filters(self.properties)
+        self._check_session_scope()
+
+    def _check_session_scope(self) -> None:
+        if self.session_id is None:
+            return
+        narrowed_by_list_filters = (
+            self.properties
+            or self.search
+            or self.person_id
+            or self.group
+            or self.quick_filter
+            or self.filter_test_accounts
+        )
+        if narrowed_by_list_filters:
+            raise InvalidTraceSelectionError("A session reads on its own. Remove the list filters.")
 
 
 @frozen
@@ -116,6 +135,8 @@ class TracePosition:
 
 
 def filters_test_accounts(team: Team, selection: TraceSelection) -> bool:
+    if selection.session_id is not None:
+        return False
     if selection.filter_test_accounts is None:
         return bool(team.test_account_filters_default_checked)
     return selection.filter_test_accounts
