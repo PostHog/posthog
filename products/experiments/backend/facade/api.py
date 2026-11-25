@@ -13,7 +13,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    PermissionDenied as DjangoPermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 
 import pydantic
 import structlog
@@ -54,7 +57,10 @@ from products.experiments.backend.models.team_experiments_config import (
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
 from products.experiments.backend.running_time_target import load_running_time_target
-from products.experiments.backend.warehouse_native_sources import user_may_read_warehouse_native_results
+from products.experiments.backend.warehouse_native_sources import (
+    user_may_read_warehouse_native_results,
+    validate_warehouse_native_connection_access,
+)
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
@@ -85,8 +91,10 @@ from .contracts import (
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
     Unset,
+    WarehouseNativeResultAccessDenied,
 )
 from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .warehouse_native_access import warehouse_native_connection_id
 
 logger = structlog.get_logger(__name__)
 
@@ -587,13 +595,17 @@ def request_metrics_recalculation(
     return RequestedRecalculation(**_run_summary_fields(payload), is_existing=payload["is_existing"])
 
 
-def get_latest_recalculation(*, team_id: int, experiment_id: int) -> LatestRecalculation | None:
-    """None when the experiment has no run and no timeseries data to show."""
+def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int | None) -> LatestRecalculation | None:
+    """None when the experiment has no run and no timeseries data to show.
+
+    Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results.
+    """
     from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
     active = recalculation.get_active_recalculation(experiment)
     latest = recalculation.get_latest_recalculation(experiment)
     payload: dict[str, Any] | None
@@ -619,14 +631,31 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int) -> LatestRecal
     )
 
 
-def get_recalculation_run(*, team_id: int, experiment_id: int, recalculation_id: str) -> RecalculationRun | None:
+def get_recalculation_run(
+    *, team_id: int, experiment_id: int, recalculation_id: str, user_id: int | None
+) -> RecalculationRun | None:
+    """Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results."""
     from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
         recalculation,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
     recalc = recalculation.get_recalculation_by_id(experiment, recalculation_id)
     return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
+
+
+def _check_warehouse_native_result_access(experiment: ExperimentModel, user_id: int | None) -> None:
+    # A stored run holds totals read from the customer's warehouse. The check runs on the instance that the reads use,
+    # so a change to the exposure criteria after the check cannot serve totals of a connection the reader may not read.
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    user = User.objects.filter(id=user_id).first() if user_id is not None else None
+    try:
+        validate_warehouse_native_connection_access(experiment.team, user, connection_id)
+    except DjangoPermissionDenied as error:
+        raise WarehouseNativeResultAccessDenied(str(error)) from error
 
 
 def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:

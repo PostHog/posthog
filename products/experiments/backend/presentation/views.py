@@ -88,6 +88,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentVersionConflict,
     LegacyMigrationError,
     RunningTimeMode,
+    WarehouseNativeResultAccessDenied,
 )
 from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.legacy_migration import (
@@ -546,6 +547,8 @@ class EnterpriseExperimentsViewSet(
             if exc.conflicting_metric_uuids:
                 body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
             return Response(body, status=409)
+        if isinstance(exc, WarehouseNativeResultAccessDenied):
+            exc = PermissionDenied(exc.detail)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):
@@ -1716,8 +1719,9 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
-        latest = get_latest_recalculation(team_id=experiment.team_id, experiment_id=experiment.id)
+        latest = get_latest_recalculation(
+            team_id=experiment.team_id, experiment_id=experiment.id, user_id=_request_user_id(request)
+        )
         if latest is None:
             return Response({"detail": "No completed recalculation found"}, status=404)
         return Response(ExperimentMetricsRecalculationLatestSerializer(latest).data)
@@ -1750,9 +1754,11 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
         run = get_recalculation_run(
-            team_id=experiment.team_id, experiment_id=experiment.id, recalculation_id=recalculation_id
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            recalculation_id=recalculation_id,
+            user_id=_request_user_id(request),
         )
         if run is None:
             return Response({"detail": "Recalculation not found"}, status=404)
@@ -2168,6 +2174,10 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _request_user_id(request: Request) -> int | None:
+    return request.user.id if isinstance(request.user, User) else None
 
 
 def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:

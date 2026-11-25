@@ -26,6 +26,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 from products.experiments.backend.recalculation import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
@@ -504,8 +505,19 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             # The stored totals came from the warehouse. A member who may not read the connection gets no run.
             self._remove_connection_access()
 
-            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_403_FORBIDDEN
+            denied = self.client.get(self._by_id_url(exp.id, str(row.id)))
+            assert denied.status_code == status.HTTP_403_FORBIDDEN
             assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
+            # The cold-start fallback reads the experiment again. An exposure change that lands after the view loaded
+            # the experiment must not serve warehouse totals, so the check runs on the instance the fallback reads.
+            fallback = self._warehouse_native_experiment(flag_key="warehouse-native-fallback")
+            self._store_timeseries_point(fallback, "m1", timezone.now() - timedelta(hours=1))
+            stale = Experiment.objects.get(id=fallback.id)
+            stale.exposure_criteria = None
+            with mock.patch.object(EnterpriseExperimentsViewSet, "get_object", return_value=stale):
+                fallback_latest = self.client.get(self._latest_url(fallback.id))
+            assert fallback_latest.status_code == status.HTTP_403_FORBIDDEN
+            assert fallback_latest.json() == denied.json()
             running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
             assert running_time.status_code == status.HTTP_403_FORBIDDEN
             timeseries_results = self.client.get(

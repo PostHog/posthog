@@ -1552,3 +1552,12 @@ class LatestRecalculation(RecalculationRun):
     active_run: ActiveRecalculationRun | None
     result_source: Literal["recalculation", "timeseries_fallback"]
     exceeds_recalculation_age_limit: bool
+
+
+class WarehouseNativeResultAccessDenied(Exception):
+    """Raised when the reader may not read the stored results of a warehouse-native experiment. The detail is written
+    for the reader, so a caller at an HTTP boundary can return it as a 403."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
