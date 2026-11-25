@@ -384,6 +384,8 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax = 20000
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneLegendMax = 1000
 
+export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneBucketedDefault = false
+
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneToMax = 100
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax = 100
@@ -442,6 +444,12 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `\/query` does.\n\n\* `classic` - Classic\n\* `new` - New"
+                            ),
+                        bucketed: zod
+                            .boolean()
+                            .default(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneBucketedDefault)
+                            .describe(
+                                'HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run.'
                             ),
                     })
                     .describe('What to run.'),
