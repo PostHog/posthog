@@ -153,6 +153,8 @@ def get_resource(
     }
     if config.parent is not None:
         resource["include_from_parent"] = ["id"]
+        if config.resume_parent_pagination:
+            resource["resume_parent_pagination"] = True
     return resource
 
 
@@ -181,7 +183,8 @@ def common_room_source(
 
     resources: list[str | EndpointResource] = []
     if endpoint_config.parent is not None:
-        parent_config = COMMON_ROOM_ENDPOINTS[endpoint_config.parent]
+        # The fan-out reads only the parent `id`, so the parent listing asks for no extra columns.
+        parent_config = dataclasses.replace(COMMON_ROOM_ENDPOINTS[endpoint_config.parent], columns=())
         resources.append(get_resource(parent_config, False, None))
     resources.append(get_resource(endpoint_config, should_use_incremental_field, db_incremental_field_last_value))
 

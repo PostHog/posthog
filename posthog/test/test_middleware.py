@@ -54,6 +54,7 @@ from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
+    MissingStaticFileMiddleware,
     SignedClientIPOutcome,
     UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
@@ -814,6 +815,39 @@ class TestFix204Middleware(SimpleTestCase):
 
         assert response.content == b""
         assert "Content-Length" not in response.headers
+
+
+class TestMissingStaticFileMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("source_map", "/static/chunk-NOTBUILT.js.map"),
+            ("nested_file", "/static/icons/missing.png"),
+        ]
+    )
+    def test_a_static_file_that_does_not_exist_is_a_404_without_a_database_query(self, _name: str, path: str) -> None:
+        # SimpleTestCase refuses database access. A signed-in browser sends a session cookie, so the
+        # request carries one to prove that nothing loads the session or its user.
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = "a-session-key"
+
+        response = self.client.get(path)
+
+        assert response.status_code == 404
+        assert response.headers["Content-Security-Policy"] == "default-src 'none'"
+        assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
+
+    @parameterized.expand(
+        [
+            ("static_inside_another_path", "/api/static/chunk.js"),
+            ("prefix_without_the_slash", "/staticfiles/chunk.js"),
+            ("app_route", "/insights"),
+        ]
+    )
+    def test_a_path_outside_static_reaches_the_rest_of_the_app(self, _name: str, path: str) -> None:
+        reached = HttpResponse()
+
+        response = MissingStaticFileMiddleware(lambda request: reached)(RequestFactory().get(path))
+
+        assert response is reached
 
 
 class TestUnversionedStaticPathMiddleware(SimpleTestCase):

@@ -36,6 +36,22 @@ export async function realWritePath(runtime: Pick<Runtime, 'exists' | 'realPath'
     return join(await runtime.realPath(existing), ...missing)
 }
 
+// Where a write to `path` lands, or undefined when that is outside `root`. A link to a missing file
+// counts as outside, because the write would create whatever file the link names.
+export async function confinedWritePath(
+    runtime: Pick<Runtime, 'exists' | 'realPath'>,
+    root: string,
+    path: string
+): Promise<string | undefined> {
+    const folder = await realWritePath(runtime, dirname(path))
+    const unresolved = join(folder, basename(path))
+    const target = (await runtime.exists(folder))
+        ? await runtime.realPath(unresolved).catch(() => undefined)
+        : unresolved
+
+    return target !== undefined && isInside(await realWritePath(runtime, root), target) ? target : undefined
+}
+
 export async function findGitRoot(
     runtime: Pick<Runtime, 'cwd' | 'exists'>
 ): Promise<{ root: string; gitPath: string } | undefined> {

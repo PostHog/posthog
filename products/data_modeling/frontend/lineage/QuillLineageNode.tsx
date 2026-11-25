@@ -120,7 +120,7 @@ function QuillLineageNodeLoading({ data }: { data: LineageNodeData }): JSX.Eleme
         <div
             ref={loadingRef}
             className={clsx(
-                'relative flex h-full w-full min-w-45 animate-pulse flex-col rounded-lg border bg-card/70 motion-reduce:animate-none',
+                'pointer-events-auto relative flex h-full w-full min-w-45 animate-pulse flex-col rounded-lg border bg-card/70 motion-reduce:animate-none',
                 focused ? 'border-border' : 'border-border/50'
             )}
             // eslint-disable-next-line react/forbid-dom-props

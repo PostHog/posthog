@@ -24,7 +24,27 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("text", "handlebars", "<p>{{x}}</p>", f"<p>{ESCAPED_X}</p>"),
             ("spaces", "handlebars", "<p>{{ x }}</p>", f"<p>{ESCAPED_X}</p>"),
             ("raw_in_text", "handlebars", "<p>{{{x}}}</p>", '<p>{{ variables.x | join: "," | raw }}</p>'),
-            ("handlebars_link", "handlebars", '<a href="{{x}}">', f'<a href="{ESCAPED_X}">'),
+            (
+                "handlebars_link",
+                "handlebars",
+                '<a href="{{x}}" title="{{#if x}}y{{/if}}">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{% if '
+                "variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or "
+                'variables.x != empty %}y{% endif %}">',
+            ),
+            (
+                "condition_that_ends_the_attribute",
+                "handlebars",
+                '<a href="{{#equal x "y"}}a">{{else}}b">{{/equal}}',
+                '<a href="{% assign text1 = variables.x | join: &quot;,&quot; | append: &quot;&quot; %}'
+                '{% if text1 == &quot;y&quot; %}a">{% else %}b">{% endif %}',
+            ),
+            (
+                "recipient_variable_in_a_link",
+                "handlebars",
+                '<a href="%recipient.x%" title="z">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="z">',
+            ),
             (
                 "after_a_style",
                 "handlebars",
@@ -117,7 +137,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "after_raw_html",
                 "{{{a}}}%recipient.x%",
                 True,
-                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}',
             ),
         ]
     )

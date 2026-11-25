@@ -25,6 +25,7 @@ from posthog.schema import (
     MetricsQueryProvenance,
     MetricsQueryResponse,
     MetricsQuerySeries,
+    ResolvedDateRangeResponse,
 )
 
 from posthog.hogql import ast
@@ -35,7 +36,7 @@ from posthog.clickhouse.client.limit import QueryLane
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled, posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -100,7 +101,7 @@ from products.metrics.backend.variables import (
 if TYPE_CHECKING:
     from posthog.models import User
 
-DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
+
 # `query executed` reports a tile answered wholly from stored buckets as `derived`, the value that the precompute
 # measurement queries filter on.
 _EVENT_PROVENANCE = {
@@ -344,7 +345,11 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 clause_order=clause_order,
                 formula=request.formula is not None,
             )
-            return MetricsQueryResponse(results=merged) if merged is not None else None
+            return (
+                MetricsQueryResponse(results=merged, resolved_date_range=self._resolved_date_range())
+                if merged is not None
+                else None
+            )
 
         return tail.run(
             response_type=MetricsQueryResponse,
@@ -372,7 +377,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
 
     @cached_property
     def _precompute_enabled(self) -> bool:
-        return precompute_enabled(self.team)
+        return self._dashboard_v2_enabled and precompute_enabled(self.team)
 
     @property
     def _viewer_is_member(self) -> bool:
@@ -412,14 +417,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
 
     @cached_property
     def _dashboard_v2_enabled(self) -> bool:
-        # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
-        return posthog_feature_flag_enabled(
-            DASHBOARD_V2_FEATURE_FLAG,
-            str(getattr(self.user, "distinct_id", None) or self.team.uuid),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        )
+        return dashboard_v2_enabled(self.team, self.user)
 
     def _load_all_options(self, dashboard_id: int | None = None) -> dict[str, Variable]:
         if self._loaded_variables is None:
@@ -463,8 +461,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         response.provenance = self._provenance_response()
         return response
 
-    @staticmethod
-    def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
+    def _response(self, series: list[MetricSeries]) -> MetricsQueryResponse:
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(
@@ -476,7 +473,8 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                     histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
-            ]
+            ],
+            resolved_date_range=self._resolved_date_range(),
         )
 
     def _provenance_response(self) -> MetricsQueryProvenance | None:
@@ -488,6 +486,9 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             precomputedUntil=until.isoformat() if until is not None else None,
             reasons=list(self._provenance.reasons) or None,
         )
+
+    def _resolved_date_range(self) -> ResolvedDateRangeResponse:
+        return ResolvedDateRangeResponse(date_from=self._date_from, date_to=self._date_range.date_to())
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
