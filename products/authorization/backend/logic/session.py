@@ -13,7 +13,7 @@ from django.db import connection, transaction
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import OrganizationMembership, User
     from posthog.user_permissions import UserPermissions
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -35,6 +35,7 @@ class Session:
     # Rules that a view loaded for an organization without a team, by principal and organization id.
     organization_access: dict[tuple[PrincipalKey, str], UserAccessControl] = field(default_factory=dict)
     permissions: dict[int, UserPermissions] = field(default_factory=dict)
+    project_levels: dict[tuple[int, int], OrganizationMembership.Level | None] = field(default_factory=dict)
     uncommitted: bool = False
 
     def clear(self) -> None:
@@ -42,6 +43,7 @@ class Session:
         self.access.clear()
         self.organization_access.clear()
         self.permissions.clear()
+        self.project_levels.clear()
 
     def committed(self) -> None:
         self.clear()

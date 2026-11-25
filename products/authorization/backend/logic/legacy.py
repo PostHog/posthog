@@ -1,5 +1,6 @@
 """Answers checks with the current access rules (`UserAccessControl`), so each decision matches today's."""
 
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
@@ -7,7 +8,7 @@ from uuid import UUID
 from posthog.models import OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import UserPermissions, UserTeamPermissions
 
 from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef, PropertyAccessLevel
@@ -61,6 +62,7 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     if context is not None and context != Context():
         raise NotImplementedError("The current access rules read no request context.")
     session = current() or Session()
+    _load_subjects_by_project(session, requests)
     _load_projects(session, requests)
     property_levels: dict[tuple[int, Subject | None], dict[str, PropertyAccessLevel] | None] = {}
     results: list[bool] = []
@@ -249,14 +251,19 @@ def _check_project(
     team = cast(Team, access.team)
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_object(team)
-    user_level = _user_permissions(session, user).team(team).effective_membership_level
+    key = (user.pk, project_id)
+    user_level = (
+        session.project_levels[key]
+        if key in session.project_levels
+        else _user_permissions(session, user, access).team(team).effective_membership_level
+    )
     return user_level is not None and user_level >= level
 
 
-def _user_permissions(session: Session, user: User) -> UserPermissions:
+def _user_permissions(session: Session, user: User, access: UserAccessControl | None = None) -> UserPermissions:
     if user.pk in session.permissions:
         return session.permissions[user.pk]
-    permissions = UserPermissions(user)
+    permissions = UserPermissions(user, organization_membership=access.organization_membership if access else None)
     if session.can_cache():
         session.permissions[user.pk] = permissions
     return permissions
@@ -306,6 +313,34 @@ def _project_id(resource: Resource) -> int | None:
     if resource.type in MEMBERSHIP_LEVELS:
         return None
     return resource.project_id
+
+
+def _load_subjects_by_project(session: Session, requests: Sequence[CheckRequest]) -> None:
+    if len(requests) < 2 or not session.can_cache():
+        return
+    user_ids_by_project: dict[int, set[int]] = defaultdict(set)
+    for request in requests:
+        project_id = _project_id(request.resource)
+        user_id = request.subject.user_id if request.subject is not None else None
+        if project_id is not None and user_id is not None:
+            user_ids_by_project[project_id].add(user_id)
+
+    for team in Team.objects.filter(pk__in=[pk for pk, user_ids in user_ids_by_project.items() if len(user_ids) > 1]):
+        access_by_user = UserAccessControl.for_user_ids(user_ids=user_ids_by_project[team.pk], team=team)
+        for user_id, access in access_by_user.items():
+            member = access.organization_membership
+            if member is None:
+                continue
+            session.users.setdefault(user_id, access.user)
+            session.access.setdefault(_principal_key(access.user), access)
+            session.project_levels[(user_id, team.pk)] = UserTeamPermissions.resolve_membership_level(
+                organization=member.organization,
+                organization_membership=member,
+                team=team,
+                user=access.user,
+                preloaded_rows=[row for row in access._cached_access_controls if row.resource == "project"],
+                subject_role_ids=[str(role_id) for role_id in access._user_role_ids],
+            )
 
 
 def _load_projects(session: Session, requests: Sequence[CheckRequest]) -> None:

@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import builtins
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import asdict
-from functools import cached_property
+from functools import cached_property, partial
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -457,6 +458,22 @@ def _feature_request_evidence_input(data: dict[str, Any] | None) -> contracts.Fe
     )
 
 
+@contextmanager
+def _feature_request_mutation() -> Iterator[None]:
+    try:
+        yield
+    except api.FeatureRequestValidationError as error:
+        raise ValidationError({error.field: error.message})
+    except api.FeatureRequestConflictError as error:
+        raise Conflict(str(error))
+
+
+def _feature_request_response(feature_request: contracts.FeatureRequestView | None) -> Response:
+    if feature_request is None:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+
 class FeatureRequestViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -483,7 +500,7 @@ class FeatureRequestViewSet(
             self,
             lambda page: api.list_feature_requests(
                 team_id=self.team_id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
                 filters=contracts.FeatureRequestListFilters(
                     search=data.get("search", ""),
                     statuses=tuple(data.get("statuses", ())),
@@ -503,7 +520,7 @@ class FeatureRequestViewSet(
         feature_request = api.get_feature_request(
             team_id=self.team_id,
             feature_request_id=self.kwargs["pk"],
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if feature_request is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -529,7 +546,7 @@ class FeatureRequestViewSet(
                     evidence=_feature_request_evidence_input(data.get("evidence")),
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
         except api.FeatureRequestValidationError as error:
             raise ValidationError({error.field: error.message})
@@ -541,7 +558,7 @@ class FeatureRequestViewSet(
         serializer = FeatureRequestUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        try:
+        with _feature_request_mutation():
             feature_request = api.update_feature_request(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
@@ -560,15 +577,9 @@ class FeatureRequestViewSet(
                     request_priority_is_set="request_priority" in request.data,
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
@@ -585,7 +596,7 @@ class FeatureRequestViewSet(
                 feature_request_id=self.kwargs["pk"],
                 input=contracts.LinkFeatureRequestGitHubInput(**serializer.validated_data),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
         except api.FeatureRequestValidationError as error:
             raise ValidationError({error.field: error.message})
@@ -607,7 +618,7 @@ class FeatureRequestViewSet(
                 expected_version=serializer.validated_data["expected_version"],
                 enabled=enabled,
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
         except api.FeatureRequestValidationError as error:
             raise ValidationError({error.field: error.message})
@@ -634,21 +645,15 @@ class FeatureRequestViewSet(
     def unlink_github(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestVersionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
+        with _feature_request_mutation():
             feature_request = api.unlink_feature_request_github(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
                 expected_version=serializer.validated_data["expected_version"],
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
@@ -657,7 +662,7 @@ class FeatureRequestViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         evidence = _feature_request_evidence_input(data.get("evidence"))
-        try:
+        with _feature_request_mutation():
             feature_request = api.add_feature_request_account(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
@@ -667,15 +672,9 @@ class FeatureRequestViewSet(
                     evidence=evidence,
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
@@ -683,7 +682,7 @@ class FeatureRequestViewSet(
         serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        try:
+        with _feature_request_mutation():
             feature_request = api.create_feature_request_evidence(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
@@ -698,15 +697,9 @@ class FeatureRequestViewSet(
                     image_ids=tuple(data.get("image_ids", ())),
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
@@ -714,7 +707,7 @@ class FeatureRequestViewSet(
         serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        try:
+        with _feature_request_mutation():
             feature_request = api.update_feature_request_evidence(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
@@ -729,15 +722,9 @@ class FeatureRequestViewSet(
                     image_ids=tuple(data["image_ids"]) if "image_ids" in request.data else None,
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
@@ -745,7 +732,7 @@ class FeatureRequestViewSet(
         serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        try:
+        with _feature_request_mutation():
             feature_request = api.delete_feature_request_evidence(
                 team_id=self.team_id,
                 feature_request_id=self.kwargs["pk"],
@@ -754,15 +741,9 @@ class FeatureRequestViewSet(
                     evidence_id=data["evidence_id"],
                 ),
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
-        except api.FeatureRequestValidationError as error:
-            raise ValidationError({error.field: error.message})
-        except api.FeatureRequestConflictError as error:
-            raise Conflict(str(error))
-        if feature_request is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(FeatureRequestSerializer(instance=feature_request).data)
+        return _feature_request_response(feature_request)
 
     def _set_archived(self, request: Request, *, archived: bool) -> Response:
         serializer = FeatureRequestVersionSerializer(data=request.data)
@@ -774,7 +755,7 @@ class FeatureRequestViewSet(
                 expected_version=serializer.validated_data["expected_version"],
                 archived=archived,
                 actor_id=cast(User, request.user).id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
             )
         except api.FeatureRequestConflictError as error:
             raise Conflict(str(error))
@@ -798,7 +779,7 @@ class FeatureRequestViewSet(
         history = api.list_feature_request_history(
             team_id=self.team_id,
             feature_request_id=self.kwargs["pk"],
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if history is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -810,7 +791,7 @@ class FeatureRequestViewSet(
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
             feature_request_id=self.kwargs["pk"],
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if history is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1808,7 +1789,7 @@ class CustomerJourneyViewSet(
         return facade_page_response(
             self,
             lambda page: api.list_customer_journeys(
-                self.team_id, page=page, user_access_control=self.user_access_control
+                self.team_id, page=page, subject=Subject(user_id=self.request.user.pk)
             ),
             serializer_class=CustomerJourneySerializer,
         )
@@ -1818,7 +1799,7 @@ class CustomerJourneyViewSet(
             journey = api.get_customer_journey(
                 self.team_id,
                 self.kwargs["pk"],
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=self.request.user.pk),
                 required_level=_object_required_level(request, write=False),
             )
         except api.CustomerJourney_DoesNotExist:
@@ -1854,33 +1835,24 @@ class CustomerJourneyViewSet(
         data = serializer.validated_data
         if "insight" in request.data and not api.insight_belongs_to_team(self.team_id, data.insight):
             raise ValidationError({"insight": "The insight does not belong to this team."})
-        try:
-            journey = api.update_customer_journey(
-                team_id=self.team_id,
-                journey_id=self.kwargs["pk"],
-                fields=_journey_write_fields(data, request.data),
-                user_access_control=self.user_access_control,
-                required_level=_object_required_level(request, write=True),
-                organization_id=self.organization.id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated(request),
-            )
-        except api.CustomerJourney_DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        except api.ResourceForbiddenError:
-            raise PermissionDenied()
-        return Response(CustomerJourneySerializer(instance=journey).data)
+        return self._write(request, fields=_journey_write_fields(data, request.data))
 
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        return self._write(request)
+
+    def _write(self, request: Request, *, fields: dict | None = None) -> Response:
+        operation = (
+            api.delete_customer_journey if fields is None else partial(api.update_customer_journey, fields=fields)
+        )
         try:
-            api.delete_customer_journey(
+            journey = operation(
                 team_id=self.team_id,
                 journey_id=self.kwargs["pk"],
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
@@ -1890,7 +1862,9 @@ class CustomerJourneyViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if fields is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(CustomerJourneySerializer(instance=journey).data)
 
 
 def _journey_write_fields(validated, raw_data: dict) -> dict:
@@ -2085,7 +2059,7 @@ class AccountViewSet(
         viewers = api.list_account_presence_viewers(
             self.team_id,
             self.kwargs["pk"],
-            self.user_access_control,
+            Subject(user_id=self.request.user.pk),
             cast(User, request.user),
         )
         if viewers is None:
@@ -2109,7 +2083,7 @@ class AccountViewSet(
         presence = api.list_accounts_presence(
             self.team_id,
             account_ids,
-            self.user_access_control,
+            Subject(user_id=self.request.user.pk),
             viewer_user_id=viewer_user_id,
         )
         return Response(AccountPresenceSerializer(instance=presence, many=True).data)
@@ -2121,7 +2095,7 @@ class AccountViewSet(
             tickets = api.get_account_support_tickets(
                 self.team_id,
                 self.kwargs["pk"],
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=self.request.user.pk),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -2144,7 +2118,7 @@ class AccountViewSet(
         def fetch(page: PageRequest) -> Page[api.SupportTicketMessage]:
             try:
                 result = api.get_account_support_ticket_messages(
-                    self.team_id, self.kwargs["pk"], str(ticket_id), self.user_access_control, page=page
+                    self.team_id, self.kwargs["pk"], str(ticket_id), Subject(user_id=self.request.user.pk), page=page
                 )
             except api.ResourceForbiddenError:
                 raise PermissionDenied()
@@ -2157,13 +2131,16 @@ class AccountViewSet(
     @extend_schema(responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if (
+            api.get_accessible_account_id(self.team_id, self.kwargs["pk"], Subject(user_id=self.request.user.pk))
+            is None
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(page: PageRequest) -> Page[api.AccountEmailThreadSummary]:
             try:
                 result = api.get_account_email_threads(
-                    self.team_id, self.kwargs["pk"], self.user_access_control, page=page
+                    self.team_id, self.kwargs["pk"], Subject(user_id=self.request.user.pk), page=page
                 )
             except api.ResourceForbiddenError:
                 raise PermissionDenied()
@@ -2188,7 +2165,7 @@ class AccountViewSet(
         def fetch(page: PageRequest) -> Page[api.AccountEmailThreadMessage]:
             try:
                 result = api.get_account_email_thread_messages(
-                    self.team_id, self.kwargs["pk"], str(thread_id), self.user_access_control, page=page
+                    self.team_id, self.kwargs["pk"], str(thread_id), Subject(user_id=self.request.user.pk), page=page
                 )
             except api.ResourceForbiddenError:
                 raise PermissionDenied()
@@ -2212,7 +2189,10 @@ class AccountViewSet(
     )
     @action(methods=["GET"], detail=True)
     def meetings(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if (
+            api.get_accessible_account_id(self.team_id, self.kwargs["pk"], Subject(user_id=self.request.user.pk))
+            is None
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         search = request.query_params.get("search", "").strip() or None
 
@@ -2354,7 +2334,10 @@ class AccountViewSet(
     @extend_schema(responses={200: AccountChannelSummarySerializer(many=True)})
     @action(methods=["GET"], detail=True)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if (
+            api.get_accessible_account_id(self.team_id, self.kwargs["pk"], Subject(user_id=self.request.user.pk))
+            is None
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(page: PageRequest) -> Page[contracts.AccountChannelSummaryView]:
@@ -2747,7 +2730,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         """The parent account's id when the caller has object-level access to it, else ``None``
         (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
         return api.get_accessible_account_id(
-            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+            self.team_id, self.parents_query_dict["account_id"], subject=Subject(user_id=self.request.user.pk)
         )
 
     @extend_schema(responses={200: CustomPropertyValueSerializer(many=True)})
@@ -2847,7 +2830,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         """The parent account's id when the caller has object-level access to it, else ``None``
         (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
         return api.get_accessible_account_id(
-            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+            self.team_id, self.parents_query_dict["account_id"], subject=Subject(user_id=self.request.user.pk)
         )
 
     @extend_schema(
@@ -2920,7 +2903,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     @extend_schema(request=None, responses={204: None})
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         account_id = api.get_editable_account_id(
-            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+            self.team_id, self.parents_query_dict["account_id"], subject=Subject(user_id=self.request.user.pk)
         )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

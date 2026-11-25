@@ -6,7 +6,9 @@ from posthog.models import Team, User
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 from products.customer_analytics.backend.facade.contracts import CreateCustomerTaskInput, CustomerTaskAccessDenied
 from products.customer_analytics.backend.logic.customer_tasks import create_customer_task
@@ -42,8 +44,8 @@ def create_workflow_customer_task(
     idempotency_key: str,
     input: CreateCustomerTaskInput,
     actor: User,
-    user_access_control: UserAccessControl,
 ) -> UUID:
+    subject = Subject(user_id=actor.pk)
     task_id = _get_task_id(team.id, workflow_id, idempotency_key)
     with transaction.atomic():
         # Lock the invocation even before its task exists, so concurrent retries create one activity and assignment.
@@ -51,13 +53,13 @@ def create_workflow_customer_task(
             cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team.id, str(task_id)])
         if CustomerTask.objects.for_team(team.id).filter(id=task_id).exists():
             return task_id
-        if not user_access_control.has_project_access or not user_access_control.check_access_level_for_resource(
-            "customer_task", "editor"
+        if not authorization.check(
+            resource=Resource.project(team.id), action=Action.VIEW, subject=subject
+        ) or not authorization.check(
+            resource=Resource(type=ResourceType.CUSTOMER_TASK, project_id=team.id), action=Action.EDIT, subject=subject
         ):
             raise CustomerTaskAccessDenied()
-        task = create_customer_task(
-            team=team, input=input, actor=actor, user_access_control=user_access_control, task_id=task_id
-        )
+        task = create_customer_task(team=team, input=input, actor=actor, subject=subject, task_id=task_id)
         return task.id
 
 
@@ -83,8 +85,9 @@ def create_customer_task_from_workflow(
     owner = User.objects.filter(id=owner_id).first()
     if owner is None or not owner.is_active:
         raise WorkflowCustomerTaskOwnerInactive()
-    access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
-    if not access.has_project_access:
+    if not authorization.check(
+        resource=Resource.project(team.id), action=Action.VIEW, subject=Subject(user_id=owner.pk)
+    ):
         raise WorkflowCustomerTaskProjectAccessDenied()
     if not posthog_feature_flag_enabled(
         CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
@@ -93,12 +96,10 @@ def create_customer_task_from_workflow(
         team_id=team.id,
     ):
         raise WorkflowCustomerTasksDisabled()
-    canonical_access = UserAccessControl(user=owner, team=canonical_team, organization_id=team.organization_id)
     return create_workflow_customer_task(
         team=canonical_team,
         workflow_id=workflow_id,
         idempotency_key=idempotency_key,
         input=input,
         actor=owner,
-        user_access_control=canonical_access,
     )

@@ -125,6 +125,7 @@ from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
 from products.data_modeling.backend.facade import api as data_modeling_api
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
@@ -997,6 +998,7 @@ class HogQLQueryExecutor:
         return self.select_query, self._prompt_jev_tables
 
     @bounded_compilation
+    @authorization.authorization_session()
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.clear_reads()
         self._parse_query()

@@ -1,7 +1,7 @@
 import re
 from collections.abc import Collection, Mapping
 from datetime import UTC, datetime, time, timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -16,10 +16,17 @@ from django.utils.dateparse import parse_date, parse_datetime
 from posthog.models.tagged_item import TaggedItem
 from posthog.utils import relative_date_parse
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.customer_analytics.backend.domain import parse_company_domain
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import Account, AccountRelationship, CustomPropertyValue, DisplayType
 from products.customer_analytics.backend.models.custom_property_definition import DATA_TYPE_BY_DISPLAY_TYPE, DataType
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class InvalidAccountFilter(ValueError):
@@ -58,6 +65,24 @@ ACCOUNT_DIRECT_FIELDS = {
     contracts.AccountTableField.CHURNED_AT: "churned_at",
     contracts.AccountTableField.IGNORED_AT: "ignored_at",
 }
+
+
+def accounts_visible_to(
+    team_id: int,
+    subject: Subject,
+    *,
+    require_resource_access: bool = False,
+    preloaded_access: "UserAccessControl | None" = None,
+) -> QuerySet[Account]:
+    # Keep the rows on the same team as the permission check, including for environment URLs.
+    accounts = Account.objects.unscoped().filter(team_id=team_id)
+    resource = Resource(type=ResourceType.ACCOUNT, project_id=team_id)
+    with authorization.authorization_session():
+        if preloaded_access is not None:
+            authorization.reuse_current_rules(preloaded_access)
+        if require_resource_access and not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
+            return accounts.none()
+        return filter_queryset(accounts, resource=resource, subject=subject)
 
 
 def parse_email_search(query: str) -> str | None:

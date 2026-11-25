@@ -16,7 +16,7 @@ Do NOT:
 """
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
@@ -76,7 +76,7 @@ from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -138,6 +138,7 @@ from products.customer_analytics.backend.logic.account_activity_access import ge
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
+    accounts_visible_to,
     apply_account_filters,
     filter_valid_account_filters,
     parse_email_search,
@@ -153,6 +154,7 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     normalize_options,
 )
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_properties_for_account
+from products.customer_analytics.backend.logic.customer_journeys import customer_journeys_queryset
 from products.customer_analytics.backend.logic.event_stream_destination import (
     archive_event_stream_destination,
     send_test_slack_message as send_test_slack_message,
@@ -254,7 +256,7 @@ def _to_account_properties(properties: _ModelAccountProperties) -> contracts.Acc
     )
 
 
-def _to_account_ref(row: dict) -> contracts.AccountRef:
+def _to_account_ref(row: Mapping[str, Any]) -> contracts.AccountRef:
     return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 
@@ -300,7 +302,7 @@ def get_account_context_data(
     account_id: str | None = None,
     external_id: str | None = None,
     *,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.AccountContextData | None:
     """Fetch one account (by id or external_id, scoped to the team) with the tags
     and internal notes the assistant context renders, gated by the caller's access.
@@ -309,7 +311,7 @@ def get_account_context_data(
     lacks object-level read access — so a denied account is indistinguishable from a
     missing one to the caller.
     """
-    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id, external_id=external_id)
+    account = _resolve_accessible_account(team_id, subject, account_id=account_id, external_id=external_id)
     if account is None:
         return None
     return contracts.AccountContextData(
@@ -350,7 +352,7 @@ def search_accounts(
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.filter(_get_account_search_q(team_id, query, user_access_control))
@@ -371,7 +373,7 @@ def list_accounts(
 
     Returns `(rows, total_count)` where `total_count` is the full (unpaginated) count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.order_by("-created_at")
@@ -380,20 +382,9 @@ def list_accounts(
     return [_to_account_ref(row) for row in rows], total_count
 
 
-def _accounts_queryset(team_id: int, user_access_control: "UserAccessControl"):
-    """Base accounts queryset, gated and object-level filtered by the caller's access.
-
-    Account uses a fail-closed manager, so the unscoped manager is used with an
-    explicit team filter (mirroring the prior in-consumer behavior).
-    """
-    if not user_access_control.check_access_level_for_resource("account", "viewer"):
-        return Account.objects.unscoped().none()
-    return user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
-
-
 def _resolve_accessible_account(
     team_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     account_id: str | None = None,
     external_id: str | None = None,
@@ -411,7 +402,7 @@ def _resolve_accessible_account(
     else:
         return None
     try:
-        return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
+        return accounts_visible_to(team_id, subject, require_resource_access=True).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
 
@@ -464,8 +455,9 @@ def validate_book_activity_accounts_access(
     if user is None:
         raise UserAccessControlError("account", "viewer")
     account_ids = set(labeled_account_ids.split(",")) if labeled_account_ids else set()
-    access = access if access is not None else UserAccessControl(user=user, team=team)
-    accessible = _accounts_queryset(team.id, access).filter(id__in=account_ids, ignored_at__isnull=True)
+    accessible = accounts_visible_to(team.id, Subject(user_id=user.pk), require_resource_access=True).filter(
+        id__in=account_ids, ignored_at__isnull=True
+    )
     if accessible.count() != len(account_ids):
         raise UserAccessControlError("account", "viewer")
 
@@ -741,7 +733,7 @@ def list_external_accounts(
         user__organization_membership__organization_id=organization_id,
     )
     queryset: QuerySet[Account] = (
-        _accounts_queryset(team_id, user_access_control)
+        accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
         if user_access_control is not None
         else Account.objects.for_team(team_id)
     )
@@ -2890,25 +2882,25 @@ def update_feature_request_product_area(
 def list_feature_requests(
     *,
     team_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     filters: contracts.FeatureRequestListFilters,
     page: PageRequest,
 ) -> Page[contracts.FeatureRequestView]:
     return _feature_requests_logic.list_feature_requests(
         team_id=team_id,
-        user_access_control=user_access_control,
+        subject=subject,
         filters=filters,
         page=page,
     )
 
 
 def get_feature_request(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.get_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -2917,13 +2909,13 @@ def create_feature_request(
     team_id: int,
     input: contracts.CreateFeatureRequestInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestCreateOutcome:
     return _feature_requests_logic.create_feature_request(
         team_id=team_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -2933,14 +2925,14 @@ def update_feature_request(
     feature_request_id: UUID,
     input: contracts.UpdateFeatureRequestInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.update_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -2950,14 +2942,14 @@ def link_feature_request_github(
     feature_request_id: UUID,
     input: contracts.LinkFeatureRequestGitHubInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_request_github_logic.link_feature_request_github(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -2968,7 +2960,7 @@ def set_feature_request_github_sync(
     expected_version: int,
     enabled: bool,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_request_github_logic.set_feature_request_github_sync(
         team_id=team_id,
@@ -2976,7 +2968,7 @@ def set_feature_request_github_sync(
         expected_version=expected_version,
         enabled=enabled,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -2986,14 +2978,14 @@ def unlink_feature_request_github(
     feature_request_id: UUID,
     expected_version: int,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_request_github_logic.unlink_feature_request_github(
         team_id=team_id,
         feature_request_id=feature_request_id,
         expected_version=expected_version,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3033,14 +3025,14 @@ def add_feature_request_account(
     feature_request_id: UUID,
     input: contracts.AddFeatureRequestAccountInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.add_feature_request_account(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3050,14 +3042,14 @@ def create_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.CreateFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.create_feature_request_evidence(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3067,14 +3059,14 @@ def update_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.UpdateFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.update_feature_request_evidence(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3084,14 +3076,14 @@ def delete_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.DeleteFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.delete_feature_request_evidence(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3102,7 +3094,7 @@ def set_feature_request_archived(
     expected_version: int,
     archived: bool,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.set_feature_request_archived(
         team_id=team_id,
@@ -3110,27 +3102,27 @@ def set_feature_request_archived(
         expected_version=expected_version,
         archived=archived,
         actor_id=actor_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
 def list_feature_request_history(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> list[contracts.FeatureRequestHistoryView] | None:
     return _feature_requests_logic.list_feature_request_history(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
 def list_feature_request_status_history(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> list[contracts.FeatureRequestStatusHistoryView] | None:
     return _feature_requests_logic.list_feature_request_status_history(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -3149,12 +3141,6 @@ def _to_customer_journey_view(journey: CustomerJourney) -> contracts.CustomerJou
     )
 
 
-def _customer_journeys_queryset(team_id: int):
-    """Team-scoped customer journeys, ordered by creation. Object-level access filtering is
-    applied by the caller (list applies it; detail relies on the per-object check)."""
-    return CustomerJourney.objects.order_by("created_at").filter(team_id=team_id)
-
-
 def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
     """Whether the given insight is in the team — backs the journey serializer's
     ``validate_insight`` (kept as a cheap existence probe so the model stays hidden)."""
@@ -3163,21 +3149,28 @@ def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
     return Insight.objects.filter(pk=insight_id, team_id=team_id).exists()
 
 
-def list_customer_journeys(
-    team_id: int, *, page: PageRequest, user_access_control: "UserAccessControl"
-) -> Page[contracts.CustomerJourneyView]:
-    queryset = user_access_control.filter_queryset_by_access_level(_customer_journeys_queryset(team_id))
+def list_customer_journeys(team_id: int, *, page: PageRequest, subject: Subject) -> Page[contracts.CustomerJourneyView]:
+    queryset = customer_journeys_queryset(team_id, subject=subject)
     return select_page(queryset, page).map(_to_customer_journey_view)
 
 
 def get_customer_journey(
-    team_id: int, journey_id: str, user_access_control: "UserAccessControl", required_level: str | None
+    team_id: int, journey_id: str, subject: Subject, required_level: str | None
 ) -> contracts.CustomerJourneyView:
     """Fetch one team-scoped journey, enforcing object-level access. Raises
     ``CustomerJourney.DoesNotExist`` (→ 404) when absent and ``ResourceForbiddenError``
     (→ 403) when the caller lacks object access — mirroring the old viewset."""
-    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
-    _enforce_object_access(journey, user_access_control, required_level)
+    journey = _get_object_or_raise(customer_journeys_queryset(team_id), journey_id, CustomerJourney)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.CUSTOMER_JOURNEY,
+            project_id=team_id,
+            id=str(journey.id),
+            created_by_id=journey.created_by_id,
+        ),
+        subject,
+        required_level,
+    )
     return _to_customer_journey_view(journey)
 
 
@@ -3215,14 +3208,23 @@ def update_customer_journey(
     team_id: int,
     journey_id: str,
     fields: dict[str, Any],
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     required_level: str | None,
     organization_id,
     user: "User",
     was_impersonated: bool,
 ) -> contracts.CustomerJourneyView:
-    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
-    _enforce_object_access(journey, user_access_control, required_level)
+    journey = _get_object_or_raise(customer_journeys_queryset(team_id), journey_id, CustomerJourney)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.CUSTOMER_JOURNEY,
+            project_id=team_id,
+            id=str(journey.id),
+            created_by_id=journey.created_by_id,
+        ),
+        subject,
+        required_level,
+    )
     previous = CustomerJourney.objects.get(pk=journey.pk)
     for attr, value in fields.items():
         setattr(journey, attr, value)
@@ -3245,14 +3247,23 @@ def delete_customer_journey(
     *,
     team_id: int,
     journey_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     required_level: str | None,
     organization_id,
     user: "User",
     was_impersonated: bool,
 ) -> None:
-    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
-    _enforce_object_access(journey, user_access_control, required_level)
+    journey = _get_object_or_raise(customer_journeys_queryset(team_id), journey_id, CustomerJourney)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.CUSTOMER_JOURNEY,
+            project_id=team_id,
+            id=str(journey.id),
+            created_by_id=journey.created_by_id,
+        ),
+        subject,
+        required_level,
+    )
     _log_activity_swallowing(
         instance=journey,
         scope="CustomerJourney",
@@ -3728,7 +3739,12 @@ def query_accounts_metrics(
     if non_numeric_definition_ids and not ignore_missing_definitions:
         raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
-    accounts = _accounts_queryset(team_id, user_access_control)
+    accounts = accounts_visible_to(
+        team_id,
+        Subject(user_id=user_access_control.user.pk),
+        require_resource_access=True,
+        preloaded_access=user_access_control,
+    )
     if not filter_groups:
         accounts = _filter_out_hidden_lifecycle_accounts(
             accounts, filters, include_churned=include_churned, include_ignored=include_ignored
@@ -3846,7 +3862,12 @@ def query_accounts_table(
     selection = definitions.selection
     sort = definitions.sort
 
-    queryset = _accounts_queryset(team_id, user_access_control)
+    queryset = accounts_visible_to(
+        team_id,
+        Subject(user_id=user_access_control.user.pk),
+        require_resource_access=True,
+        preloaded_access=user_access_control,
+    )
     if not filter_groups:
         queryset = _filter_out_hidden_lifecycle_accounts(
             queryset, filters, include_churned=include_churned, include_ignored=include_ignored
@@ -4040,7 +4061,9 @@ def list_accounts_for_view(
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. ``tags``/``ordering`` are pre-validated by
     the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
-    queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
+    queryset = accounts_visible_to(
+        team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True
+    ).prefetch_related(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
         Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
     )
@@ -4083,7 +4106,13 @@ def get_account_for_view(
     """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
     Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
     account = _get_account_for_detail(team_id, account_id)
-    _enforce_object_access(account, user_access_control, required_level)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.ACCOUNT, project_id=team_id, id=str(account.id), created_by_id=account.created_by_id
+        ),
+        Subject(user_id=user_access_control.user.pk),
+        required_level,
+    )
     return _to_account_details(account)
 
 
@@ -4111,7 +4140,13 @@ def get_account_for_view_by_external_id(
     *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
 ) -> contracts.AccountDetails:
     account = _account_detail_queryset(team_id).get(external_id=external_id)
-    _enforce_object_access(account, user_access_control, required_level)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.ACCOUNT, project_id=team_id, id=str(account.id), created_by_id=account.created_by_id
+        ),
+        Subject(user_id=user_access_control.user.pk),
+        required_level,
+    )
     return _to_account_details(account)
 
 
@@ -4290,7 +4325,13 @@ def update_account_for_view(
     allow_matching_updates: bool = False,
 ) -> contracts.AccountDetails:
     account = _get_account_for_detail(team_id, account_id)
-    _enforce_object_access(account, user_access_control, required_level)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.ACCOUNT, project_id=team_id, id=str(account.id), created_by_id=account.created_by_id
+        ),
+        Subject(user_id=user_access_control.user.pk),
+        required_level,
+    )
     previous = Account.objects.unscoped().get(pk=account.pk)
 
     update_kwargs: dict[str, Any] = {}
@@ -4413,7 +4454,13 @@ def delete_account_for_view(
     was_impersonated: bool,
 ) -> None:
     account = _get_account_for_detail(team_id, account_id)
-    _enforce_object_access(account, user_access_control, required_level)
+    _enforce_object_access(
+        Resource(
+            type=ResourceType.ACCOUNT, project_id=team_id, id=str(account.id), created_by_id=account.created_by_id
+        ),
+        Subject(user_id=user_access_control.user.pk),
+        required_level,
+    )
     with transaction.atomic():
         # Authority is checked under the same account lock enrollment and claims take, so an account
         # that became managed a moment ago cannot be deleted on a stale read. The definitions its rows
@@ -4518,11 +4565,11 @@ def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") ->
     )
 
 
-def get_accessible_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
+def get_accessible_account_id(team_id: int, account_id: str, subject: Subject) -> str | None:
     """The account_id when the caller has object-level access to that team-scoped account,
     else None — backs the notebook viewset's parent-account gate (object denial → 404,
     via filtering rather than a permission check)."""
-    queryset = user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
+    queryset = accounts_visible_to(team_id, subject)
     try:
         account = queryset.filter(id=account_id).first()
     except (ValidationError, ValueError):
@@ -4533,10 +4580,10 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
 def list_account_presence_viewers(
     team_id: int,
     account_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     user: "User",
 ) -> list[contracts.AccountPresenceViewer] | None:
-    accessible_account_id = get_accessible_account_id(team_id, account_id, user_access_control)
+    accessible_account_id = get_accessible_account_id(team_id, account_id, subject)
     if accessible_account_id is None:
         return None
     display_name = user.get_full_name().strip() or user.first_name.strip() or "A teammate"
@@ -4550,14 +4597,12 @@ def list_account_presence_viewers(
 def list_accounts_presence(
     team_id: int,
     account_ids: list[str],
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     viewer_user_id: int | None,
 ) -> list[contracts.AccountPresence]:
     accessible_account_ids = list(
-        user_access_control.filter_queryset_by_access_level(
-            Account.objects.unscoped().filter(team_id=team_id, id__in=account_ids)
-        ).values_list("id", flat=True)
+        accounts_visible_to(team_id, subject).filter(id__in=account_ids).values_list("id", flat=True)
     )
     viewers_by_account_id = _account_presence_logic.list_account_presence(
         team_id=team_id, account_ids=[str(account_id) for account_id in accessible_account_ids]
@@ -4573,10 +4618,16 @@ def list_accounts_presence(
     ]
 
 
-def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
+def get_editable_account_id(team_id: int, account_id: str, subject: Subject) -> str | None:
     """The account_id when the caller can edit that account, else None."""
-    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
-    if account is None or not user_access_control.check_access_level_for_object(account, required_level="editor"):
+    account = _resolve_accessible_account(team_id, subject, account_id=account_id)
+    if account is None or not authorization.check(
+        resource=Resource(
+            type=ResourceType.ACCOUNT, project_id=team_id, id=str(account.id), created_by_id=account.created_by_id
+        ),
+        action=Action.EDIT,
+        subject=subject,
+    ):
         return None
     return str(account.id)
 
@@ -4591,7 +4642,7 @@ def list_account_channel_summaries(
     """One page of the stored Slack channel summaries of an accessible account, newest period first.
 
     None when the parent account isn't accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     queryset = (
         AccountChannelSummary.objects.for_team(team_id)
@@ -4729,7 +4780,7 @@ def record_channel_summary(
 def get_account_support_tickets(
     team_id: int,
     account_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     limit: int = 50,
 ) -> list[TicketSummary] | None:
@@ -4740,27 +4791,31 @@ def get_account_support_tickets(
     Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
     tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
     the ``ticket`` resource has to be gated separately or this path bypasses its RBAC."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, subject) is None:
         return None
-    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id), action=Action.VIEW, subject=subject
+    ):
         raise ResourceForbiddenError()
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []
-    return list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
+    return list_account_tickets(team_id, account.external_id, subject, limit=limit)
 
 
 def get_account_support_ticket_messages(
     team_id: int,
     account_id: str,
     ticket_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     page: PageRequest,
 ) -> Page[SupportTicketMessage] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, subject) is None:
         return None
-    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id), action=Action.VIEW, subject=subject
+    ):
         raise ResourceForbiddenError()
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
@@ -4769,7 +4824,7 @@ def get_account_support_ticket_messages(
         team_id,
         account.external_id,
         ticket_id,
-        user_access_control,
+        subject,
         offset=page.offset,
         limit=page.limit,
     )
@@ -4782,13 +4837,15 @@ def get_account_support_ticket_messages(
 def get_account_email_threads(
     team_id: int,
     account_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     page: PageRequest,
 ) -> Page[AccountEmailThreadSummary] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, subject) is None:
         return None
-    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id), action=Action.VIEW, subject=subject
+    ):
         raise ResourceForbiddenError()
     threads, count = list_account_email_threads(team_id, account_id, offset=page.offset, limit=page.limit)
     return Page(results=threads, count=count)
@@ -4798,13 +4855,15 @@ def get_account_email_thread_messages(
     team_id: int,
     account_id: str,
     thread_id: str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     page: PageRequest,
 ) -> Page[AccountEmailThreadMessage] | None:
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, subject) is None:
         return None
-    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id), action=Action.VIEW, subject=subject
+    ):
         raise ResourceForbiddenError()
     result = list_account_email_thread_messages(team_id, account_id, thread_id, offset=page.offset, limit=page.limit)
     if result is None:
@@ -5060,7 +5119,7 @@ def list_account_meetings(
     filtered by ``search`` (title or attendee email/name). A recurring series shows each
     past occurrence but only its next upcoming one. None when the account isn't
     accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     now = timezone.now()
     next_occurrence_id = (
@@ -5133,7 +5192,7 @@ def list_account_notebooks(
     ``search`` (title + content), narrowed to notes carrying any of ``tags`` or written by any of
     ``created_by_ids``, and sorted by ``order``; defaults to newest first. None when the parent
     account isn't accessible (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     return [
         _to_account_notebook_view(n)
@@ -5154,7 +5213,7 @@ def update_account_notebook(
 ) -> contracts.AccountNotebookView | None:
     """Replace the tags of an internal notebook linked to an accessible account. None when the
     account isn't accessible or no such notebook exists (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     updated = notebooks.update_account_notebook(account_id, short_id, tags=input.tags)
     return _to_account_notebook_view(updated) if updated is not None else None
@@ -5177,7 +5236,7 @@ def list_account_notes_for_view(
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
     notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
     given users actively holds a relationship, ``tags`` to notes carrying any of the tags."""
-    accounts = _accounts_queryset(team_id, user_access_control)
+    accounts = accounts_visible_to(team_id, Subject(user_id=user_access_control.user.pk), require_resource_access=True)
     if assigned_to_ids:
         # "Assigned to" means any active relationship, matching the accounts list HogQL
         # runner's assignedToUserIds.
@@ -5219,7 +5278,7 @@ def get_account_notebook(
 ) -> contracts.AccountNotebookView | None:
     """One internal notebook linked to an accessible account. None when the account isn't
     accessible or no such linked notebook exists (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     notebook = notebooks.get_account_notebook(account_id, short_id)
     return _to_account_notebook_view(notebook) if notebook is not None else None
@@ -5237,7 +5296,7 @@ def create_account_notebook(
     """Create an internal notebook and link it to an accessible account. None when the
     parent account isn't accessible (→ 404). The view supplies ``synthesized_content``
     (markdown→tiptap) so the ``ee.hogai`` helper stays off the facade import path."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content
     with transaction.atomic():
@@ -5277,7 +5336,7 @@ def delete_account_notebook(
 ) -> bool:
     """Delete an internal notebook linked to an accessible account. False when the account
     isn't accessible or no such notebook exists (→ 404)."""
-    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+    if get_accessible_account_id(team_id, account_id, Subject(user_id=user_access_control.user.pk)) is None:
         return False
     return notebooks.delete_account_notebook(account_id, short_id)
 
@@ -5313,7 +5372,7 @@ def _get_object_or_raise(queryset, pk: str, model):
     return obj
 
 
-def _enforce_object_access(obj, user_access_control: "UserAccessControl", required_level: str | None) -> None:
+def _enforce_object_access(resource: Resource, subject: Subject, required_level: str | None) -> None:
     """Object-level access gate matching ``AccessControlPermission.has_object_permission``:
     raise ``ResourceForbiddenError`` (→ 403) when the caller lacks ``required_level`` on the
     object. The view computes ``required_level`` from the HTTP method (viewer / editor), and
@@ -5321,7 +5380,12 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
     which case the gate is a no-op, exactly like ``has_object_permission`` returning early."""
     if required_level is None:
         return
-    if not user_access_control.check_access_level_for_object(obj, required_level=required_level):  # type: ignore[arg-type]
+    action = {"viewer": Action.VIEW, "editor": Action.EDIT}[required_level]
+    if not authorization.check(
+        resource=resource,
+        action=action,
+        subject=subject,
+    ):
         raise ResourceForbiddenError()
 
 
@@ -5718,7 +5782,7 @@ def _to_customer_task_user_view(user: "User | None") -> contracts.CustomerTaskUs
     )
 
 
-def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessControl") -> contracts.CustomerTaskView:
+def _to_customer_task_view(task: CustomerTask, subject: Subject) -> contracts.CustomerTaskView:
     account = (
         contracts.CustomerTaskAccountView(id=task.account.id, name=task.account.name)
         if task.account is not None
@@ -5738,8 +5802,8 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         archived_at=task.archived_at,
         created_at=task.created_at,
         updated_at=task.updated_at,
-        can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
-        can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        can_edit=_customer_tasks_logic.can_edit_customer_task(task, subject),
+        can_restore=_customer_tasks_logic.can_restore_customer_task(task, subject),
         tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
@@ -5824,28 +5888,26 @@ CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
 def list_customer_tasks(
     *,
     team_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     filters: contracts.CustomerTaskListFilters,
     page: PageRequest,
 ) -> Page[contracts.CustomerTaskView]:
     tasks = _customer_tasks_logic.list_customer_tasks(
         team_id=team_id,
-        user_access_control=user_access_control,
+        subject=subject,
         filters=filters,
         page=page,
     )
-    return tasks.map(lambda task: _to_customer_task_view(task, user_access_control))
+    return tasks.map(lambda task: _to_customer_task_view(task, subject))
 
 
-def get_customer_task(
-    *, team_id: int, task_id: UUID | str, user_access_control: "UserAccessControl"
-) -> contracts.CustomerTaskView | None:
+def get_customer_task(*, team_id: int, task_id: UUID | str, subject: Subject) -> contracts.CustomerTaskView | None:
     task = _customer_tasks_logic.get_customer_task(
         team_id=team_id,
         task_id=task_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
-    return _to_customer_task_view(task, user_access_control) if task is not None else None
+    return _to_customer_task_view(task, subject) if task is not None else None
 
 
 def create_customer_task(
@@ -5853,15 +5915,15 @@ def create_customer_task(
     team: Team,
     input: contracts.CreateCustomerTaskInput,
     actor: "User | None",
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.CustomerTaskView:
     task = _customer_tasks_logic.create_customer_task(
         team=team,
         input=input,
         actor=actor,
-        user_access_control=user_access_control,
+        subject=subject,
     )
-    return _to_customer_task_view(task, user_access_control)
+    return _to_customer_task_view(task, subject)
 
 
 def update_customer_task(
@@ -5870,19 +5932,18 @@ def update_customer_task(
     task_id: UUID | str,
     input: contracts.UpdateCustomerTaskInput,
     actor: "User | None",
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.CustomerTaskView | None:
     task = _customer_tasks_logic.update_customer_task(
         team=team,
         task_id=task_id,
         input=input,
         actor=actor,
-        user_access_control=user_access_control,
+        subject=subject,
     )
     if task is None:
         return None
-    fresh_user_access_control = UserAccessControl(user=user_access_control.user, team=team)
-    return _to_customer_task_view(task, fresh_user_access_control)
+    return _to_customer_task_view(task, subject)
 
 
 def bulk_update_customer_tasks(
@@ -5892,7 +5953,7 @@ def bulk_update_customer_tasks(
     input: contracts.UpdateCustomerTaskInput,
     archived: bool | None,
     actor: "User | None",
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> int | None:
     return _customer_tasks_logic.bulk_update_customer_tasks(
         team=team,
@@ -5900,7 +5961,7 @@ def bulk_update_customer_tasks(
         input=input,
         archived=archived,
         actor=actor,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -5909,15 +5970,15 @@ def archive_customer_task(
     team_id: int,
     task_id: UUID | str,
     actor: "User | None",
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.CustomerTaskView | None:
     task = _customer_tasks_logic.archive_customer_task(
         team_id=team_id,
         task_id=task_id,
         actor=actor,
-        user_access_control=user_access_control,
+        subject=subject,
     )
-    return _to_customer_task_view(task, user_access_control) if task is not None else None
+    return _to_customer_task_view(task, subject) if task is not None else None
 
 
 def restore_customer_task(
@@ -5925,28 +5986,28 @@ def restore_customer_task(
     team_id: int,
     task_id: UUID | str,
     actor: "User | None",
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.CustomerTaskView | None:
     task = _customer_tasks_logic.restore_customer_task(
         team_id=team_id,
         task_id=task_id,
         actor=actor,
-        user_access_control=user_access_control,
+        subject=subject,
     )
-    return _to_customer_task_view(task, user_access_control) if task is not None else None
+    return _to_customer_task_view(task, subject) if task is not None else None
 
 
 def list_customer_task_activities(
     *,
     team_id: int,
     task_id: UUID | str,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     page: PageRequest,
 ) -> Page[contracts.CustomerTaskActivityView] | None:
     result = _customer_tasks_logic.list_customer_task_activities(
         team_id=team_id,
         task_id=task_id,
-        user_access_control=user_access_control,
+        subject=subject,
         page=page,
     )
     if result is None:
@@ -6106,7 +6167,7 @@ def set_event_stream_member(
         # Adding an account pipes its events into Slack, so a denied account must behave
         # like an unknown one. Removal stays team-scoped: members must be droppable even
         # after access to them is revoked.
-        if get_accessible_account_id(team_id, str(account.id), user_access_control) is None:
+        if get_accessible_account_id(team_id, str(account.id), Subject(user_id=user_access_control.user.pk)) is None:
             raise Account_DoesNotExist()
         # for_team() filters don't propagate into creation — team_id must be in defaults.
         EventStreamMember.objects.for_team(team_id).get_or_create(

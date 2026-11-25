@@ -19,8 +19,8 @@ from posthog.paging import PageRequest
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.db_context_capturing import capture_db_queries
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.workflow_customer_tasks import get_workflow_customer_task_id
 from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import (
@@ -51,13 +51,10 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
 
-    def _get_user_access_control(self, team: Team | None = None) -> UserAccessControl:
-        return UserAccessControl(user=self.user, team=team or self.team)
-
     def _get_task_count(self) -> int:
         return api.list_customer_tasks(
             team_id=self.team.id,
-            user_access_control=self._get_user_access_control(),
+            subject=Subject(user_id=self.user.pk),
             filters=contracts.CustomerTaskListFilters(archive_state="all"),
             page=PageRequest(limit=1),
         ).count
@@ -66,7 +63,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         result = api.list_customer_task_activities(
             team_id=self.team.id,
             task_id=task_id,
-            user_access_control=self._get_user_access_control(),
+            subject=Subject(user_id=self.user.pk),
             page=PageRequest(limit=1),
         )
         assert result is not None
@@ -109,7 +106,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         task = api.get_customer_task(
             team_id=self.team.id,
             task_id=response.data["id"],
-            user_access_control=self._get_user_access_control(),
+            subject=Subject(user_id=self.user.pk),
         )
         assert task is not None
         assert task.account is not None and task.account.id == account.id
@@ -122,7 +119,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         task = api.get_customer_task(
             team_id=self.team.id,
             task_id=response.data["id"],
-            user_access_control=self._get_user_access_control(),
+            subject=Subject(user_id=self.user.pk),
         )
         assert task is not None and task.name == "Follow up"
         assert self._get_task_activity_count(task.id) == 1
@@ -226,7 +223,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         task = api.get_customer_task(
             team_id=self.team.id,
             task_id=response.data["id"],
-            user_access_control=self._get_user_access_control(),
+            subject=Subject(user_id=self.user.pk),
         )
         assert task is not None and task.name == "Follow up"
         assert self._get_task_activity_count(task.id) == 1
@@ -265,7 +262,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
             api.get_customer_task(
                 team_id=self.team.id,
                 task_id=response.data["id"],
-                user_access_control=self._get_user_access_control(),
+                subject=Subject(user_id=self.user.pk),
             )
             is not None
         )

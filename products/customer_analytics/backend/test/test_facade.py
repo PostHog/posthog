@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
@@ -108,7 +109,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         ResourceNotebook.objects.create(notebook=notebook, account=account)
 
         data = facade.get_account_context_data(
-            self.team.id, account_id=str(account.id), user_access_control=self._uac()
+            self.team.id, account_id=str(account.id), subject=Subject(user_id=self.user.pk)
         )
 
         assert isinstance(data, contracts.AccountContextData)
@@ -119,27 +120,32 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
     def test_get_account_context_data_missing(self):
         assert (
-            facade.get_account_context_data(self.team.id, external_id="missing", user_access_control=self._uac())
+            facade.get_account_context_data(self.team.id, external_id="missing", subject=Subject(user_id=self.user.pk))
             is None
         )
 
-    def test_get_account_context_data_denied_object_level_returns_none(self):
+    @parameterized.expand([("object",), ("resource",)])
+    def test_get_account_context_data_denied_returns_none(self, restriction):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
-        uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = True
-        uac.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
-
-        assert (
-            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        user = User.objects.create_and_join(self.organization, "limited-account@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+        AccessControl.objects.create(
+            team=self.team,
+            organization_member=membership,
+            resource="account" if restriction == "object" else "customer_analytics",
+            resource_id=str(account.id) if restriction == "object" else None,
+            access_level="none",
         )
 
-    def test_get_account_context_data_denied_resource_level_returns_none(self):
-        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
-        uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = False
-
         assert (
-            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
+            facade.get_account_context_data(
+                self.team.id,
+                account_id=str(account.id),
+                subject=Subject(user_id=user.pk),
+            )
+            is None
         )
 
     @parameterized.expand(

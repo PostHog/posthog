@@ -30,6 +30,9 @@ from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -72,10 +75,6 @@ from products.conversations.backend.support_slack_channels import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-class _TicketAccessControl(Protocol):
-    def filter_queryset_by_access_level(self, queryset: QuerySet[Ticket]) -> QuerySet[Ticket]: ...
 
 
 class _EmailThreadWithFacadePrefetch(Protocol):
@@ -632,10 +631,22 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
     )
 
 
+def _account_tickets(team_id: int, organization_id: str, subject: Subject) -> QuerySet[Ticket]:
+    tickets = Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
+    visible = authorization.list_objects(
+        resource=Resource(type=ResourceType.TICKET, project_id=team_id), action=Action.VIEW, subject=subject
+    )
+    if not visible.complete:
+        return tickets.none()
+    if visible.excluded:
+        return tickets.exclude(id__in=visible.ids) if visible.ids else tickets
+    return tickets.filter(id__in=visible.ids)
+
+
 def list_account_tickets(
     team_id: int,
     organization_id: str,
-    user_access_control: _TicketAccessControl,
+    subject: Subject,
     *,
     limit: int = 50,
 ) -> list[TicketSummary]:
@@ -647,9 +658,7 @@ def list_account_tickets(
     if not organization_id:
         return []
     tickets = list(
-        user_access_control.filter_queryset_by_access_level(
-            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
-        ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
+        _account_tickets(team_id, organization_id, subject).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
     )
     latest_comments = {
         comment.item_id: comment
@@ -687,14 +696,12 @@ def list_account_ticket_messages(
     team_id: int,
     organization_id: str,
     ticket_id: str,
-    user_access_control: _TicketAccessControl,
+    subject: Subject,
     *,
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[list[SupportTicketMessage], int] | None:
-    ticket = user_access_control.filter_queryset_by_access_level(
-        Ticket.objects.filter(team_id=team_id, organization_id=organization_id, id=ticket_id)
-    ).first()
+    ticket = _account_tickets(team_id, organization_id, subject).filter(id=ticket_id).first()
     if ticket is None:
         return None
 

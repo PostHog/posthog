@@ -19,6 +19,9 @@ from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.facade.api import get_accessible_account_id, get_account
 from products.customer_analytics.backend.facade.contracts import (
     AccountPerson,
@@ -55,10 +58,12 @@ class AccountPersonsReader:
             )
         ):
             return None
-        access = user_access_control or UserAccessControl(user=user, team=team)
-        if not access.check_access_level_for_resource("account", "viewer"):
+        subject = Subject(user_id=user.pk)
+        if not authorization.check(
+            resource=Resource(type=ResourceType.ACCOUNT, project_id=team.pk), action=Action.VIEW, subject=subject
+        ):
             return None
-        if get_accessible_account_id(team.pk, account_id, access) is None:
+        if get_accessible_account_id(team.pk, account_id, subject) is None:
             return None
         account = get_account(team.pk, account_id=account_id)
         group_type_index = team.customer_analytics_config.account_group_type_index

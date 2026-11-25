@@ -7,7 +7,7 @@
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -26,6 +26,8 @@ from posthog.models.organization import AvailableFeature
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.conversations.backend.models import EmailThread, EmailThreadAccountLink
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -104,23 +106,34 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
 class TestAccountCommunicationHogqlAccess(SimpleTestCase):
     @parameterized.expand(
         [
-            ("email_threads", account_email_threads_join, "system._account_email_threads"),
-            ("support_tickets", account_support_tickets_join, "system.support_tickets"),
+            ("email_threads", account_email_threads_join, "system._account_email_threads", False),
+            ("support_tickets", account_support_tickets_join, "system.support_tickets", False),
+            ("database_only", account_support_tickets_join, "system.support_tickets", True),
         ]
     )
-    def test_ticket_access_is_required(self, _name, resolver, table_name) -> None:
-        access_control = Mock()
-        access_control.check_access_level_for_resource.return_value = False
-        database = Mock(user_access_control=access_control)
+    def test_ticket_access_is_required(self, _name, resolver, table_name, database_only) -> None:
+        database = Mock(
+            authorization_user_id=9 if database_only else None,
+            authorization_team_id=7 if database_only else None,
+        )
         database.is_table_access_denied.return_value = False
-        context = HogQLContext(database=database)
+        context = (
+            HogQLContext(database=database)
+            if database_only
+            else HogQLContext(database=database, team_id=7, user=Mock(spec=User, pk=9))
+        )
         join_to_add = Mock(fields_accessed={"count": ["count"]})
 
-        with self.assertRaises(TableAccessDeniedError) as error:
+        with (
+            patch("products.authorization.backend.facade.api.check", return_value=False) as check,
+            self.assertRaises(TableAccessDeniedError) as error,
+        ):
             resolver(join_to_add, context, Mock())
 
         assert error.exception.table_name == table_name
-        access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
+        check.assert_called_once_with(
+            resource=Resource(type=ResourceType.TICKET, project_id=7), action=Action.VIEW, subject=Subject(user_id=9)
+        )
 
 
 class TestAccountCommunicationHogqlProjectSecretKey(NonAtomicBaseTest):

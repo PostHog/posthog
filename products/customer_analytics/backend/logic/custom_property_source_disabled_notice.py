@@ -12,7 +12,9 @@ from posthog.models import Team, User
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 from products.customer_analytics.backend.facade.contracts import CreateCustomerTaskInput
 from products.customer_analytics.backend.logic.customer_tasks import create_customer_task
@@ -66,8 +68,9 @@ def notify_source_auto_disabled(*, team_id: int, source_id: UUID, disable_event_
             log.info("custom_property_source_disabled.team_gone")
             return
 
-        access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
-        if not access.has_project_access:
+        if not authorization.check(
+            resource=Resource.project(team.id), action=Action.VIEW, subject=Subject(user_id=owner.pk)
+        ):
             log.info("custom_property_source_disabled.owner_without_project_access")
             return
 
@@ -131,12 +134,14 @@ def _open_owner_task(
             return
 
         canonical_team = team.parent_team or team
-        access = UserAccessControl(
-            user=owner,
-            team=canonical_team,
-            organization_id=str(canonical_team.organization_id),
-        )
-        if not access.has_project_access or not access.check_access_level_for_resource("customer_task", "editor"):
+        subject = Subject(user_id=owner.pk)
+        if not authorization.check(
+            resource=Resource.project(canonical_team.id), action=Action.VIEW, subject=subject
+        ) or not authorization.check(
+            resource=Resource(type=ResourceType.CUSTOMER_TASK, project_id=canonical_team.id),
+            action=Action.EDIT,
+            subject=subject,
+        ):
             log.info("custom_property_source_disabled.tasks_unavailable")
             return
 
@@ -155,7 +160,7 @@ def _open_owner_task(
                     due_at=_end_of_next_business_day(team),
                 ),
                 actor=None,
-                user_access_control=access,
+                subject=subject,
                 task_id=task_id,
             )
     except Exception as error:
