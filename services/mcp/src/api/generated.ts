@@ -107265,6 +107265,19 @@ export namespace Schemas {
     }
 
     /**
+     * * `classic` - Classic
+     * * `new` - New
+     */
+    export type QueryBatchEngineEnum = typeof QueryBatchEngineEnum[keyof typeof QueryBatchEngineEnum];
+
+
+    export const QueryBatchEngineEnum = {
+      Classic: 'classic',
+      New: 'new',
+    } as const;
+
+    /**
+     * * `query` - Query
      * * `insight` - Insight
      * * `hogql` - HogQL
      * * `promql` - PromQL
@@ -107274,6 +107287,7 @@ export namespace Schemas {
 
 
     export const QueryBatchLanguageEnum = {
+      Query: 'query',
       Insight: 'insight',
       Hogql: 'hogql',
       Promql: 'promql',
@@ -107286,14 +107300,27 @@ export namespace Schemas {
      */
     export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
 
+    /**
+     * * `time_series` - Time series
+     * * `table` - Table
+     */
+    export type QueryBatchTargetFormatEnum = typeof QueryBatchTargetFormatEnum[keyof typeof QueryBatchTargetFormatEnum];
+
+
+    export const QueryBatchTargetFormatEnum = {
+      TimeSeries: 'time_series',
+      Table: 'table',
+    } as const;
+
     export interface QueryBatchTarget {
       /**
          * The panel's ID for this query. Not used for caching.
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
+      /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
+       * * `query` - Query
        * * `insight` - Insight
        * * `hogql` - HogQL
        * * `promql` - PromQL
@@ -107304,6 +107331,21 @@ export namespace Schemas {
          * @maxLength 200000
          */
       query: string;
+      /**
+         * The series name template the panel draws. Returned unchanged on the target's line.
+         * @maxLength 1000
+         */
+      legend?: string;
+      /** How the panel draws the result. Returned unchanged on the target's line.
+       *
+       * * `time_series` - Time series
+       * * `table` - Table */
+      format?: QueryBatchTargetFormatEnum;
+      /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+       *
+       * * `classic` - Classic
+       * * `new` - New */
+      engine?: QueryBatchEngineEnum;
     }
 
     export interface QueryBatchTime {
