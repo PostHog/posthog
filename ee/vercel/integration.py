@@ -1399,6 +1399,12 @@ class VercelIntegration:
             user.current_organization = installation.organization
             user.save(update_fields=["current_organization"])
         else:
+            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(claims.user_email):
+                # The login page offers only the enforced identity provider for this email, so the account and the
+                # membership come from that provider's login and the continue step, never from this Vercel token.
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                )
             intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
             user = VercelIntegration._create_user_for_email(
                 email=claims.user_email,
