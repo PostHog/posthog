@@ -9,8 +9,10 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import User
+from posthog.models.user_integration import ReauthorizationRequired
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.facade.api import (
@@ -18,6 +20,7 @@ from products.slack_app.backend.facade.api import (
     get_slack_workspace_setup,
     join_slack_setup_channels,
     list_slack_channel_settings,
+    list_slack_repository_options,
     list_slack_setup_channels,
     set_slack_workspace_default_project,
     update_slack_channel_settings,
@@ -129,6 +132,8 @@ class SlackAppJoinChannelsResultSerializer(serializers.Serializer):
     results = SlackAppChannelJoinResultSerializer(many=True, help_text="The result for each channel, in request order.")
 
 
+GITHUB_RECONNECT = "Your GitHub connection has expired. Reconnect GitHub in your personal settings."
+GITHUB_RATE_LIMITED = "GitHub is limiting requests for your account. Try again in a few minutes."
 CHANNEL_LIST_THROTTLED = (
     "Slack's channel list for this workspace is loading in another request, or it was loaded too often recently."
 )
@@ -382,6 +387,16 @@ class SlackAppChannelSettingsSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When this channel's settings last changed.")
 
 
+class SlackAppRepositoryOptionsSerializer(serializers.Serializer):
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories as owner/name from this person's own GitHub installs, sorted by name.",
+    )
+    github_connected = serializers.BooleanField(
+        help_text="Whether this person connected a personal GitHub account. False means repositories is empty."
+    )
+
+
 class SlackAppChannelSettingsListSerializer(serializers.Serializer):
     channels = SlackAppChannelSettingsSerializer(
         many=True, help_text="Channels that this install's organization gave at least one setting."
@@ -429,7 +444,7 @@ PERSONAL_SETTING_FIELDS = (
 
 class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "integration"
-    scope_object_read_actions = ["retrieve", "channels"]
+    scope_object_read_actions = ["retrieve", "channels", "repositories"]
     scope_object_write_actions = ["workspace", "personal", "update_channel"]
 
     def read_object(self) -> IntegrationRecord | None:
@@ -503,6 +518,27 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except SlackSettingsInvalid as error:
             raise ValidationError(str(error)) from error
         return Response(SlackAppSettingsSerializer(settings).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=SlackAppRepositoryOptionsSerializer),
+            403: OpenApiResponse(description=GITHUB_RECONNECT),
+            429: OpenApiResponse(description=GITHUB_RATE_LIMITED),
+        },
+        summary="List the repositories this person can set as a channel's default repository",
+    )
+    # user:read as well, because the list comes from the person's own GitHub installs, not from the project.
+    @action(detail=True, methods=["get"], url_path="repositories", required_scopes=["integration:read", "user:read"])
+    def repositories(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        try:
+            options = list_slack_repository_options(self.team_id, self._integration_id(pk), cast(User, request.user))
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
+        except ReauthorizationRequired as error:
+            raise PermissionDenied(GITHUB_RECONNECT) from error
+        except GitHubRateLimitError as error:
+            raise Throttled(detail=GITHUB_RATE_LIMITED) from error
+        return Response(SlackAppRepositoryOptionsSerializer(options).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=SlackAppChannelSettingsListSerializer)},
