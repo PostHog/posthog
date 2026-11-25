@@ -3829,6 +3829,20 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         assert self.user.is_email_verified
         assert self.client.session.get("_auth_user_id") == str(self.user.id)
 
+    def test_email_verification_refuses_service_account(self) -> None:
+        code = self._request_code()
+        User.objects.filter(pk=self.user.pk).update(type="service_account")
+        original_verified = self.user.is_email_verified
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, original_verified)
+        self.assertIsNone(self.user.last_login)
+
     def test_code_with_pasted_noise_verifies(self):
         code = self._request_code()
         noisy = f"  {code[:3]}-{code[3:]} "

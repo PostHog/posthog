@@ -1336,6 +1336,31 @@ class TestTwoFactorAPI(APIBaseTest):
 
     CONFIG_AUTO_LOGIN = False
 
+    @parameterized.expand([("totp", False), ("backup", True)])
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email.delay")
+    def test_pending_2fa_refuses_service_account(self, _name: str, backup: bool, _send_email: MagicMock) -> None:
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        backup_device = StaticDevice.objects.create(user=self.user, name="backup")
+        backup_token = backup_device.token_set.create(token="abcd2345")
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.json()["code"], "2fa_required")
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        self.assertEqual(self.client.get("/api/login/2fa/passkey/methods/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.post("/api/login/2fa/passkey/begin/").status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(
+            "/api/login/token", {"token": backup_token.token if backup else totp_str(device.bin_key)}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_2fa_session")
+        self.assertNotIn(SESSION_KEY, self.client.session)
+        self.assertFalse(any(name.startswith(REMEMBER_COOKIE_PREFIX) for name in response.cookies))
+        self.assertTrue(backup_device.token_set.filter(pk=backup_token.pk).exists())
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.last_login)
+
     def test_login_2fa_enabled(self):
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
@@ -1726,9 +1751,9 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No pending 2FA session", response.json()["error"])
 
+    @parameterized.expand([("human", False), ("service_account", True)])
     @patch("posthog.api.authentication.verify_passkey_authentication_response")
-    def test_passkey_2fa_complete_success(self, mock_verify):
-        """Test successful passkey 2FA completion"""
+    def test_passkey_2fa_complete_success(self, _name: str, service_account: bool, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -1760,6 +1785,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Mock verification
         mock_verify.return_value = MagicMock(new_sign_count=1)
 
+        if service_account:
+            User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
         # Complete passkey 2FA
         response = self.client.post(
             "/api/login/token",
@@ -1773,6 +1801,14 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
+        if service_account:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_2fa_session")
+            self.assertNotIn(SESSION_KEY, self.client.session)
+            self.assertFalse(any(name.startswith(REMEMBER_COOKIE_PREFIX) for name in response.cookies))
+            credential.refresh_from_db()
+            self.assertEqual(credential.counter, 0)
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["success"])
 

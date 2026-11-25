@@ -1171,7 +1171,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 detail="Invalid 2FA session. Please log in again.",
@@ -1223,7 +1223,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1256,7 +1256,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1417,7 +1417,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
-            user = User.objects.get(pk=user_id, is_active=True)
+            user = User.objects.humans().get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             code_based_verifier.clear_pending(request)
             raise invalid_error
@@ -1478,7 +1478,9 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         _require_fresh_idp_challenge(request)
 
         try:
-            user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
+            user = User.objects.humans().get(
+                pk=code_based_verifier.get_pending_code_based_verification_user_id(request)
+            )
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
