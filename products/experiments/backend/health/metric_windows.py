@@ -16,6 +16,10 @@ from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import Experiment
 
 
+def has_metric_windows(experiment: Experiment) -> bool:
+    return not experiment.archived and experiment.only_count_matured_users
+
+
 def load_primary_metric_windows(
     experiment: Experiment, *, launched_at: datetime | None
 ) -> tuple[MetricWindow, ...] | None:
@@ -24,7 +28,7 @@ def load_primary_metric_windows(
     and has `only_count_matured_users` on, or None. Never raises: the check that reads them then reports that it
     couldn't check.
     """
-    if launched_at is None or experiment.archived or not experiment.only_count_matured_users:
+    if launched_at is None or not has_metric_windows(experiment):
         return None
     try:
         return _load_primary_metric_windows(experiment, launched_at)
