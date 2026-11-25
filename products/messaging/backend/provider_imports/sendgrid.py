@@ -1361,7 +1361,7 @@ def _read_rows(client: SendGridClient, export: Mapping[str, Any], custom_fields:
     size = 0
     for fields in _exported_contacts(client, export):
         row = _Row(email=fields.get("email"), properties=_contact_properties(fields, custom_fields))
-        size += sum(len(name) + len(value) for name, value in row.properties.items())
+        size += len(row.email or "") + sum(len(name) + len(value) for name, value in row.properties.items())
         if len(rows) >= MAX_CONTACT_MEMBERSHIPS or size > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
         rows.append(row)
