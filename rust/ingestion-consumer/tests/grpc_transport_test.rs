@@ -22,6 +22,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     MessageRef, StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -1028,9 +1029,28 @@ async fn wait_for_request_end(mock: &MockHandle) -> RequestEnd {
     }
 }
 
+fn stream_teardowns(snapshotter: &Snapshotter) -> u64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| match value {
+            DebugValue::Counter(count)
+                if key.key().name() == "ingestion_consumer_worker_stream_teardowns_total" =>
+            {
+                Some(count)
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 #[tokio::test]
 async fn a_worker_ending_an_idle_stream_gets_the_consumer_side_ended_at_once() {
     // Else a draining worker waits for its sessions to close until its drain timeout.
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
     let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::OnSignal).await;
     let mut transport =
         GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
@@ -1054,10 +1074,14 @@ async fn a_worker_ending_an_idle_stream_gets_the_consumer_side_ended_at_once() {
     assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
     let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
     assert_eq!(seqs, vec![1, 1]);
+    assert_eq!(stream_teardowns(&snapshotter), 0, "no fence");
 }
 
 #[tokio::test]
 async fn a_worker_ending_the_stream_with_unacked_work_fences_only_the_unacked_sends() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock_with(AckMode::Manual, Some(ack_rx), StreamEnding::OnSignal).await;
     let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
@@ -1090,6 +1114,7 @@ async fn a_worker_ending_the_stream_with_unacked_work_fences_only_the_unacked_se
     ));
     let offsets: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
     assert_eq!(offsets, vec![2, 3], "every message comes back for deferral");
+    assert_eq!(stream_teardowns(&snapshotter), 1);
 }
 
 #[rstest]
