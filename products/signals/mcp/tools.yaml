@@ -484,8 +484,8 @@ tools:
             linked PR is closed or merged and at least one merged, the report resolves. Where the organization has
             Monitoring on and the report has open follow-up checks, it enters monitoring instead, and the checks verify
             the fix. It is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete
-            it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports,
-            and the reports fixed without a pull request, with inbox-reports-set-state.
+            it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports, and
+            the reports fixed without a pull request, with inbox-reports-set-state.
         param_overrides:
             id:
                 aliases:
@@ -639,15 +639,15 @@ tools:
             The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row
             the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking
             ordered the page. An `ordering` replaces `sort` and its ranking. For later pages, pass the first page's
-            `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking:
-            for a newer, focused, or refreshed list, use inbox-reports-for-me.
+            `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking: for
+            a newer, focused, or refreshed list, use inbox-reports-for-me.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
             `fix`. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score.
-            inbox-ranking-outcomes-list explains each outcome. When the response has `source_metadata_available:
-            false`, an empty `source_products` or a null `scout_name` does not mean the report has none. A report in
-            `monitoring` has shipped its fix, and its `monitoring_summary` says where the verification stands: read
-            each check's timing and result with inbox-report-checks-list.
+            inbox-ranking-outcomes-list explains each outcome. When the response has `source_metadata_available: false`,
+            an empty `source_products` or a null `scout_name` does not mean the report has none. A report in
+            `monitoring` has shipped its fix, and its `monitoring_summary` says where the verification stands: read each
+            check's timing and result with inbox-report-checks-list.
         agent_note: >
             A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you
             change code for a report, read it with inbox-reports-retrieve: its note says how to claim the report and
@@ -661,11 +661,10 @@ tools:
                     `needs_input`, `needs_decision` (also every failed report), `monitoring` (the fix shipped and its
                     outcome is being verified), `monitoring_recent` (also the resolved and closed reports whose
                     Monitoring ended in the last 14 days), `resolved`, `closed`, `dismissed` (a person or agent
-                    dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety
-                    or actionability judge suppressed it before anyone saw it), `not_actionable`, and `all`
-                    (suppressed reports included). Each view applies the matching status, actionability, and pull
-                    request filters. Without `view`, the list holds every report in the project except the suppressed
-                    ones.
+                    dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety or
+                    actionability judge suppressed it before anyone saw it), `not_actionable`, and `all` (suppressed
+                    reports included). Each view applies the matching status, actionability, and pull request filters.
+                    Without `view`, the list holds every report in the project except the suppressed ones.
             sort:
                 default: recommended
             limit:
@@ -851,8 +850,8 @@ tools:
         agent_note: >
             Before you change code, claim the report with inbox-reports-claim and read its work log with
             inbox-report-artefacts-list. If `assignee` shows another person or their agent, ask your user before you
-            take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see
-            the context, then attach the pull request with inbox-reports-claim and `pull_requests`.
+            take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see the
+            context, then attach the pull request with inbox-reports-claim and `pull_requests`.
         param_overrides:
             id:
                 aliases:
