@@ -25,10 +25,8 @@ export function getAiGatewayUrl(posthogHost: string): string {
 }
 
 /**
- * The Go gateway base URL: an explicit override, else the one for the PostHog
- * host. The gateway routes by credential and header, so the URL carries no
- * product slug. A trailing `/v1` is stripped because callers re-append it: the
- * Anthropic SDK adds `/v1/messages`, and the OpenAI base URL appends `/v1`.
+ * Strips a trailing `/v1` because callers re-append it: the Anthropic SDK adds
+ * `/v1/messages`, and the OpenAI base URL appends `/v1`.
  */
 export function resolveAiGatewayBaseUrl(
   envUrl: string | undefined,
@@ -112,8 +110,6 @@ export interface GatewayTarget {
 }
 
 /**
- * Resolve the gateway target for a sandbox run.
- *
  * A run is routed only when `AI_GATEWAY_URL` is set and `AI_GATEWAY_PRODUCTS`
  * lists its product. The worker sets both, and mints a token, only for
  * products it routes, so an unrouted run has no way to reach a model.
