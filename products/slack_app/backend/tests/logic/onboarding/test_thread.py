@@ -1,9 +1,11 @@
 import json
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.exceptions import ValidationError
 
 from slack_sdk.errors import SlackApiError
@@ -26,7 +28,12 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
 from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
-from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
+    SlackSettings,
+    SlackThreadTaskMapping,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.slack_settings import (
     onboarding_status_label,
     reset_onboarding,
@@ -151,6 +158,45 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
         "slack app onboarding step shown",
     ]
     assert capture.call_args_list[0].kwargs["planned_steps"] == ["link_account", "model", "replies_in_threads"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "earlier_thread_offset, expected_intro",
+    [
+        (None, "I'm PostHog, your team's AI agent in Slack"),
+        (-timedelta(days=30), "thanks for working with me in Slack"),
+        (timedelta(minutes=1), "I'm PostHog, your team's AI agent in Slack"),
+    ],
+)
+def test_intro_skips_the_pitch_for_someone_who_mentioned_the_agent_before_the_start(
+    org_team_user, slack_client: MagicMock, earlier_thread_offset: timedelta | None, expected_intro: str
+) -> None:
+    _, team, _ = org_team_user
+    integration = _install(team)
+    update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
+    if earlier_thread_offset is not None:
+        state = resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID)
+        assert state is not None and state.started_at is not None
+        started_at = datetime.fromisoformat(state.started_at)
+        task = apps.get_model("tasks", "Task").objects.create(team=team, title="t")
+        task_run = apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task)
+        mapping = SlackThreadTaskMapping.objects.create(
+            team=team,
+            integration_id=integration.id,
+            slack_workspace_id=SLACK_TEAM_ID,
+            channel="C1",
+            thread_ts="1.1",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id=SLACK_USER_ID,
+        )
+        SlackThreadTaskMapping.objects.filter(id=mapping.id).update(created_at=started_at + earlier_thread_offset)
+
+    _refresh(integration)
+
+    root = _posts(slack_client)[0]
+    assert expected_intro in all_block_text(root["blocks"])
 
 
 @pytest.mark.django_db
