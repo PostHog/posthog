@@ -73,9 +73,18 @@ export const PROVIDER_ALIASES: Record<string, CanonicalProvider> = {
     'cloudflare-workers': 'cloudflare',
     'cf-workers': 'cloudflare',
 
-    // OpenRouter (maps to default pricing)
+    // OpenRouter: `default` when the row has no `openrouter` key (see PREFERRED_PROVIDER_KEYS)
     openrouter: 'default',
     or: 'default',
+}
+
+/**
+ * Keys tried before alias resolution. Not in PROVIDER_ALIASES because the key
+ * may be absent from the generated CanonicalProvider type.
+ */
+export const PREFERRED_PROVIDER_KEYS: Record<string, string> = {
+    openrouter: 'openrouter',
+    or: 'openrouter',
 }
 
 /**
@@ -162,6 +171,13 @@ export const resolveModelCostForProvider = (
     }
 
     if (provider) {
+        const preferredKey: string | undefined = PREFERRED_PROVIDER_KEYS[normalizeProviderKey(provider)]
+        const preferredMatch: ResolvedModelCost | undefined = preferredKey ? findProviderMatch(preferredKey) : undefined
+
+        if (preferredMatch) {
+            return preferredMatch
+        }
+
         // Try alias resolution first
         const canonicalKey: string = resolveProviderAliases(provider)
         const match: ResolvedModelCost | undefined = findProviderMatch(canonicalKey)
