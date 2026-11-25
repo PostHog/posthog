@@ -37,6 +37,28 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
 }
 
 
+def key_json_document(key_read: ast.Expr) -> ast.Call:
+    """The document a JSON function reads for one key of a native properties column: the key's JSON text, or '' when
+    the key is missing.
+
+    `key_json_document_read` recognizes this shape, so change the two together.
+    """
+    json_text = ast.Call(name="toJSONString", args=[key_read], type=ast.StringType(nullable=True))
+    return ast.Call(
+        name="ifNull",
+        args=[json_text, ast.Constant(value="", inline_sentinel=True)],
+        type=ast.StringType(nullable=False),
+    )
+
+
+def key_json_document_read(document: ast.Expr) -> ast.Expr | None:
+    """The key read inside a `key_json_document`, or None for any other expression."""
+    match document:
+        case ast.Call(name="ifNull", args=[ast.Call(name="toJSONString", args=[key_read]), ast.Constant(value="")]):
+            return key_read
+    return None
+
+
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     if not context or not context.team_id:
         return
@@ -506,32 +528,10 @@ class PropertySwapper(CloningVisitor):
         field_type: ast.FieldType,
         first_key: str | int,
     ) -> ast.Expr | None:
-        if not isinstance(first_key, str):
-            return ast.Call(
-                start=node.start,
-                end=node.end,
-                type=node.type,
-                name=node.name,
-                args=[ast.Constant(value="{}"), *node.args[1:]],
-                params=node.params,
-                distinct=node.distinct,
-                within_group=node.within_group,
-                order_by=node.order_by,
-                filter_expr=node.filter_expr,
-            )
-        if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-            return ast.Call(
-                start=node.start,
-                end=node.end,
-                type=node.type,
-                name=node.name,
-                args=[ast.Constant(value="{}"), *node.args[1:]],
-                params=node.params,
-                distinct=node.distinct,
-                within_group=node.within_group,
-                order_by=node.order_by,
-                filter_expr=node.filter_expr,
-            )
+        if not isinstance(first_key, str) or first_key in restricted_property_keys_for_table_type(
+            field_type.table_type, self.context
+        ):
+            return dataclasses.replace(node, args=[ast.Constant(value="{}"), *node.args[1:]])
         property_value = ast.Field(
             start=node.start,
             end=node.end,
@@ -540,33 +540,9 @@ class PropertySwapper(CloningVisitor):
             # typed key unconverted.
             type=ast.PropertyType(chain=[first_key], field_type=field_type, as_json=True),
         )
-        property_document: ast.Expr = ast.Call(
-            name="toJSONString",
-            args=[property_value],
-            type=ast.StringType(nullable=True),
-        )
-        property_document = ast.Call(
-            name="ifNull",
-            args=[
-                property_document,
-                ast.Constant(value="", inline_sentinel=True),
-            ],
-            type=ast.StringType(nullable=False),
-        )
 
         # Keep remaining indices on the JSON function: integer indices can address both arrays and object members.
-        return ast.Call(
-            start=node.start,
-            end=node.end,
-            type=node.type,
-            name=node.name,
-            args=[property_document, *node.args[2:]],
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
-        )
+        return dataclasses.replace(node, args=[key_json_document(property_value), *node.args[2:]])
 
     @staticmethod
     def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
