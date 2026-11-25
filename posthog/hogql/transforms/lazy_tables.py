@@ -22,6 +22,7 @@ from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
     is_grouped,
+    needs_stored_json,
     visit_after_grouping,
 )
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
@@ -278,6 +279,10 @@ class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
         self._note_hops(hops)
 
     def visit_call(self, node: ast.Call) -> None:
+        if self._in_grouped_clause and needs_stored_json(node):
+            with self._grouped_clause(False):
+                self.visit_call(node)
+            return
         with self._call_arguments(node):
             if node.name == "toJSONString" and len(node.args) == 1 and self._collect_serialized_read(node.args[0]):
                 return
