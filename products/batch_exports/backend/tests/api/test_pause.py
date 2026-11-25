@@ -259,7 +259,11 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
     )
 
 
-@pytest.mark.parametrize("unpause", [unpause_batch_export, lambda *args: patch_batch_export(*args, {"paused": False})])
+def _unpause_by_edit(client: HttpClient, team_id: int, batch_export_id):
+    return patch_batch_export(client, team_id, batch_export_id, {"paused": False})
+
+
+@pytest.mark.parametrize("unpause", [unpause_batch_export, _unpause_by_edit])
 def test_unpause_is_refused_while_batch_exports_are_off(
     client: HttpClient, temporal, organization, team, user, s3_batch_export_data, settings, unpause
 ):
