@@ -1,6 +1,6 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 
-import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
+import { QuotaLimiting, QuotaResource } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import {
@@ -62,7 +62,13 @@ describe('HogFlow Quota Limiting', () => {
             filters: { events: [{ id: '$conversation_message_sent', type: entryType }] },
         })
 
-        it.each([
+        it.each<{
+            name: string
+            trigger: Record<string, unknown>
+            actions: Record<string, unknown>[]
+            limitedResources: QuotaResource[]
+            expected: boolean
+        }>([
             {
                 name: 'a team under every quota is not limited',
                 trigger: { type: 'event' },

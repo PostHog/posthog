@@ -2740,7 +2740,6 @@ describe('CDP API', () => {
             category: 'transactional' | 'marketing' = 'transactional',
             inputs: Record<string, CyclotronInputType> = {}
         ): HogFlow => {
-            // The quota exempts only the email step id the transactional send API gives its workflows.
             const emailId = category === 'transactional' ? 'transactional_email' : 'email'
             return new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
