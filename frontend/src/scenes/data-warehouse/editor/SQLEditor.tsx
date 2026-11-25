@@ -829,6 +829,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     return (
         <div
+            onKeyDownCapture={(event) => {
+                // A menu opened from the keyboard fires no click, so record its trigger here as well.
+                const trigger = (event.target as HTMLElement).closest('button')
+                if (trigger && trigger.getAttribute('role') !== 'menuitem') {
+                    const bounds = trigger.getBoundingClientRect()
+                    saveTriggerPosition.current = { x: bounds.right, y: bounds.bottom }
+                }
+            }}
             onClickCapture={(event) => {
                 const target = (event.target as HTMLElement).closest('button, [role="menuitem"]')
                 const bounds = target?.getBoundingClientRect()
