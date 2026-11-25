@@ -229,13 +229,15 @@ REFRESH_WORKERS = 2
 MAX_QUEUED_REFRESHES = 64
 MAX_REFRESHES_PER_BATCH = 20
 MAX_REFRESHES_PER_SHARE = 16
+MAX_QUEUED_SPAN_REFRESHES = 4
 _org_refreshes: dict[Any, int] = {}
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
-# Batch-only kinds calculate in the refresh thread itself, so they get their own worker and one refresh in flight per
-# organization and user, and can't hold the shared pool that only enqueues.
+# Batch-only kinds calculate in the refresh thread itself, so they get their own worker, their own few slots and one
+# refresh in flight per organization and user, and can't hold the shared pool or slots that only enqueue.
 _span_refresh_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-query-batch-span-refresh")
 _span_refresh_shares: set[Any] = set()
 _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
+_span_refresh_slots = BoundedSemaphore(MAX_QUEUED_SPAN_REFRESHES)
 
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
@@ -643,8 +645,9 @@ def _release_refreshes(shares: tuple[Any, ...], count: int, *, span_refresh: boo
         _add_shares(_org_refreshes, shares, -count)
         if span_refresh:
             _span_refresh_shares.difference_update(shares)
+    slots = _span_refresh_slots if span_refresh else _refresh_slots
     for _ in range(count):
-        _refresh_slots.release()
+        slots.release()
 
 
 class _Watchdog:
@@ -1083,9 +1086,9 @@ class QueryBatch:
                 if len(queries) + len(span_queries) >= room:
                     break
                 is_span = query[1].query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
-                if is_span and span_busy:
+                if is_span and (span_busy or not _span_refresh_slots.acquire(blocking=False)):
                     continue
-                if not _refresh_slots.acquire(blocking=False):
+                if not is_span and not _refresh_slots.acquire(blocking=False):
                     break
                 (span_queries if is_span else queries).append(query)
             if span_queries:

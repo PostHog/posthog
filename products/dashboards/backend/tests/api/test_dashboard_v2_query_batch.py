@@ -392,8 +392,12 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["result"]["cache"]["stale"] for line in lines], [True, True, True])
         self.assertEqual(len(refreshed), 1)
 
-    @parameterized.expand([("span_refresh_idle", False), ("span_refresh_in_flight", True)])
-    def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(self, _name: str, busy: bool) -> None:
+    @parameterized.expand(
+        [("span_refresh_idle", False, 4), ("span_refresh_in_flight", True, 4), ("span_slots_taken", False, 0)]
+    )
+    def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(
+        self, _name: str, busy: bool, span_slots: int
+    ) -> None:
         self._warm_via_query_endpoint("$pageview")
         query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
         span_panel = {
@@ -407,6 +411,7 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         with (
             patch.object(query_batch_module, "_span_refresh_shares", set(shares) if busy else set()),
+            patch.object(query_batch_module, "_span_refresh_slots", Semaphore(span_slots)),
             patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
             patch(
                 "products.dashboards.backend.v2.query_batch.process_query_dict",
@@ -414,9 +419,14 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             ),
         ):
             self._lines([span_panel, _insight("$pageview", swr=True)], format="frames")
-            wait_until(lambda: query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES)
+            wait_until(
+                lambda: (
+                    query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES
+                    and query_batch_module._span_refresh_slots._value == span_slots
+                )
+            )
 
-        expected = ["DataTableNode"] if busy else ["DataTableNode", "TraceSpansAggregationQuery"]
+        expected = ["DataTableNode"] if busy or not span_slots else ["DataTableNode", "TraceSpansAggregationQuery"]
         self.assertEqual(sorted(refreshed), sorted(expected))
 
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
