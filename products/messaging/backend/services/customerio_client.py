@@ -48,7 +48,11 @@ class CustomerIOClient:
                 json=json_data,
                 headers=headers,
                 timeout=self.timeout,
+                # Customer.io redirects a key to its own region. The key only goes to the hosts above.
+                allow_redirects=False,
             )
+            if response.is_redirect:
+                raise CustomerIOAPIError("Customer.io sent a redirect.", status_code=response.status_code)
             response.raise_for_status()
             if response.status_code == 204:
                 return {}
@@ -65,11 +69,18 @@ class CustomerIOClient:
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
 
+    def get(self, endpoint: str) -> dict[str, Any]:
+        return self._make_request("GET", endpoint)
+
+    def post(self, endpoint: str, json_data: dict[str, Any]) -> dict[str, Any]:
+        """Only for calls that read, such as a search or an export. The import never changes the workspace."""
+        return self._make_request("POST", endpoint, json_data=json_data)
+
     def get_subscription_topics(self) -> list[dict[str, Any]]:
         # Note: Customer.io uses 'subscription_topics' endpoint
         response = self._make_request("GET", "/subscription_topics")
         # The response contains topics in a 'topics' field
-        return response.get("topics", [])
+        return response.get("topics") or []
 
     def search_customers(
         self, filter_conditions: dict[str, Any], limit: int = 1000, start: Optional[str] = None
