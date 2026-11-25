@@ -1,6 +1,6 @@
 import { type LoadedCard, cardHashOf } from '../cards'
 import type { DriveSummary } from '../generator/generator'
-import { noLoss } from '../judge/invariants'
+import { bouncedSuppressed, noLoss } from '../judge/invariants'
 import type { DriveWindow, QueueSample } from '../judge/measurements'
 import type { RunVerdict } from './runner'
 import { type Admission, type Status, unobservedValvesOf, withEvidenceError } from './status'
@@ -57,14 +57,15 @@ export type FaultedRun = JudgedRun | { missing: string }
 
 export type ScorecardPair = Pair & { role: PairRole }
 
-// The control judges only no_loss: checks such as bounced_suppressed need the fault to have happened.
+const CHECKS_OF_A_FAULT = new Set([bouncedSuppressed.name])
+
 export function controlOf(loaded: LoadedCard): LoadedCard {
     const { card, profileHash } = loaded
     const control = {
         ...card,
         valves: [],
-        invariants: card.invariants.filter(({ name }) => name === noLoss.name),
-        gates: Object.fromEntries(Object.entries(card.gates).filter(([name]) => name === noLoss.name)),
+        invariants: card.invariants.filter(({ name }) => !CHECKS_OF_A_FAULT.has(name)),
+        gates: Object.fromEntries(Object.entries(card.gates).filter(([name]) => !CHECKS_OF_A_FAULT.has(name))),
     }
     return { ...loaded, card: control, cardHash: cardHashOf(control, profileHash) }
 }

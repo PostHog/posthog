@@ -1,12 +1,15 @@
+import { readFileSync } from 'fs'
 import path from 'path'
+import { parse, stringify } from 'yaml'
 
-import { cardHashOf, load } from '../cards'
+import { PROFILES_DIR, load, loadText } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { FaultedRun, JudgedRun, controlOf, pairOf } from './pair'
 import type { RunVerdict } from './runner'
 
-const VALVED = load(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'))
+const CARDS = path.join(__dirname, '..', 'cards')
+const VALVED = load(path.join(CARDS, 'destination-errors.yaml'))
 const CARD = {
     ...VALVED,
     card: {
@@ -229,15 +232,26 @@ describe('pairOf', () => {
         })
     })
 
-    it('removes the valves and every invariant but no_loss from the control, and hashes the card it runs', () => {
-        const { card, cardHash, profileHash } = controlOf(CARD)
-
-        expect({ valves: card.valves, invariants: card.invariants, gates: card.gates }).toEqual({
-            valves: [],
-            invariants: [{ name: 'no_loss', params: {} }],
-            gates: { no_loss: 0 },
+    it('hashes the control as the card it runs: the same card with its valves removed', () => {
+        const yaml = parse(readFileSync(path.join(CARDS, 'destination-errors.yaml'), 'utf8'))
+        const valveFree = loadText('valve-free', {
+            card: stringify({
+                ...yaml,
+                valves: [],
+                invariants: [...yaml.invariants, { name: 'no_loss' }],
+                gates: { ...yaml.gates, no_loss: 0 },
+            }),
+            profile: readFileSync(path.join(PROFILES_DIR, `${yaml.profile}.yaml`), 'utf8'),
         })
-        expect(cardHash).toEqual(cardHashOf(card, profileHash))
-        expect(cardHash).not.toEqual(CARD.cardHash)
+
+        expect(controlOf(CARD)).toEqual(valveFree)
+    })
+
+    it('drops from the control only the checks that need a fault', () => {
+        const bounces = load(path.join(CARDS, 'ses-bounce-suppresses.yaml'))
+
+        expect(controlOf(bounces).card.invariants.map(({ name }) => name)).toEqual(
+            bounces.card.invariants.map(({ name }) => name).filter((name) => name !== 'bounced_suppressed')
+        )
     })
 })

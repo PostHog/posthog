@@ -242,12 +242,9 @@ describe('runCards', () => {
 
         expect(await main(argv, env)).toBe(EXIT_CODE.invalid)
 
-        expect(
-            jest
-                .mocked(process.stderr.write)
-                .mock.calls.map(([text]) => String(text))
-                .join('')
-        ).toMatch(refusal)
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toMatch(refusal)
+        expect(stack.startStack).not.toHaveBeenCalled()
     })
 
     it('names the failed reset for the cards it skips once a reset stopped the environment', async () => {
