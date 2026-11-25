@@ -571,7 +571,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             finished_body = self.client.get(self._by_id_url(exp.id, str(finished.id))).json()
             running_body = self.client.get(self._by_id_url(exp.id, str(running.id))).json()
         assert warehouse_error in finished_body["metric_errors"]["m1"]["message"]
-        assert "display_key" not in finished_body["metric_errors"]["m1"]
+        assert "calculation_key" not in finished_body["metric_errors"]["m1"]
         assert finished_body["failed_metrics"] == 1
         assert list(running_body["metric_retries"]) == ["m1"]
 
@@ -609,7 +609,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             metric_retries=metric_retries or {},
         )
 
-    def test_run_reads_hide_the_message_of_an_entry_without_a_display_key(self):
+    def test_run_reads_hide_the_message_of_an_entry_without_a_calculation_key(self):
         exp = self._launched_experiment(flag_key="entry-without-key")
         warehouse_error = "Not found: Table acme-prod:billing.payments_eu was not found in location EU"
         error = {
@@ -646,13 +646,25 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("rejected_request", "request", "recalculation_window_too_long", RECALCULATION_WINDOW_TOO_LONG_MESSAGE),
-            ("metric_not_found", "discovery", "validation_error", "Metric m1 not found in experiment 1"),
-            ("statistics_error", "calculation", "insufficient_data", "Sample size must be positive"),
+            (
+                "rejected_request",
+                "request",
+                "recalculation_window_too_long",
+                RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+                {},
+            ),
+            (
+                "metric_not_found",
+                "discovery",
+                "validation_error",
+                "Metric m1 not found in experiment 1",
+                {"calculation_key": None},
+            ),
+            ("statistics_error", "calculation", "insufficient_data", "Sample size must be positive", {}),
         ]
     )
-    def test_run_reads_keep_the_fixed_text_of_an_entry_without_a_display_key(
-        self, _name: str, step: str, error_type: str, message: str
+    def test_run_reads_keep_the_fixed_text_of_an_entry_without_a_calculation_key(
+        self, _name: str, step: str, error_type: str, message: str, stored_key: dict
     ):
         exp = self._launched_experiment(flag_key="fixed-text-entry")
         error = {
@@ -662,11 +674,38 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             "retriable": False,
             "timestamp": "2026-11-01T10:00:00+00:00",
         }
-        run = self._finished_run(exp, {"m1": error})
+        run = self._finished_run(exp, {"m1": {**error, **stored_key}})
 
         body = self.client.get(self._by_id_url(exp.id, str(run.id))).json()
 
         assert (body["metric_errors"], body["failed_metrics"]) == ({"m1": error}, 1)
+
+    @parameterized.expand(
+        [
+            ("key_of_the_other_key_version", "purchase", True),
+            ("key_of_an_earlier_metric_definition", "checkout", False),
+        ]
+    )
+    def test_run_reads_serve_a_keyed_entry_while_the_current_config_gives_its_key(
+        self, _name: str, current_event: str, served: bool
+    ):
+        exp = self._launched_experiment(flag_key="keyed-entry")
+        error = {
+            "step": "calculation",
+            "message": "The query timed out.",
+            "error_type": "timeout",
+            "retriable": True,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+        }
+        run = self._finished_run(
+            exp, {"m1": {**error, "calculation_key": _calculation_key(exp, "m1", other_version=True)}}
+        )
+        exp.metrics = [{**_mean_metric("m1"), "source": {"kind": "EventsNode", "event": current_event}}]
+        exp.save()
+
+        body = self.client.get(self._by_id_url(exp.id, str(run.id))).json()
+
+        assert (body["metric_errors"], body["failed_metrics"]) == (({"m1": error}, 1) if served else ({}, 0))
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()

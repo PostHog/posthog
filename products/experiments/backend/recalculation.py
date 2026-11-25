@@ -84,9 +84,9 @@ RECALCULATION_WINDOW_TOO_LONG_MESSAGE = (
     "To measure new data, start a new experiment or move the start date closer to today."
 )
 
-# The field of a run's `metric_errors` or `metric_retries` entry that holds the display key (`legacy_key`) of the
-# calculation config that wrote the entry. `entries_of_current_configs` reads it, and no response includes it.
-RUN_ENTRY_DISPLAY_KEY = "display_key"
+# The field of a run's `metric_errors` or `metric_retries` entry that holds the calculation key of the config that
+# wrote the entry. Server-side readers use it, `entries_of_current_configs` among them, and no response includes it.
+RUN_ENTRY_CALCULATION_KEY = "calculation_key"
 RUN_ENTRY_HIDDEN_MESSAGE = (
     "The details of this error aren't available. Recalculate the results to see the current error."
 )
@@ -139,29 +139,37 @@ _recalculation_stale_cleanup_counter = Counter(
 
 def entries_of_current_configs(entries: object, configs: Iterable[MetricCalculationConfig]) -> dict[str, Any]:
     """The entries of a run's `metric_errors` or `metric_retries` that a current config of their metric wrote, without
-    their display key. A stored value that isn't a dict has no entries.
+    their calculation key. A stored value that isn't a dict has no entries.
 
     The entries are keyed by metric uuid, which stays the same when the metric or the exposure criteria change. The
-    display key hashes both, and with them the warehouse connection that the calculation read. A reader's connection
-    access is checked against the current config only, so an entry of an earlier config stays out, as the result rows
-    of that config do in `get_run_results`.
+    calculation key hashes both, and with them the warehouse connection that the calculation read. A reader's
+    connection access is checked against the current config only. So an entry stays in only when the current config
+    gives its key in some key version, the rule by which `get_run_results` finds the result rows. An entry written
+    before a key version change stays in, and an entry of an earlier config stays out. A change to a team setting that
+    the key hashes also takes the entry out.
 
-    An entry without a display key has no config to check. Runs stored before entries had the key hold such entries,
-    and so does a writer without a metric config. The entry stays in, so its metric still counts as failed. Its message
-    stays only when its step or error type is one whose writers store fixed text, and is `RUN_ENTRY_HIDDEN_MESSAGE`
-    otherwise. A stored entry that isn't a dict counts as an empty entry without a display key.
+    An entry without a calculation key has no config to check. Runs stored before entries had the key hold such
+    entries, and so do the writers without a metric config, which store None. The entry stays in, so its metric still
+    counts as failed. Its message stays only when its step or error type is one whose writers store fixed text, and is
+    `RUN_ENTRY_HIDDEN_MESSAGE` otherwise. A stored entry that isn't a dict counts as an empty entry without a
+    calculation key.
     """
     if not isinstance(entries, dict):
         return {}
-    display_keys: dict[str, set[str]] = {}
+    configs_by_metric: dict[str, list[MetricCalculationConfig]] = {}
     for calculation_config in configs:
-        display_keys.setdefault(calculation_config.metric_id, set()).add(calculation_config.legacy_key())
+        configs_by_metric.setdefault(calculation_config.metric_id, []).append(calculation_config)
     current: dict[str, Any] = {}
     for metric_uuid, stored in entries.items():
-        entry = stored if isinstance(stored, dict) else {}
-        if RUN_ENTRY_DISPLAY_KEY in entry:
-            if entry[RUN_ENTRY_DISPLAY_KEY] in display_keys.get(metric_uuid, set()):
-                current[metric_uuid] = {name: value for name, value in entry.items() if name != RUN_ENTRY_DISPLAY_KEY}
+        stored_entry = stored if isinstance(stored, dict) else {}
+        calculation_key = stored_entry.get(RUN_ENTRY_CALCULATION_KEY)
+        entry = {name: value for name, value in stored_entry.items() if name != RUN_ENTRY_CALCULATION_KEY}
+        if calculation_key is not None:
+            if any(
+                calculation_config.key_version_of(calculation_key) is not None
+                for calculation_config in configs_by_metric.get(metric_uuid, [])
+            ):
+                current[metric_uuid] = entry
         elif (
             entry.get("step") in _FIXED_TEXT_RUN_ENTRY_STEPS
             or entry.get("error_type") in _FIXED_TEXT_RUN_ENTRY_ERROR_TYPES
