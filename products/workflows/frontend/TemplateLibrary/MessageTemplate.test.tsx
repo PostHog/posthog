@@ -212,4 +212,53 @@ describe('MessageTemplate', () => {
         expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
     })
+
+    it.each([
+        [AccessControlLevel.Viewer, true],
+        [AccessControlLevel.Editor, false],
+    ])(
+        'shows the nested click tracking toggle only when sensitive is on and respects workflows %s access',
+        async (workflowAccess, writeDisabled) => {
+            const patchBodies: Record<string, unknown>[] = []
+            const sensitiveTemplate = {
+                ...PASSWORD_RESET_WITH_DRAFT,
+                sensitive: true,
+                click_tracking_enabled: null as boolean | null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': sensitiveTemplate },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patchBodies.push(body)
+                        return [200, { ...sensitiveTemplate, ...body, updated_at: '2026-01-01T00:01:00Z' }]
+                    },
+                },
+            })
+            await renderAs(workflowAccess, sensitiveTemplate.name)
+
+            fireEvent.click(screen.getByText('API'))
+            const clickToggle = await screen.findByLabelText('Track link clicks')
+            expect(clickToggle).toHaveAttribute('aria-checked', 'false')
+            expect(clickToggle.hasAttribute('disabled')).toBe(writeDisabled)
+
+            if (!writeDisabled) {
+                fireEvent.click(clickToggle)
+                await waitFor(() =>
+                    expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'true')
+                )
+                expect(patchBodies).toEqual([{ click_tracking_enabled: true }])
+            }
+        }
+    )
+
+    it('hides the nested click tracking toggle on a non-sensitive template', async () => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT } })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        fireEvent.click(screen.getByText('API'))
+        await screen.findByLabelText('Protect sensitive data')
+        expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument()
+    })
 })

@@ -81,6 +81,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         discardDraft,
         saveTags,
         setSensitive,
+        setClickTrackingEnabled,
     } = useActions(logic)
     const {
         template,
@@ -100,6 +101,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingDraft,
         isDiscardingDraft,
         isSavingSensitive,
+        isSavingClickTracking,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -254,8 +256,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                             <div className="font-semibold">Protect sensitive data</div>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 For emails with login codes or reset links. PostHog keeps no copy of
-                                                what each email contained, and records only the site address of a
-                                                clicked link.
+                                                what each email contained, turns link click tracking off by default, and
+                                                records only the site address when click tracking is on.
                                             </p>
                                         </div>
                                     </div>
@@ -264,12 +266,40 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         onChange={setSensitive}
                                         loading={isSavingSensitive}
                                         disabledReason={
-                                            editDisabledReason ?? (isSavingSensitive ? 'Saving the setting' : undefined)
+                                            editDisabledReason ??
+                                            (isSavingSensitive || isSavingClickTracking
+                                                ? 'Saving the setting'
+                                                : undefined)
                                         }
                                         aria-label="Protect sensitive data"
                                         data-attr="message-template-sensitive-toggle"
                                     />
                                 </div>
+                                {originalTemplate.sensitive && (
+                                    <div className="border-t border-primary pt-3 mt-3 pl-8 flex items-start justify-between gap-4">
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-sm">Track link clicks</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                Rewrite links to count clicks. Keep this off for links carrying login or
+                                                reset tokens, or mark individual links with{' '}
+                                                <code>data-ph-no-track</code>.
+                                            </p>
+                                        </div>
+                                        <LemonSwitch
+                                            checked={originalTemplate.click_tracking_enabled === true}
+                                            onChange={setClickTrackingEnabled}
+                                            loading={isSavingClickTracking}
+                                            disabledReason={
+                                                editDisabledReason ??
+                                                (isSavingSensitive || isSavingClickTracking
+                                                    ? 'Saving the setting'
+                                                    : undefined)
+                                            }
+                                            aria-label="Track link clicks"
+                                            data-attr="message-template-click-tracking-toggle"
+                                        />
+                                    </div>
+                                )}
                             </LemonCard>
                             <LemonCard hoverEffect={false} className="max-w-200 p-4">
                                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -329,7 +359,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Transactional
                                 </LemonTag>
                                 {originalTemplate.sensitive && (
-                                    <Tooltip title="PostHog keeps no copy of what each email contained, and records only the site address of a clicked link.">
+                                    <Tooltip
+                                        title={
+                                            originalTemplate.click_tracking_enabled === true
+                                                ? 'PostHog keeps no copy of what each email contained. Link click tracking is on and records only the site address of a clicked link.'
+                                                : 'PostHog keeps no copy of what each email contained, and link click tracking is off.'
+                                        }
+                                    >
                                         <LemonTag
                                             type="highlight"
                                             icon={<IconLock />}

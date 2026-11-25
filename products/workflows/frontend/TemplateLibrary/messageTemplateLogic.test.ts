@@ -426,6 +426,59 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.hasDraft).toBe(true)
         })
 
+        it('toggling click tracking saves only click_tracking_enabled (true or null) without publishing the draft', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setClickTrackingEnabled(true)
+            }).toDispatchActions(['setClickTrackingEnabledDone'])
+
+            expect(bodies).toEqual([{ click_tracking_enabled: true }])
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.hasDraft).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setClickTrackingEnabled(false)
+            }).toDispatchActions(['setClickTrackingEnabledDone'])
+
+            expect(bodies).toEqual([{ click_tracking_enabled: true }, { click_tracking_enabled: null }])
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.hasDraft).toBe(true)
+        })
+
+        it('turning sensitive off syncs the server-reset click_tracking_enabled value', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...serverTemplate,
+                                sensitive: false,
+                                click_tracking_enabled: null,
+                                updated_at: '2026-01-01T00:02:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic.actions.setOriginalTemplate({
+                ...logic.values.originalTemplate,
+                sensitive: true,
+                click_tracking_enabled: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSensitive(false)
+            }).toDispatchActions(['setSensitiveDone'])
+
+            expect(bodies).toEqual([{ sensitive: false }])
+            expect(logic.values.originalTemplate.sensitive).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
+        })
+
         it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
@@ -437,6 +490,7 @@ describe('messageTemplateLogic', () => {
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
             expect(bodies[0]).not.toHaveProperty('sensitive')
+            expect(bodies[0]).not.toHaveProperty('click_tracking_enabled')
         })
     })
 

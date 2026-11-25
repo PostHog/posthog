@@ -89,6 +89,7 @@ export interface messageTemplateLogicValues {
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
+    isSavingClickTracking: boolean
     isSavingDraft: boolean
     isSavingSensitive: boolean
     isSyncingExternalEdit: boolean
@@ -109,6 +110,7 @@ export interface messageTemplateLogicValues {
     templateChanged: boolean
     templateErrors: DeepPartialMap<
         {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -134,6 +136,7 @@ export interface messageTemplateLogicValues {
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
         {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -221,6 +224,7 @@ export interface messageTemplateLogicActions {
         value: true
     }
     resetTemplate: (values?: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -237,6 +241,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         values?: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -287,6 +292,12 @@ export interface messageTemplateLogicActions {
         template: MessageTemplate
         payload?: any
     }
+    setClickTrackingEnabled: (clickTrackingEnabled: boolean) => {
+        clickTrackingEnabled: boolean
+    }
+    setClickTrackingEnabledDone: () => {
+        value: true
+    }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
@@ -336,6 +347,7 @@ export interface messageTemplateLogicActions {
     }
     setTemplateValues: (
         values: DeepPartial<{
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -353,6 +365,7 @@ export interface messageTemplateLogicActions {
         }>
     ) => {
         values: DeepPartial<{
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -383,6 +396,7 @@ export interface messageTemplateLogicActions {
         errors: Record<string, any>
     }
     submitTemplateRequest: (template: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -399,6 +413,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -416,6 +431,7 @@ export interface messageTemplateLogicActions {
         }
     }
     submitTemplateSuccess: (template: {
+        click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -432,6 +448,7 @@ export interface messageTemplateLogicActions {
         updated_at: string | null
     }) => {
         template: {
+            click_tracking_enabled?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['click_tracking_enabled']
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -536,6 +553,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
         setSensitive: (sensitive: boolean) => ({ sensitive }),
         setSensitiveDone: true,
+        setClickTrackingEnabled: (clickTrackingEnabled: boolean) => ({ clickTrackingEnabled }),
+        setClickTrackingEnabledDone: true,
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
@@ -605,6 +624,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 setSensitive: () => true,
                 setSensitiveDone: () => false,
+            },
+        ],
+        isSavingClickTracking: [
+            false,
+            {
+                setClickTrackingEnabled: () => true,
+                setClickTrackingEnabledDone: () => false,
             },
         ],
         // The draft as last saved, and the content sends use. Both come from the server.
@@ -757,7 +783,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const payload = template.content?.email
                     ? { ...template, content: { ...template.content, email: omitNullDesign(template.content.email) } }
                     : template
-                const { sensitive: _sensitive, tags: _tags, ...content } = payload
+                const {
+                    sensitive: _sensitive,
+                    click_tracking_enabled: _clickTrackingEnabled,
+                    tags: _tags,
+                    ...content
+                } = payload
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(payload)
@@ -797,6 +828,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 values.templateLoading ||
                 values.isMakingTransactional ||
                 values.isSavingSensitive ||
+                values.isSavingClickTracking ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
             ) {
@@ -977,7 +1009,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     sensitive,
                 })
-                const changes = { sensitive: updated.sensitive, updated_at: updated.updated_at }
+                const changes = {
+                    sensitive: updated.sensitive,
+                    click_tracking_enabled: updated.click_tracking_enabled,
+                    updated_at: updated.updated_at,
+                }
                 actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
                 if (values.templateChanged) {
                     actions.setTemplateValues(changes)
@@ -989,6 +1025,31 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
             }
             actions.setSensitiveDone()
+            actions.replayDeferredExternalEdit()
+        },
+        setClickTrackingEnabled: async ({ clickTrackingEnabled }) => {
+            try {
+                const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
+                    click_tracking_enabled: clickTrackingEnabled ? true : null,
+                })
+                const changes = {
+                    click_tracking_enabled: updated.click_tracking_enabled,
+                    updated_at: updated.updated_at,
+                }
+                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+                if (values.templateChanged) {
+                    actions.setTemplateValues(changes)
+                } else {
+                    actions.resetTemplate({ ...values.template, ...changes })
+                }
+                posthog.capture('email template click tracking changed', {
+                    template_id: props.id,
+                    click_tracking_enabled: clickTrackingEnabled,
+                })
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
+            }
+            actions.setClickTrackingEnabledDone()
             actions.replayDeferredExternalEdit()
         },
         loadTemplateFailure: () => {

@@ -87,4 +87,35 @@ describe('transactionalEmailWizardLogic', () => {
         expect(createTemplateBody?.content.email).toEqual(expect.objectContaining({ text: 'Thanks for your order.' }))
         expect(createTemplateBody?.content.email).not.toHaveProperty('design')
     })
+
+    it.each([
+        ['omits click_tracking_enabled when sensitive uses default off', true, false, undefined],
+        ['sends click_tracking_enabled: true when sensitive opts into click tracking', true, true, true],
+    ])('%s', async (_, sensitive, clickTrackingEnabled, expectedClickTracking) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateDraft({ name: 'Password reset', sensitive, clickTrackingEnabled })
+        logic.actions.updateEmail({ from: { integrationId: 7 }, subject: 'Reset your password' })
+
+        await expectLogic(logic, () => logic.actions.createTransactionalEmail()).toFinishAllListeners()
+
+        expect(createTemplateBody?.sensitive).toBe(true)
+        if (expectedClickTracking === undefined) {
+            expect(createTemplateBody).not.toHaveProperty('click_tracking_enabled')
+        } else {
+            expect(createTemplateBody?.click_tracking_enabled).toBe(expectedClickTracking)
+        }
+    })
+
+    it('resets clickTrackingEnabled when sensitive is turned off so turning it back on starts unchecked', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateDraft({ sensitive: true })
+        logic.actions.updateDraft({ clickTrackingEnabled: true })
+        expect(logic.values.draft.clickTrackingEnabled).toBe(true)
+
+        logic.actions.updateDraft({ sensitive: false })
+        expect(logic.values.draft.clickTrackingEnabled).toBe(false)
+
+        logic.actions.updateDraft({ sensitive: true })
+        expect(logic.values.draft.clickTrackingEnabled).toBe(false)
+    })
 })
