@@ -6,8 +6,9 @@ import http from 'http'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { ruleOf } from './faults'
+import { FaultRule, heldAnswerRule, ruleOf } from './faults'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -351,6 +352,45 @@ describe('provider edge', () => {
         expect((await call('DELETE', pathOf(forAlice))).status).toBe(204)
 
         expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
+    })
+
+    it.each<[string, (rule: FaultRule) => () => Promise<unknown>]>([
+        [
+            'its valve releases',
+            (rule) => {
+                const hold = edge.hold(rule)
+                return () => hold.release()
+            },
+        ],
+        [
+            'the edge clears its faults',
+            (rule) => {
+                edge.addFault(rule)
+                return () => Promise.resolve(edge.clearFaults())
+            },
+        ],
+        [
+            'the control API removes it by id',
+            (rule) => {
+                const id = edge.addFault(rule)
+                return () => call('DELETE', `/_faults/${id}`)
+            },
+        ],
+        [
+            'the control API clears every fault',
+            (rule) => {
+                edge.addFault(rule)
+                return () => call('DELETE', '/_faults')
+            },
+        ],
+    ])('answers a send it holds once %s', async (_path, park) => {
+        const remove = park(heldAnswerRule())
+        const answer = send(ALICE)
+        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+
+        await remove()
+
+        expect(await answer).toBe('sent')
     })
 
     it.each<[string, Destination]>([
