@@ -30,6 +30,9 @@
             <!-- Compatibility 26.9 switches network_compression_method from LZ4 to ZSTD. The Rust clickhouse
                  crate decodes only LZ4 compressed responses and fails with "incorrect magic number". -->
             <network_compression_method>LZ4</network_compression_method>
+            <!-- Compatibility 26.9 stops s3() and BACKUP ... TO S3() from using the server's own
+                 credentials. Several writers here omit keys on purpose and rely on the node role. -->
+            <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
             <!-- Preserve skip indexes in distributed queries with transform_null_in=1. -->
             <optimize_rewrite_has_to_in>0</optimize_rewrite_has_to_in>
             <!-- The funnel correlation query intentionally uses a materialized CTE
