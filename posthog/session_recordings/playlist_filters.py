@@ -200,9 +200,8 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
 
     # Get order and duration filter
     order = filters.get("order")
-    duration_filters = filters.get("duration", [])
-    if duration_filters and len(duration_filters) > 0:
-        having_predicates.append(asRecordingPropertyFilter(duration_filters[0]))
+    # Mirrors the frontend converter: a saved filter can bound duration from both sides.
+    having_predicates.extend(asRecordingPropertyFilter(f) for f in filters.get("duration") or [])
 
     # Process each filter
     for f in extracted_filters:
@@ -249,6 +248,9 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             # Also mirrors the frontend converter: a playlist pinned to specific recordings
             # would otherwise count and render every recording that matches the rest of the filters.
             session_ids=filters.get("session_ids"),
+            # Mirrors the frontend converter: without it, a recording-scoped playlist matches events outside the recording.
+            # Left out when unset, so the query keeps its own default scope.
+            **({"event_match_scope": scope} if (scope := filters.get("event_match_scope")) else {}),
         )
     except ValidationError as e:
         # we were seeing errors here and it was hard to debug

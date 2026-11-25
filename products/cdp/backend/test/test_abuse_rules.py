@@ -99,7 +99,24 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.REQUEST_CATCHER,),
             ),
             ("tunnel_subdomain", content(hog="fetch('https://abc123.ngrok-free.app/x')"), (Rule.REQUEST_CATCHER,)),
-            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.REQUEST_CATCHER,)),
+            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.SECURITY_CALLBACK,)),
+            (
+                "oob_domain_in_a_webhook_url",
+                content(inputs={"url": {"value": "https://c0ffee.oast.pro/collect"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_service_outside_the_shared_list",
+                content(inputs={"url": {"value": "https://probe.xss.ht/"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_collector_named_in_a_host_label",
+                content(inputs={"url": {"value": "https://foo-xss-hunter.example.workers.dev/c"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            ("ordinary_workers_dev_host", content(inputs={"url": {"value": "https://api.example.workers.dev/c"}}), ()),
+            ("tool_name_inside_a_word", content(inputs={"url": {"value": "https://interactshop.example.com/c"}}), ()),
             ("catcher_lookalike", content(inputs={"url": {"value": "https://notwebhook.site/x"}}), ()),
             ("catcher_name_as_subdomain", content(inputs={"url": {"value": "https://webhook.site.example.com/x"}}), ()),
             (
@@ -230,7 +247,7 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "huge_authority",
                 content(inputs={"url": {"value": "http://" + "a" * 1_000_000}}),
-                (Rule.OVERSIZED_INPUT,),
+                (),
             ),
             (
                 "semicolon_in_userinfo",
@@ -265,12 +282,10 @@ class TestAbuseRules(SimpleTestCase):
             ("numeric_looking_domain", content(inputs={"url": {"value": "https://1.2.3.4.example.com/"}}), ()),
             ("many_urls", content(hog="https://example.com/" * 50_000, inputs={}), ()),
             ("templated_host", content(inputs={"url": {"value": "https://{inputs.host}/hook"}}), ()),
-            ("oversized_input", content(inputs={"padding": {"value": "B" * 65_537}}), (Rule.OVERSIZED_INPUT,)),
-            ("input_at_the_size_limit", content(inputs={"padding": {"value": "B" * 65_536}}), ()),
             (
-                "oversized_mapping_input",
-                content(mappings=[{"inputs": {"padding": {"value": {"nested": "B" * 70_000}}}}]),
-                (Rule.OVERSIZED_INPUT,),
+                "large_lookup_input",
+                content(inputs={"names": {"value": {f"id_{i}": f"Customer {i}" for i in range(10_000)}}}),
+                (),
             ),
             (
                 "workflow_function_called_from_a_destination",
@@ -605,11 +620,8 @@ class TestAbuseRules(SimpleTestCase):
             ("replace_all_of_nothing_with_nothing", content(hog="let name := replaceAll(event.event, '', '')"), ()),
             (
                 "several_rules",
-                content(
-                    hog="fetch('https://webhook.site/x'); fetch('http://127.0.0.1/')",
-                    inputs={"padding": {"value": "B" * 100_000}},
-                ),
-                (Rule.INTERNAL_HOST, Rule.REQUEST_CATCHER, Rule.OVERSIZED_INPUT),
+                content(hog="fetch('https://webhook.site/x'); fetch('http://127.0.0.1/')"),
+                (Rule.INTERNAL_HOST, Rule.REQUEST_CATCHER),
             ),
         ]
     )

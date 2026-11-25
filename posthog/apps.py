@@ -91,10 +91,8 @@ class PostHogConfig(AppConfig):
         if before_send is not None:
             posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]
 
-        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
-        # the metrics API and ignores this attr; once posthoganalytics is bumped to
-        # >=7.23 it's picked up by setup(), so metrics get a real service.name
-        # instead of 'unknown_service'.
+        # Config for the SDK's `client.metrics` API, picked up by setup() so metrics
+        # get a real service.name instead of 'unknown_service'.
         posthoganalytics.metrics = {  # ty: ignore[invalid-assignment]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.

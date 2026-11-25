@@ -1,4 +1,4 @@
-"""Detector artifact blobs in object storage: one blob per insight and scoring profile.
+"""Detector artifact blobs in object storage: one blob per insight and model profile.
 
 A blob holds one `DetectorArtifact` per series key, as JSON. PyOD models are joblib bytes inside it,
 so a blob is read only from a key this code wrote, and only after its bytes match the SHA-256 that
@@ -34,8 +34,8 @@ class StoredArtifacts:
     model_id: str
 
 
-def artifact_key(team_id: int, insight_id: int, profile: str, model_id: str) -> str:
-    return f"{KEY_PREFIX}/{team_id}/{insight_id}/{profile}/{model_id}"
+def artifact_key(team_id: int, insight_id: int, model_profile: str, model_id: str) -> str:
+    return f"{KEY_PREFIX}/{team_id}/{insight_id}/{model_profile}/{model_id}"
 
 
 def model_id_of(key: str) -> str:
@@ -80,10 +80,10 @@ _cache_lock = threading.Lock()
 
 
 def write_artifacts(
-    team_id: int, insight_id: int, profile: str, artifacts: dict[str, DetectorArtifact]
+    team_id: int, insight_id: int, model_profile: str, artifacts: dict[str, DetectorArtifact]
 ) -> StoredArtifacts:
     model_id = str(uuid.uuid4())
-    key = artifact_key(team_id, insight_id, profile, model_id)
+    key = artifact_key(team_id, insight_id, model_profile, model_id)
     blob = serialize(artifacts)
     object_storage.write(key, blob)
     return StoredArtifacts(key=key, sha256=hashlib.sha256(blob).hexdigest(), model_id=model_id)
