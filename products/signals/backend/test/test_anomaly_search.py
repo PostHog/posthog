@@ -19,6 +19,7 @@ from posthog.models import FileSystemViewLog, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import (
@@ -34,6 +35,7 @@ from products.signals.backend.anomaly_scores.search import (
     SCORING_DISABLED_MESSAGE,
     SCORING_SOURCE_OFF_MESSAGE,
     SCORING_TURNED_OFF_MESSAGE,
+    insight_url,
     interval_ranges,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
@@ -268,6 +270,29 @@ class TestAnomalyIntervalRanges(SimpleTestCase):
         assert (applied.interval, applied.date_from.isoformat(), applied.date_to) == (interval, expected_from, date_to)
 
 
+class TestAnomalyInsightUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("context_after_a_past_flag", [_day(10), _day(15)], "2026-10-19T00:00:00+00:00"),
+            ("ends_now_after_the_newest_bucket", [_day(22)], "2026-10-23T12:00:00+00:00"),
+        ]
+    )
+    def test_date_range_surrounds_the_flags_and_ends_by_now(
+        self, _name: str, flagged: list[datetime.datetime], expected_to: str
+    ) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "signup"}])
+
+        url = insight_url(
+            Team(project_id=1), ViewableInsight(id=1, short_id="abc", name=None), flagged, IntervalType.DAY, query, NOW
+        )
+
+        date_range = json.loads(parse_qs(urlparse(url).fragment)["q"][0])["source"]["dateRange"]
+        assert (date_range["date_from"], date_range["date_to"]) == (
+            (min(flagged) - datetime.timedelta(days=24)).isoformat(),
+            expected_to,
+        )
+
+
 @time_machine.travel(NOW, tick=False)
 class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -460,7 +485,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         expected = trends_metric_query(series=series)
         expected["source"]["dateRange"] = {
             "date_from": "2026-09-26T00:00:00+00:00",
-            "date_to": "2026-10-26T00:00:00+00:00",
+            "date_to": "2026-10-23T12:00:00+00:00",
         }
         assert query == expected
 

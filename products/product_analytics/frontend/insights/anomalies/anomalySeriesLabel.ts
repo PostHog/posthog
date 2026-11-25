@@ -11,7 +11,8 @@ function anomalyBreakdownLabel(breakdownValue: string): string {
         .join(BREAKDOWN_PART_SEPARATOR)
 }
 
-// The series label ends with the raw breakdown value, so each "::" part of it gets the insight legend's formatting.
+// A series label usually ends with the raw breakdown value, so each "::" part of it gets the insight legend's formatting.
+// A formula label does not hold the breakdown value, so the formatted value comes after it.
 export function anomalySeriesLabel(series: Pick<AnomalySeriesApi, 'series_label' | 'breakdown_value'>): string | null {
     const { series_label: label, breakdown_value: breakdownValue } = series
     if (!breakdownValue) {
@@ -24,5 +25,5 @@ export function anomalySeriesLabel(series: Pick<AnomalySeriesApi, 'series_label'
     if (label.endsWith(breakdownValue)) {
         return label.slice(0, label.length - breakdownValue.length) + breakdownLabel
     }
-    return label
+    return `${label} - ${breakdownLabel}`
 }
