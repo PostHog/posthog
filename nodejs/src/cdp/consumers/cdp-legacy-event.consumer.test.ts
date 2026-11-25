@@ -736,6 +736,51 @@ describe('CdpLegacyEventsConsumer', () => {
         })
     })
 
+    describe('events the team id header lets the consumer skip', () => {
+        let otherTeam: Team
+        let handleBatch: (messages: Message[]) => Promise<{ backgroundTask: Promise<unknown> }>
+
+        beforeEach(async () => {
+            otherTeam = (await createTestTeamFixture(hub.postgres)).team
+            await consumer.start()
+            handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+        })
+
+        afterEach(async () => {
+            await consumer.stop()
+        })
+
+        it('leaves the body unread when the header names a team with no legacy plugin and no webhook', async () => {
+            register.getSingleMetric('cdp_function_parse_error')?.reset()
+            // Reading this body would count a parse error, so none counted means neither side read it.
+            const unreadable = {
+                ...createKafkaMessage({}, { headers: [{ team_id: String(otherTeam.id) }] }),
+                value: Buffer.from('{'),
+            }
+
+            const { backgroundTask } = await handleBatch([
+                unreadable,
+                createKafkaMessage(createIncomingEvent(team.id, {}), { headers: [{ team_id: String(team.id) }] }),
+            ])
+            await backgroundTask
+
+            const parseErrors = (await register.getMetricsAsJSON()).find((m) => m.name === 'cdp_function_parse_error')
+            expect(parseErrors?.values ?? []).toEqual([])
+            expect(mockFetch).toHaveBeenCalled()
+        })
+
+        it("does not run the header team's plugins on an event whose body names another team", async () => {
+            const mismatched = createKafkaMessage(createIncomingEvent(otherTeam.id, {}), {
+                headers: [{ team_id: String(team.id) }],
+            })
+
+            const { backgroundTask } = await handleBatch([mismatched])
+            await backgroundTask
+
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
     describe('plugin execution after the batch handler parses', () => {
         beforeEach(async () => {
             await consumer.start()

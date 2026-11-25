@@ -9,7 +9,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
-import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
+import { assertTeamId, readTeamIdHeader, skipIfMalformed } from '../consumers/message-parsing'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch, loggableOrigin } from '../utils/cdp-fetch'
@@ -99,6 +99,12 @@ export class LegacyWebhookService {
 
         await Promise.all(
             messages.map(async (message) => {
+                // Few teams have webhooks, so most bodies are never needed. The body still decides the team.
+                const headerTeamId = readTeamIdHeader(message)
+                if (headerTeamId !== null && !this.actionMatcher.hasWebhooks(headerTeamId)) {
+                    return
+                }
+
                 const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
                 )

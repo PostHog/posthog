@@ -172,31 +172,39 @@ describe('LegacyWebhookService', () => {
             expect(requests).toEqual([])
         })
 
-        it('posts only the events of the team with a webhook and zapier in a mixed batch', async () => {
-            await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
-            await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
-            const hookId = await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
-            await startService()
+        it.each([{ messages: 'without a team id header' }, { messages: 'with a team id header' }])(
+            'posts only the events of the team with a webhook and zapier in a mixed batch $messages',
+            async ({ messages }) => {
+                await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
+                await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
+                const hookId = await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
+                await startService()
 
-            const teamEvent = createIncomingEvent(team.id, { event: '$pageview' })
-            const { events, requests } = await parseAndSend([createKafkaMessage(teamEvent), pageview(team2.id)])
+                const withHeader = (teamId: number) =>
+                    messages === 'with a team id header' ? { headers: [{ team_id: String(teamId) }] } : {}
+                const teamEvent = createIncomingEvent(team.id, { event: '$pageview' })
+                const { events, requests } = await parseAndSend([
+                    createKafkaMessage(teamEvent, withHeader(team.id)),
+                    createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' }), withHeader(team2.id)),
+                ])
 
-            expect(events.map(({ teamId }) => teamId)).toEqual([team.id])
-            expect(requests).toEqual([
-                {
-                    url: 'https://hooks.zapier.com/team',
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: expect.objectContaining({
-                        hook: { id: hookId, event: 'action_performed', target: 'https://hooks.zapier.com/team' },
-                        data: expect.objectContaining({
-                            teamId: team.id,
-                            eventUuid: teamEvent.uuid,
+                expect(events.map(({ teamId }) => teamId)).toEqual([team.id])
+                expect(requests).toEqual([
+                    {
+                        url: 'https://hooks.zapier.com/team',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: expect.objectContaining({
+                            hook: { id: hookId, event: 'action_performed', target: 'https://hooks.zapier.com/team' },
+                            data: expect.objectContaining({
+                                teamId: team.id,
+                                eventUuid: teamEvent.uuid,
+                            }),
                         }),
-                    }),
-                },
-            ])
-        })
+                    },
+                ])
+            }
+        )
 
         it('posts to the hook of every matching action that has a target', async () => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
