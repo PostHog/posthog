@@ -10188,7 +10188,7 @@ Re-audited 2026-11-19 against <https://docs.usemotion.com/llms.txt>: no new gaps
 
 ## Moxie — gaps
 
-Today (14): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `payable_invoices`, `pipeline_stages`, `projects`, `task_stages`, `tasks`, `tickets`, `vendor_names`, `workspace_users`
+Today (18): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `opportunities`, `payable_invoices`, `pipeline_stages`, `project_notes`, `projects`, `task_stages`, `tasks`, `ticket_comments`, `tickets`, `time_entries`, `vendor_names`, `workspace_users`
 
 Diffed against: <https://api-docs.withmoxie.com/sitemap.xml>
 
@@ -10201,10 +10201,10 @@ Note: Followed the retired help collection to the current reference, then read c
 
 Re-audited 2026-11-19 against: <https://api-docs.withmoxie.com/sitemap.xml>
 
-- [ ] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high)
-- [ ] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high)
-- [ ] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium)
-- [ ] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low)
+- [x] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high). Added as `time_entries`.
+- [x] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high). Added as `opportunities`.
+- [x] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium). Added as `ticket_comments`.
+- [x] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low). Added as `project_notes`.
 - [ ] `List project types (GET /public/action/projectTypes/list)` — Resolve project type ids on projects to their fields and task stages (low)
 
 Note (2026-11-19): Read the sitemap and the operation pages for the five routes. Time entries return up to 10000 rows per call with no sort guarantee, so use date windows and dedupe by id. Ticket comments need a ticketId (fan-out under tickets) and cursor paging with commentType. Project notes need a projectId (fan-out under projects). Excluded create, update, delete, webhook and upload routes.
