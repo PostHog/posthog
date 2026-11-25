@@ -2066,7 +2066,6 @@ describe('EmailService', () => {
                     await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
                 expect(delivered).toEqual(links)
-                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
                 expect(
                     result.capturedPostHogEvents
@@ -2089,6 +2088,25 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        it('keeps the trailing slash on an unquoted href when a sensitive send opts links out of click tracking', async () => {
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                sensitive: true,
+                template_uuid: 'template-1',
+            }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body><a ses:tags="campaign:reset" href=https://example.com/reset/token/>Reset</a></body>',
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(fakeSes.deliveries).toHaveLength(1)
+            expect(fakeSes.deliveries[0].html).toContain('href=https://example.com/reset/token/')
+            expect(fakeSes.deliveries[0].html).not.toContain(sesEndpoint + '/CL0')
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction

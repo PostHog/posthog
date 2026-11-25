@@ -61,7 +61,7 @@ const addAttributeToOpeningTag = (openingTag: string, attribute: string): string
         return openingTag
     }
     const attributes = openingTag.slice(0, -1)
-    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    const withoutSelfClose = /[\t\n\f\r "']\/$/.test(attributes) ? attributes.slice(0, -1) : attributes
     return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 

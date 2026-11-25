@@ -12,8 +12,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationHogFunctionContext,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    HogFunctionType,
     MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
@@ -29,7 +31,32 @@ import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hog
 import { isClickTrackingEnabled, isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
+import { QueuedSend } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const restoreSavedEmailGuards = (
+    hogFunction: HogFunctionType,
+    savedState: CyclotronJobInvocationHogFunctionContext | undefined,
+    send: QueuedSend | undefined
+): void => {
+    if (!savedState) {
+        return
+    }
+    const preDeploySensitiveEscalation =
+        savedState.sensitive === true &&
+        savedState.clickTrackingEnabled === undefined &&
+        hogFunction.metadata?.sensitive !== true &&
+        send?.tracking.clicks === undefined
+    if (savedState.sensitive || savedState.clickTrackingEnabled === false || preDeploySensitiveEscalation) {
+        hogFunction.metadata = {
+            ...hogFunction.metadata,
+            ...(savedState.sensitive ? { sensitive: true } : {}),
+            ...(savedState.clickTrackingEnabled === false || preDeploySensitiveEscalation
+                ? { click_tracking_enabled: false }
+                : {}),
+        }
+    }
+}
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
 
@@ -276,13 +303,15 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         if (!functionResult.finished) {
+            const clickTrackingStopped =
+                action.type === 'function_email' &&
+                (functionResult.invocation.hogFunction.metadata?.tracking_enabled === false ||
+                    !isClickTrackingEnabled(functionResult.invocation))
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = {
                 ...functionResult.invocation.state,
                 ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
-                ...(action.type === 'function_email' && !isClickTrackingEnabled(functionResult.invocation)
-                    ? { clickTrackingDisabled: true }
-                    : {}),
+                ...(clickTrackingStopped ? { clickTrackingEnabled: false } : {}),
             }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
@@ -513,15 +542,7 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
-        // Queued retries keep the protection and click-tracking guard the message was rendered under.
-        const savedFunctionState = invocation.state.currentAction?.hogFunctionState
-        if (savedFunctionState?.sensitive || savedFunctionState?.clickTrackingDisabled) {
-            hogFunction.metadata = {
-                ...hogFunction.metadata,
-                ...(savedFunctionState.sensitive ? { sensitive: true } : {}),
-                ...(savedFunctionState.clickTrackingDisabled ? { click_tracking_enabled: false } : {}),
-            }
-        }
+        restoreSavedEmailGuards(hogFunction, invocation.state.currentAction?.hogFunctionState, invocation.state.send)
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
