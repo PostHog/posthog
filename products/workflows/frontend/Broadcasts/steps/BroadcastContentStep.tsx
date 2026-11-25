@@ -211,7 +211,7 @@ export function BroadcastContentStep(): JSX.Element {
                 />
             </div>
             {emailSettings.trackingEnabled ? (
-                <RunLinkTagHint />
+                !emailSettings.sensitive && <RunLinkTagHint />
             ) : (
                 <span className="text-xs text-secondary">
                     Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.

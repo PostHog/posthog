@@ -331,7 +331,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         runLinkTagEnabled: config.run_link_tag_enabled !== false,
-        sensitive: config.sensitive === true,
+        sensitive: findAction(broadcast, 'function_email')?.config?.sensitive === true,
         utmTagsEnabled: config.utm_tags_enabled === true,
         skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},

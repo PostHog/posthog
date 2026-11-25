@@ -559,15 +559,21 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { stored: {}, connected: true, sensitive: false },
-        { stored: { run_link_tag_enabled: false }, connected: false, sensitive: false },
-        { stored: { sensitive: true }, connected: true, sensitive: true },
+        { type: 'function_email' as const, stored: {}, connected: true, sensitive: false },
+        {
+            type: 'function_email' as const,
+            stored: { run_link_tag_enabled: false },
+            connected: false,
+            sensitive: false,
+        },
+        { type: 'function_email' as const, stored: { sensitive: true }, connected: true, sensitive: true },
+        { type: 'function_push' as const, stored: { sensitive: true }, connected: true, sensitive: false },
     ])(
-        'reads $stored from a saved email as connecting clicks to sessions: $connected',
-        async ({ stored, connected, sensitive }) => {
+        'reads $stored from a saved $type step as connecting clicks to sessions: $connected',
+        async ({ type, stored, connected, sensitive }) => {
             latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
             const emailStep = latest.actions[1]
-            latest.actions[1] = { ...emailStep, config: { ...emailStep.config, ...stored } }
+            latest.actions[1] = { ...emailStep, type, config: { ...emailStep.config, ...stored } }
             router.actions.push('/broadcasts/broadcast-1')
             const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
             draftLogic.mount()
