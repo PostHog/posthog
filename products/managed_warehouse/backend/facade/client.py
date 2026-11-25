@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.managed_warehouse.backend import client
+from products.managed_warehouse.backend.duckgres_availability import classify_duckgres_refusal
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnectionUnavailable,
     TrinoExpansionMode,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
         DuckLakeS3Secret,
         DuckLakeTableResult,
         ManagedWarehouseTrinoConnection,
+        StoredColumnType,
         TrinoCompiledQuery,
         TrinoIncrementalWrite,
     )
@@ -56,6 +58,7 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "classify_duckgres_refusal",
     "compile_hogql_to_ducklake_sql",
     "compile_hogql_to_trino_sql",
     "connect_managed_warehouse_trino",
@@ -95,6 +98,7 @@ def execute_trino_shadow_materialization(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization as execute_shadow,
@@ -106,6 +110,7 @@ def execute_trino_shadow_materialization(
         saved_query_id=saved_query_id,
         source_query=source_query,
         incremental=incremental,
+        stored_column_types=stored_column_types,
     )
 
 
@@ -251,6 +256,7 @@ async def execute_trino_model(
     saved_query_id: str | UUID,
     source_query: object,
     incremental: TrinoIncrementalWrite | None = None,
+    stored_column_types: tuple[StoredColumnType, ...] = (),
     on_processed_bytes: Callable[[int], None] | None = None,
     on_cpu_milliseconds: Callable[[int], None] | None = None,
 ) -> DuckLakeTableResult:
@@ -269,6 +275,7 @@ async def execute_trino_model(
             saved_query_id=saved_query_id,
             source_query=source_query,
             incremental=incremental,
+            stored_column_types=stored_column_types,
             control=control,
         ),
         on_processed_bytes=on_processed_bytes,

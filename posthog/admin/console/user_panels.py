@@ -17,10 +17,10 @@ from django.urls import reverse
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin.console.organization_sign_in_panels import PLATFORM_FEATURES
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_code_verifier
@@ -38,6 +38,8 @@ from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
+
+from ee.admin.loginas_views import start_impersonation
 
 # Every relation is counted with its own capped query, so this bounds how much of a table the
 # preview reads. The exact figure past the cap doesn't change the operator's decision.
@@ -64,7 +66,8 @@ class UserOverviewPanel(Panel):
     record = "user"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -89,8 +92,6 @@ class UserOverviewPanel(Panel):
             )
         if obj.is_staff:
             facts.append(Fact(label="Staff", value="Yes", tone=Tone.INFO))
-        if obj.allow_impersonation is False:
-            facts.append(Fact(label="Log in as user", value="Turned off by the user"))
         return facts
 
 
@@ -99,7 +100,8 @@ class UserOrganizationsPanel(Panel):
     record = "user"
     key = "organizations"
     title = "Organizations"
-    owner = DEV_EXPERIENCE
+    owner = None
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -200,7 +202,8 @@ class UserSignInPanel(Panel):
     record = "user"
     key = "sign-in"
     title = "Sign-in"
-    owner = DEV_EXPERIENCE
+    owner = PLATFORM_FEATURES
+    order = 30
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, User)
@@ -263,6 +266,71 @@ class UserSignInPanel(Panel):
             )
         )
         return operations
+
+
+class LogInAsUserForm(forms.Form):
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Goes into the audit log.",
+    )
+    # The checkbox posts nothing when cleared, so the handler passes the mode on instead of the raw POST value.
+    read_only = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Read-only mode (recommended)",
+        help_text="Blocks changes. You can switch to read and write later in the app, with a reason.",
+    )
+
+
+def log_in_as_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse:
+    assert isinstance(obj, User) and form is not None
+    # The same function the Django admin route `loginas-user-login` runs, so CAN_LOGIN_AS, the required reason, the
+    # session flags and the impersonation_started event apply here unchanged. django-loginas reads the reason from
+    # the POST body, where this form's `reason` field puts it.
+    return start_impersonation(request, str(obj.pk), read_only=form.cleaned_data["read_only"])
+
+
+class Impersonation:
+    @staticmethod
+    def refusal(user: User) -> str | None:
+        """Why nobody can log in as this user. Staff log in as any other user. CAN_LOGIN_AS refuses the same cases on post."""
+        if user.is_staff:
+            return "This user is staff. Nobody can log in as a staff account"
+        if user.allow_impersonation is False:
+            return "This user turned off log in as user"
+        return None
+
+
+@console.register_panel
+class UserImpersonationPanel(Panel):
+    record = "user"
+    key = "log-in-as"
+    title = "Log in as user"
+    owner = None
+    operation_keys = frozenset({"log-in"})
+    order = 40
+
+    def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, User)
+        refusal = Impersonation.refusal(obj)
+        if refusal is None:
+            return []
+        return [Fact(label="Log in as user", value=refusal)]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        assert isinstance(obj, User)
+        if Impersonation.refusal(obj) is not None:
+            return []
+        return [
+            Operation(
+                key="log-in",
+                label="Log in as user",
+                handler=log_in_as_user,
+                form_class=LogInAsUserForm,
+                description="You see PostHog as this user until you log out or the session times out.",
+                reason_from_ticket=True,
+            )
+        ]
 
 
 @frozen
@@ -477,7 +545,9 @@ class UserDeletionPanel(Panel):
     record = "user"
     key = "deletion"
     title = "Deletion"
-    owner = DEV_EXPERIENCE
+    owner = None
+    operation_keys = frozenset({"delete"})
+    order = 10
     danger = True
 
     def operations(self, obj: Model) -> list[Operation]:
@@ -496,3 +566,9 @@ class UserDeletionPanel(Panel):
                 undo_hint="This cannot be undone.",
             )
         ]
+
+
+console.register_moved_action(old_path="admin/posthog/user/<int:pk>/delete/", record="user", target="deletion/delete/")
+# Django's set-password form, which PostHog turns off. The Reset password button on the Django admin user page
+# still links to it, and staff email a reset link from the Sign-in panel instead.
+console.register_moved_action(old_path="admin/posthog/user/<int:pk>/password/", record="user", target="#panel-sign-in")

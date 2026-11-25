@@ -198,6 +198,12 @@ def doctor_disk(
     prompts.
     """
 
+    # Without a terminal, the first prompt would abort with a bare "Aborted!" that names no flag.
+    if not dry_run and not yes and not sys.stdin.isatty():
+        raise click.UsageError(
+            "No terminal to answer the prompts. Pass --dry-run to preview, or --yes to clean every selected area."
+        )
+
     click.echo("🔍 PostHog Disk Space Cleanup\n")
 
     if dry_run:
@@ -1823,6 +1829,8 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     if yes:
         selected = targets
+    elif not sys.stdin.isatty():
+        raise click.UsageError("No terminal to answer the prompt. Pass --yes to kill these processes.")
     else:
         selected = _prompt_process_selection(targets)
 
@@ -2039,10 +2047,16 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
         idx = end
 
 
+# `hogli watch` runs detached on purpose, so it has no process manager above it but is not a zombie.
+_INTENDED_BACKGROUND_COMMANDS = ("-m hogli watch",)
+
+
 def _is_excluded(args: str) -> bool:
-    """Check if the executable basename is in the exclusion set."""
+    """Check if the executable basename is in the exclusion set, or the command runs in the background on purpose."""
     if not args or not args.strip():
         return False
+    if any(command in args for command in _INTENDED_BACKGROUND_COMMANDS):
+        return True
     basename = args.split()[0].rsplit("/", 1)[-1]
     return basename in _EXCLUDED_EXECUTABLES
 

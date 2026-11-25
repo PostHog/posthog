@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { findGitRoot } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { parseRemoteUrls, stripCredentials } from '@/error-tracking/git'
 
@@ -9,21 +10,6 @@ import { WORKLOAD_PROVIDERS, type WorkloadProvider } from './providers/registry'
 export interface Repository {
     root: string
     remote: string | undefined
-}
-
-async function findGitRoot(runtime: Runtime): Promise<{ root: string; gitPath: string } | undefined> {
-    let folder = runtime.cwd()
-    for (;;) {
-        const gitPath = join(folder, '.git')
-        if (await runtime.exists(gitPath)) {
-            return { root: folder, gitPath }
-        }
-        const parent = dirname(folder)
-        if (parent === folder) {
-            return undefined
-        }
-        folder = parent
-    }
 }
 
 // A linked worktree has a `.git` file that points at its folder inside the main repository, whose

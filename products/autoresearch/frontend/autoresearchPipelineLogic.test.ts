@@ -2,7 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -22,7 +24,9 @@ import {
     autoresearchRunsList,
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
+    autoresearchTrainCreate,
     autoresearchTrainingRunsList,
+    autoresearchTrainingRunsStopCreate,
 } from './generated/api'
 import {
     AutoresearchRunApi,
@@ -40,6 +44,8 @@ jest.mock('./generated/api', () => ({
     autoresearchRunsRetrieve: jest.fn(),
     autoresearchScoreCreate: jest.fn(),
     autoresearchSuggestionsList: jest.fn(),
+    autoresearchTrainingRunsStopCreate: jest.fn(),
+    autoresearchTrainCreate: jest.fn(),
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
@@ -48,6 +54,8 @@ const mockRunsList = autoresearchRunsList as jest.Mock
 const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
 const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
+const mockTrainingRunsStop = autoresearchTrainingRunsStopCreate as jest.Mock
+const mockTrainCreate = autoresearchTrainCreate as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -211,6 +219,93 @@ describe('autoresearchPipelineLogic', () => {
         }
     })
 
+    it('stops the live training run, then stops polling and reloads the model', async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', status: 'bootstrapping' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList
+            .mockResolvedValueOnce({ results: [makeRun({ id: 'live-run', status: 'running' })], next: null })
+            .mockResolvedValueOnce({ results: [makeRun({ id: 'live-run', status: 'failed' })], next: null })
+        mockTrainingRunsStop.mockResolvedValue(makeRun({ id: 'live-run', status: 'failed' }))
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTrainingRunsSuccess'])
+            expect(logic.values.liveTrainingRun?.id).toEqual('live-run')
+            const pipelineLoads = mockRetrieve.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.stopTraining()).toDispatchActions([
+                'stopTrainingFinished',
+                'loadTrainingRunsSuccess',
+            ])
+
+            expect(mockTrainingRunsStop).toHaveBeenCalledWith(expect.any(String), 'pipeline-1', 'live-run')
+            expect(logic.values.hasLiveTrainingRun).toBe(false)
+            expect(logic.values.stoppingTraining).toBe(false)
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(false)
+            expect(mockRetrieve.mock.calls.length).toBeGreaterThan(pipelineLoads)
+            expect(capture).toHaveBeenCalledWith('autoresearch model training stopped', {
+                pipeline_id: 'pipeline-1',
+                run_id: 'live-run',
+            })
+        } finally {
+            logic.unmount()
+            capture.mockRestore()
+        }
+    })
+
+    it.each([
+        [
+            'a refusal with a code',
+            new ApiError(undefined, 403, undefined, {
+                code: 'organization_deactivated',
+                detail: 'This organization is deactivated or pending deletion.',
+            }),
+            'This organization is deactivated or pending deletion.',
+            { error_code: 'organization_deactivated' },
+        ],
+        [
+            'a refusal with only an error message',
+            new ApiError(undefined, 429, undefined, { error: 'Try again tomorrow.' }),
+            'Try again tomorrow.',
+            {},
+        ],
+    ])('shows why training did not start after %s', async (_, error, reason, codeProperty) => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', status: 'draft' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainCreate.mockRejectedValue(error)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.startTraining()).toDispatchActions(['startTrainingFailure'])
+
+            expect(toastError).toHaveBeenCalledWith(reason)
+            expect(capture).toHaveBeenCalledWith('autoresearch model action failed', {
+                action: 'train',
+                pipeline_id: 'pipeline-1',
+                status: error.status,
+                ...codeProperty,
+            })
+        } finally {
+            logic.unmount()
+            capture.mockRestore()
+            toastError.mockRestore()
+        }
+    })
+
     it('reloads runs while a person property cleanup is live, then stops', async () => {
         jest.clearAllMocks()
         jest.useFakeTimers()
@@ -338,6 +433,46 @@ describe('autoresearchPipelineLogic', () => {
             expect(capture).not.toHaveBeenCalledWith('autoresearch model tab changed', expect.anything())
             logic.unmount()
             capture.mockRestore()
+        })
+    })
+
+    describe('lowest probability bucket', () => {
+        const RARE_TARGET = [940, 31, 12, 6, 4, 3, 2, 1, 1, 0]
+        const BIMODAL = [30, 1, 4, 3, 0, 1, 3, 2, 3, 81]
+        const ALL_LOWEST = [128, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        async function mountWithDistribution(
+            usersPerDecile: number[]
+        ): Promise<ReturnType<typeof autoresearchPipelineLogic.build>> {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+            const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadProbabilityDistributionSuccess(
+                usersPerDecile.map((users, decile) => ({ lower: decile / 10, users }))
+            )
+            return logic
+        }
+
+        it.each([
+            ['a rare target', RARE_TARGET, true, true],
+            ['a bimodal model', BIMODAL, true, false],
+            ['a model with everyone in the lowest bucket', ALL_LOWEST, false, false],
+        ])('sets the switch and its default for %s', async (_name, users, offered, hidden) => {
+            const logic = await mountWithDistribution(users)
+            expect(logic.values.lowestBucket != null).toBe(offered)
+            expect(logic.values.lowestBucketHidden).toBe(hidden)
+            expect(logic.values.scoredPeopleCount).toEqual(users.reduce((sum, n) => sum + n, 0))
+            logic.unmount()
+        })
+
+        it('keeps the choice of the person over the default', async () => {
+            const logic = await mountWithDistribution(RARE_TARGET)
+            logic.actions.setHideLowestBucket(false)
+            expect(logic.values.lowestBucketHidden).toBe(false)
+            logic.unmount()
         })
     })
 

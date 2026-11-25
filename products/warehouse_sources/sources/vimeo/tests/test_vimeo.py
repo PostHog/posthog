@@ -14,7 +14,13 @@ def driver() -> SourceDriver:
 
 
 @pytest.mark.parametrize(
-    "endpoint,path", [("videos", "/me/videos"), ("folders", "/me/projects"), ("showcases", "/me/albums")]
+    "endpoint,path",
+    [
+        ("videos", "/me/videos"),
+        ("folders", "/me/projects"),
+        ("showcases", "/me/albums"),
+        ("followers", "/me/followers"),
+    ],
 )
 @pytest.mark.parametrize("incremental", [False, True])
 def test_pagination_and_full_refresh_params(endpoint: str, path: str, incremental: bool) -> None:
@@ -80,6 +86,54 @@ def test_resume_cannot_send_token_to_another_origin(resume_url: str) -> None:
     assert isinstance(result.raised, ValueError)
     assert "Refusing to send request" in str(result.raised)
     assert result.requests == []
+
+
+def tag(video_id: int, word: str) -> dict[str, object]:
+    return {
+        "uri": f"/videos/{video_id}/tags/{word}",
+        "name": word.title(),
+        "canonical": word,
+        "resource_key": f"key-{video_id}-{word}",
+    }
+
+
+def test_video_tags_flatten_the_video_listing() -> None:
+    result = driver().run(
+        "video_tags",
+        [
+            ScriptedResponse(
+                json={
+                    "data": [
+                        {"uri": "/videos/1", "tags": [tag(1, "drone"), tag(1, "travel")]},
+                        {"uri": "/videos/2", "tags": []},
+                        {"uri": "/videos/3", "tags": None},
+                        {"uri": "/videos/4"},
+                    ],
+                    "paging": {"next": "/me/videos?page=2&per_page=100&sort=date&direction=asc&fields=uri,tags"},
+                }
+            ),
+            ScriptedResponse(
+                json={"data": [{"uri": "/videos/5", "tags": [tag(5, "drone")]}], "paging": {"next": None}}
+            ),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {**tag(1, "drone"), "video_uri": "/videos/1"},
+        {**tag(1, "travel"), "video_uri": "/videos/1"},
+        {**tag(5, "drone"), "video_uri": "/videos/5"},
+    ]
+    assert [request.path for request in result.requests] == ["/me/videos", "/me/videos"]
+    assert result.requests[0].query == {
+        "page": ("1",),
+        "per_page": ("100",),
+        "sort": ("date",),
+        "direction": ("asc",),
+        "fields": ("uri,tags",),
+    }
+    assert result.response is not None
+    assert result.response.primary_keys == ["video_uri", "uri"]
 
 
 def parent(uri: str, connection: str, link: dict[str, object] | None) -> dict[str, object]:

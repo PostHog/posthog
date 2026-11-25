@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from typing import Optional
 
 import time_machine
@@ -16,11 +17,13 @@ from celery import Task
 from celery.exceptions import Reject, Retry, SoftTimeLimitExceeded
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Organization, Team
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -36,6 +39,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
+    get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
@@ -54,6 +58,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     count_cohort_members,
     get_friendly_error_message,
     insert_static_cohort,
@@ -80,6 +85,7 @@ BACKFILL_TASK_SETTINGS = {
     "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
+    "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY": 0,
 }
 
 
@@ -1060,11 +1066,30 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    def test_skips_cohorts_of_deactivated_organizations(self) -> None:
+        deactivated_organization = Organization.objects.create(name="Deactivated", is_active=False)
+        deactivated_team = Team.objects.create(organization=deactivated_organization, name="Deactivated team")
+        stale = timezone.now() - relativedelta(days=3)
+        Cohort.objects.create(team_id=deactivated_team.pk, last_calculation=stale)
+        active_cohort = Cohort.objects.create(team_id=self.team.pk, last_calculation=stale)
+        never_deactivated_organization = Organization.objects.create(name="Never deactivated", is_active=None)
+        never_deactivated_team = Team.objects.create(organization=never_deactivated_organization, name="Null team")
+        never_deactivated_cohort = Cohort.objects.create(team_id=never_deactivated_team.pk, last_calculation=stale)
+
+        candidates = get_cohort_calculation_candidates_queryset()
+        self.assertCountEqual(candidates.values_list("pk", flat=True), [active_cohort.pk, never_deactivated_cohort.pk])
+
+        update_cohort_metrics()
+
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_total"), 2)
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_stale", {"hours": "48"}), 2)
+
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
             team=self.team,
             name="backfill trigger",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",
@@ -1539,6 +1564,13 @@ class TestCohortCalculationTasks(APIBaseTest):
                 PG_SYNC_PATH,
                 lambda: SoftTimeLimitExceeded(),
             ),
+            (
+                "query_read_back_incomplete",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: StaticCohortReadBackIncomplete("Read 0 of 1 rows"),
+            ),
         ]
     )
     def test_static_population_retries_a_transient_failure(
@@ -1676,12 +1708,18 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
-            with (
-                patch(ch_insert_path, return_value=7),
-                patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
-                self.assertRaises(Retry) as scheduled,
-            ):
-                task.run(cohort.id, self.team.pk)
+            with time_machine.travel(datetime(2026, 3, 1, 12, 0, 0), tick=False) as traveller:
+
+                def slow_insert(*_args: object, **_kwargs: object) -> int:
+                    traveller.shift(timedelta(hours=1))
+                    return 7
+
+                with (
+                    patch(ch_insert_path, side_effect=slow_insert),
+                    patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    task.run(cohort.id, self.team.pk)
 
             with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
                 task.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -1691,6 +1729,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_insert_ch.assert_not_called()
         # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
         self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
+        self.assertEqual(scheduled.exception.sig.kwargs["written_since"], "2026-03-01 12:00:00")
+        self.assertEqual(mock_sync.call_args.kwargs["written_since"], "2026-03-01 12:00:00")
 
     @parameterized.expand(
         [
@@ -1717,18 +1757,21 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), False),
-            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True),
-            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True),
+            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), True, False),
+            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True, True),
+            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True, True),
+            ("organization_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), False, False),
+            ("organization_never_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), None, True),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-    def test_reset_stuck_static_cohorts_honors_a_recent_error(
+    def test_reset_stuck_static_cohorts_skips_ineligible_cohorts(
         self,
         _name: str,
         source_fields: dict,
         error_age: relativedelta,
+        organization_is_active: bool | None,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
         mock_insert_cohort_from_filters: MagicMock,
@@ -1738,6 +1781,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_population_task = (
             mock_insert_cohort_from_query if "query" in source_fields else mock_insert_cohort_from_filters
         )
+        self.organization.is_active = organization_is_active
+        self.organization.save()
         now = timezone.now()
         cohort = Cohort.objects.create(
             team=self.team,

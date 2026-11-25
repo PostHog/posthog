@@ -5,6 +5,7 @@ import { join, relative } from 'node:path'
 import { z } from 'zod'
 
 import { run } from '@/cli'
+import { EXIT_SUCCESS } from '@/core/errors'
 import { processRuntime } from '@/core/runtime'
 import { readJson } from '@/testing'
 
@@ -89,7 +90,7 @@ export function decodeFile(text: string): Uint8Array {
 function changedFiles(
     folder: string,
     inputs: Record<string, string | Uint8Array>,
-    options: { full: boolean; randomIds: boolean }
+    options: { full: boolean; randomIds: boolean; schemaConfig: boolean }
 ): Record<string, string | null> {
     const before: Record<string, string> = {}
     for (const [path, contents] of Object.entries(inputs)) {
@@ -102,11 +103,14 @@ function changedFiles(
             changed[path] = after[path] ?? null
         }
     }
+    if (options.schemaConfig && changed['posthog.json']) {
+        changed['posthog.json'] = schemaConfig(changed['posthog.json'])
+    }
     if (options.full) {
         return changed
     }
     if (options.randomIds) {
-        changed = withoutRandomIds({ exitCode: 0, requests: [], files: changed }).files!
+        changed = withoutRandomIds({ exitCode: EXIT_SUCCESS, requests: [], files: changed }).files!
     }
     return Object.fromEntries(
         Object.entries(changed).map(([path, text]) => [
@@ -116,6 +120,26 @@ function changedFiles(
                 : `sha512:${createHash('sha512').update(text).digest('hex')}`,
         ])
     )
+}
+
+// The CLIs write posthog.json in their own format: hog keeps the file's other keys and adds `$schema` and a
+// final newline, and posthog-cli writes keys in HashMap order. Each also stamps its own `updated_at`. So the
+// file is compared by its content, with sorted keys, and only the generated module byte for byte.
+function schemaConfig(text: string): string {
+    const sorted = (value: unknown): unknown =>
+        value && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(
+                  Object.keys(value)
+                      .filter((key) => key !== '$schema')
+                      .sort()
+                      .map((key) => [
+                          key,
+                          key === 'updated_at' ? '<time>' : sorted((value as Record<string, unknown>)[key]),
+                      ])
+              )
+            : value
+    const config = readJson(strictUtf8.decode(decodeFile(text)), z.record(z.string(), z.unknown()))
+    return `utf8:${JSON.stringify(sorted(config), null, 2)}`
 }
 
 function snapshot(folder: string): Record<string, string> {
@@ -177,7 +201,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
         for (const step of scenario.before ?? []) {
             await invoke(cli === 'hog' ? step.hog : step.rust, cli, folder, env)
         }
-        let exitCode = 0
+        let exitCode = EXIT_SUCCESS
         for (let index = 0; index < (scenario.runs ?? 1); index++) {
             server.requests.length = 0
             exitCode = await invoke(cli === 'hog' ? scenario.hog : scenario.rust, cli, folder, env)
@@ -190,6 +214,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
                       files: changedFiles(folder, inputs, {
                           full: scenario.fullSnapshot === true,
                           randomIds: scenario.randomIds === true,
+                          schemaConfig: scenario.schemaConfig === true,
                       }),
                   }
                 : {}),

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
@@ -20,7 +19,7 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
-    Spinner,
+    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -38,7 +37,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
+import { TableLoadingBar } from '../components/TableLoadingBar'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
     type SortState,
     type ToolQualitySortColumn,
@@ -94,7 +96,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%', '60%', '75%', '45%', '65%']
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
@@ -141,6 +143,47 @@ function SortableHead({
     )
 }
 
+function ToolRowsSkeleton(): JSX.Element {
+    return (
+        <TableBody>
+            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                <TableRow key={i}>
+                    <TableCell expand>
+                        <SkeletonLine style={{ width }} />
+                    </TableCell>
+                    {SORTABLE_COLUMNS.map((column) => (
+                        <TableCell key={column.key} align={column.align}>
+                            <SkeletonLine className={column.align === 'right' ? 'ml-auto w-10' : 'w-16'} />
+                        </TableCell>
+                    ))}
+                    <TableCell align="right">
+                        <Skeleton className="ml-auto h-6 w-18" />
+                    </TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
+    )
+}
+
+function ToolRowsError(): JSX.Element {
+    const { loadToolRowsPage } = useActions(mcpAnalyticsToolQualityLogic)
+    return (
+        <TableEmpty className="py-6">
+            <div className="flex flex-col items-center gap-2 text-center text-secondary">
+                <span>Couldn't load your tools. Try again, or pick a shorter date range.</span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadToolRowsPage()}
+                    data-attr="mcp-tool-quality-rows-retry"
+                >
+                    Try again
+                </Button>
+            </div>
+        </TableEmpty>
+    )
+}
+
 function ToolRows(): JSX.Element {
     const {
         toolRows,
@@ -154,26 +197,11 @@ function ToolRows(): JSX.Element {
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
     const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
 
-    if (toolRowsPageLoading && toolRows.length === 0) {
-        return (
-            <TableBody>
-                <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                                <LemonSkeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
-                    </TableCell>
-                </TableRow>
-            </TableBody>
-        )
-    }
     if (toolRows.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
     return (
-        <TableBody>
+        <TableBody aria-busy={toolRowsPageLoading} className={dimWhileLoading(toolRowsPageLoading)}>
             {toolRows.map((row) => (
                 <TableRow
                     key={row.tool}
@@ -250,7 +278,9 @@ export function ToolQualityTable(): JSX.Element {
         toolQualityPageIndex,
         loadedToolQualityPageIndex,
         toolRows,
+        toolRowsPage,
         toolRowsPageLoading,
+        toolRowsLoadFailed,
         toolRowsTotalCount,
         searchTerm,
     } = useValues(mcpAnalyticsToolQualityLogic)
@@ -259,6 +289,7 @@ export function ToolQualityTable(): JSX.Element {
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
     const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
+    const showSkeleton = toolRowsPageLoading && toolRowsPage === null
 
     return (
         <Card size="sm" className="gap-0">
@@ -296,13 +327,9 @@ export function ToolQualityTable(): JSX.Element {
                             <TableHead />
                         </TableRow>
                     </TableHeader>
-                    <ToolRows />
+                    {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}
                 </Table>
-                {toolRowsPageLoading ? (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                        <Spinner className="size-5" />
-                    </div>
-                ) : null}
+                <TableLoadingBar loading={toolRowsPageLoading && toolRows.length > 0} />
             </div>
             {toolRowsTotalCount > 0 && (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">

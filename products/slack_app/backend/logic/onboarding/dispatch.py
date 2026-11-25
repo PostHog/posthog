@@ -9,6 +9,7 @@ import structlog
 
 from products.slack_app.backend.feature_flags import is_slack_app_onboarding_enabled
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
+from products.slack_app.backend.services.slack_user_oauth import linked_posthog_distinct_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +40,9 @@ def request_onboarding(
         start_delay_seconds = 0
         # The work focus stores its outcome in the same field, so only a start or a thread says the onboarding began.
         if state is None or (state.started_at is None and state.root_ts is None):
-            if not may_start or not is_slack_app_onboarding_enabled(integration):
+            if not may_start or not is_slack_app_onboarding_enabled(
+                integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=slack_workspace_id)
+            ):
                 return
             update_onboarding(slack_workspace_id, slack_user_id, start=True)
             if spread_burst:

@@ -51,14 +51,18 @@ class FeaturebaseEndpointConfig:
     #     descending sort on the incremental field, so the sweep short-circuits once a whole
     #     page predates the watermark (same pattern as the GitHub source).
     #   - "server_filter": the endpoint accepts a genuine server-side lower-bound param
-    #     (changelogs' `startDate`) and an ascending sort, so only new rows are fetched.
+    #     (`startDate`), so only new rows are fetched. Rows come back in the endpoint's
+    #     `server_filter_order`: ascending for changelogs, newest-first for audit logs.
     #   - None: full refresh only.
     incremental_mode: Optional[Literal["desc_cutoff", "server_filter"]] = None
     # Maps incremental field name -> the query params that sort by it in the direction the
-    # incremental mode needs (descending for "desc_cutoff", ascending for "server_filter").
+    # incremental mode needs (descending for "desc_cutoff", `server_filter_order` for
+    # "server_filter"). Empty params mean the endpoint has a fixed order and takes no sort.
     incremental_params_for_field: dict[str, dict[str, str]] = field(default_factory=dict)
-    # Server-side lower-bound query param for "server_filter" endpoints (changelogs' startDate).
+    # Server-side lower-bound query param for "server_filter" endpoints (`startDate`).
     server_filter_param: Optional[str] = None
+    # Order a "server_filter" incremental run returns rows in. Audit logs only come newest-first.
+    server_filter_order: Literal["asc", "desc"] = "asc"
     # Query params for a full-refresh run (stable ascending sort where the endpoint has one).
     full_refresh_params: dict[str, str] = field(default_factory=dict)
     # Extra query params merged into every request (e.g. privacy=all).
@@ -249,6 +253,32 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
             parent_id_column="surveyId",
         ),
         primary_keys=["surveyId", "id"],
+    ),
+    "teams": FeaturebaseEndpointConfig(
+        name="teams",
+        path="/teams",
+        # Documented with no query parameters: every team in one enveloped response.
+        paginated=False,
+    ),
+    "help_center_articles": FeaturebaseEndpointConfig(
+        name="help_center_articles",
+        path="/help_center/articles",
+        partition_key="createdAt",
+        # The list endpoint takes only limit/cursor/state/parentId/helpCenterId — no sort and no
+        # timestamp filter. It returns live articles only unless asked for drafts too.
+        extra_params={"state": "all"},
+    ),
+    "audit_logs": FeaturebaseEndpointConfig(
+        name="audit_logs",
+        path="/audit-logs",
+        partition_key="createdAt",
+        incremental_mode="server_filter",
+        # Always newest-first with no sort param; `startDate` is an inclusive lower bound on
+        # createdAt, so the watermark row is re-pulled and deduped by merge.
+        incremental_params_for_field={"createdAt": {}},
+        server_filter_param="startDate",
+        server_filter_order="desc",
+        incremental_fields=[_CREATED_AT_FIELD],
     ),
 }
 

@@ -35,6 +35,12 @@ def llm_detector_lookback(interval: str | None) -> int:
     return LLM_DETECTOR_LOOKBACK_BY_INTERVAL.get(interval, LLM_DETECTOR_DEFAULT_LOOKBACK)
 
 
+# The forecast detector (products.alerts.backend.forecast) is not a registry detector either. It
+# sends the model at most the max history before the checked point, and leaves a point with less
+# than the min history unscored, because so few points give the model too little to forecast from.
+FORECAST_DETECTOR_MAX_HISTORY = 512
+FORECAST_DETECTOR_MIN_HISTORY = 30
+
 # Minimum samples required for each detector type
 DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.ZSCORE: 31,  # window + 1
@@ -50,6 +56,7 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.OCSVM: 10,
     DetectorType.PCA: 10,
     DetectorType.LLM: LLM_DETECTOR_MIN_POINTS,
+    DetectorType.FORECAST: FORECAST_DETECTOR_MIN_HISTORY + 1,  # history + the checked point
 }
 
 # Fallback window size used when no explicit window is set in the detector config
@@ -106,10 +113,11 @@ def min_points_to_evaluate(detector_config: dict[str, Any]) -> int:
     """The fewest points a detector can score at all, as opposed to the window it prefers.
 
     The AI judge accepts its own minimum and simply sees a shorter table, so a series shorter
-    than its window is still judged. A statistical detector needs its full training window.
+    than its window is still judged, and the forecast detector forecasts from a shorter history.
+    A statistical detector needs its full training window.
     """
-    if detector_config.get("type") == DetectorType.LLM.value:
-        return DETECTOR_MIN_SAMPLES[DetectorType.LLM]
+    if detector_config.get("type") in (DetectorType.LLM.value, DetectorType.FORECAST.value):
+        return DETECTOR_MIN_SAMPLES[DetectorType(detector_config["type"])]
     return _compute_min_samples_for_detector(detector_config)
 
 
@@ -142,6 +150,10 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any], interval:
     # preprocessing runs, so a series of exactly the lookback is enough.
     if detector_type == DetectorType.LLM:
         return max(llm_detector_lookback(interval), guard)
+
+    # The forecast reads its whole history as it is, so the window is that history plus the checked point.
+    if detector_type == DetectorType.FORECAST:
+        return FORECAST_DETECTOR_MAX_HISTORY + 1
 
     window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
 

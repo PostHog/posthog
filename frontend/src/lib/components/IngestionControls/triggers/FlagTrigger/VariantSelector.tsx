@@ -8,6 +8,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 
 import { MultivariateFlagOptions } from '~/types'
 
+import { LinkedFeatureFlag } from '../../types'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const ANY_VARIANT = 'any'
@@ -33,6 +34,22 @@ export function variantOptions(
             }
         }),
     ]
+}
+
+export function selectFlagVariant(
+    linkedFlag: { id: number; key: string } | null | undefined,
+    variant: string,
+    onChange: (flag: LinkedFeatureFlag | null) => void
+): void {
+    if (!linkedFlag) {
+        return
+    }
+
+    onChange({
+        id: linkedFlag.id,
+        key: linkedFlag.key,
+        variant: variant === ANY_VARIANT ? null : variant,
+    })
 }
 
 export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }): JSX.Element | null => {
@@ -62,17 +79,7 @@ export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }
                     linkedFlag?.filters.multivariate,
                     restrictedReason ?? (featureFlagLoading ? 'Loading...' : undefined)
                 )}
-                onChange={(variant) => {
-                    if (!linkedFlag) {
-                        return
-                    }
-
-                    onChange({
-                        id: linkedFlag?.id,
-                        key: linkedFlag?.key,
-                        variant: variant === ANY_VARIANT ? null : variant,
-                    })
-                }}
+                onChange={(variant) => selectFlagVariant(linkedFlag, variant, onChange)}
             />
         </>
     )

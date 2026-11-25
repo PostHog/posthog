@@ -1,0 +1,113 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product release
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product release
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Releases
+feature: release
+url_prefix: /releases
+ui_apps: {}
+tools:
+    release-create:
+        operation: releases_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create release
+        description: >
+            Create a release that groups the feature flags for one change. Before you create one for a flag, call
+            `releases-suggest-for-flag`: the flag may already be in a release, or belong in an existing one, and the
+            project may put new flags in a release of their own automatically (`auto_release`).
+        feature_flag: release-objects
+    release-delete:
+        operation: releases_destroy
+        enabled: true
+        title: Delete release
+        description: >
+            Delete a release. Its feature flags, experiments and early access features are not changed. Confirm with the
+            user first.
+        feature_flag: release-objects
+    release-get:
+        operation: releases_retrieve
+        enabled: true
+        enrich_url: '{id}'
+        title: Get release
+        description: >
+            Get one release by ID with its owner, linked feature flag IDs, broadcasts, surveys and insights. Read it
+            before `release-update` when you change linked flags, because that call replaces the whole list.
+        feature_flag: release-objects
+    release-merge:
+        operation: releases_merge_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Merge releases
+        description: >
+            Merge other releases into this one: it gains their linked flags, broadcasts, surveys and insights, and the
+            merged releases are deleted. This cannot be undone, so confirm the releases with the user first.
+        feature_flag: release-objects
+    release-update:
+        operation: releases_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update release
+        description: >
+            Change a release's name, description or owner, or the feature flags, broadcasts, surveys and insights it
+            links. Each linked list you send replaces the current one, so to add a flag, read the release with
+            `release-get` and send its current `feature_flag_ids` plus the new ID. Flags the caller cannot see stay
+            linked. If the flag already has a release of its own, merge that release in with `release-merge` instead of
+            linking the flag twice.
+        param_overrides:
+            feature_flag_ids:
+                description: >
+                    The full list of linked feature flag IDs, at most 100. Replaces the current list: include every flag
+                    to keep. Get the current list from `release-get`.
+        feature_flag: release-objects
+    releases-broadcast-search:
+        operation: releases_broadcast_search_retrieve
+        enabled: false
+        disabled_reason: serves the Releases page's broadcast picker; agents find broadcasts with the workflows tools
+    releases-catalog-flags:
+        operation: releases_catalog_flags_retrieve
+        enabled: false
+        disabled_reason: serves the Releases page's flag list; agents list flags with the feature flag tools
+    releases-import-all:
+        operation: releases_import_all_create
+        enabled: false
+        disabled_reason: one-time project setup that the Releases page runs when a person first opens it
+    releases-list:
+        operation: releases_catalog_releases_retrieve
+        enabled: true
+        enrich_url: '{id}'
+        list: true
+        title: List releases
+        description: >
+            List the project's releases, newest first. A release groups the feature flags, experiments, early access
+            features, surveys and broadcasts that ship one change, so people can follow its rollout in one place. Pass
+            `search` to match part of a name, `owner` to filter by owner user IDs, and `feature_flag_id` to find the
+            releases that link one flag. Page with `next_cursor`. Use `release-get` for a release's linked objects.
+        feature_flag: release-objects
+    releases-list-all:
+        operation: releases_list
+        enabled: false
+        disabled_reason: releases-list covers listing with search and paging, and release-get returns the linked objects
+    releases-suggest-for-flag:
+        operation: releases_flag_suggestions_retrieve
+        enabled: true
+        title: Suggest releases for a flag
+        description: >
+            For one feature flag, list the releases that already link it (`current`) and up to 5 existing releases it
+            probably belongs to (`suggestions`), each with the words it matched. `auto_release` says whether the project
+            puts each new flag in a release of its own about a minute after it is created. Call it after creating a
+            flag, or before creating a release for one. When there are suggestions, ask the user whether to add the flag
+            to one of them. Do not add it without asking.
+        feature_flag: release-objects

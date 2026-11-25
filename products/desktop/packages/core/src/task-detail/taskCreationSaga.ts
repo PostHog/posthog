@@ -29,8 +29,10 @@ import type {
 } from "./taskCreationHost";
 import { buildTaskNamingSource } from "./taskDescription";
 import { resolveTaskRepository } from "./taskRepository";
+import type { WarmTaskSubmission } from "./warmTaskService";
 
 export interface TaskCreationDeps {
+  warmSubmission?: WarmTaskSubmission;
   posthogClient: TaskCreationApiClient;
   host: ITaskCreationHost;
   sessionService: SessionService;
@@ -45,6 +47,7 @@ interface WarmActivationPayload {
   pendingUserMessage?: string;
   pendingUserArtifactIds?: string[];
   suppressWarmReuse: boolean;
+  warmRunId?: string;
 }
 
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
@@ -117,10 +120,13 @@ export class TaskCreationSaga extends Saga<
       ? undefined
       : await this.importClaudeSession(input);
 
+    // Warm runs are provisioned for GitHub repositories only, so a GitLab
+    // task never takes a warm lease or uploads attachments to a warm run.
     const warmPayload =
       !isPiRuntime &&
       !taskId &&
       input.workspaceMode === "cloud" &&
+      input.repositoryIntegrationId === undefined &&
       claudeCloudModelAccess !== "own-subscription" &&
       codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
@@ -817,31 +823,34 @@ export class TaskCreationSaga extends Saga<
       suppressWarmReuse: false,
     };
 
-    const lease =
-      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
-        ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository ?? null,
-            repositories: input.repositories,
-            branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? "claude",
-            model: input.model ?? null,
-            reasoningEffort: input.reasoningLevel ?? null,
-            permissionMode: input.executionMode ?? null,
-            sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
-            customImageId: input.customImageId ?? null,
-          })
-        : null;
+    if (
+      input.signalReportId ||
+      input.contextWindow === "1m" ||
+      input.fastMode === true
+    ) {
+      return { ...base, suppressWarmReuse: true };
+    }
 
-    const requiresConfiguredWarm = Boolean(
-      input.sandboxEnvironmentId || input.customImageId,
-    );
+    const lease = this.deps.warmSubmission?.take({
+      repository: input.repository ?? null,
+      repositories: input.repositories,
+      github_integration: input.githubIntegrationId,
+      branch: input.branch ?? null,
+      runtime_adapter: input.adapter ?? "claude",
+      model: input.model ?? null,
+      reasoning_effort: input.reasoningLevel ?? null,
+      initial_permission_mode: input.executionMode ?? null,
+      sandbox_environment_id: input.sandboxEnvironmentId ?? null,
+      custom_image_id: input.customImageId ?? null,
+    });
 
     const needsAttachments =
       transport.filePaths.length > 0 || transport.skillBundles.length > 0;
     if (!needsAttachments) {
       return {
         ...base,
-        suppressWarmReuse: requiresConfiguredWarm && !lease,
+        suppressWarmReuse: !lease,
+        warmRunId: lease?.permissionModeMutable ? lease.runId : undefined,
       };
     }
     if (!lease) {
@@ -860,6 +869,7 @@ export class TaskCreationSaga extends Saga<
         ...base,
         pendingUserArtifactIds:
           artifactIds.length > 0 ? artifactIds : undefined,
+        warmRunId: lease.permissionModeMutable ? lease.runId : undefined,
       };
     } catch (error) {
       this.log.warn(
@@ -887,8 +897,12 @@ export class TaskCreationSaga extends Saga<
           input.filePaths ?? [],
           this.deps.fileReadClient,
         );
+        const usesGitlab =
+          input.workspaceMode === "cloud" &&
+          input.repositoryIntegrationId !== undefined;
         const canActivateWarmRun =
           input.runtime !== "pi" &&
+          !usesGitlab &&
           !warmPayload?.suppressWarmReuse &&
           input.claudeCloudModelAccess !== "own-subscription" &&
           input.codexCloudModelAccess !== "own-subscription";
@@ -903,12 +917,17 @@ export class TaskCreationSaga extends Saga<
               ? undefined
               : (repository ?? undefined),
           repositories: input.signalReportId ? undefined : input.repositories,
+          repository_integration: usesGitlab
+            ? input.repositoryIntegrationId
+            : undefined,
           github_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             input.cloudRunSource !== "signal_report"
               ? input.githubUserIntegrationId
@@ -965,6 +984,7 @@ export class TaskCreationSaga extends Saga<
           signal_report: input.signalReportId ?? undefined,
           channel: input.channelId ?? undefined,
           runtime: input.runtime ?? "acp",
+          warm_run_id: canActivateWarmRun ? warmPayload?.warmRunId : undefined,
           pending_user_message: warmPayload?.pendingUserMessage,
           pending_user_artifact_ids: warmPayload?.pendingUserArtifactIds,
           // If creation activates a pre-warmed run, this is the only request

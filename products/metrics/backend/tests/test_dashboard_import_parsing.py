@@ -6,7 +6,7 @@ import pytest
 from products.metrics.backend.dashboard_import.display import MappedUnit, map_color, map_thresholds, map_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError, relative_date
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
-from products.metrics.backend.dashboard_import.layout import RequestedBox, place_screenshot_boxes
+from products.metrics.backend.dashboard_import.layout import RequestedBox, close_dropped_gaps, place_screenshot_boxes
 from products.metrics.backend.dashboard_import.promql_text import (
     combine_targets,
     drop_match_all_matchers,
@@ -14,6 +14,7 @@ from products.metrics.backend.dashboard_import.promql_text import (
     strip_grafana_ranges,
 )
 from products.metrics.backend.dashboard_import.spec import GridLayout, Threshold
+from products.metrics.backend.dashboard_import.tiles import display_settings
 
 DASHBOARD: dict[str, Any] = {
     "title": "Checkout service",
@@ -182,6 +183,24 @@ def test_legacy_rows_place_spans_side_by_side_under_a_title() -> None:
     assert (graph.layout.x, graph.layout.y, graph.layout.w) == (0, 1, 6)
     assert (single_stat.layout.x, single_stat.layout.y, single_stat.layout.w) == (6, 1, 6)
     assert single_stat.display.reduce == "last"
+
+
+@pytest.mark.parametrize(
+    "panel, shows_graph",
+    [
+        ({"type": "stat", "options": {"graphMode": "area"}}, True),
+        ({"type": "stat", "options": {"graphMode": "none"}}, False),
+        ({"type": "stat"}, True),
+        # Legacy singlestat panels hide the sparkline unless they turn it on.
+        ({"type": "singlestat", "sparkline": {"show": True}}, True),
+        ({"type": "singlestat"}, False),
+        ({"type": "gauge", "options": {"graphMode": "none"}}, True),
+    ],
+)
+def test_maps_the_stat_graph_mode(panel: dict[str, Any], shows_graph: bool) -> None:
+    spec = GrafanaDashboardParser({"panels": [{**panel, "id": 1, "targets": [{"expr": "up"}]}]}).parse()
+
+    assert ("statSparkline" not in display_settings(spec.panels[0].display)) == shows_graph
 
 
 @pytest.mark.parametrize(
@@ -411,18 +430,21 @@ def test_finds_the_metric_names_of_an_expression(expr: str, expected: list[str])
 
 
 @pytest.mark.parametrize(
-    "expr, expected, changed_meaning",
+    "expr, expected",
     [
-        ("rate(a[$__rate_interval]) + increase(b[${__interval}])", "rate(a) + increase(b)", False),
-        ("increase(a[$__range])", "increase(a)", True),
-        ("increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])", "increase(a) / increase(b)", True),
-        ("rate(a[5m])", "rate(a[5m])", False),
-        ('rate(a{path="[$__interval]"}[1m])', 'rate(a{path="[$__interval]"}[1m])', False),
+        ("rate(a[$__rate_interval]) + increase(b[${__interval}])", "rate(a) + increase(b)"),
+        # The query runner fills the dashboard range, so it stays.
+        ("increase(a[$__range])", "increase(a[$__range])"),
+        (
+            "increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])",
+            "increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])",
+        ),
+        ("rate(a[5m])", "rate(a[5m])"),
+        ('rate(a{path="[$__interval]"}[1m])', 'rate(a{path="[$__interval]"}[1m])'),
     ],
 )
-def test_rewrites_grafana_ranges_to_the_query_step(expr: str, expected: str, changed_meaning: bool) -> None:
-    rewrite = strip_grafana_ranges(expr)
-    assert (rewrite.expr, rewrite.changed_meaning) == (expected, changed_meaning)
+def test_rewrites_grafana_step_ranges_to_the_query_step(expr: str, expected: str) -> None:
+    assert strip_grafana_ranges(expr) == expected
 
 
 @pytest.mark.parametrize(
@@ -773,3 +795,32 @@ def test_screenshot_boxes_never_overlap(boxes: list[RequestedBox], expected: dic
     assert placed == expected
     layouts = list(placed.values())
     assert not any(_overlaps(first, second) for i, first in enumerate(layouts) for second in layouts[i + 1 :])
+
+
+@pytest.mark.parametrize(
+    "kept, dropped, expected",
+    [
+        pytest.param(
+            [_box("a", 0, 0, 3, 3), _box("b", 6, 0, 3, 3)],
+            [GridLayout(x=3, y=0, w=3, h=3), GridLayout(x=9, y=0, w=3, h=3)],
+            {"a": GridLayout(x=0, y=0, w=6, h=3), "b": GridLayout(x=6, y=0, w=6, h=3)},
+            id="a_band_that_lost_panels_shares_the_grid",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 4, 3), _box("b", 8, 0, 4, 3)],
+            [GridLayout(x=0, y=3, w=12, h=3)],
+            {"a": GridLayout(x=0, y=0, w=4, h=3), "b": GridLayout(x=8, y=0, w=4, h=3)},
+            id="a_band_that_lost_no_panel_keeps_its_gap",
+        ),
+        pytest.param(
+            [_box("tall", 0, 0, 6, 6), _box("below", 6, 3, 6, 3)],
+            [GridLayout(x=6, y=0, w=6, h=3)],
+            {"tall": GridLayout(x=0, y=0, w=6, h=6), "below": GridLayout(x=6, y=3, w=6, h=3)},
+            id="a_tile_from_another_band_keeps_both_bands",
+        ),
+    ],
+)
+def test_dropped_panels_leave_no_gap(
+    kept: list[RequestedBox], dropped: list[GridLayout], expected: dict[str, GridLayout]
+) -> None:
+    assert close_dropped_gaps(kept, dropped) == expected

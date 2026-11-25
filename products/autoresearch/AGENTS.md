@@ -37,7 +37,9 @@ The counters carry CHECK constraints too: `iteration_budget` is at least 1, `ite
 Gated by the `autoresearch` feature flag (`backend/access.py`).
 Rollout is configured on the flag, and code only asks whether it is on.
 
-The real-agent training path additionally needs Tasks access, because it runs in a Tasks sandbox.
+Autoresearch owns the gate on a training launch: `access_refusal()` in `backend/access.py`.
+`/train` and the sweep's kickoff both call it, so a run starts only in an active organization and for a user with the `autoresearch` flag, then within the per-project limits in `backend/limits.py`.
+The run is a Tasks sandbox, but the PostHog Desktop entitlement and usage rules do not apply to it: the training task profile bills no compute (`backend/task_profiles.py`).
 
 ## Training schedule
 
@@ -45,14 +47,22 @@ Training never ends, but exploration comes first.
 The daily sweep starts research runs on scoring days until a run fails to promote a better model or 5 research runs have run, then one run every `research_interval_days` after the latest run (`backend/training/schedule.py`).
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
 Per-project limits in `backend/limits.py` bound every sandbox run, however it starts (sweep, UI, API or MCP).
-A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in any rolling 24 hours, across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
+A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in a rolling window of 22 hours (`TRAINING_RUN_WINDOW`), across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
+The window is shorter than a day, so the runs one daily sweep starts do not hold slots in the next sweep.
+When the sweep has more due pipelines than free slots, a pipeline with no champion goes first, then a champion that cannot score, then the longest wait (see `backend/temporal/AGENTS.md`).
 Runs that `open_training_run()` opens for an external agent do not count against the daily limit, because the caller's own agent does the work.
 A project has at most `max_live_pipelines` live pipelines (default 3).
 Live means `bootstrapping`, `running` or `converged`; `draft`, `paused` and `archived` do not count.
 A draft with an open training run counts too, because its promotion makes it live with no check.
 The facade refuses a pipeline going live at the limit with `LivePipelineCapReached` (a 400): starting a draft's first run, opening an external run on a draft, and resuming a paused pipeline.
 Pipelines already over the limit keep running and training.
-All three limits resolve from the `autoresearch-limits` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
+A project spends at most `max_training_spend_usd_per_month` US dollars (default 100) on sandbox training in a UTC calendar month.
+The spend is the token cost plus the compute cost of the project's sandbox training runs created this month, across all its pipelines, a run in progress included, read through `get_task_runs_spend` in the Tasks billing facade.
+It finds the runs in Tasks by the `autoresearch` origin (`origin_run_ids_since`), not from the training run rows, so deleting a model does not take its runs out of the month. External agent runs have no task, so they do not count.
+A run whose token cost is not recorded yet counts as 0, and `limits.py` logs `autoresearch_training_spend_unrecorded` with how many such runs the month has.
+At or above the budget, `start_training` raises `TrainingBudgetReached` (a 429 with code `training_budget_reached`) and the sweep's kickoff reports `team_monthly_budget`, rescue runs included.
+A run in progress is never stopped, and scoring and validation do not depend on the budget, so live models keep scoring.
+All four limits resolve from the `autoresearch-limits` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
 Edit the payload to change a limit without a deploy.
 `autoresearch-limits` holds only the payload and must stay 100% on.
 The read uses a synthetic distinct id, so a flag with release conditions on people serves no payload and every project silently gets the code constants.

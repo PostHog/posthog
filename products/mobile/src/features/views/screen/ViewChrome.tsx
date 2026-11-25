@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { Platform } from 'react-native'
 
 import { MoreIcon } from '@/ui/icons/MoreIcon'
@@ -12,12 +12,14 @@ import { createStyles, useColors } from '@/ui/theme'
 import type { ScrollTitle } from '@/ui/useScrollTitle'
 
 interface ViewChromeProps {
+    accessory?: ReactNode
+    nativeAccessory?: ReactNode
     onBack: () => void
     onMore?: () => void
     title?: ScrollTitle
 }
 
-export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactElement {
+export function ViewChrome({ onBack, onMore, title, accessory, nativeAccessory }: ViewChromeProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     return (
@@ -27,17 +29,21 @@ export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactEle
             title={title}
             nativeActions={
                 Platform.OS === 'ios' ? (
-                    <Stack.Toolbar.Button
-                        iconRenderingMode="template"
-                        icon={nativeIcons.more}
-                        accessibilityLabel="More"
-                        disabled={!onMore}
-                        onPress={onMore}
-                    />
+                    <>
+                        {nativeAccessory}
+                        <Stack.Toolbar.Button
+                            iconRenderingMode="template"
+                            icon={nativeIcons.more}
+                            accessibilityLabel="More"
+                            disabled={!onMore}
+                            onPress={onMore}
+                        />
+                    </>
                 ) : null
             }
             right={
                 <PillControl height={screenLayout.rowHeight}>
+                    {accessory}
                     <Pressable44
                         onPress={() => onMore?.()}
                         disabled={!onMore}

@@ -215,7 +215,10 @@ def _set_detail(request: QuarantineLiftRequest, detail: str) -> None:
 def _resolve(request: QuarantineLiftRequest, state: QuarantineLiftState, detail: str) -> None:
     now = timezone.now()
     QuarantineLiftRequest.objects.using(WRITER_DB).filter(
-        id=request.id, team_id=request.team_id, state=QuarantineLiftState.PENDING
+        id=request.id,
+        team_id=request.team_id,
+        state=QuarantineLiftState.PENDING,
+        quarantine_id=request.quarantine_id,
     ).update(state=state, detail=detail[:255], resolved_at=now, updated_at=now)
     logger.info("visual_review.quarantine_lift_resolved", request_id=str(request.id), state=state, detail=detail)
 
@@ -238,6 +241,9 @@ def _apply(request: QuarantineLiftRequest, run: Run, merge_commit_sha: str) -> b
                 state=QuarantineLiftState.PENDING,
                 # A reviewer can change the picture after reconcile verified it. Lift only for the verified one.
                 expected_hash=request.expected_hash,
+                # An automatic extension can move the request to a new quarantine row after it was read.
+                # The row locked above is then the old one, so leave the request for the next run.
+                quarantine_id=request.quarantine_id,
             )
             .first()
         )

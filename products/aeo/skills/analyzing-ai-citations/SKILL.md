@@ -38,13 +38,13 @@ papercuts that make the first query fail.
 | `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                             |
 | `posthog:external-data-sources-list` | Find the Search Console source and its table names                                       |
 | `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)    |
-| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                             |
+| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/ai-visibility`                                 |
 
 ## Before you start
 
 - **The feature is flag-gated.** Every `aeo-prompts-*` tool and the API behind it require the
-  `aeo-citation-tracking` feature flag for the user's organization. A 403 with
-  "This feature is not available." means the flag is off, not a scope problem.
+  `web-analytics-content-autopilot` feature flag for the user. A 403 with the code
+  `feature_flag_required` means the flag is off, not a scope problem.
 - **Scopes.** Reads (`list`, `get`, `topics`, `checks`, `stats`, `versions`) need
   `web_analytics:read`; writes (`update`, `archive`, `import`) need `web_analytics:write`.
   A missing scope surfaces as `Missing PostHog API scope: 'web_analytics:read'` (the API says
@@ -54,7 +54,7 @@ papercuts that make the first query fail.
 - **Is the runner active on this project?** Run
   `SELECT count() FROM system.aeo_citation_checks WHERE created_at >= now() - INTERVAL 14 DAY`.
   Zero rows means no prompts are being checked for this project. The scheduled runner only
-  covers allowlisted projects with the flag on; it runs once a day at 07:30 UTC.
+  covers projects with active prompts whose organization is enabled for it; it runs once a day at 07:30 UTC.
 
 ## Data sources
 
@@ -67,6 +67,7 @@ One row per prompt x engine x run, read-only in HogQL. Written only by the runne
 | `created_at`, `run_id`                                                        | When the check ran; `run_id` groups one runner pass                                                      |
 | `prompt_id`, `prompt_text`, `prompt_topic`, `prompt_source`, `prompt_version` | The prompt as it ran. Topic is empty when the prompt had none. Group by `prompt_topic` for topic rates   |
 | `engine`, `model`                                                             | `claude-web-search`, `openai-web-search`, or `exa-answer`                                                |
+| `mode`                                                                        | `web_search`, or `no_search` for an answer from training data alone. No-search answers never cite        |
 | `cited` (Boolean)                                                             | A target-domain URL appears in the answer's citations                                                    |
 | `check_failed` (Boolean), `error`                                             | The engine did not answer. Not evidence that a citation was lost                                         |
 | `num_citations`, `target_best_position`                                       | How many URLs were cited; 1-based position of the first target-domain URL                                |
@@ -127,6 +128,10 @@ Three things break the first query against `system.aeo_citation_checks`:
    `JSONExtractArrayRaw` or `arrayJoin`, and unquote each element with `JSONExtractString`:
    `arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(cited_urls))))`.
 
+Rates also need `mode = 'web_search'`.
+A `no_search` row comes from `claude-no-search` or `openai-no-search`, engines that answer with the search tool off. It never cites and would pull a citation rate down.
+Compare its mention rate against the same model's `web_search` answers to the same prompts instead.
+
 Every recipe in [citation-queries](./references/citation-queries.md) follows these.
 
 ## Workflow: how often are we cited?
@@ -142,7 +147,7 @@ SELECT engine,
        countIf(cited = 1) AS cited_checks,
        round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 7 DAY
+WHERE created_at >= now() - INTERVAL 7 DAY AND mode = 'web_search'
 GROUP BY engine
 ORDER BY citation_rate
 ```
@@ -203,8 +208,8 @@ crawler hits need `$http_log`) are in [ai-traffic-join](./references/ai-traffic-
 ## Links back to the UI
 
 Build links with `generate-app-url`, never by hand. The prompt set and each prompt's detail
-live under `/web/content-autopilot` (Prompts tab):
-`generate-app-url {url: "/web/content-autopilot"}`.
+live under `/web/ai-visibility` (Prompts tab):
+`generate-app-url {url: "/web/ai-visibility"}`.
 
 ## References
 

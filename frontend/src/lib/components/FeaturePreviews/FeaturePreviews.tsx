@@ -4,8 +4,8 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useAnchor } from 'lib/hooks/useAnchor'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON, areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
@@ -13,40 +13,25 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { Label } from 'lib/ui/Label/Label'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
-
 import { ConceptWaitlistCTA } from './ConceptWaitlistCTA'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
-
-type AvailableFeatureChecker = (feature: AvailableFeature) => boolean
-
-interface FeaturePreviewWarning {
-    /** Returns the warning to display for a feature, or null if none should show. */
-    resolve: (hasAvailableFeature: AvailableFeatureChecker) => React.ReactNode | null
-}
-
-/**
- * Per-flag warnings shown on the early-access card. Add an entry here to surface a warning
- * for a specific preview without touching the FeaturePreview component itself.
- */
-const FEATURE_PREVIEW_WARNINGS: Record<string, FeaturePreviewWarning> = {
-    [FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]: {
-        resolve: (hasAvailableFeature) =>
-            hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
-                ? null
-                : 'This feature requires the Enterprise plan or the Scale add-on. Enabling the preview will not unlock it on your current plan.',
-    },
-}
-
-const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
+import { FEATURE_PREVIEW_WARNINGS, hasPosthogJsFailedToLoadFeaturePreviews } from './featurePreviewWarnings'
+import { QuillFeaturePreviews } from './QuillFeaturePreviews'
+import { QuillFeaturePreviewsComingSoon } from './QuillFeaturePreviewsComingSoon'
 
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
+    const {
+        activePreviewFeatures: betaFeatures,
+        rawEarlyAccessFeaturesLoading,
+        searchTerm,
+        shouldShowEmptyState,
+    } = useValues(featurePreviewsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
@@ -54,13 +39,18 @@ export function FeaturePreviews(): JSX.Element {
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
-    // Active stages the enrollment toggle can unlock: alpha and beta both set feature
-    // enrollment on their flag. Concept ("Coming Soon") cards live in FeaturePreviewsComingSoon.
-    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta' || f.stage === 'alpha')
-    const shouldShowEmptyState =
-        filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+
+    if (todayRailNav) {
+        return (
+            <QuillFeaturePreviews
+                features={betaFeatures}
+                failedToLoad={failedToLoadFeaturePreviews}
+                flagsHonored={flagsHonored}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -72,20 +62,12 @@ export function FeaturePreviews(): JSX.Element {
             )}
             {failedToLoadFeaturePreviews && (
                 <LemonBanner type="warning" className="mb-2">
-                    <div className="flex flex-col gap-2">
-                        <span>
-                            We couldn't load our internal feature flags. This could be due to the presence of adblockers
-                            running in your browser or due to a network issue (e.g. slow wifi).
-                        </span>
-                        <span className="italic">
-                            Note: If you use feature flags for your app, you can avoid this issue for your users by
-                            using a{' '}
-                            <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
-                                reverse proxy
-                            </Link>
-                            .
-                        </span>
-                    </div>
+                    We couldn't load our internal feature flags. An ad blocker or a network issue can cause this. If you
+                    use feature flags in your own app, a{' '}
+                    <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                        reverse proxy
+                    </Link>{' '}
+                    prevents this for your users.
                 </LemonBanner>
             )}
             {rawEarlyAccessFeaturesLoading ? (
@@ -120,8 +102,9 @@ export function FeaturePreviews(): JSX.Element {
 }
 
 export function FeaturePreviewsComingSoon(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { conceptPreviewFeatures: conceptFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
@@ -129,7 +112,9 @@ export function FeaturePreviewsComingSoon(): JSX.Element {
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
-    const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
+    if (todayRailNav) {
+        return <QuillFeaturePreviewsComingSoon features={conceptFeatures} />
+    }
 
     return (
         <div className="flex flex-col gap-2">

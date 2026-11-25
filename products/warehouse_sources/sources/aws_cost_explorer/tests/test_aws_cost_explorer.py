@@ -25,7 +25,11 @@ from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer impo
     send_operation,
     validate_credentials,
 )
-from products.warehouse_sources.sources.aws_cost_explorer.settings import AWS_COST_EXPLORER_ENDPOINTS
+from products.warehouse_sources.sources.aws_cost_explorer.settings import (
+    AWS_COST_EXPLORER_ENDPOINTS,
+    FORECAST_METRICS,
+    RESERVATION_SERVICES,
+)
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
@@ -441,3 +445,284 @@ class TestGetRows:
             ["Hour", "Cost"],
             ["Hour", "Cost"],
         ]
+
+    def test_savings_plans_details_ask_for_one_day_at_a_time_and_keep_attributes_as_labels(self) -> None:
+        manager = FakeResumeManager()
+
+        def details_page(day: str, end: str, next_token: Optional[str]) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "TimePeriod": {"Start": day, "End": end},
+                "SavingsPlansUtilizationDetails": [
+                    {
+                        "SavingsPlanArn": "arn:aws:savingsplans::000000000000:savingsplan/example",
+                        "Attributes": {"AccountId": "012345678901", "PaymentOption": "No Upfront"},
+                        "Utilization": {"TotalCommitment": "24", "UtilizationPercentage": "50"},
+                        "Savings": {"NetSavings": "3.5"},
+                        "AmortizedCommitment": {"TotalAmortizedCommitment": "24"},
+                    }
+                ],
+            }
+            if next_token:
+                body["NextToken"] = next_token
+            return body
+
+        batches, send = self._run(
+            [
+                details_page("2024-03-01", "2024-03-02", "page-2"),
+                details_page("2024-03-01", "2024-03-02", None),
+                details_page("2024-03-02", "2024-03-03", None),
+            ],
+            manager,
+            endpoint="savings_plans_utilization_details_daily",
+        )
+
+        payloads = [call[0][3] for call in send.call_args_list]
+        assert [payload["TimePeriod"] for payload in payloads] == [
+            {"Start": "2024-03-01", "End": "2024-03-02"},
+            {"Start": "2024-03-01", "End": "2024-03-02"},
+            {"Start": "2024-03-02", "End": "2024-03-03"},
+        ]
+        assert payloads[1]["NextToken"] == "page-2"
+        assert all("Granularity" not in payload for payload in payloads)
+        assert [row["period_start"] for batch in batches for row in batch] == [
+            dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+            dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+            dt.datetime(2024, 3, 2, tzinfo=dt.UTC),
+        ]
+        assert batches[0][0] == {
+            "period_start": dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+            "period_end": dt.datetime(2024, 3, 2, tzinfo=dt.UTC),
+            "savings_plan_arn": "arn:aws:savingsplans::000000000000:savingsplan/example",
+            "attribute_account_id": "012345678901",
+            "attribute_payment_option": "No Upfront",
+            "total_commitment": 24.0,
+            "utilization_percentage": 50.0,
+            "savings_net_savings": 3.5,
+            "amortized_commitment_total_amortized_commitment": 24.0,
+        }
+
+    def test_cost_forecast_asks_for_the_days_ahead_once_per_metric(self) -> None:
+        manager = FakeResumeManager()
+        forecast = {
+            "Total": {"Amount": "900", "Unit": "USD"},
+            "ForecastResultsByTime": [
+                {
+                    "TimePeriod": {"Start": "2024-03-03", "End": "2024-03-04"},
+                    "MeanValue": "10.5",
+                    "PredictionIntervalLowerBound": "9",
+                    "PredictionIntervalUpperBound": "12",
+                }
+            ],
+        }
+
+        # The configured start date and a watermark must not pull the forecast into the past.
+        batches, send = self._run(
+            [forecast] * len(FORECAST_METRICS),
+            manager,
+            endpoint="cost_forecast_daily",
+            start_date="2023-01-01",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01",
+        )
+
+        payloads = [call[0][3] for call in send.call_args_list]
+        assert [payload["Metric"] for payload in payloads] == list(FORECAST_METRICS)
+        assert all(
+            payload
+            == {
+                "TimePeriod": {"Start": "2024-03-03", "End": "2024-05-31"},
+                "Granularity": "DAILY",
+                "Metric": payload["Metric"],
+                "PredictionIntervalLevel": 80,
+            }
+            for payload in payloads
+        )
+        assert batches[0] == [
+            {
+                "period_start": dt.datetime(2024, 3, 3, tzinfo=dt.UTC),
+                "period_end": dt.datetime(2024, 3, 4, tzinfo=dt.UTC),
+                "granularity": "DAILY",
+                "metric": FORECAST_METRICS[0],
+                "mean_value": 10.5,
+                "prediction_interval_lower_bound": 9.0,
+                "prediction_interval_upper_bound": 12.0,
+            }
+        ]
+
+    @staticmethod
+    def _forecast_answers(rejected: tuple[str, ...], blended_error: Optional[str] = None) -> list[Any]:
+        forecast = {
+            "ForecastResultsByTime": [
+                {"TimePeriod": {"Start": "2024-03-03", "End": "2024-03-04"}, "MeanValue": "10.5"},
+            ],
+        }
+
+        def validation_error(message: str) -> AwsCostExplorerError:
+            return error_for_response(make_response(400, {"__type": "ValidationException", "message": message}))
+
+        answers: list[Any] = []
+        for metric in FORECAST_METRICS:
+            if metric == "BLENDED_COST" and blended_error:
+                answers.append(validation_error(blended_error))
+            elif metric in rejected:
+                answers.append(
+                    validation_error(
+                        f"Linked accounts without permissions to view discounts may not query for this metric: {metric}"
+                    )
+                )
+            else:
+                answers.append(forecast)
+        return answers
+
+    @pytest.mark.parametrize(
+        "rejected,expected_metrics",
+        [
+            (("NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["AMORTIZED_COST", "BLENDED_COST", "UNBLENDED_COST"]),
+            (("AMORTIZED_COST", "NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["BLENDED_COST", "UNBLENDED_COST"]),
+        ],
+    )
+    def test_cost_forecast_skips_metrics_a_linked_account_cannot_view(
+        self, rejected: tuple[str, ...], expected_metrics: list[str]
+    ) -> None:
+        manager = FakeResumeManager()
+
+        batches, _ = self._run(self._forecast_answers(rejected), manager, endpoint="cost_forecast_daily")
+
+        assert [row["metric"] for batch in batches for row in batch] == expected_metrics
+        assert manager.cleared
+
+    @pytest.mark.parametrize(
+        "rejected,blended_error,expected_text",
+        [
+            # Every metric refused: the run fails with the error that maps to the non-retryable fix.
+            (FORECAST_METRICS, None, "Linked accounts without permissions to view discounts"),
+            # Any other validation error still fails the run, even next to a skippable one.
+            (("NET_AMORTIZED_COST",), "Start date must be before end date", "Start date must be before end date"),
+        ],
+    )
+    def test_cost_forecast_fails_when_no_metric_can_sync_or_aws_rejects_for_another_reason(
+        self, rejected: tuple[str, ...], blended_error: Optional[str], expected_text: str
+    ) -> None:
+        manager = FakeResumeManager()
+
+        with pytest.raises(AwsCostExplorerError, match=expected_text):
+            self._run(self._forecast_answers(rejected, blended_error), manager, endpoint="cost_forecast_daily")
+
+        assert not manager.cleared
+
+    def test_rightsizing_recommendations_page_without_a_time_period_and_keep_ids_as_strings(self) -> None:
+        manager = FakeResumeManager()
+
+        def recommendations_page(resource_id: str, next_token: Optional[str]) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "Metadata": {"RecommendationId": "rec-1", "GenerationTimestamp": "2024-03-03T01:00:00Z"},
+                "RightsizingRecommendations": [
+                    {
+                        "AccountId": "012345678901",
+                        "CurrentInstance": {
+                            "ResourceId": resource_id,
+                            "InstanceName": "0010",
+                            "MonthlyCost": "70.08",
+                            "ResourceDetails": {"EC2ResourceDetails": {"InstanceType": "m5.large"}},
+                        },
+                        "RightsizingType": "TERMINATE",
+                        "TerminateRecommendationDetail": {"EstimatedMonthlySavings": "70.08"},
+                        "FindingReasonCodes": ["CPU_UNDER_PROVISIONED"],
+                    }
+                ],
+            }
+            if next_token:
+                body["NextPageToken"] = next_token
+            return body
+
+        batches, send = self._run(
+            [recommendations_page("i-0000000000000000a", "page-2"), recommendations_page("i-0000000000000000b", None)],
+            manager,
+            endpoint="rightsizing_recommendations",
+        )
+
+        payloads = [call[0][3] for call in send.call_args_list]
+        assert payloads == [
+            {"Service": "AmazonEC2", "PageSize": 1000},
+            {"Service": "AmazonEC2", "PageSize": 1000, "NextPageToken": "page-2"},
+        ]
+        assert [row["current_instance_resource_id"] for batch in batches for row in batch] == [
+            "i-0000000000000000a",
+            "i-0000000000000000b",
+        ]
+        assert batches[0][0] == {
+            "metadata_recommendation_id": "rec-1",
+            "metadata_generation_timestamp": "2024-03-03T01:00:00Z",
+            "account_id": "012345678901",
+            "current_instance_resource_id": "i-0000000000000000a",
+            "current_instance_instance_name": "0010",
+            "current_instance_monthly_cost": "70.08",
+            "current_instance_resource_details_ec2_resource_details_instance_type": "m5.large",
+            "rightsizing_type": "TERMINATE",
+            "terminate_recommendation_detail_estimated_monthly_savings": "70.08",
+            "finding_reason_codes": ["CPU_UNDER_PROVISIONED"],
+        }
+
+    def test_a_saved_rightsizing_page_resumes_on_the_same_day(self) -> None:
+        manager = FakeResumeManager(AwsCostExplorerResumeConfig(window_start="2024-03-03", next_page_token="page-4"))
+
+        _, send = self._run([{"RightsizingRecommendations": []}], manager, endpoint="rightsizing_recommendations")
+
+        assert send.call_args_list[0][0][3]["NextPageToken"] == "page-4"
+
+    def test_reservation_purchase_recommendations_yield_a_row_per_detail_per_service(self) -> None:
+        manager = FakeResumeManager()
+
+        def recommendations(instance_type: str, monthly_savings: str) -> dict[str, Any]:
+            return {
+                "Metadata": {"GenerationTimestamp": "2024-03-03T01:00:00Z"},
+                "Recommendations": [
+                    {
+                        "AccountScope": "PAYER",
+                        "TermInYears": "ONE_YEAR",
+                        "PaymentOption": "NO_UPFRONT",
+                        "LookbackPeriodInDays": "THIRTY_DAYS",
+                        "RecommendationSummary": {"TotalEstimatedMonthlySavingsAmount": "99"},
+                        "RecommendationDetails": [
+                            {
+                                "AccountId": "012345678901",
+                                "InstanceDetails": {"EC2InstanceDetails": {"InstanceType": instance_type}},
+                                "EstimatedMonthlySavingsAmount": monthly_savings,
+                            },
+                            {
+                                "AccountId": "012345678901",
+                                "InstanceDetails": {"EC2InstanceDetails": {"InstanceType": "c5.xlarge"}},
+                                "EstimatedMonthlySavingsAmount": "1",
+                            },
+                        ],
+                    }
+                ],
+            }
+
+        empty: dict[str, Any] = {"Recommendations": []}
+        batches, send = self._run(
+            [recommendations("m5.large", "12.5"), empty, empty, empty],
+            manager,
+            endpoint="reservation_purchase_recommendations",
+        )
+
+        payloads = [call[0][3] for call in send.call_args_list]
+        assert [payload["Service"] for payload in payloads] == list(RESERVATION_SERVICES)
+        assert all("TimePeriod" not in payload and payload["TermInYears"] == "ONE_YEAR" for payload in payloads)
+
+        rows = batches[0]
+        assert [row["instance_details_ec2_instance_details_instance_type"] for row in rows] == ["m5.large", "c5.xlarge"]
+        assert rows[0]["service"] == RESERVATION_SERVICES[0]
+        assert rows[0]["account_id"] == "012345678901"
+        assert rows[0]["payment_option"] == "NO_UPFRONT"
+        assert rows[0]["estimated_monthly_savings_amount"] == "12.5"
+        assert not any(column.startswith("recommendation_summary") for column in rows[0])
+        assert rows[0]["recommendation_key"] != rows[1]["recommendation_key"]
+
+        # New estimates for the same instance on the next sync must keep the same key.
+        later, _ = self._run(
+            [recommendations("m5.large", "40"), empty, empty, empty],
+            FakeResumeManager(),
+            endpoint="reservation_purchase_recommendations",
+        )
+        assert later[0][0]["recommendation_key"] == rows[0]["recommendation_key"]

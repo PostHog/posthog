@@ -43,7 +43,7 @@ describe('CanvasAppWidget', () => {
         expect(container.querySelector('[data-attr="canvas-app-widget-empty-state-select"]')).toBeInTheDocument()
     })
 
-    it('offers to create a canvas when the viewer has none to pick', () => {
+    it('points to the MCP server instead of a create button when the viewer has none to pick', () => {
         render(
             <CanvasAppWidget
                 tileId={1}
@@ -55,7 +55,8 @@ describe('CanvasAppWidget', () => {
         )
 
         expect(screen.getByText('No canvases yet')).toBeInTheDocument()
-        expect(screen.getByText('New canvas')).toBeInTheDocument()
+        expect(screen.getByText(/PostHog MCP server/)).toBeInTheDocument()
+        expect(screen.queryByText('New canvas')).not.toBeInTheDocument()
         expect(screen.queryByText('No canvas selected')).not.toBeInTheDocument()
     })
 

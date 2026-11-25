@@ -7,9 +7,15 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.review_hog.backend.deep_follow_up import DeepFollowUp
 from products.review_hog.backend.facade.review_status_types import HeadReviewState
 from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
-from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import (
+    ReviewInstallationClaim,
+    ReviewReport,
+    ReviewReportArtefact,
+    ReviewRepository,
+)
 from products.review_hog.backend.receivers import review_evidence_for_stamphog
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
@@ -27,7 +33,8 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
-from products.review_hog.backend.temporal.client import QueuedReviewHeads
+from products.review_hog.backend.temporal.client import QueuedReviewHeads, QueuedReviewModes, QueuedReviewRequest
+from products.review_hog.backend.temporal.types import FinishedStandardAutomaticTurn
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
 
@@ -35,6 +42,14 @@ REPOSITORY = "PostHog/posthog"
 HEAD = "sha1"
 OLDER_HEAD = "sha0"
 _QUEUE = "products.review_hog.backend.head_review_status.queued_review_heads"
+_QUEUED_MODES = "products.review_hog.backend.temporal.client.queued_review_modes"
+_START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+
+
+def _answer(queue: QueuedReviewModes | Exception) -> QueuedReviewModes:
+    if isinstance(queue, Exception):
+        raise queue
+    return queue
 
 
 class TestHeadReviewStatus(BaseTest):
@@ -348,12 +363,11 @@ class TestHeadReviewStatus(BaseTest):
             ("turn_without_a_marker", "no_marker", 1, False, False),
             ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
             ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
-            ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True),
-            ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False),
             ("finding_without_a_verdict", "unjudged_finding", 1, False, False),
             ("delta_review", "delta_review", 1, False, False),
         ]
     )
+    @patch("products.review_hog.backend.silent_stamphog.queue_routing_after_external_review")
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
     def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage(
         self,
@@ -363,6 +377,7 @@ class TestHeadReviewStatus(BaseTest):
         lens_chunks_capped: bool,
         expect_queued: bool,
         queue_silent_review: MagicMock,
+        queue_routing: MagicMock,
     ) -> None:
         if setup == "no_marker":
             report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
@@ -372,7 +387,7 @@ class TestHeadReviewStatus(BaseTest):
             report = self._completed_turn(
                 REVIEW_MODE_FLASH, skipped_paths=("pnpm-lock.yaml",) if setup == "skipped_paths" else ()
             )
-        if setup in ("finding", "ready_at_finish_with_finding"):
+        if setup == "finding":
             self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
         if setup == "invalid_finding":
             self._finding(report, "1-a", is_valid=False)
@@ -393,7 +408,6 @@ class TestHeadReviewStatus(BaseTest):
                 attribution=ArtefactAttribution.system(),
             )
 
-        ready_at_finish = setup.startswith("ready_at_finish")
         finish_standard_automatic_turn(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -403,17 +417,86 @@ class TestHeadReviewStatus(BaseTest):
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
             delta_review=setup == "delta_review",
-            marks_ready=ready_at_finish,
+            marks_ready=False,
         )
         if setup == "newer_deep_turn":
             self._add_marker(report, 2, REVIEW_MODE_FULL)
             ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
-        if not ready_at_finish:
-            start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
 
-        if expect_queued:
-            queue_silent_review.assert_called_once_with(
-                team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD
+        queued, not_queued = (
+            (queue_silent_review, queue_routing) if expect_queued else (queue_routing, queue_silent_review)
+        )
+        queued.assert_called_once_with(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        not_queued.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("must_fix_finding", True, IssuePriority.MUST_FIX, False, QueuedReviewModes(), True),
+            ("switch_off", False, IssuePriority.MUST_FIX, False, QueuedReviewModes(), False),
+            ("should_fix_finding_only", True, IssuePriority.SHOULD_FIX, False, QueuedReviewModes(), False),
+            ("draft", True, IssuePriority.MUST_FIX, True, QueuedReviewModes(), False),
+            (
+                "deep_review_already_requested",
+                True,
+                IssuePriority.MUST_FIX,
+                False,
+                QueuedReviewModes(pending=(QueuedReviewRequest(review_mode=REVIEW_MODE_FULL, automatic=False),)),
+                False,
+            ),
+            ("queue_does_not_answer", True, IssuePriority.MUST_FIX, False, RuntimeError("down"), False),
+        ]
+    )
+    def test_deep_follow_up_starts_once_after_a_must_fix_finding_in_an_opted_in_repository(
+        self,
+        _name: str,
+        switch_on: bool,
+        priority: IssuePriority,
+        draft: bool,
+        queue: QueuedReviewModes | Exception,
+        expect_started: bool,
+    ) -> None:
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team,
+            installation_id="1",
+            github_repo_id=7,
+            full_name=REPOSITORY,
+            selected=True,
+            deep_review_gated_prs=switch_on,
+        )
+        report = self._completed_turn(REVIEW_MODE_FLASH)
+        self._finding(report, "1-a", is_valid=True, priority=priority)
+        turn = FinishedStandardAutomaticTurn(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
+            head_sha=HEAD,
+            run_index=1,
+            lens_chunks_capped=False,
+            delta_review=False,
+            marks_ready=False,
+            draft=draft,
+            user_id=self.user.id,
+        )
+
+        with patch(_QUEUED_MODES, side_effect=lambda *_args, **_kwargs: _answer(queue)), patch(_START) as start:
+            DeepFollowUp(turn).start()
+
+        if expect_started:
+            start.assert_called_once_with(
+                pr_url="https://github.com/PostHog/posthog/pull/5",
+                team_id=self.team.id,
+                user_id=self.user.id,
+                acting_user_id=self.user.id,
+                publish=True,
+                resolve_comments=False,
+                review_mode=REVIEW_MODE_FULL,
+                trigger_source="automatic",
+                trigger_action="deep_follow_up",
+                requested_head_sha=HEAD,
+                installation_id="1",
+                github_repo_id=7,
             )
         else:
-            queue_silent_review.assert_not_called()
+            start.assert_not_called()

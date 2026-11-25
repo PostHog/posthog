@@ -45,6 +45,7 @@ def fetch_item_embeddings_for_clustering(
     max_samples: int,
     analysis_level: AnalysisLevel = "trace",
     job_id: str | None = None,
+    job_scope: str = "",
 ) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
     """Query item IDs and embeddings from document_embeddings table.
 
@@ -82,6 +83,7 @@ def fetch_item_embeddings_for_clustering(
                 AND document_type = {document_type}
                 AND length(embedding) > 0
                 AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
+                AND ({job_scope} = '' OR JSONExtractString(metadata, 'job_scope') = {job_scope})
             ORDER BY rand()
             LIMIT {max_samples}
             """
@@ -114,6 +116,7 @@ def fetch_item_embeddings_for_clustering(
 
     if job_id:
         placeholders["job_id"] = ast.Constant(value=job_id)
+        placeholders["job_scope"] = ast.Constant(value=job_scope)
         placeholders["job_id_suffix"] = ast.Constant(value=f"_{job_id}")
     else:
         placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)

@@ -25,3 +25,64 @@ class DashboardCreationMode(LabeledStrEnum):
     TEMPLATE = "template", "Template"
     DUPLICATE = "duplicate", "Duplicate"
     UNLISTED = "unlisted", "Unlisted (product-embedded)"
+
+
+# Keep the labels equal to those of `DashboardTemplate.Scope`. The OpenAPI build names the
+# `DashboardTemplateScopeEnum` component after the two classes only while they hold the same choices.
+class DashboardTemplateScope(LabeledStrEnum):
+    """Who can use a dashboard template. Mirrors `DashboardTemplate.Scope`."""
+
+    ONLY_TEAM = "team", "Only team"
+    ORGANIZATION = "organization", "Organization"
+    GLOBAL = "global", "Global"
+    FEATURE_FLAG = "feature_flag", "Feature Flag"
+
+
+class DashboardTemplateOrdering(StrEnum):
+    """How the template list sorts after featured templates. A search sorts by relevance instead."""
+
+    NAME = "template_name"
+    NAME_DESCENDING = "-template_name"
+    CREATED_AT = "created_at"
+    CREATED_AT_DESCENDING = "-created_at"
+
+
+class DashboardUsageCount(StrEnum):
+    """Which dashboards the usage report counts for each team."""
+
+    ALL = "all"
+    FROM_TEMPLATE = "from_template"
+    SHARED = "shared"
+    TAGGED = "tagged"
+
+
+class QueryBatchLanguage(LabeledStrEnum):
+    """What a query batch target's `query` text holds."""
+
+    QUERY = "query", "Query"
+    # Deprecated name for `query`, kept so callers written against it keep working.
+    INSIGHT = "insight", "Insight"
+    HOGQL = "hogql", "HogQL"
+    PROMQL = "promql", "PromQL"
+    LOGQL = "logql", "LogQL"
+
+
+class QueryBatchTargetFormat(LabeledStrEnum):
+    """How the client draws a query batch target. Echoed back on its line."""
+
+    TIME_SERIES = "time_series", "Time series"
+    TABLE = "table", "Table"
+
+
+class ResultFormat(LabeledStrEnum):
+    """What a cached tile or a query batch line carries: the runner's own result, or frames any chart can draw."""
+
+    RESULT = "result", "Result"
+    FRAMES = "frames", "Frames"
+
+
+class QueryBatchEngine(LabeledStrEnum):
+    """Which events engine a query batch target runs on."""
+
+    CLASSIC = "classic", "Classic"
+    NEW = "new", "New"

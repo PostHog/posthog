@@ -1,12 +1,20 @@
-from posthog.test.base import APIBaseTest
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from time import monotonic
 
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+
+from django.db import connection, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -151,13 +159,196 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         )
 
 
+class TestBulkAddSuppressions(APIBaseTest):
+    def _bulk_add(self, suppressions: list[dict[str, str]]):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/messaging_suppressions/bulk_add_suppressions/",
+            {"suppressions": suppressions},
+            format="json",
+        )
+
+    def test_rejects_more_than_1000_entries(self) -> None:
+        response = self._bulk_add([{"identifier": f"user{i}@example.com"} for i in range(1001)])
+
+        assert response.status_code == 400, response.json()
+        assert not MessageSuppression.objects.for_team(self.team.id).exists()
+
+    def test_re_adding_is_idempotent(self) -> None:
+        suppressions = [
+            {"identifier": "alice@example.com", "reason": "bounce"},
+            {"identifier": "bob@example.com", "reason": "complaint"},
+        ]
+
+        first = self._bulk_add(suppressions)
+        second = self._bulk_add(suppressions)
+
+        assert first.status_code == 200, first.json()
+        assert first.json() == {"total": 2, "created": 2, "already_present": 0}
+        assert second.status_code == 200, second.json()
+        assert second.json() == {"total": 2, "created": 0, "already_present": 2}
+        assert MessageSuppression.objects.for_team(self.team.id).count() == 2
+
+    def test_identifiers_are_lowercased_and_trimmed(self) -> None:
+        response = self._bulk_add(
+            [
+                {"identifier": "  Alice@Example.COM ", "reason": "bounce"},
+                {"identifier": "alice@example.com", "reason": "manual"},
+            ]
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"total": 1, "created": 1, "already_present": 0}
+        row = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (row.identifier, row.source, row.suppressed, row.hard_bounced_at is not None) == (
+            "alice@example.com",
+            SuppressionSource.BOUNCE,
+            True,
+            True,
+        )
+
+    @parameterized.expand(
+        [
+            ("complaint", {"source": SuppressionSource.COMPLAINT, "reason": "Spam complaint"}, "Spam complaint"),
+            ("manual", {"source": SuppressionSource.MANUAL, "reason": "Manually added"}, "Manually added"),
+            (
+                "soft_bounces",
+                {"source": SuppressionSource.BOUNCE, "reason": "Soft bounced 3 times"},
+                "Imported (bounced)",
+            ),
+            ("counting_soft_bounces", {"source": SuppressionSource.BOUNCE, "suppressed": False}, "Imported (bounced)"),
+            (
+                "global_list_copy",
+                {
+                    "source": SuppressionSource.BOUNCE,
+                    "reason": "Hard bounced",
+                    "hard_bounced_at": timezone.now(),
+                    "last_bounce_diagnostic": GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC,
+                },
+                "Imported (bounced)",
+            ),
+        ]
+    )
+    def test_imported_bounce_makes_an_existing_entry_block_transactional_email(
+        self, _name: str, existing: dict, expected_reason: str
+    ) -> None:
+        suppressed = existing.get("suppressed", True)
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="alice@example.com",
+            suppressed_at=timezone.now() if suppressed else None,
+            **{"suppressed": True, **existing},
+        )
+
+        response = self._bulk_add([{"identifier": "alice@example.com", "reason": "bounce"}])
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"total": 1, "created": 0, "already_present": 1}
+        row = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (
+            row.source,
+            row.reason,
+            row.suppressed,
+            row.suppressed_at is not None,
+            row.hard_bounced_at is not None,
+            row.last_bounce_diagnostic,
+        ) == (existing["source"], expected_reason, True, True, True, None)
+
+    @parameterized.expand(
+        [
+            ("removed_entry_gets_a_bounce", {"suppressed": False, "deleted": True}, "bounce"),
+            ("manual_entry_gets_a_complaint", {"source": SuppressionSource.MANUAL, "suppressed": True}, "complaint"),
+            ("complaint_entry_gets_a_manual", {"source": SuppressionSource.COMPLAINT, "suppressed": True}, "manual"),
+        ]
+    )
+    def test_import_leaves_an_entry_that_must_not_block_transactional_email_unchanged(
+        self, _name: str, existing: dict, imported_reason: str
+    ) -> None:
+        before = MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="alice@example.com", **existing
+        )
+
+        response = self._bulk_add([{"identifier": "alice@example.com", "reason": imported_reason}])
+
+        assert response.status_code == 200, response.json()
+        after = MessageSuppression.objects.for_team(self.team.id).get()
+        assert (after.source, after.suppressed, after.deleted, after.hard_bounced_at, after.updated_at) == (
+            before.source,
+            before.suppressed,
+            before.deleted,
+            None,
+            before.updated_at,
+        )
+
+
+class TestBulkAddSuppressionsWithConcurrentBounceWrites(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_import_lets_a_bounce_write_holding_one_of_its_rows_finish(self):
+        rows = MessageSuppression.objects.for_team(self.team.id)
+        for identifier in ["a@example.com", "b@example.com"]:
+            rows.create(
+                team=self.team,
+                identifier=identifier,
+                source=SuppressionSource.MANUAL,
+                reason="Manually added",
+                suppressed=True,
+                suppressed_at=timezone.now(),
+            )
+        worker_pid: Queue[int] = Queue()
+
+        def import_bounces():
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET statement_timeout = '15s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    worker_pid.put(cursor.fetchone()[0])
+                return self.client.post(
+                    f"/api/projects/{self.team.id}/messaging_suppressions/bulk_add_suppressions/",
+                    {
+                        "suppressions": [
+                            {"identifier": i, "reason": "bounce"} for i in ["a@example.com", "b@example.com"]
+                        ]
+                    },
+                    format="json",
+                )
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                rows.filter(identifier="b@example.com").update(transient_bounce_count=F("transient_bounce_count") + 1)
+                response = executor.submit(import_bounces)
+                pid = worker_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    holder_pid = cursor.fetchone()[0]
+                    while not response.done() and monotonic() < deadline:
+                        cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, pid])
+                        if cursor.fetchone()[0]:
+                            break
+                    else:
+                        self.fail("The import did not wait for the bounce write")
+                rows.filter(identifier="a@example.com").update(transient_bounce_count=F("transient_bounce_count") + 1)
+            assert response.result(timeout=10).status_code == 200
+
+        assert [
+            (row.identifier, row.transient_bounce_count, row.hard_bounced_at is not None)
+            for row in rows.order_by("identifier")
+        ] == [
+            ("a@example.com", 1, True),
+            ("b@example.com", 1, True),
+        ]
+
+
 class TestRemoveSuppressions(APIBaseTest):
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/messaging_suppressions/{action}/"
 
-    def _suppress(self, identifier: str, source: SuppressionSource) -> None:
-        MessageSuppression.objects.for_team(self.team.id).create(
-            team_id=self.team.id, identifier=identifier, source=source, suppressed=True, suppressed_at=timezone.now()
+    def _suppress(self, identifier: str, source: SuppressionSource, team_id: int | None = None) -> None:
+        team_id = team_id or self.team.id
+        MessageSuppression.objects.for_team(team_id).create(
+            team_id=team_id, identifier=identifier, source=source, suppressed=True, suppressed_at=timezone.now()
         )
 
     def _suppressed(self) -> set[str]:
@@ -217,13 +408,41 @@ class TestRemoveSuppressions(APIBaseTest):
         assert response.status_code == expected_status
         assert self._suppressed() == still_suppressed
 
-    def test_bulk_remove_reports_removed_and_unknown_addresses(self) -> None:
+    @parameterized.expand(
+        [
+            ("with no row", None),
+            ("already removed", {"suppressed": False, "deleted": True}),
+            ("no longer suppressed", {"suppressed": False}),
+        ]
+    )
+    def test_bulk_remove_reports_removed_and_absent_addresses(self, _name: str, absent_row: dict | None) -> None:
         self._suppress("bounced@example.com", SuppressionSource.BOUNCE)
+        absent = MessageSuppression.objects.for_team(self.team.id).filter(identifier="absent@example.com")
+        if absent_row is not None:
+            self._suppress("absent@example.com", SuppressionSource.BOUNCE)
+            absent.update(transient_bounce_count=2, **absent_row)
+        absent_before = list(absent.values("suppressed", "deleted", "source", "transient_bounce_count"))
 
         response = self.client.post(
             self._url("bulk_remove_suppressions"),
-            {"identifiers": ["bounced@example.com", "unknown@example.com"]},
+            {"identifiers": ["bounced@example.com", "absent@example.com"]},
             format="json",
         )
+        single = self.client.post(self._url("remove_suppression"), {"identifier": "absent@example.com"}, format="json")
 
-        assert response.json() == {"removed": ["bounced@example.com"], "not_found": ["unknown@example.com"]}
+        assert response.json() == {"removed": ["bounced@example.com"], "not_found": ["absent@example.com"]}
+        assert single.status_code == 404
+        assert list(absent.values("suppressed", "deleted", "source", "transient_bounce_count")) == absent_before
+
+    def test_another_projects_entry_can_be_neither_listed_nor_removed(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._suppress("shared@example.com", SuppressionSource.BOUNCE, team_id=other_team.id)
+
+        listed = self.client.get(self._url("suppressions"))
+        removed = self.client.post(
+            self._url("bulk_remove_suppressions"), {"identifiers": ["shared@example.com"]}, format="json"
+        )
+
+        assert listed.json()["count"] == 0
+        assert removed.json() == {"removed": [], "not_found": ["shared@example.com"]}
+        assert MessageSuppression.objects.for_team(other_team.id).get(identifier="shared@example.com").suppressed

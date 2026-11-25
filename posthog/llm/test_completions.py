@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.llm.completions import hit_openai
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
@@ -20,14 +22,19 @@ def _stub_create(client: MagicMock) -> MagicMock:
 
 
 class TestHitOpenai(SimpleTestCase):
-    @override_settings(OPENAI_MODEL="my-gateway-deployment", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @parameterized.expand([("my-gateway-deployment", None), ("gpt-5-chat-latest", None), ("gpt-6-luna", "low")])
     @patch("posthog.llm.completions._get_openai_client")
-    def test_sends_the_configured_model(self, mock_get_client: MagicMock) -> None:
+    def test_sends_the_configured_model(
+        self, model: str, expected_effort: str | None, mock_get_client: MagicMock
+    ) -> None:
         create = _stub_create(mock_get_client.return_value)
 
-        completion = hit_openai(messages=[{"role": "user", "content": "hi"}], user="test")
+        with override_settings(OPENAI_MODEL=model, AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""):
+            completion = hit_openai(messages=[{"role": "user", "content": "hi"}], user="test")
 
-        assert create.call_args.kwargs["model"] == "my-gateway-deployment"
+        assert create.call_args.kwargs["model"] == model
+        assert create.call_args.kwargs.get("reasoning_effort") == expected_effort
+        assert "temperature" not in create.call_args.kwargs
         assert completion.content == "SELECT 1"
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)

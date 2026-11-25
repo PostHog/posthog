@@ -236,6 +236,8 @@ export interface NodeApi {
     readonly suspended: NodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint: NodeEndpointApi | null
+    /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+    readonly watching: boolean
 }
 
 export interface PaginatedNodeListApi {
@@ -325,6 +327,8 @@ export interface PatchedNodeApi {
     readonly suspended?: PatchedNodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint?: NodeEndpointApi | null
+    /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+    readonly watching?: boolean
 }
 
 /**
@@ -432,9 +436,30 @@ export interface NodeRunApi {
     direction: MaterializationRunDirectionEnumApi
 }
 
+export interface NodeRunSkippedNodeApi {
+    /** The node left out of the run. */
+    node_id: string
+    /** Name of the node left out of the run. */
+    name: string
+    /** Why the node was left out: its query doesn't compile, or it depends on a node whose query doesn't compile. */
+    reason: string
+}
+
 export interface NodeRunResponseApi {
     /** The nodes included in the dependency run. */
     node_ids: string[]
+    /** Nodes the run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. */
+    skipped: NodeRunSkippedNodeApi[]
+}
+
+export interface NodeWatchingApi {
+    /** Whether you now get failure notifications for this node. */
+    watching: boolean
+}
+
+export interface NodeAttentionCountApi {
+    /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
+    count: number
 }
 
 export interface LineageResponseApi {

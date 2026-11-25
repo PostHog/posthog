@@ -16,7 +16,7 @@ File format (repo root, sorted by ``id``, 4-space indent, trailing newline)::
                 "id": "posthog/api/test/test_foo.py::TestFoo::test_bar",
                 "runner": "pytest",
                 "reason": "Flaky ClickHouse ordering assertion",
-                "owner": "@team-product-analytics",
+                "owner": "@team-analytics",
                 "issue": "https://github.com/PostHog/posthog/issues/12345",
                 "added": "2026-06-10",
                 "expires": "2026-06-24",

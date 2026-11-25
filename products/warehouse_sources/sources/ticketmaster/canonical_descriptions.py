@@ -40,4 +40,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "timezone": "Venue timezone.",
         },
     },
+    "classifications": {
+        "description": "The full classification taxonomy used to categorize events and attractions.",
+        "docs_url": API_DOCS_URL,
+        "columns": {
+            "id": "ID of the segment or type at the root of this classification.",
+            "segment": "Top-level segment, with its genres and their subgenres.",
+            "type": "Top-level type, with its subtypes.",
+        },
+    },
 }

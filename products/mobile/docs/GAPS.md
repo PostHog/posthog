@@ -36,8 +36,7 @@ Known gaps and behavior that stays on the device.
 ## Chat
 
 - **The suggested prompts stay visible behind the organization AI notice.** When the organization has not allowed AI processing, the empty state's prompt chips still render above the notice, and a tap on one has no composer to fill.
-- **Legacy conversations are not listed.** The Chats list shows task sessions only.
-  LangGraph chats made before the move stay in the web app's legacy view and `/ai?chat=<id>` links.
+- **Classic conversations have no reversible archive action.** The Chats list includes unlinked classic conversations and task sessions, but only task rows offer Archive.
 - **Queued messages require review after reopening a chat.** Queued text is saved with the chat's draft in native secure storage before the composer clears. Delivery keeps that saved text until the server acknowledges it. After a restart or reopening, the queue waits for **Send now** because a message may already have reached the agent. Check the conversation before repeating it; delivery is not exactly once.
   Queued files stay in memory. After reopening, messages that had files cannot send until you copy their text, remove them, and attach the files again. File paths and contents are not saved in the draft store. Storage failures keep the composer or queue visible and show retry feedback. Drafts and queues are isolated by account, host, project, and chat, and cleared on sign-out. The web preview keeps them in memory only.
 - **No PostHog Desktop access pre-check.** A refused user learns it from the 403 on the first send.
@@ -55,7 +54,8 @@ Known gaps and behavior that stays on the device.
   The agent server source is not in this repo; its built dist answers `{ configOptions }`.
 - **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `logs/`,
   which shows the whole thread only on thin-tail runs. The web reads `logs/` and reconciles on every connect.
-- **Approvals, forms, charts and notebooks** the agent links show as links to the web app.
+- **Unsupported chart and notebook content opens on the web.** Classic approvals and clarification forms work in the app.
+  Supported charts and notebook Markdown render inline; other notebook blocks and chart types keep a web fallback.
 - **Files from history show by name only.** A picked image draws from the file on the device.
   A file in a stored thread has no local copy, and the app neither downloads it nor draws a thumbnail.
   `runs/{r}/artifacts/{id}/download/` answers with a 302 to a presigned S3 URL, and the app's bearer header must not follow the redirect to S3.

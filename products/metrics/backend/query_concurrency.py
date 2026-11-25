@@ -6,9 +6,11 @@ from contextlib import contextmanager
 from django.conf import settings
 
 from posthog.clickhouse.client.limit import (
+    QueryLane,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
 from posthog.constants import AvailableFeature
@@ -23,7 +25,9 @@ def _api_key_concurrency_limit(team: Team) -> int | None:
 
 
 @contextmanager
-def query_concurrency_slots(team: Team, dashboard_id: int | None = None) -> Iterator[None]:
+def query_concurrency_slots(
+    team: Team, dashboard_id: int | None = None, query_lane: QueryLane = QueryLane.ANALYTICS
+) -> Iterator[None]:
     """Hold the slots a query runner holds, so the query counts against the same limits.
 
     Browser sessions skip the API throttles, so the per-organization slot is what bounds them.
@@ -36,9 +40,21 @@ def query_concurrency_slots(team: Team, dashboard_id: int | None = None) -> Iter
             team_id=team.pk,
             limit=_api_key_concurrency_limit(team) if is_api_key_access else None,
         ),
+        _app_slots(team, dashboard_id, query_lane, is_api_key_access),
+    ):
+        yield
+
+
+@contextmanager
+def _app_slots(team: Team, dashboard_id: int | None, query_lane: QueryLane, is_api: bool) -> Iterator[None]:
+    if query_lane == QueryLane.TELEMETRY:
+        with get_app_telemetry_queries_rate_limiter().run(org_id=team.organization_id, team_id=team.pk, is_api=is_api):
+            yield
+        return
+    with (
         app_org_concurrency_slot(team),
         get_app_dashboard_queries_rate_limiter().run(
-            org_id=team.organization_id, dashboard_id=dashboard_id, team_id=team.pk, is_api=is_api_key_access
+            org_id=team.organization_id, dashboard_id=dashboard_id, team_id=team.pk, is_api=is_api
         ),
     ):
         yield

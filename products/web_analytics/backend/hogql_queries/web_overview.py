@@ -28,6 +28,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
     DimensionalJobIds,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
@@ -271,8 +272,13 @@ CROSS JOIN {sessions_agg} AS sessions_agg
     def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
         if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
             return None, None
-        # The overview builder reads only the bounces table.
-        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
+        # Live counts every session with a pageview on the page, but the bounces table holds only the session's
+        # entry page, so a page filter would count only the sessions that entered on it.
+        if any(getattr(prop, "key", None) == "$pathname" for prop in self.query.properties):
+            return None, None
+        job_ids = ready_dimensional_job_ids(
+            self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+        )
         if job_ids is None:
             return None, None
         response = self._execute_pre_aggregated(
@@ -317,6 +323,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
+                **self._hogql_context_kwargs(),
             )
 
             # We could have an empty result in normal conditions but also when we're recreating the tables.
@@ -447,6 +454,7 @@ WHERE and(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            **self._hogql_context_kwargs(),
         )
         row = conversions_response.results[0] if conversions_response.results else [None] * 4
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
@@ -541,6 +549,7 @@ WHERE and(
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,
                 settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
+                **self._hogql_context_kwargs(),
             )
             if not pre_aggregated_response
             else pre_aggregated_response

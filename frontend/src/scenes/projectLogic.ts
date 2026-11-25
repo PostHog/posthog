@@ -12,7 +12,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
-import { tagsModel } from '~/models/tagsModel'
 import { ProjectType } from '~/types'
 
 import type { OrganizationBasicType } from '../types'
@@ -256,9 +255,6 @@ export const projectLogic = kea<projectLogicType>([
                         `api/projects/${values.currentProject.id}`,
                         payload
                     )
-                    if ('tags' in payload) {
-                        tagsModel.findMounted()?.actions.refreshTags()
-                    }
                     breakpoint()
 
                     // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic

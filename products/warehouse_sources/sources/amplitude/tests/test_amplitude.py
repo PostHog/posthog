@@ -3,8 +3,9 @@ import gzip
 import json
 import base64
 import zipfile
-from datetime import UTC, datetime
-from typing import Any
+from collections.abc import Iterator
+from datetime import UTC, date, datetime
+from typing import Any, Literal
 
 import pytest
 import time_machine
@@ -21,17 +22,32 @@ from products.warehouse_sources.sources.amplitude.amplitude import (
     _iter_export_window,
     _normalize_event,
     _parse_amplitude_ts,
+    _parse_chart_date,
     validate_credentials,
 )
 from products.warehouse_sources.sources.amplitude.settings import (
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
+    COMPOSITION_ENDPOINT,
+    COMPOSITION_PROPERTIES,
+    DEPLOYMENTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    EXPERIMENTS_ENDPOINT,
+    FLAGS_ENDPOINT,
     GROUP_PROPERTIES_ENDPOINT,
+    LOOKUP_TABLES_ENDPOINT,
+    RETENTION_ENDPOINT,
+    REVENUE_LTV_ENDPOINT,
 )
-from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.amplitude.source import MISSING_MANAGEMENT_KEY_MESSAGE, AmplitudeSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _make_export_zip(files: list[list[dict[str, Any]]]) -> bytes:
@@ -63,8 +79,19 @@ def _response(status: int = 200, content: bytes = b"", json_body: Any = None, te
     return response
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(AmplitudeSource(), AmplitudeSourceConfig(api_key="key", secret_key="secret", region="us"))
+def _driver(region: Literal["us", "eu"] = "us", management_api_key: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        AmplitudeSource(),
+        AmplitudeSourceConfig(api_key="key", secret_key="secret", region=region, management_api_key=management_api_key),
+    )
+
+
+def _non_retryable_messages(error: BaseException | None) -> list[str | None]:
+    return [
+        message
+        for pattern, message in AmplitudeSource().get_non_retryable_errors().items()
+        if error_message_matches(str(error), [pattern])
+    ]
 
 
 class TestParseAmplitudeTimestamp:
@@ -306,6 +333,17 @@ class TestListRows:
                 "group_property",
                 [],
             ),
+            (
+                LOOKUP_TABLES_ENDPOINT,
+                [
+                    {"name": "sku_to_product", "columnHeaders": ["Category"], "keyColumnHeader": "SKU", "rowCount": 3},
+                    {"name": "store_to_region", "columnHeaders": ["Region"], "keyColumnHeader": "Store", "rowCount": 9},
+                ],
+                "/api/3/lookup_table",
+                "name",
+                ["sku_to_product", "store_to_region"],
+            ),
+            (LOOKUP_TABLES_ENDPOINT, [], "/api/3/lookup_table", "name", []),
         ]
     )
     def test_data_selector_extraction(
@@ -378,6 +416,233 @@ class TestFanoutRows:
         result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, forbidden])
 
         assert isinstance(result.raised, requests.HTTPError)
+
+
+class TestApiHosts:
+    @parameterized.expand(
+        [
+            (LOOKUP_TABLES_ENDPOINT, "us", None, [], "https://data-api.amplitude.com"),
+            (LOOKUP_TABLES_ENDPOINT, "eu", None, [], "https://data-api.eu.amplitude.com"),
+            (FLAGS_ENDPOINT, "us", "mgmt-key", {"flags": []}, "https://experiment.amplitude.com"),
+            (FLAGS_ENDPOINT, "eu", "mgmt-key", {"flags": []}, "https://experiment.eu.amplitude.com"),
+        ]
+    )
+    def test_endpoint_uses_its_regional_host(
+        self,
+        endpoint: str,
+        region: Literal["us", "eu"],
+        management_api_key: str | None,
+        body: Any,
+        expected_origin: str,
+    ) -> None:
+        result = _driver(region=region, management_api_key=management_api_key).run(
+            endpoint, [ScriptedResponse(json=body)]
+        )
+
+        assert [request.origin for request in result.requests] == [expected_origin]
+        assert result.raised is None
+
+
+class TestExperimentManagementRows:
+    @parameterized.expand(
+        [
+            (EXPERIMENTS_ENDPOINT, "experiments", "true"),
+            (FLAGS_ENDPOINT, "flags", "true"),
+            (DEPLOYMENTS_ENDPOINT, "deployments", None),
+        ]
+    )
+    def test_walks_cursor_pages_with_the_management_key(
+        self, endpoint: str, selector: str, include_archived: str | None
+    ) -> None:
+        pages = [
+            ScriptedResponse(json={selector: [{"id": "101"}, {"id": "102"}], "nextCursor": 2}),
+            ScriptedResponse(json={selector: [{"id": "103"}], "nextCursor": None}),
+        ]
+
+        result = _driver(management_api_key="mgmt-key").run(endpoint, pages)
+
+        assert [row["id"] for row in result.rows] == ["101", "102", "103"]
+        assert result.paths == [f"/api/1/{endpoint}"] * 2
+        assert result.params("cursor") == [None, "2"]
+        assert result.params("limit") == ["1000", "1000"]
+        assert result.params("includeArchived") == [include_archived] * 2
+        assert {request.headers["authorization"] for request in result.requests} == {"Bearer mgmt-key"}
+        assert any("mgmt-key" in options.get("redact_values", ()) for options in result.session_options)
+        assert result.raised is None
+
+    @parameterized.expand(
+        [
+            ("null_cursor", {"flags": [{"id": "2"}], "nextCursor": None}),
+            ("empty_cursor", {"flags": [{"id": "2"}], "nextCursor": ""}),
+            ("no_cursor_key", {"flags": [{"id": "2"}]}),
+            ("repeated_cursor", {"flags": [{"id": "2"}], "nextCursor": 1}),
+        ]
+    )
+    def test_stops_at_the_last_page(self, _name: str, last_page: dict[str, Any]) -> None:
+        pages = [ScriptedResponse(json={"flags": [{"id": "1"}], "nextCursor": 1}), ScriptedResponse(json=last_page)]
+
+        result = _driver(management_api_key="mgmt-key").run(FLAGS_ENDPOINT, pages)
+
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert len(result.requests) == 2
+        assert result.raised is None
+
+    def test_deployment_keys_are_not_synced(self) -> None:
+        body = {
+            "deployments": [
+                {
+                    "id": "11",
+                    "projectId": "200",
+                    "label": "production",
+                    "key": "server-fake-deployment-key",
+                    "deleted": False,
+                }
+            ]
+        }
+
+        result = _driver(management_api_key="mgmt-key").run(DEPLOYMENTS_ENDPOINT, [ScriptedResponse(json=body)])
+
+        assert result.rows == [{"id": "11", "projectId": "200", "label": "production", "deleted": False}]
+
+    def test_missing_management_key_fails_without_a_request(self) -> None:
+        result = _driver(management_api_key=None).run(EXPERIMENTS_ENDPOINT, always(ScriptedResponse(json={})))
+
+        assert result.requests == []
+        assert result.rows == []
+        assert _non_retryable_messages(result.raised) == [MISSING_MANAGEMENT_KEY_MESSAGE]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_rejected_management_key_maps_to_its_own_message(self, status: int) -> None:
+        result = _driver(management_api_key="mgmt-key").run(
+            FLAGS_ENDPOINT, [ScriptedResponse(status=status, json={"error": "Unauthorized"})]
+        )
+
+        messages = _non_retryable_messages(result.raised)
+        assert len(messages) == 1
+        assert messages[0] is not None and "Management API key" in messages[0]
+
+
+class TestParseChartDate:
+    @parameterized.expand(
+        [
+            ("iso", "2025-12-30", date(2026, 1, 5), date(2025, 12, 30)),
+            ("label_same_year", "Jan 04", date(2026, 1, 5), date(2026, 1, 4)),
+            ("label_previous_year", "Dec 31", date(2026, 1, 5), date(2025, 12, 31)),
+            ("label_on_end_date", "Jan 5", date(2026, 1, 5), date(2026, 1, 5)),
+            ("leap_day_previous_year", "Feb 29", date(2029, 1, 10), date(2028, 2, 29)),
+        ]
+    )
+    def test_parses_labels(self, _name: str, label: str, end: date, expected: date) -> None:
+        assert _parse_chart_date(label, end) == expected
+
+    @parameterized.expand([("garbage", "not a date"), ("none", None), ("number", 20260105)])
+    def test_unknown_label_raises(self, _name: str, label: Any) -> None:
+        with pytest.raises(ValueError):
+            _parse_chart_date(label, date(2026, 1, 5))
+
+
+class TestDashboardCharts:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2026-01-05 12:00:00", tick=False):
+            yield
+
+    def test_retention_sends_default_chart_and_emits_one_row_per_cohort_day(self) -> None:
+        body = {
+            "data": {
+                "series": [
+                    {
+                        "dates": ["Jan 05", "Dec 31"],
+                        "values": {
+                            "Dec 31": [
+                                {"count": 100, "outof": 100, "incomplete": False},
+                                {"count": 40, "outof": 100, "incomplete": False},
+                                {"count": 25, "outof": 100, "incomplete": True},
+                            ],
+                            "Jan 05": [{"count": 80, "outof": 80, "incomplete": False}],
+                        },
+                    }
+                ],
+                "seriesMeta": [{"segmentIndex": 0, "eventIndex": 0}],
+            }
+        }
+
+        result = _driver().run(RETENTION_ENDPOINT, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == ["/api/2/retention"]
+        request = result.requests[0]
+        assert json.loads(request.param("se") or "null") == {"event_type": "_new"}
+        assert json.loads(request.param("re") or "null") == {"event_type": "_all"}
+        assert (request.param("rm"), request.param("i")) == ("nday", "1")
+        assert (request.param("start"), request.param("end")) == ("20251008", "20260105")
+        # Index 0 is the cohort size, so day 0 is the second bucket.
+        assert [(row["date"], row["day"], row["count"], row["incomplete"]) for row in result.rows] == [
+            (date(2025, 12, 31), 0, 40, False),
+            (date(2025, 12, 31), 1, 25, True),
+        ]
+
+    def test_composition_queries_each_built_in_property(self) -> None:
+        charts = {
+            "version": {"series": [[50, 20]], "seriesLabels": ["version"], "xValues": ["1.0", "(none)"]},
+            "country": {"series": [[7]], "xValues": ["US"]},
+            "city": {"series": [[]], "xValues": []},
+            "paying": {"series": [[3, 9]], "xValues": [True, False]},
+        }
+
+        result = _driver().run(
+            COMPOSITION_ENDPOINT,
+            [ScriptedResponse(json={"data": charts.get(prop, {})}) for prop in COMPOSITION_PROPERTIES],
+        )
+
+        assert result.raised is None
+        assert result.params("p") == list(COMPOSITION_PROPERTIES)
+        assert set(result.params("start")) == {"20251008"}
+        assert set(result.params("end")) == {"20260105"}
+        assert result.rows == [
+            {"property": "version", "value": "1.0", "users": 50},
+            {"property": "version", "value": "(none)", "users": 20},
+            {"property": "country", "value": "US", "users": 7},
+            {"property": "paying", "value": "True", "users": 3},
+            {"property": "paying", "value": "False", "users": 9},
+        ]
+
+    def test_revenue_ltv_queries_each_metric_and_stamps_it_onto_rows(self) -> None:
+        def ltv_body(r1d: float) -> dict[str, Any]:
+            return {
+                "data": {
+                    "seriesLabels": [""],
+                    "series": [
+                        {
+                            "dates": ["2026-01-05"],
+                            "values": {"2026-01-05": {"r1d": r1d, "r90d": r1d * 2, "count": 10, "paid": 2}},
+                        }
+                    ],
+                }
+            }
+
+        result = _driver().run(
+            REVENUE_LTV_ENDPOINT,
+            [ScriptedResponse(json=ltv_body(value)) for value in (1.5, 7.5, 15.0, 2.0)],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/2/revenue/ltv"] * 4
+        assert result.params("m") == ["0", "1", "2", "3"]
+        assert set(result.params("i")) == {"1"}
+        assert [(row["date"], row["metric"], row["r1d"], row["count"]) for row in result.rows] == [
+            (date(2026, 1, 5), "arpu", 1.5, 10),
+            (date(2026, 1, 5), "arppu", 7.5, 10),
+            (date(2026, 1, 5), "total_revenue", 15.0, 10),
+            (date(2026, 1, 5), "paying_users", 2.0, 10),
+        ]
+
+    @parameterized.expand([(RETENTION_ENDPOINT,), (COMPOSITION_ENDPOINT,), (REVENUE_LTV_ENDPOINT,)])
+    def test_http_errors_propagate(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=400, json={"error": "invalid"})])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
 
 
 class TestAmplitudeSourceResponse:

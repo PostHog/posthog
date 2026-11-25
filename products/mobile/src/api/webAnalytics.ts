@@ -44,11 +44,11 @@ export interface WebQueryWindow {
     explicitDate?: boolean
     interval?: WebInterval
     properties?: readonly WebPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export interface WebOverviewQueryOptions extends WebQueryWindow {
     compare: boolean
-    filterTestAccounts?: boolean
 }
 
 function dateRange(window: WebQueryWindow): Record<string, unknown> {
@@ -128,7 +128,7 @@ export function webTrendQuery(options: WebQueryWindow & { metric: WebTrendMetric
             ...(series.axisFormat ? { aggregationAxisFormat: series.axisFormat } : {}),
         },
         compareFilter: { compare: true },
-        filterTestAccounts: false,
+        filterTestAccounts: options.filterTestAccounts ?? false,
         properties: [...(options.properties ?? [])],
         tags: WEB_ANALYTICS_TAGS,
     }
@@ -142,7 +142,7 @@ export function webBreakdownQuery(
         dateRange: dateRange(options),
         properties: [...(options.properties ?? [])],
         compareFilter: { compare: true },
-        filterTestAccounts: false,
+        filterTestAccounts: options.filterTestAccounts ?? false,
         limit: options.limit,
     }
     if (options.breakdown === 'ExitClick') {
@@ -156,7 +156,7 @@ export function webRetentionQuery(options: WebQueryWindow): Record<string, unkno
         kind: 'RetentionQuery',
         properties: [...(options.properties ?? [])],
         dateRange: dateRange(options),
-        filterTestAccounts: false,
+        filterTestAccounts: options.filterTestAccounts ?? false,
         retentionFilter: {
             retentionType: 'retention_first_time',
             retentionReference: 'total',
@@ -183,6 +183,7 @@ export function webActiveHoursQuery(options: WebQueryWindow): Record<string, unk
         dateRange: dateRange(options),
         trendsFilter: { display: 'CalendarHeatmap' },
         calendarHeatmapFilter: { bucketBySessionStart: true },
+        ...(options.filterTestAccounts ? { filterTestAccounts: true } : {}),
         tags: WEB_ANALYTICS_TAGS,
     }
 }

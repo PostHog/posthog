@@ -867,6 +867,11 @@ class TestShouldRefresh(SimpleTestCase):
         drf_request._full_data = {"refresh": "async"}  # type: ignore
         assert refresh_requested_by_client(drf_request) == "async"
 
+    def test_keeps_the_refresh_mode_that_blocks_only_on_a_cache_miss(self):
+        request = HttpRequest()
+        request.GET = QueryDict("refresh=async_except_on_cache_miss")
+        assert refresh_requested_by_client(Request(request)) == "async_except_on_cache_miss"
+
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         assert get_compare_period_dates(
             date_from=datetime(2022, 1, 1, 0, 0),
@@ -1236,17 +1241,13 @@ class TestSharingOverrideProtection(SimpleTestCase):
         request = self._make_request(
             authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
         )
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "country"}
 
     def test_tile_filters_override_allowed_for_normal_auth(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "region"}
 
@@ -1277,9 +1278,7 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
     def test_tile_filters_override_blocked_for_shared_context_without_authenticator(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile, is_shared=True)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"}, is_shared=True)
 
         assert result == {"breakdown": "country"}
 

@@ -194,4 +194,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "findings_summary": "A summary of the findings for the resource.",
         },
     },
+    "products_v2": {
+        "description": "Product integrations for Security Hub, with the company that provides each one and how it integrates.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_ProductV2.html",
+        "columns": {
+            "product_v2_name": "The name of the product.",
+            "company_name": "The company that provides the product.",
+            "description": "A description of the product.",
+            "categories": "The categories assigned to the product.",
+            "integration_v2_types": "How the product integrates with Security Hub.",
+            "marketplace_url": "The AWS Marketplace page for the product.",
+            "activation_url": "The page where you activate the integration.",
+            "marketplace_product_id": "The AWS Marketplace product ID.",
+        },
+    },
+    "software_v2": {
+        "description": "Software packages installed on your resources, grouped by package name, version, and type.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_SoftwareResult.html",
+        "columns": {
+            "package_name": "The name of the software package.",
+            "package_version": "The version of the package. Empty when AWS returns no version.",
+            "package_type": "The type of the package, such as operating-system, application, or library.",
+            "resource_count": "The number of resources that have this package installed.",
+        },
+    },
+    "findings_trends_v2": {
+        "description": "Finding counts by severity at each point in the last 90 days.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_GetFindingsTrendsV2.html",
+        "columns": {
+            "granularity": "The interval of each data point that AWS selected: Daily, Weekly, or Monthly.",
+            "timestamp": "The time of the data point.",
+            "critical": "The number of findings with critical severity.",
+            "fatal": "The number of findings with fatal severity.",
+            "high": "The number of findings with high severity.",
+            "medium": "The number of findings with medium severity.",
+            "low": "The number of findings with low severity.",
+            "informational": "The number of findings with informational severity.",
+            "other": "The number of findings with other severity.",
+            "unknown": "The number of findings with unknown severity.",
+        },
+    },
+    "resources_trends_v2": {
+        "description": "Resource counts at each point in the last 90 days.",
+        "docs_url": "https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_GetResourcesTrendsV2.html",
+        "columns": {
+            "granularity": "The interval of each data point that AWS selected: Daily, Weekly, or Monthly.",
+            "timestamp": "The time of the data point.",
+            "all_resources": "The number of resources.",
+        },
+    },
 }

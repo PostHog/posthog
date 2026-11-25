@@ -112,9 +112,11 @@ function SuiteRunRows({
 
 export function QuillSuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
-    const { suiteRuns, suiteRunsLoading, suiteRunsError } = useValues(logic)
-    const { loadSuiteRuns, loadSuiteRunCheckRuns } = useActions(logic)
+    const { suiteRuns, suiteRunsLoading, suiteRunsError, expandedSuiteRunId } = useValues(logic)
+    const { loadSuiteRuns, loadSuiteRunCheckRuns, setExpandedSuiteRunId } = useActions(logic)
     const expandedRows = useExpandedRowIds(loadSuiteRunCheckRuns)
+    const toggleSuiteRun = (suiteRunId: string): void =>
+        suiteRunId === expandedSuiteRunId ? setExpandedSuiteRunId(null) : expandedRows.toggle(suiteRunId)
 
     return (
         <div className="flex flex-col gap-2">
@@ -167,8 +169,8 @@ export function QuillSuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.E
                             <SuiteRunRows
                                 key={suiteRun.id}
                                 suiteRun={suiteRun}
-                                expanded={expandedRows.isExpanded(suiteRun.id)}
-                                onToggle={() => expandedRows.toggle(suiteRun.id)}
+                                expanded={suiteRun.id === expandedSuiteRunId || expandedRows.isExpanded(suiteRun.id)}
+                                onToggle={() => toggleSuiteRun(suiteRun.id)}
                                 logicProps={props}
                             />
                         ))}

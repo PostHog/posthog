@@ -1,7 +1,9 @@
 from dataclasses import replace
 
 from products.tasks.backend.facade.profiles import (
+    AgentPolicy,
     DrivePolicy,
+    EndsRun,
     GithubAccess,
     GithubResolution,
     NetworkAccess,
@@ -85,6 +87,7 @@ USER = replace(
     idle_minutes=60,
     max_wake_minutes=None,
     bills_compute=True,
+    agent_policy=AgentPolicy(pr_thread_link=True),
 )
 
 ERROR_TRACKING = replace(_PUBLIC, key="error_tracking", origin_product="error_tracking")
@@ -135,6 +138,7 @@ TASK_ANALYSIS = replace(
     personal_mcp=False,
     mcp_scopes="read_only",
     billing_product="background_agents",
+    agent_policy=AgentPolicy(report_activity_tool=True),
 )
 
 WORKFLOW = replace(
@@ -146,6 +150,7 @@ WORKFLOW = replace(
     drive=DrivePolicy.AUDIENCE,
     mcp_agent="workflow",
     billing_product="workflows",
+    agent_policy=AgentPolicy(ends_run=EndsRun.ON_REQUEST, finish_report_required=True),
 )
 
 PROFILES = (

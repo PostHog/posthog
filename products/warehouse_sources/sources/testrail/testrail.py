@@ -423,8 +423,12 @@ def get_rows(
     if config.scope == "project":
         if not config.paginated:
             # One cheap request per project (e.g. suites) — no checkpointing needed.
+            seen: set[Any] = set()
             for project_id in project_ids:
                 items = _fetch_list(session, base_url, config.method, project_id, {}, config.response_key, logger)
+                if config.dedupe_across_projects:
+                    items = [item for item in items if item["id"] not in seen]
+                    seen.update(item["id"] for item in items)
                 if items:
                     yield items
             return

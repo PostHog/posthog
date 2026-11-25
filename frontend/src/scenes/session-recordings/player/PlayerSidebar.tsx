@@ -110,15 +110,17 @@ export function PlayerSidebar({
                 <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex flex-col flex-1 min-h-0 h-full">
                         <DebugTabBar tabs={sidebarTabs} activeTab={debugTab} onChange={setTab}>
-                            <LemonButton
-                                data-attr="player-sidebar-dock-toggle"
-                                size="small"
-                                icon={<IconBottomPanel />}
-                                onClick={() => onToggleStacking?.()}
-                                tooltip="Dock to bottom"
-                                aria-label="Dock to bottom"
-                                className="rounded-none"
-                            />
+                            {onToggleStacking && (
+                                <LemonButton
+                                    data-attr="player-sidebar-dock-toggle"
+                                    size="small"
+                                    icon={<IconBottomPanel />}
+                                    onClick={onToggleStacking}
+                                    tooltip="Dock to bottom"
+                                    aria-label="Dock to bottom"
+                                    className="rounded-none"
+                                />
+                            )}
                             <LemonButton
                                 data-attr="player-sidebar-close"
                                 size="small"

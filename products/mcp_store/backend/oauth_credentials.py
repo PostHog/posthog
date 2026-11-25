@@ -1,12 +1,10 @@
 from collections.abc import Mapping
 from typing import Literal
 
-from django.conf import settings
-
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 
-OAuthCredentialsSource = Literal["slack_app", "slack_dev_app"]
+OAuthCredentialsSource = Literal["slack_app"]
 
 _TRUSTED_OAUTH_METADATA_BY_SOURCE: dict[str, dict[str, str]] = {
     "slack_app": {
@@ -14,21 +12,9 @@ _TRUSTED_OAUTH_METADATA_BY_SOURCE: dict[str, dict[str, str]] = {
         "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
         "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
     },
-    "slack_dev_app": {
-        "issuer": "https://mcp.slack.com",
-        "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
-        "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
-    },
 }
 
 SUPPORTED_OAUTH_CREDENTIAL_SOURCES = frozenset(_TRUSTED_OAUTH_METADATA_BY_SOURCE)
-
-
-def oauth_credentials_source_is_allowed(source: str, team_id: int) -> bool:
-    if source != "slack_dev_app":
-        return True
-    allowed_team_ids = settings.MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS
-    return "*" in allowed_team_ids or str(team_id) in allowed_team_ids
 
 
 def validate_oauth_credentials_source_metadata(source: str, metadata: Mapping[str, object]) -> None:
@@ -43,12 +29,11 @@ def resolve_oauth_credentials_source(source: str) -> dict[str, str]:
     if source not in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
         raise ValueError(f"Unknown OAuth credential source: {source}")
 
-    prefix = "SLACK_DEV_APP" if source == "slack_dev_app" else "SLACK_APP"
     credentials = get_many_or_instance_settings(
-        [f"{prefix}_CLIENT_ID", f"{prefix}_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
+        ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
     )
-    client_id = credentials.get(f"{prefix}_CLIENT_ID")
-    client_secret = credentials.get(f"{prefix}_CLIENT_SECRET")
+    client_id = credentials.get("SLACK_APP_CLIENT_ID")
+    client_secret = credentials.get("SLACK_APP_CLIENT_SECRET")
     return {
         "client_id": client_id if isinstance(client_id, str) else "",
         "client_secret": client_secret if isinstance(client_secret, str) else "",
@@ -56,5 +41,7 @@ def resolve_oauth_credentials_source(source: str) -> dict[str, str]:
 
 
 def oauth_credentials_source_is_configured(source: str) -> bool:
+    if source not in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+        return False
     credentials = resolve_oauth_credentials_source(source)
     return bool(credentials["client_id"] and credentials["client_secret"])

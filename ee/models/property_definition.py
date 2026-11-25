@@ -1,7 +1,7 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from products.event_definitions.backend.logic.definition_metadata import copy_definition_metadata_on_commit
+from products.event_definitions.backend.facade.api import copy_definition_metadata_on_commit
 from products.event_definitions.backend.models import PropertyDefinition
 
 

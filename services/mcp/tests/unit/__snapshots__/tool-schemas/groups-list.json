@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "Pagination cursor returned in the `next` URL of a previous response",
+            "type": "string"
+        },
+        "group_key": {
+            "description": "Filter groups whose key contains this string (case-insensitive)",
+            "type": "string"
+        },
+        "group_type_index": {
+            "description": "Specify the group type to list",
+            "type": "number"
+        },
+        "search": {
+            "description": "Search the group name",
+            "type": "string"
+        }
+    },
+    "required": ["group_type_index"],
+    "type": "object"
+}

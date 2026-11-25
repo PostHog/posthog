@@ -309,6 +309,7 @@ class TestLazyJoinManifest(SimpleTestCase):
             "replay_to_sessions_v1",
             "replay_to_sessions_v2",
             "replay_to_sessions_v3",
+            "task_latest_run",
             "ticket_assignment",
             "ticket_tags",
         ]

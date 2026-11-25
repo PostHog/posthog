@@ -149,17 +149,31 @@ class EmailSendingPanel(Panel):
     key = "email-sending"
     title = "Email sending"
     owner = WORKFLOWS
+    operation_keys = frozenset({"set-tier", "recompute-tier", "suspend", "unsuspend"})
 
     def facts(self, obj: Model) -> list[Fact]:
         state = get_email_sending_state(obj.pk)
-        if state is None or state.suspended_at is None:
-            status = Fact(label="Status", value="Sending enabled", tone=Tone.SUCCESS)
-        else:
+        if state is not None and state.suspended_at is not None:
             status = Fact(label="Status", value="Suspended", tone=Tone.DESTRUCTIVE)
+        elif state is not None and state.provider_paused:
+            status = Fact(label="Status", value="Paused by AWS SES", tone=Tone.DESTRUCTIVE)
+        else:
+            status = Fact(label="Status", value="Sending enabled", tone=Tone.SUCCESS)
         facts = [status]
         if state is not None and state.suspended_at is not None:
             facts.append(Fact(label="Suspended at", value=state.suspended_at.strftime("%b %-d, %Y %H:%M UTC")))
             facts.append(Fact(label="Reason", value=state.suspension_reason or "No reason recorded"))
+        if state is not None and state.provider_paused:
+            facts.append(
+                Fact(
+                    label="AWS SES pause",
+                    value="AWS paused this team's SES tenant. Re-enabling sending here does not lift it. "
+                    "The tenant has to be reinstated in AWS.",
+                    tone=Tone.WARNING,
+                )
+            )
+            if state.provider_reputation_impact:
+                facts.append(Fact(label="AWS reputation impact", value=state.provider_reputation_impact))
         if state is not None:
             facts.append(
                 Fact(
@@ -217,3 +231,13 @@ class EmailSendingPanel(Panel):
             ),
             *tier_operations,
         ]
+
+
+# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
+for old, target in {
+    "set-email-sending-tier": "email-sending/set-tier/",
+    "recompute-email-sending-tier": "#panel-email-sending",
+    "suspend-email-sending": "email-sending/suspend/",
+    "unsuspend-email-sending": "#panel-email-sending",
+}.items():
+    console.register_moved_action(old_path=f"admin/posthog/team/<int:pk>/{old}/", record="team", target=target)

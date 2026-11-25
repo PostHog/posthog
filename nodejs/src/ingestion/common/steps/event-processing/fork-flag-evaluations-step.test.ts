@@ -1,4 +1,6 @@
+import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
+import path from 'path'
 
 import { FlagEvaluationsOutput, IngestionWarningsOutput, RealtimeOnlyEventsOutput } from '~/common/outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
@@ -10,6 +12,7 @@ import { FlagEvaluationsMode, ISOTimestamp, ProcessedEvent, ProjectId } from '~/
 
 import { EventToEmit } from './emit-event-step'
 import {
+    FLAG_EVALUATIONS_TTL_DAYS,
     ForkFlagEvaluationsStepInput,
     createForkFlagEvaluationsStep,
     flagEvaluationsEventsTotal,
@@ -61,11 +64,12 @@ const createExposureDuplicate = (): ProcessedEvent =>
 
 const createInput = (
     events: ProcessedEvent[] = [createProcessedEvent()],
-    mode: FlagEvaluationsMode = FlagEvaluationsMode.Events
+    mode: FlagEvaluationsMode = FlagEvaluationsMode.Events,
+    keepWritingFlagCallsToEvents = false
 ): ForkFlagEvaluationsStepInput => ({
     eventsToEmit: events.map((event): EventToEmit<string> => ({ event, output: 'events' })),
     teamId: 7,
-    team: { flag_evaluations_mode: mode },
+    team: { flag_evaluations_mode: mode, keep_writing_flag_calls_to_events: keepWritingFlagCallsToEvents },
 })
 
 const emitted = (eventsToEmit: EventToEmit<string>[]) =>
@@ -185,6 +189,15 @@ describe('createForkFlagEvaluationsStep', () => {
             jest.useRealTimers()
         })
 
+        it('mirrors ttl_days in posthog/models/flag_evaluations/crosslang/flag_evaluations.json', () => {
+            const shared = path.resolve(
+                __dirname,
+                '../../../../../../posthog/models/flag_evaluations/crosslang/flag_evaluations.json'
+            )
+
+            expect(FLAG_EVALUATIONS_TTL_DAYS).toBe(parseJSON(readFileSync(shared, 'utf8')).ttl_days)
+        })
+
         it.each([
             // 2026-07-03 is the oldest UTC day a 92-day TTL keeps on 2026-10-02.
             { timestamp: '2026-07-02T23:59:59.999Z', forked: false, outcome: 'continued_past_retention' },
@@ -285,14 +298,30 @@ describe('createForkFlagEvaluationsStep', () => {
                 producedOutputs: ['flag_evaluations'],
                 warnings: [],
             },
+            {
+                name: 'a kept-writes FLAG_EVALUATIONS_ONLY',
+                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                keepWritingFlagCallsToEvents: true,
+                routesToRealtimeOnlyEvents: false,
+                outcome: 'continued_message_too_large',
+                producedOutputs: ['flag_evaluations'],
+                warnings: [],
+            },
         ])(
             'does not block the batch when the row exceeds the broker message limit for $name team',
-            async ({ mode, routesToRealtimeOnlyEvents, outcome, producedOutputs, warnings }) => {
+            async ({
+                mode,
+                keepWritingFlagCallsToEvents,
+                routesToRealtimeOnlyEvents,
+                outcome,
+                producedOutputs,
+                warnings,
+            }) => {
                 const { step, outputs } = createStep(enabledService({ routesToRealtimeOnlyEvents }))
                 outputs.queueMessages.mockRejectedValueOnce(
                     new MessageSizeTooLarge('too large', new Error('too large'))
                 )
-                const input = createInput([createProcessedEvent()], mode)
+                const input = createInput([createProcessedEvent()], mode, keepWritingFlagCallsToEvents)
 
                 const result = await step(input)
 
@@ -396,6 +425,12 @@ describe('createForkFlagEvaluationsStep', () => {
                 buildService: () => enabledService(),
             },
             {
+                name: 'the organization keeps writing flag calls to events',
+                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                keepWritingFlagCallsToEvents: true,
+                buildService: () => enabledService(),
+            },
+            {
                 name: 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 buildService: () => enabledService({ flagEvaluationsOnlyDisabled: true }),
@@ -428,10 +463,14 @@ describe('createForkFlagEvaluationsStep', () => {
             },
         ])(
             'keeps the $feature_flag_called event on the events output when $name',
-            async ({ mode, buildService, flagCalledOverrides, arrange }) => {
+            async ({ mode, keepWritingFlagCallsToEvents, buildService, flagCalledOverrides, arrange }) => {
                 const deps = createStep(buildService())
                 arrange?.(deps)
-                const input = createInput([createProcessedEvent(flagCalledOverrides), createExposureDuplicate()], mode)
+                const input = createInput(
+                    [createProcessedEvent(flagCalledOverrides), createExposureDuplicate()],
+                    mode,
+                    keepWritingFlagCallsToEvents
+                )
 
                 const result = await deps.step(input)
 

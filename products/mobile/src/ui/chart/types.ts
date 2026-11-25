@@ -12,7 +12,7 @@ export type ChartInterval = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type ChartVariant = 'compact' | 'inline' | 'fullscreen'
 
 /** Where a chart sits, for the `mobile_chart_*` events. */
-export type ChartTrackingContext = 'pin' | 'view' | 'fullscreen'
+export type ChartTrackingContext = 'pin' | 'view' | 'fullscreen' | 'chat'
 
 /** `at` is the bucket start in epoch milliseconds, a plain number that worklets can read. `value` NaN = gap. */
 export interface ChartPoint {

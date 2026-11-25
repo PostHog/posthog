@@ -7,7 +7,7 @@ from products.warehouse_sources.sources.pinterest_ads.pinterest_ads import (
     PinterestAdsResumeConfig,
     pinterest_ads_source,
 )
-from products.warehouse_sources.sources.pinterest_ads.settings import PINTEREST_ADS_CONFIG
+from products.warehouse_sources.sources.pinterest_ads.settings import AD_ACCOUNT_TIME_ZONE, PINTEREST_ADS_CONFIG
 from products.warehouse_sources.sources.pinterest_ads.utils import build_session, list_ad_accounts
 from products.warehouse_sources.sources.sdk import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -26,6 +26,8 @@ from products.warehouse_sources.sources.sdk import (
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceInputs,
     SourceRegistry,
     SourceResponse,
@@ -115,6 +117,23 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                         required=True,
                         placeholder="Your Pinterest Ads ad account ID",
                     ),
+                    SourceFieldSelectConfig(
+                        name="reporting_timezone",
+                        sync_setting=True,
+                        label="Reporting time zone",
+                        caption=(
+                            "The time zone that decides which day each analytics row falls on. "
+                            "The ad account time zone needs a time zone set on the ad account in Pinterest. "
+                            "A change applies to new syncs only. A resync also moves past days, but it replaces each "
+                            "analytics table with the last 89 days and deletes older rows."
+                        ),
+                        required=False,
+                        defaultValue="PINTEREST_TIME_ZONE",
+                        options=[
+                            SourceFieldSelectConfigOption(label="Pinterest default (UTC)", value="PINTEREST_TIME_ZONE"),
+                            SourceFieldSelectConfigOption(label="Ad account time zone", value=AD_ACCOUNT_TIME_ZONE),
+                        ],
+                    ),
                 ],
             ),
             suggestedTables=[
@@ -144,7 +163,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
             try:
-                oauth.refresh_access_token()
+                integration = oauth.refresh_access_token()
             except (requests.RequestException, ValueError) as e:
                 # `refresh_access_token` only records failure in `integration.errors` when Pinterest
                 # answers with a parseable body. A network error, or an HTML error page it then fails
@@ -273,4 +292,5 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            reporting_timezone=config.reporting_timezone,
         )

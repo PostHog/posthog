@@ -18,6 +18,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
     API_QUERIES_BUDGET_BALANCE_HISTOGRAM,
     API_QUERIES_BUDGET_LIMITED_COUNTER,
+    ExecutionMode,
     get_api_queries_budget_status,
     get_query_runner,
 )
@@ -204,6 +205,27 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
                 runner._call_with_rate_limits(dashboard_id=None)
         finally:
             reset_query_tags()
+
+    def test_refused_run_reports_a_refusal_not_a_failure(self):
+        self._drain()
+        runner = self._runner()
+        tag_queries(api_queries_budgeted=True)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
+                patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+                pytest.raises(APIQueriesBudgetExceeded),
+            ):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            reset_query_tags()
+
+        failed_props = next(call.args[1] for call in report.call_args_list if call.args[0] == "query execution failed")
+        assert (failed_props["outcome"], failed_props["error_category"], failed_props["failed_in"]) == (
+            "refused",
+            "rate_limited",
+            "rate_limiters",
+        )
 
     def test_concurrency_limit_ignores_billing_quota_limited_teams(self):
         # get_api_queries_concurrency_limit reads the plain `posthog.settings` module

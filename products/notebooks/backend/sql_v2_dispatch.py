@@ -73,10 +73,6 @@ class NodeRunDispatchFailed(Exception):
     """The run row exists but no lane took it. The row is already terminal."""
 
 
-class NodeRunNotPermitted(Exception):
-    """The resolved plan needs a lane this caller's flags do not grant."""
-
-
 @frozen
 class RefSpec:
     """A name a cell may read, and the sibling cell that exports it."""
@@ -100,8 +96,6 @@ class NodeRunRequest:
     # Answer with the caller's own identical run from the last hour instead of executing
     # again, when one is still running or already done.
     reuse_results: bool = False
-    # False for a caller gated out of full compute: it may run HogQL but not the sandbox.
-    allow_sandbox: bool = True
     # Set when a whole-notebook run started this cell, so the status endpoint can find it.
     notebook_run_id: UUID | None = None
 
@@ -241,7 +235,10 @@ def _build_plan(request: NodeRunRequest, refs: dict[str, SQLV2Ref]) -> SQLV2RunP
             # A python node stores its code as-is; referenced frames become kernel inputs,
             # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
             return SQLV2RunPlan(
-                node_type="python", code=request.code, inputs=resolve_python_node_inputs(request.code, refs)
+                node_type="python",
+                code=request.code,
+                inputs=resolve_python_node_inputs(request.code, refs),
+                variables=python_variable_bindings(request.variables),
             )
         if request.send_raw_query:
             # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
@@ -368,11 +365,7 @@ def _hand_off_to_lane(
                     node_type=plan.node_type,
                     output_name=request.output_name,
                     inputs=plan.inputs,
-                    # A python node reads these as globals; a duckdb node binds them as
-                    # `$name` query parameters, so it carries only the ones its SQL uses.
-                    variables=(
-                        python_variable_bindings(request.variables) if plan.node_type == "python" else plan.variables
-                    ),
+                    variables=run.bound_variables if run.bound_variables is not None else plan.variables,
                 )
             )
     except Exception:
@@ -435,11 +428,6 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
 
     plan = _build_plan(request, resolve_refs(team.id, notebook, request))
 
-    # Reading a sibling's kernel frame reroutes a hogql request to the sandbox's DuckDB, so the
-    # sandbox gate has to sit behind the resolved plan rather than the request's own node_type.
-    if not request.allow_sandbox and plan.node_type != "hogql":
-        raise NodeRunNotPermitted()
-
     reusable = _reusable_runs(notebook, user, team.id, request, plan)
     if (existing := reusable.first() if reusable is not None else None) is not None:
         return NodeRunDispatch(run_id=existing.id, starts_sandbox=False, sandbox_hourly_price=None)
@@ -476,6 +464,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             notebook_run_id=request.notebook_run_id,
             code=plan.code,
             node_type=plan.node_type,
+            bound_variables=plan.variables if plan.node_type != "hogql" else None,
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
@@ -512,7 +501,6 @@ __all__ = [
     "NodeRunDispatch",
     "NodeRunDispatchFailed",
     "NodeRunInvalid",
-    "NodeRunNotPermitted",
     "NodeRunRequest",
     "NotebookRunBusy",
     "RawRefSpec",

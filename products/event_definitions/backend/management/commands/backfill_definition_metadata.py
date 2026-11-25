@@ -7,11 +7,8 @@ from django.db import connection
 from posthog.settings import EE_AVAILABLE
 from posthog.temporal.common.db_errors import is_transient_db_error
 
-from products.event_definitions.backend.logic.definition_metadata import (
-    DefinitionKind,
-    copy_definition_metadata,
-    next_enterprise_definition_ids,
-)
+from products.event_definitions.backend.facade.api import copy_definition_metadata, next_enterprise_definition_ids
+from products.event_definitions.backend.facade.contracts import DefinitionKind
 
 # A batch that fails with a transient error (a deadlock with an edit, a failover) runs again
 MAX_BATCH_ATTEMPTS = 3

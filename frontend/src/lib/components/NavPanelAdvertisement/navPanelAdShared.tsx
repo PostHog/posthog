@@ -46,6 +46,11 @@ export interface BroadcastPayload {
     productKey?: string
 }
 
+export function broadcastDismissKey(broadcast: BroadcastPayload): string {
+    // pinned: persisted dismissal key. Renaming it brings back every dismissed broadcast.
+    return `broadcast-${broadcast.broadcast}`
+}
+
 export function isBroadcastPayload(value: unknown): value is BroadcastPayload {
     return (
         typeof value === 'object' &&

@@ -7,15 +7,20 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 
 import jwt
+import idna
 import structlog
 from prometheus_client import Counter, Histogram
 from requests import HTTPError, RequestException, Response, Timeout
 from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
+from social_core.storage import PartialMixin, UserProtocol
+from social_core.strategy import HttpResponseProtocol
 from urllib3.util import Timeout as Urllib3Timeout
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import email_domain
+from posthog.helpers.sso import validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
@@ -49,6 +54,30 @@ class OIDCClientCredentials:
 class MultitenantOIDCAuth(OpenIdConnectAuth):
     DEFAULT_USE_PKCE = True
     JWT_DECODE_OPTIONS = {"require": ["iss", "sub", "aud", "exp", "iat", "nonce"]}
+    authentication_started_at: int | None = None
+
+    def auth_complete(self, *args: Any, **kwargs: Any) -> UserProtocol | HttpResponseProtocol | None:
+        self.authentication_started_at = int(time.time())
+        return super().auth_complete(*args, **kwargs)
+
+    def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
+        validate_idp_partial(self, partial)
+        return super().continue_pipeline(partial)
+
+    @staticmethod
+    def _email_matches_config(email: str, config: IdentityProviderConfig) -> bool:
+        domain = email_domain(email)
+        if domain is None:
+            return False
+        try:
+            return idna.encode(domain, uts46=True, transitional=False).rstrip(b".") in {
+                idna.encode(allowed, uts46=True, transitional=False).rstrip(b".")
+                for allowed in config.organization_domains.filter(verified_at__isnull=False).values_list(
+                    "domain", flat=True
+                )
+            }
+        except UnicodeError:
+            return False
 
     @cached_property
     def identity_provider_config(self) -> IdentityProviderConfig:
@@ -68,6 +97,8 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthFailed(self, "OIDC configuration is not available.")
         if not config.has_oidc or not config.organization.is_feature_available(AvailableFeature.OIDC):
             raise AuthFailed(self, "OIDC is not available for this organization.")
+        if not self._email_matches_config(email, config):
+            raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
         return config
 
     def auth_url(self) -> str:
@@ -79,7 +110,9 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             for config in IdentityProviderConfig.objects.get_queryset()
             .oidc_for_email(email)
             .select_related("organization")
-            if config.has_oidc and config.organization.is_feature_available(AvailableFeature.OIDC)
+            if config.has_oidc
+            and config.organization.is_feature_available(AvailableFeature.OIDC)
+            and self._email_matches_config(email, config)
         ]
         if len(configs) != 1:
             raise AuthFailed(self, "OIDC requires one configured identity provider for this email domain.")
@@ -235,20 +268,19 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         if not isinstance(userinfo, dict) or userinfo.get("sub") != id_token.get("sub"):
             raise AuthFailed(self, "The OIDC user does not match the ID token.")
         email = userinfo.get("email")
-        if userinfo.get("email_verified") is not True or not isinstance(email, str):
-            raise AuthFailed(self, "OIDC requires a verified email address from the identity provider.")
-        if not (
-            IdentityProviderConfig.objects.get_queryset()
-            .oidc_for_email(email)
-            .filter(id=self.identity_provider_config.id)
-            .exists()
-        ):
+        if not isinstance(email, str):
+            raise AuthFailed(self, "OIDC requires an email address from the identity provider.")
+        if not self._email_matches_config(email, self.identity_provider_config):
             raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
         return userinfo
 
+    def get_identity_subject(self, details: dict[str, Any], response: dict[str, Any]) -> str:
+        """The provider's stable identifier for this user, which scopes the emailed-code proof."""
+        return response["sub"]
+
     def get_user_id(self, details: dict[str, Any], response: dict[str, Any]) -> str:
         issuer = self.identity_provider_config.oidc_issuer_url.rstrip("/")
-        user_id = f"{issuer}:{response['sub']}"
+        user_id = f"{issuer}:{self.get_identity_subject(details, response)}"
         if len(user_id) > 255:
             raise AuthFailed(self, "The OIDC user identifier is too long.")
         return user_id
