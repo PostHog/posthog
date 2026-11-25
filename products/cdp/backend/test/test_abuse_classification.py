@@ -603,6 +603,27 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {},
             ),
             (
+                "established_secret_input_url_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                RULE_FREE_HOG,
+                {
+                    "inputs_schema": [{"key": "url", "type": "string", "label": "URL", "secret": True}],
+                    "inputs": {"url": {"value": "http://10.0.0.9/hook"}},
+                },
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+            (
+                "established_truncated_state_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                "print('padding')\n" * 10_000 + CHAT_HOG,
+                LOCAL_LINK_INPUTS,
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True, "state_truncated": True},
+                {},
+            ),
+            (
                 "established_input_link_without_a_score",
                 ESTABLISHED,
                 None,
@@ -822,6 +843,25 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 },
                 2,
                 {"hog": "fetch('https://slack.com/api/chat.postMessage', {'body': event})"},
+            ),
+            (
+                "secret_input_that_hides_an_internal_host_beside_a_public_one",
+                {
+                    "inputs": {
+                        "url": {"value": "http://127.0.0.1:8080/orders"},
+                        "api_key": {"value": "http://10.0.0.9/"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {
+                    "hog": RULE_FREE_HOG,
+                    "inputs": {
+                        "url": {"value": "http://127.0.0.1:8080/orders"},
+                        "api_key": {"value": SECRET_VALUE},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    },
+                },
             ),
         ]
     )

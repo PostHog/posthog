@@ -214,6 +214,11 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
+def internal_hosts(content: HogFunctionContent) -> frozenset[str]:
+    """The internal hosts named anywhere in the code, the inputs or the masking hash."""
+    return frozenset(canonicalize_host(host) for host in _hosts_in(_texts(content)) if _is_internal(host))
+
+
 def fetches_internal_host(content: HogFunctionContent) -> bool:
     """Whether a literal `fetch` URL in the code names an internal host anywhere in it. An input value with a local URL
     can be message text or a body field, but a literal `fetch` URL is code that sends a request. A URL in its query

@@ -86,6 +86,7 @@ class ScoredHogFunction:
     account: Account
     account_tier: AccountTier
     set_aside: dict[str, SetAsideReason]
+    secret_internal_host: bool
     set_aside_rules: dict[rules.Rule, RuleSetAsideReason]
 
     @property
@@ -348,6 +349,7 @@ def classify_if_due(hog_function: HogFunction) -> None:
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
     set_aside = rules.set_aside_scores(runtime_content, rule_hits)
+    secret_internal_host = _has_secret_internal_host(content, runtime_content)
     scoring = _scoring_for(hog_function.team)
     public_content_hash = content_hash(content)
     reported = cache.get(_hash_key(str(hog_function.id)))
@@ -355,14 +357,22 @@ def classify_if_due(hog_function: HogFunction) -> None:
     covering_states = (True,) if hog_function.enabled else (True, False)
     if any(
         reported
-        == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, set_aside, enabled=state)
+        == _cache_entry(
+            public_content_hash,
+            rule_hits,
+            outbound_call,
+            scoring.account_tier,
+            set_aside,
+            secret_internal_host,
+            enabled=state,
+        )
         for state in covering_states
     ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
     report(
         hog_function,
-        _score(hog_function, content, rule_hits, outbound_call, set_aside, scoring),
+        _score(hog_function, content, rule_hits, outbound_call, set_aside, secret_internal_host, scoring),
         trigger=Trigger.SAVE,
     )
 
@@ -388,6 +398,7 @@ def score(hog_function: HogFunction) -> ScoredHogFunction:
         rule_hits,
         rules.has_outbound_call(runtime_content),
         rules.set_aside_scores(runtime_content, rule_hits),
+        _has_secret_internal_host(content, runtime_content),
         _scoring_for(hog_function.team),
     )
 
@@ -398,6 +409,7 @@ def _score(
     rule_hits: tuple[rules.Rule, ...],
     outbound_call: bool,
     set_aside: dict[str, SetAsideReason],
+    secret_internal_host: bool,
     scoring: _Scoring,
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
@@ -412,7 +424,6 @@ def _score(
         )
     except ClassificationFailed as error:
         failure = error.reason
-    fetches_internal_host = rules.fetches_internal_host(content)
     return ScoredHogFunction(
         content_hash=content_hash(content),
         code_modified_from_template=content.code_modified_from_template,
@@ -423,23 +434,37 @@ def _score(
         account=scoring.account,
         account_tier=scoring.account_tier,
         set_aside=set_aside,
-        set_aside_rules=_set_aside_rules(rule_hits, fetches_internal_host, verdict, scoring),
+        secret_internal_host=secret_internal_host,
+        set_aside_rules=_set_aside_rules(
+            rule_hits, rules.fetches_internal_host(content), secret_internal_host, verdict, scoring
+        ),
     )
 
 
 def _set_aside_rules(
-    rule_hits: tuple[rules.Rule, ...], fetches_internal_host: bool, verdict: AbuseVerdict | None, scoring: _Scoring
+    rule_hits: tuple[rules.Rule, ...],
+    fetches_internal_host: bool,
+    secret_internal_host: bool,
+    verdict: AbuseVerdict | None,
+    scoring: _Scoring,
 ) -> dict[rules.Rule, RuleSetAsideReason]:
-    """The rule hits that neither alert nor block. A missing verdict sets nothing aside, so a gateway failure still
-    alerts on every rule."""
+    """The rule hits that neither alert nor block. Nothing is set aside when the model did not see every internal
+    host the rules saw: it gave no verdict, its state was cut to fit, or the host is in a secret input, which never
+    reaches it."""
     if (
         scoring.account_tier is AccountTier.NEW
         or fetches_internal_host
+        or secret_internal_host
         or verdict is None
+        or verdict.state_truncated
         or verdict.scores["internal_network"] >= scoring.thresholds.alert
     ):
         return {}
     return {rule: RuleSetAsideReason.LOW_SSRF_SCORE for rule in rule_hits if rule in rules.INTERNAL_HOST_RULES}
+
+
+def _has_secret_internal_host(content: HogFunctionContent, runtime_content: HogFunctionContent) -> bool:
+    return bool(rules.internal_hosts(runtime_content) - rules.internal_hosts(content))
 
 
 def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:
@@ -467,17 +492,22 @@ def _cache_entry(
     outbound_call: bool,
     account_tier: AccountTier,
     set_aside: dict[str, SetAsideReason],
+    secret_internal_host: bool,
     *,
     enabled: bool,
 ) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits, the outbound call and
-    the scores set aside. Keeping all of them means a secret change that matches a rule or adds a call scores the
-    function again, while the cache holds nothing more about a secret value than the event does. The account tier
-    changes whether a moderate score or an internal host rule alerts, so an account that changes tier scores again on
-    its next save. Whether the code fetches an internal host literally follows from the content hash. Enabling a function that was scored while disabled reports it again, so a probe that starts running alerts
-    as enabled."""
+    """The model sees only the public content, and secret inputs change only the rule hits, the outbound call, the
+    scores set aside and whether a secret input names an internal host. Keeping all of them means a secret change that
+    matches a rule, adds a call or hides an internal host from the model scores the function again, while the cache
+    holds nothing more about a secret value than the event does. The account tier changes whether a moderate score or
+    an internal host rule alerts, so an account that changes tier scores again on its next save. Whether the code
+    fetches an internal host literally follows from the content hash. Enabling a function that was scored while
+    disabled reports it again, so a probe that starts running alerts as enabled."""
     reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
-    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{account_tier}:{reasons}"
+    entry = (
+        f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{account_tier}:{reasons}"
+        f":{int(secret_internal_host)}"
+    )
     return entry if enabled else f"{entry}:disabled"
 
 
@@ -535,6 +565,7 @@ def report(
             scored.outbound_call,
             scored.account_tier,
             scored.set_aside,
+            scored.secret_internal_host,
             enabled=hog_function.enabled,
         ),
         _HASH_TTL_SECONDS,
