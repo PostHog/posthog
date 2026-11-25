@@ -2400,12 +2400,21 @@ class TestHogqlTableModifiers:
             ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
             ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            (
+                "Array(Variant(Int64, String))",
+                "arrayMap(x -> accurateCastOrNull(x, %(hogql_val_0)s), person_ids) AS person_ids",
+            ),
+            ("Variant(Int64, String)", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Dynamic", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Tuple(value Variant(Int64, String))", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
             ("Array(String)", None),
             ("Array(Tuple(uuid String))", None),
             ("Array(Array(UUID))", None),
+            ("Tuple(variant String, dynamic String, uuid String)", None),
+            ("Tuple(`variant` String)", None),
         ],
     )
-    async def test_applies_arrow_conversions_to_array_elements(
+    async def test_applies_arrow_conversions(
         self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
@@ -2422,7 +2431,7 @@ class TestHogqlTableModifiers:
 
         assert client.arrow_query is not None
         if expected_conversion is None:
-            assert "arrayMap(" not in client.arrow_query
+            assert client.arrow_query.startswith("SELECT [] AS person_ids FORMAT ArrowStream")
         else:
             assert expected_conversion in client.arrow_query
 

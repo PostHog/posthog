@@ -79,6 +79,7 @@ from products.alerts_platform.backend.facade.api import (
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    rows_with_counted_copies,
     runtime_by_public_id,
     update_configuration,
 )
@@ -235,7 +236,18 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     # Deferred: the cutover module imports `posthog.tasks.alerts.utils`, which imports this facade.
     from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
 
-    rows = _insight_owned_rows().filter(team_id=team_id)
+    team_rows = _insight_owned_rows().filter(team_id=team_id)
+    rows = team_rows.exclude(
+        id__in=rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=list(team_rows.values_list("id", flat=True)),
+        )
+    )
+    enabled_row_ids = set(team_rows.filter(enabled=True).values_list("id", flat=True))
+    enabled_row_ids -= rows_with_counted_copies(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=enabled_row_ids, enabled_only=True
+    )
     held = list_configurations(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
@@ -286,7 +298,7 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
     return contracts.AlertInventory(
         total_count=rows.count() + held.total,
-        enabled_count=rows.filter(enabled=True).count() + enabled_held,
+        enabled_count=len(enabled_row_ids) + enabled_held,
         recent=tuple(recent[:recent_limit]),
     )
 

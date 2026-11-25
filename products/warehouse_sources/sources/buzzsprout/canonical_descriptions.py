@@ -100,4 +100,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "url": "URL of the podcast in the directory, or null.",
         },
     },
+    "team": {
+        "description": "People with Buzzsprout login access to the configured podcast. Team members are separate from contributors, which are on-show credits.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/team.md",
+        "columns": {
+            "id": "Identifier of the team entry for this podcast.",
+            "user_id": "Buzzsprout user ID of the team member.",
+            "name": "Team member name.",
+            "email": "Team member email address.",
+            "role": "Team member role: owner, admin or editor.",
+        },
+    },
+    "brand_affiliations": {
+        "description": "Sponsor and affiliate links of the configured podcast. Links assigned to an episode are appended to its RSS description.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/brand_affiliations.md",
+        "columns": {
+            "id": "Unique identifier for the brand affiliation.",
+            "headline": "Brand or sponsor name shown with the link.",
+            "description": "Description of the offer, for example a discount code.",
+            "url": "Sponsor or affiliate link URL.",
+            "artwork_url": "URL of the brand artwork image, or null.",
+        },
+    },
+    "podrolls": {
+        "description": "Podcasts that the configured podcast recommends in its RSS feed.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/podrolls.md",
+        "columns": {
+            "id": "Unique identifier for the podroll entry.",
+            "guid": "Podcast GUID of the recommended podcast.",
+            "feed_url": "RSS feed URL of the recommended podcast.",
+            "position": "1-based position of the recommendation in the podroll.",
+        },
+    },
 }
