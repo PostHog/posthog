@@ -494,7 +494,6 @@ export const GithubOptionalReview: Story = {
     play: async ({ canvas }) => {
         const activate = (await canvas.findByText('Activate without GitHub')).closest('button')
         await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
-        await expect(canvas.getByText(/Without GitHub, reports use your product data only/)).toBeVisible()
     },
     decorators: [
         mswDecorator({
@@ -531,7 +530,6 @@ export const GithubOptionalReviewWithImplementation: Story = {
     play: async ({ canvas }) => {
         const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
         await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'true'))
-        await expect(canvas.getByText(/Automatic implementation opens pull requests/)).toBeVisible()
     },
     decorators: [
         mswDecorator({

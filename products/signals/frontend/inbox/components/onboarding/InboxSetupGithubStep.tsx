@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -15,7 +15,7 @@ import { InboxSetupGithubSkipDialog } from './InboxSetupGithubSkipDialog'
 import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
-    const { hasGithubIntegration, githubIsOptional, activatesWithoutGithub } = useValues(inboxSetupLogic)
+    const { hasGithubIntegration, githubIsOptional } = useValues(inboxSetupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -40,15 +40,6 @@ export function InboxSetupGithubStep(): JSX.Element {
                 </div>
             )}
             {featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && <InboxSetupImplementation />}
-            {githubIsOptional && (
-                <LemonBanner type="warning">
-                    <span>
-                        {activatesWithoutGithub
-                            ? "Without GitHub, reports use your product data only. Agents can't trace problems to your code or open pull requests. You can connect GitHub later."
-                            : 'Automatic implementation opens pull requests, so it needs GitHub. Connect GitHub to activate, or turn it off to activate without GitHub.'}
-                    </span>
-                </LemonBanner>
-            )}
             <InboxSetupGithubSkipDialog canConnectGithub={!restrictionReason} />
         </>
     )
