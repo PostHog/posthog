@@ -11,12 +11,15 @@ HTTP Basic auth and never exposed to the API caller.
 import re
 import json
 import threading
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from typing import ClassVar
 
 from django.conf import settings
 from django.http import HttpResponse, QueryDict
 
+import httpx
 import requests
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -32,7 +35,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload, conne
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.security.outbound_proxy import internal_requests
+from posthog.security.outbound_proxy import internal_httpx_async_client, internal_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +71,7 @@ def _error_response(status_code: int, error_type: str, message: str) -> HttpResp
     )
 
 
-def _read_bytes_from(upstream: requests.Response) -> int | None:
+def _read_bytes_from(upstream: requests.Response | httpx.Response) -> int | None:
     """Read the total ClickHouse bytes that Snuffle reports for this request.
 
     A missing or malformed header means an older or unhealthy upstream. Metering
@@ -176,6 +179,33 @@ def snuffle_request(
     if bytes_read is not None:
         schedule_snuffle_budget_debit(str(team_id), bytes_read)
     return upstream
+
+
+@asynccontextmanager
+async def snuffle_stream(
+    team_id: int,
+    method: str,
+    upstream_path: str,
+    *,
+    data: dict[str, str],
+    workload: Workload = Workload.LOGS,
+) -> AsyncIterator[httpx.Response]:
+    base_url = snuffle_url(workload)
+    if not base_url:
+        raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
+    auth = _snuffle_auth(ClickHouseUser.SNUFFLE, workload)
+    async with internal_httpx_async_client(timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS) as client:
+        async with client.stream(
+            method,
+            f"{base_url.rstrip('/')}{upstream_path}",
+            data=data,
+            headers={TEAM_ID_HEADER: str(team_id), "Accept": "application/json"},
+            auth=(auth.username, auth.password) if auth else None,
+        ) as upstream:
+            bytes_read = _read_bytes_from(upstream)
+            if bytes_read is not None:
+                schedule_snuffle_budget_debit(str(team_id), bytes_read)
+            yield upstream
 
 
 class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
