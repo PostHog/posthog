@@ -24,6 +24,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
@@ -101,6 +102,17 @@ def retention_floor_for_table(
             left=ast.Call(name="now", args=[]),
             right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
         ),
+        type=ast.BooleanType(),
+    )
+
+
+def floor_at_start(table_type: ast.TableOrSelectType, field_name: str, start: datetime) -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(
+            chain=[field_name], type=ast.FieldType(name=field_name, table_type=_table_filter_type(table_type))
+        ),
+        right=ast.Constant(value=start),
         type=ast.BooleanType(),
     )
 
@@ -1257,6 +1269,27 @@ class ClickHousePrinter(BasePrinter):
             return None
         return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
 
+    def _flag_evaluations_coverage_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        # The TTL drops a monthly partition only when its newest row expires, so the table holds up to a month of rows
+        # older than the coverage start. This floor hides them from every read: a direct query, an events scan that
+        # HogQL moved to this table, and the union's flag_evaluations branch.
+        if (
+            not self.context.apply_events_retention_floor
+            or node_type is None
+            or not isinstance(table_type, ast.TableType)
+            or not isinstance(table_type.table, FlagEvaluationsTable)
+        ):
+            return None
+        return floor_at_start(
+            node_type,
+            table_type.table.events_retention_field,
+            flag_evaluations_coverage_start(self.context.flag_calls_now()),
+        )
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
         if hasattr(table, "to_printed_clickhouse_table_ref"):
@@ -1369,16 +1402,7 @@ class ClickHousePrinter(BasePrinter):
         if retention_start is None:
             return None
 
-        field_table_type = _table_filter_type(node_type)
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(
-                chain=[table.retention_field],
-                type=ast.FieldType(name=table.retention_field, table_type=field_table_type),
-            ),
-            right=ast.Constant(value=retention_start),
-            type=ast.BooleanType(),
-        )
+        return floor_at_start(node_type, table.retention_field, retention_start)
 
     def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
         columns = list(columns)
