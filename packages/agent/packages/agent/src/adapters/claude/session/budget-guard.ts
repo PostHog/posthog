@@ -96,6 +96,10 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   },
   {
+    match: /haiku-5-5/i,
+    price: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  },
+  {
     match: /haiku/i,
     price: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
   },
