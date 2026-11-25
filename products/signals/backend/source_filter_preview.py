@@ -235,6 +235,8 @@ def _preview_table(
     ]
     if config.where_clause:
         conditions.append(parse_expr(config.where_clause))
+    if config.emittable_where:
+        conditions.append(parse_expr(config.emittable_where))
     scope_ids = scope_ids_from_source_config(config, source_config)
     if scope_ids and config.scope_field:
         conditions.append(

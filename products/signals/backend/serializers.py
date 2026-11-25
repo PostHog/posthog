@@ -812,7 +812,10 @@ class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
     lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
     total_count = serializers.IntegerField(
-        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+        help_text=(
+            "Records in the window that emission would read before the filter. Leaves out records that never become "
+            "signals, such as Linear issues without a description. 0 unless `status` is `ok`."
+        )
     )
     passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
     excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
