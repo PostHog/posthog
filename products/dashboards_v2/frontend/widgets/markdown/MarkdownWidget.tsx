@@ -1,13 +1,8 @@
 import './MarkdownWidget.css'
 
-import type { JSONContent } from '@tiptap/core'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { Placeholder } from '@tiptap/extensions'
-import { Markdown } from '@tiptap/markdown'
 import { type Editor, EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
-import StarterKit from '@tiptap/starter-kit'
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 
@@ -30,38 +25,21 @@ import {
     INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY,
     createInlineMarkdownSlashCommandsExtension,
 } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
-import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 
 import type { WidgetComponentProps } from '../widgetDefinition'
+import { MARKDOWN_EXTENSIONS, markdownContent, serializeMarkdown } from './markdownContent'
 import type { MarkdownConfig } from './markdownSpec'
 
-// Images aren't stored (see EXTENSIONS), links come from pasting, and Markdown has no underline.
+// Images only show as links (see markdownContent), links come from pasting, and Markdown has no underline.
 const SLASH_COMMANDS = DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS.filter(
     (item) => !item.isImagePick && !item.isLinkPopover && item.title !== 'Underline'
 )
 
-// No image extension: every viewer would load an image from any URL the editor typed.
 const EXTENSIONS = [
-    StarterKit.configure({ link: false, underline: false }),
-    // Pasting a URL over selected text links it.
-    LinkExtension.configure({ openOnClick: false }),
-    Table,
-    TableRow,
-    TableHeader,
-    TableCell,
-    TaskList,
-    TaskItem.configure({ nested: true }),
+    ...MARKDOWN_EXTENSIONS,
     Placeholder.configure({ placeholder: "Write something, or type '/' for commands" }),
-    Markdown,
     createInlineMarkdownSlashCommandsExtension(INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY, SLASH_COMMANDS),
 ]
-
-/** Empty Markdown parses to a document with no paragraph, which leaves no line to type on or show the hint in. */
-function markdownContent(text: string): { content: string | JSONContent; contentType?: 'markdown' } {
-    return text.trim()
-        ? { content: text, contentType: 'markdown' }
-        : { content: { type: 'doc', content: [{ type: 'paragraph' }] } }
-}
 
 /**
  * Text that edits in place: what a person types is what viewers see. The config stays Markdown, so text written
@@ -92,7 +70,7 @@ export function MarkdownWidget({ widget, setConfig }: WidgetComponentProps<Markd
                 return
             }
             dirty.current = false
-            setConfigRef.current?.({ ...widget.config, text: editor.getMarkdown() })
+            setConfigRef.current?.({ ...widget.config, text: serializeMarkdown(editor) })
         }
         editor.on('blur', save)
         return () => {
@@ -107,7 +85,7 @@ export function MarkdownWidget({ widget, setConfig }: WidgetComponentProps<Markd
 
     // An undo, or another tab showing the same widget, changes the text from outside the editor.
     useEffect(() => {
-        if (editor.isFocused || dirty.current || editor.getMarkdown() === text) {
+        if (editor.isFocused || dirty.current || serializeMarkdown(editor) === text) {
             return
         }
         const { content, contentType } = markdownContent(text)
