@@ -42,6 +42,12 @@ from products.data_modeling.backend.temporal.activities import (
     preempt_dag_run_activity,
 )
 from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
+from products.data_modeling.backend.temporal.tests.recorded_metrics import (
+    REQUEST_TO_FINISH_METRIC,
+    RecordedMetric,
+    recorded_workflow_metrics,
+    request_to_finish_records,
+)
 from products.data_modeling.backend.temporal.workflows.execute_dag import (
     TRINO_CHILD_LOCK_PATCH,
     EmptyDAGOrCycleError,
@@ -68,6 +74,7 @@ class ShadowRunOutcome:
     result: ExecuteDAGResult
     start_child: AsyncMock
     execute_activity: AsyncMock
+    metrics: list[RecordedMetric]
 
 
 class TestGetDagStructureActivity:
@@ -1194,6 +1201,8 @@ class TestTrinoShadowRun:
 
         info = MagicMock()
         info.workflow_id = workflow_id
+        info.parent = None
+        info.workflow_start_time = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         start_child_mock = AsyncMock(side_effect=start_child)
         execute_activity_mock = AsyncMock(side_effect=execute_activity)
         with (
@@ -1201,13 +1210,15 @@ class TestTrinoShadowRun:
             patch.object(temporal_workflow, "start_child_workflow", new=start_child_mock),
             patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
             patch.object(temporal_workflow, "info", return_value=info),
-            patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
+            recorded_workflow_metrics() as metrics,
             patch.object(temporal_workflow, "logger"),
             patch.object(temporal_workflow, "patched", return_value=patched),
             patch("products.data_modeling.backend.temporal.workflows.execute_dag.capture_exception"),
         ):
             result = await ExecuteDAGWorkflow().run(inputs)
-        return ShadowRunOutcome(result=result, start_child=start_child_mock, execute_activity=execute_activity_mock)
+        return ShadowRunOutcome(
+            result=result, start_child=start_child_mock, execute_activity=execute_activity_mock, metrics=metrics
+        )
 
     @staticmethod
     def _shadow_starts(start_child: AsyncMock) -> list:
@@ -1257,13 +1268,83 @@ class TestTrinoShadowRun:
             patch(f"{module}.get_dag_duration_metric") as duration,
             patch(f"{module}.get_dag_node_count_metric") as node_count,
         ):
-            await self._run(
+            outcome = await self._run(
                 ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only, shadow=True)
             )
 
         assert finished.call_args.args[1] == expected_engine
         assert duration.call_args.args[0] == expected_engine
         assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
+        assert [record.attributes for record in request_to_finish_records(outcome.metrics)] == [
+            {"trigger": "unknown", "engine": expected_engine, "status": "completed"}
+        ]
+
+    @pytest.mark.parametrize(
+        "error,expected_seconds",
+        [
+            pytest.param(temporalio.exceptions.ApplicationError("no worker took it"), [60.0], id="ends_the_run"),
+            pytest.param(RuntimeError("a bug in the workflow"), [], id="fails_a_workflow_task_that_temporal_retries"),
+        ],
+    )
+    async def test_only_an_error_that_ends_the_run_records_its_time_since_the_request(
+        self, error: Exception, expected_seconds: list[float]
+    ) -> None:
+        info = MagicMock(workflow_id="execute-dag-ad-hoc")
+        info.parent = None
+        with (
+            patch.object(temporal_workflow, "execute_activity", new=AsyncMock(side_effect=error)),
+            patch.object(temporal_workflow, "info", return_value=info),
+            patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, 0, 1, tzinfo=dt.UTC)),
+            patch.object(
+                temporal_workflow,
+                "is_failure_exception",
+                side_effect=lambda raised: isinstance(raised, temporalio.exceptions.FailureError),
+            ),
+            patch.object(temporal_workflow, "logger"),
+            recorded_workflow_metrics() as metrics,
+            pytest.raises(type(error)),
+        ):
+            await ExecuteDAGWorkflow().run(
+                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at="2026-01-01T00:00:00+00:00")
+            )
+
+        assert metrics == [
+            RecordedMetric(
+                name=REQUEST_TO_FINISH_METRIC,
+                attributes={"trigger": "manual", "engine": "clickhouse", "status": "failed"},
+                value=seconds,
+            )
+            for seconds in expected_seconds
+        ]
+
+    @pytest.mark.parametrize(
+        "workflow_id,inputs,expected",
+        [
+            pytest.param(
+                "execute-dag-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b:3600-2026-10-21T10:00:00Z",
+                ExecuteDAGInputs(team_id=7, dag_id="dag"),
+                ("scheduled", None),
+                id="tier_schedule",
+            ),
+            pytest.param(
+                "execute-dag-0b0e2b8e-5c4f-4d47-9a51-3f4f0c1d2e3a",
+                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at="2026-01-01T00:00:00+00:00"),
+                ("manual", "2026-01-01T00:00:00+00:00"),
+                id="started_by_a_person",
+            ),
+        ],
+    )
+    async def test_every_node_of_a_run_carries_what_started_the_run_and_when(
+        self, workflow_id: str, inputs: ExecuteDAGInputs, expected: tuple[str, str | None]
+    ) -> None:
+        outcome = await self._run(inputs, workflow_id=workflow_id, eligible=False)
+
+        node_inputs = [
+            call.args[1]
+            for call in outcome.start_child.await_args_list
+            if isinstance(call.args[1], MaterializeViewWorkflowInputs)
+        ]
+        assert {(node.trigger, node.requested_at) for node in node_inputs} == {expected}
 
     @pytest.mark.parametrize(
         "error,expected_outcome",

@@ -34,6 +34,7 @@ import {
 } from './constants'
 import { EvaluationConfigurationForm } from './create/EvaluationConfigurationForm'
 import { EvaluationCreatePage } from './create/EvaluationCreatePage'
+import { AI_DATA_PROCESSING_REQUIRED_REASON } from './create/evaluationSummary'
 import {
     evaluationSupportsReportHistory,
     evaluationSupportsReports,
@@ -71,11 +72,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { props: evaluationLogicProps } = useMountedLogic(llmEvaluationLogic)
     const { searchParams } = useValues(router)
-    const { isConfigDirty: reportConfigDirty } = useValues(
+    const { isConfigDirty: reportConfigDirty, dataProcessingAccepted } = useValues(
         evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
     )
     // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
-    const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
+    const unsaved = hasUnsavedChanges || (!isNewEvaluation && dataProcessingAccepted && reportConfigDirty)
     const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
@@ -145,6 +146,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setActiveTab('configuration')
         setFormStep('traffic')
     }
+
+    const generationDisabledReason = !isReportableEvaluation
+        ? 'Add a passing rule to generate new reports.'
+        : !dataProcessingAccepted
+          ? AI_DATA_PROCESSING_REQUIRED_REASON
+          : undefined
 
     const handleSave = (): void => {
         if (basicFieldsValid && percentageUnset) {
@@ -361,9 +368,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <EvaluationReportsTab
                                 evaluationId={evaluation.id}
-                                generationDisabledReason={
-                                    isReportableEvaluation ? undefined : 'Add a passing rule to generate new reports.'
-                                }
+                                generationDisabledReason={generationDisabledReason}
                                 userAccessLevel={evaluation.user_access_level ?? undefined}
                                 onConfigureClick={() => setActiveTab('configuration')}
                             />
@@ -404,9 +409,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             AccessControlLevel.Editor
                         )
                             ? 'You need edit access to this evaluation to generate reports.'
-                            : isReportableEvaluation
-                              ? undefined
-                              : 'Add a passing rule to generate new reports.'
+                            : generationDisabledReason
                     }
                     onOpenTrace={(traceId, eventId) =>
                         router.actions.push(router.values.location.pathname, {

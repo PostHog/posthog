@@ -134,8 +134,8 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
     """Whether this run stands down because the schema's runs keep failing.
 
     The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
-    reach costs one run per gap rather than one per slot. A reset run always goes ahead, because a
-    reset is the person asking for the table to be re-read from the start.
+    reach costs one run per gap rather than one per slot. A reset or a manual sync always goes
+    ahead, because a person asked for it.
 
     False on any error. This decides whether a sync runs at all, and the retry cap already bounds
     what one failing run costs, so going ahead is the safe answer.
@@ -146,7 +146,7 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
             .only("sync_type_config")
             .first()
         )
-        if schema is None or schema.reset_pipeline:
+        if schema is None or schema.reset_pipeline or schema.manual_run_requested:
             return False
 
         gap = min_gap_between_runs(schema.failed_runs_in_a_row)

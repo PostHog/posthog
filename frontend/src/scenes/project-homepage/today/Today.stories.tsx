@@ -323,6 +323,14 @@ const DASHBOARDS = [
     { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
 ].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
 
+// MOCK_DEFAULT_TEAM points primary_dashboard at id 1
+const PRIMARY_DASHBOARD = {
+    ...DASHBOARDS[0],
+    id: 1,
+    description: '**Signups**, activation and revenue for the `self-serve` funnel. Reviewed every Monday.',
+    tiles: [],
+}
+
 const REPORTS = [
     makeReport({
         id: 'report-1',
@@ -991,6 +999,7 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
+                '/api/projects/:team_id/dashboards/1/': PRIMARY_DASHBOARD,
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
@@ -1880,6 +1889,21 @@ export const HomeWhileSelfDrivingReviews: Story = {
                 '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
                 '/api/projects/:team_id/signals/source_configs/': mockSourceConfigs,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
+}
+
+export const HomeWithSelfDrivingNotSetUp: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': { results: [], count: 0 },
                 '/api/projects/:team_id/signals/scout/configs/': [],
             },
         }),

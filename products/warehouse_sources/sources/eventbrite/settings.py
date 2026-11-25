@@ -138,6 +138,42 @@ EVENTBRITE_ENDPOINTS: dict[str, EventbriteEndpointConfig] = {
         include_from_parent=["id"],
         params={"include_all": "true"},
     ),
+    "ticket_groups": EventbriteEndpointConfig(
+        name="ticket_groups",
+        path="/organizations/{organization_id}/ticket_groups/",
+        data_key="ticket_groups",
+        scope=EndpointScope.ORG,
+        # Without a status filter only live groups come back, so discounts on archived groups would not resolve.
+        params={"status": "all"},
+    ),
+    "members": EventbriteEndpointConfig(
+        name="members",
+        path="/organizations/{organization_id}/members/",
+        data_key="members",
+        scope=EndpointScope.ORG,
+        # Member rows hold no organization reference, and one user can belong to several organizations.
+        primary_keys=["_organizations_id", "user_id"],
+        include_from_parent=["id"],
+    ),
+    # The discount search is organization-scoped but `scope=event` also needs the event, so this path binds
+    # both the event's `organization_id` and its `id`.
+    "discounts": EventbriteEndpointConfig(
+        name="discounts",
+        path="/organizations/{organization_id}/discounts/?event_id={event_id}",
+        data_key="discounts",
+        scope=EndpointScope.EVENT,
+        primary_keys=["_events_id", "id"],
+        include_from_parent=["id"],
+        params={"scope": "event"},
+    ),
+    "inventory_tiers": EventbriteEndpointConfig(
+        name="inventory_tiers",
+        path="/events/{event_id}/inventory_tiers/",
+        data_key="inventory_tiers",
+        scope=EndpointScope.EVENT,
+        primary_keys=["_events_id", "id"],
+        include_from_parent=["id"],
+    ),
     # The report endpoints take their event as a query param rather than a path segment, and the
     # fan-out framework only binds a resolved parent field into the path — so the query string is
     # written into the path template.
