@@ -435,3 +435,19 @@ class TestVercelAPIClient:
             patch("ee.vercel.client.token_cache.set", side_effect=ConnectionError("cache down")),
         ):
             assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
+
+    @responses.activate
+    def test_installation_token_request_retries_a_transient_failure(self, settings):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        responses.add(responses.POST, VERCEL_OAUTH_TOKEN_URL, status=503, json={"error": {"code": "server_error"}})
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+
+        with patch.object(VercelAPIClient.request_installation_token.retry, "sleep", lambda _seconds: None):
+            assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
+
+        assert len(responses.calls) == 2
