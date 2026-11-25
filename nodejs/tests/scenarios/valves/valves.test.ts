@@ -395,8 +395,9 @@ describe('valves', () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf({ runningJobs: 2 })
 
-        await valves.start([kill({ at: '100ms', when: RUNNING_ON_EMAIL })], stack.context)
-        // Without the delay the kill needs no timer, so it lands before this one fires, however late both run.
+        await valves.start([kill({ at: '1s', when: RUNNING_ON_EMAIL })], stack.context)
+        // Without the delay the kill needs no timer, so it lands before this snapshot.
+        // The 1s delay keeps a correct kill out of it, even on a slow runner.
         const goneBeforeArming = await sleep(50).then(() => stack.gone())
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()

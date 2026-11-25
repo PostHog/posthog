@@ -326,6 +326,12 @@ describe('load', () => {
             'valves.0.at: at is past 2147483647ms, the longest a timer waits',
         ],
         [
+            'a valve offset that is no duration',
+            { ...card, valves: [{ ...emailWorkerKill, at: '10sec' }] },
+            undefined,
+            'valves.0.at: a duration such as 500ms, 30s or 5m',
+        ],
+        [
             'a valve armed past the end of the drive on a profile with admission',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '60s' }] },
             { ...profile, host: { cpuCeiling: 0.5 } },
