@@ -145,8 +145,6 @@ export function WorkflowsDailyLimitsSettings({
                     onClick={() =>
                         updateCurrentTeam({
                             workflows_config: {
-                                capture_workflows_engagement_events:
-                                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                                 [perWorkflowField]: perWorkflow,
                                 [perProjectField]: perProject,
                             },

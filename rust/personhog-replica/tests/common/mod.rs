@@ -5,6 +5,9 @@ use sqlx::{Postgres, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Ids per bulk chunk in test storage. It is small so that tests reach the multi-chunk path with few rows.
+pub const BULK_CHUNK_SIZE: usize = 50;
+
 fn random_team_id() -> i64 {
     rand::thread_rng().gen_range(1_000_000..100_000_000)
 }
@@ -25,7 +28,7 @@ fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Ar
         pool.clone(),
         pool.clone(),
         pool,
-        50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+        BULK_CHUNK_SIZE,
         5,  // bulk_max_concurrent_chunks
         12, // tombstoned_delete_max_rows, small enough that the clamp is observable
         hash_key_override_statement_timeout_ms,
@@ -81,9 +84,8 @@ impl TestContext {
 
         sqlx::query(
             r#"INSERT INTO posthog_person
-            (id, uuid, team_id, properties, properties_last_updated_at,
-             properties_last_operation, created_at, version, is_identified, is_user_id)
-            VALUES ($1, $2, $3, $4, '{}', '{}', NOW(), 0, false, NULL)
+            (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+            VALUES ($1, $2, $3, $4, NOW(), 0, false, NULL)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(person_id)

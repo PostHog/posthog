@@ -29,6 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
@@ -163,6 +164,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
+                                    nameAction={<TodayScenePinButton />}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(

@@ -27,6 +27,7 @@ export type RequestProperties = {
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
+    splitWrites?: boolean | undefined
     mode?: McpMode | undefined
     viaMcpStore?: boolean | undefined
     transport?: Transport | undefined
@@ -40,12 +41,16 @@ export type RequestProperties = {
     // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
     // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
     taskOriginProduct?: string | undefined
+    // A Tasks run launched with skills disabled still sends `posthog-code`, so the consumer header can't carry this.
+    bundledSkills?: boolean | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
     featureFlagOverrides?: string | undefined
     // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
     excludeTools?: string[] | undefined
+    // Resource groups to advertise in `resources/list`; `none` advertises nothing.
+    resources?: string[] | undefined
     clientIp?: string | undefined
 }
 
@@ -95,6 +100,29 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
     return unique.length > 0 ? unique : undefined
 }
 
+function parseBooleanParam(value: string | undefined): boolean | undefined {
+    if (value === 'true' || value === '1') {
+        return true
+    }
+    if (value === 'false' || value === '0') {
+        return false
+    }
+    return undefined
+}
+
+const RESOURCE_GROUP_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+function parseResourceGroups(value: string | undefined): string[] | undefined {
+    const parts = value?.split(',').filter(Boolean)
+    if (!parts?.length) {
+        return undefined
+    }
+    // Invalid names stay out of the filter rather than widening it to every resource.
+    const names = parts.map((part) => part.trim().toLowerCase().replaceAll('_', '-'))
+    const groups = new Set(names.filter((name) => RESOURCE_GROUP_NAME.test(name)))
+    return [...groups].slice(0, MAX_TOOL_FILTER_NAMES)
+}
+
 function parseExcludeTools(value: string | undefined): string[] | undefined {
     return value ? sanitizeToolFilterNames(value.split(',')) : undefined
 }
@@ -122,6 +150,9 @@ export function parseRequestProperties(
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
+        splitWrites: parseBooleanParam(
+            header(request, 'x-posthog-split-writes') || params.get('split_writes') || undefined
+        ),
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(
             header(request, 'x-posthog-mcp-consumer') || params.get('consumer') || undefined
@@ -136,8 +167,12 @@ export function parseRequestProperties(
         viaMcpStore,
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
+        bundledSkills: header(request, 'x-posthog-mcp-bundled-skills') === 'true' || undefined,
         excludeTools: parseExcludeTools(
             sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
+        ),
+        resources: parseResourceGroups(
+            header(request, 'x-posthog-mcp-resources') || params.get('resources') || undefined
         ),
         transport,
         requestStartTime: Date.now(),

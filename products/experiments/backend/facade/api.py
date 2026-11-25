@@ -26,16 +26,15 @@ from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
-from products.experiments.backend.health.inputs_payload import health_inputs_payload
-from products.experiments.backend.health.loader import evaluate_experiment_health, load_experiment_health_inputs
+from products.experiments.backend.health.loader import evaluate_experiment_health
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
-    get_exposure_event_and_property,
+    exposure_nodes_without_copies,
     is_default_exposure_config,
     normalize_to_exposure_criteria,
-    resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_calculation.config import (
@@ -43,6 +42,7 @@ from products.experiments.backend.metric_calculation.config import (
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
     Experiment as ExperimentModel,
     experiment_variants,
@@ -53,6 +53,7 @@ from products.experiments.backend.models.team_experiments_config import (
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
 from products.experiments.backend.running_time_target import load_running_time_target
+from products.experiments.backend.warehouse_native_sources import user_may_read_warehouse_native_results
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
@@ -79,7 +80,7 @@ from .contracts import (
     TeamExperimentsSettingsUpdate,
     Unset,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
 
 logger = structlog.get_logger(__name__)
 
@@ -159,31 +160,54 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     return _experiment_model_to_dto(experiment_model)
 
 
-def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> int:
-    """Count the organization's running experiments that count exposures on $feature_flag_called.
+def count_running_experiments_needing_flag_calls_in_events(organization_id: UUID) -> int:
+    """Count the organization's running experiments that read $feature_flag_called from events without its
+    $experiment_exposure copy: through an exposure action, an activation, or a primary, secondary or shared metric.
 
-    Those exposures come from the events table, so they stop when ingestion stops writing
-    $feature_flag_called to events.
+    Ingestion stops writing $feature_flag_called to events on FLAG_EVALUATIONS_ONLY, so those reads find no new
+    calls. A default exposure on $feature_flag_called does not count, because it also reads the copy. That relies on
+    ingestion copying every team's multivariate flag calls, as EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS="*" does on
+    PostHog Cloud. Legacy metrics do not count, because nothing computes them.
     """
     experiments = (
         ExperimentModel.objects.filter(
             team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
         )
         .exclude(deleted=True)
-        .select_related("team", "feature_flag")
+        .select_related("team")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
-    count = 0
+    reads_by_project: dict[int, list[tuple[set[str], set[int]]]] = defaultdict(list)
     for experiment in experiments:
-        # A rule-linked experiment counts the $experiment_exposure events of its rule only.
-        if experiment.is_rule_linked:
-            continue
-        exposure_event, _ = get_exposure_event_and_property(
-            experiment.feature_flag.key,
-            experiment.exposure_criteria,
-            default_exposure_event=resolve_default_exposure_event(experiment.team, experiment.start_date),
+        reads_by_project[experiment.team.project_id].append(
+            collect_metric_events_and_action_ids(_nodes_read_without_exposure_copy(experiment))
         )
-        count += exposure_event == DEFAULT_EXPOSURE_EVENT
+    count = 0
+    for project_id, reads in reads_by_project.items():
+        # The queries resolve actions by project and keep reading deleted ones, so this lookup does the same.
+        action_ids = set().union(*(ids for _, ids in reads))
+        flag_call_action_ids = {
+            action.id
+            for action in get_actions(action_ids=action_ids, project_id=project_id, include_deleted=True)
+            if DEFAULT_EXPOSURE_EVENT in action.get_step_events()
+        }
+        count += sum(DEFAULT_EXPOSURE_EVENT in events or bool(ids & flag_call_action_ids) for events, ids in reads)
     return count
+
+
+def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[str, Any]]:
+    metrics = [
+        *(experiment.metrics or []),
+        *(experiment.metrics_secondary or []),
+        *(link.saved_metric.query for link in experiment.experimenttosavedmetric_set.all() if link.saved_metric.query),
+    ]
+    nodes = [metric for metric in metrics if metric.get("kind") not in LEGACY_METRIC_KINDS]
+    try:
+        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    except pydantic.ValidationError:
+        logger.warning("experiment_exposure_criteria_invalid", experiment_id=experiment.id, exc_info=True)
+        return nodes
+    return [*nodes, *exposure_nodes_without_copies(criteria)]
 
 
 def get_experiment_health(
@@ -197,26 +221,18 @@ def get_experiment_health(
     )
 
 
-def get_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> dict[str, Any]:
-    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
-    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
-    experiment defaults and SDK profile."""
-    inputs = load_experiment_health_inputs(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
-    )
-    return health_inputs_payload(inputs)
-
-
-def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
-    """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse.
+def get_stored_primary_result(*, team_id: int, experiment_id: int, user_id: int | None) -> StoredPrimaryResult | None:
+    """The current stored result of the experiment's primary metric, for the user who reads it. It reads Postgres
+    only, not ClickHouse.
 
     None for an experiment that reports absolute differences: the calculation key leaves out the difference type,
-    so the stored interval can be in either unit."""
+    so the stored interval can be in either unit. None for a warehouse-native experiment whose connection the reader
+    cannot read, because the stored totals came from that connection."""
     experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
     config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
     if experiment is None or config is None or config.settings.stats.difference_type == DifferenceType.ABSOLUTE:
+        return None
+    if not user_may_read_warehouse_native_results(experiment.team, experiment.exposure_criteria, user_id):
         return None
     stats = MetricResultStore(experiment_id=experiment_id).current_result(config)
     if stats is None:
@@ -422,6 +438,15 @@ def get_experiment_team_id(experiment_id: int) -> int | None:
     return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
 
 
+def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
+    """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
+    (or among all of them when it is None)."""
+    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    if experiment_ids is not None:
+        experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
+    return frozenset(str(id) for id in experiments.values_list("id", flat=True))
+
+
 def team_has_launched_experiments(team_id: int) -> bool:
     """Whether the team has a running or stopped experiment, deleted and archived ones included. Experiments are saved
     on the project's root team, so pass that team's id."""
@@ -529,6 +554,18 @@ def _to_team_experiments_settings(config: TeamExperimentsConfig) -> TeamExperime
 def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     """The first read creates the team's settings row with the defaults."""
     return _to_team_experiments_settings(_team_experiments_config(team_id))
+
+
+def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
+    """Start the recalculation workflow for a run that ``request_recalculation`` created.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the exception propagates.
+    """
+    from products.experiments.backend.temporal.recalculation import (  # noqa: PLC0415 — dispatch imports temporalio, which must stay off the django.setup() path
+        dispatch,
+    )
+
+    dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
 
 
 def validate_recalculation_times(times: Sequence[str] | None) -> None:

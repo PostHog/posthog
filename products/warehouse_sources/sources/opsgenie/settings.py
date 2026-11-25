@@ -15,7 +15,7 @@ class OpsgenieEndpointConfig:
     partition_key: Optional[str] = None  # Stable datetime field used to partition (never a mutable field)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # True for endpoints that accept `limit`/`offset` pagination params. Endpoints left
-    # False (teams, schedules, escalations, integrations) return their full collection in
+    # False (teams, schedules, escalations, integrations, heartbeats, maintenance) return their full collection in
     # a single response.
     paginated: bool = False
     # True only for the alert/incident search endpoints, which accept a `query` search
@@ -95,6 +95,18 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
         name="integrations",
         path="/v2/integrations",
     ),
+    # Heartbeats are addressed by name; the API has no heartbeat id.
+    "heartbeats": OpsgenieEndpointConfig(
+        name="heartbeats",
+        path="/v2/heartbeats",
+        primary_keys=["name"],
+        data_selector="data.heartbeats",
+    ),
+    # Lists every maintenance window (the `type` filter defaults to `all`, past windows included).
+    "maintenance": OpsgenieEndpointConfig(
+        name="maintenance",
+        path="/v1/maintenance",
+    ),
     "incident_timeline_entries": OpsgenieEndpointConfig(
         name="incident_timeline_entries",
         path="/v2/incident-timelines/{incident_id}/entries",
@@ -129,6 +141,40 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
             parent_params={"sort": "createdAt", "order": "asc"},
             child_params={"order": "asc", "direction": "next"},
             # An alert deleted after the alert listing returns 404; skip it rather than fail the run.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "alert_notes": OpsgenieEndpointConfig(
+        name="alert_notes",
+        path="/v2/alerts/{alert_id}/notes",
+        # A note has no id; like a log entry, its `offset` cursor is unique within the alert.
+        primary_keys=["alert_id", "offset"],
+        partition_key="createdAt",
+        next_url_path="paging.next",
+        fanout=DependentEndpointConfig(
+            parent_name="alerts",
+            resolve_param="alert_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "alert_id"},
+            parent_params={"sort": "createdAt", "order": "asc"},
+            child_params={"order": "asc", "direction": "next"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "alert_recipients": OpsgenieEndpointConfig(
+        name="alert_recipients",
+        path="/v2/alerts/{alert_id}/recipients",
+        # The recipient list is not paginated and holds one entry per notified user.
+        primary_keys=["alert_id", "user_id"],
+        partition_key="createdAt",
+        fanout=DependentEndpointConfig(
+            parent_name="alerts",
+            resolve_param="alert_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "alert_id"},
+            parent_params={"sort": "createdAt", "order": "asc"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

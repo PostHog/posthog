@@ -17,6 +17,10 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
@@ -100,6 +104,12 @@ RedshiftErrors = {
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
     "server does not support SSL": "The server does not support SSL, which we require for Redshift. Please check the host and port point to your Redshift cluster.",
     "Connection refused": "Connection refused. Please check the host and port.",
+    # Through an SSH tunnel libpq connects to 127.0.0.1, so a bastion that can't reach the cluster
+    # shows up as the local forward closing the connection during the startup handshake.
+    "server closed the connection unexpectedly": (
+        "Redshift closed the connection before PostHog could sign in. Check the host and port, and if you "
+        "use an SSH tunnel, check that the bastion can reach the cluster."
+    ),
 }
 
 
@@ -327,6 +337,8 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
             raw = e.value or ""
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                return False, SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
             if _SSH_GATEWAY_SESSION_ERROR in raw:
                 return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (

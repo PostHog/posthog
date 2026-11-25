@@ -30,6 +30,7 @@ import {
 } from 'products/data_warehouse/frontend/generated/api'
 import type { IncrementalEligibilityApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
+import { DEFAULT_DISMISS_REASON, trimmedNote } from './dismissReasons'
 import {
     warehouseSuggestionsAcceptCreate,
     warehouseSuggestionsAssignCreate,
@@ -52,10 +53,12 @@ import { subjectUrl } from './subjectUrl'
 import {
     MAIN_SAVING_KINDS,
     SavingsSummary,
+    isDeprecatePayload,
     isMaterializePayload,
     mainSaving,
     monthlySaving,
     notNowCondition,
+    refreshesTheView,
     savingSplit,
 } from './suggestionCopy'
 
@@ -104,12 +107,15 @@ const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => 
         `Stopped materializing ${payload.subject_name}. Each read now computes it from its query.`,
     certify: ({ payload }) => `Certified ${payload.subject_name}.`,
     deprecate: ({ payload, created_asset }) => {
-        if (created_asset?.saved_query_id) {
+        if (created_asset?.certification_id) {
+            return created_asset.stopped_materialization === true
+                ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
+                : `Marked ${payload.subject_name} as deprecated.`
+        }
+        if (created_asset && 'stopped_materialization' in created_asset) {
             return `Deleted ${payload.subject_name}.`
         }
-        return created_asset?.stopped_materialization === true
-            ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
-            : `Marked ${payload.subject_name} as deprecated.`
+        return `Stopped refreshing ${payload.subject_name}. It isn't marked deprecated.`
     },
 }
 const ACCEPT_OPTION_FIELDS = new Set([
@@ -189,17 +195,38 @@ function changedRefreshOptions(
     return options
 }
 
+export type DeprecateAction = 'deprecate' | 'unmarked' | 'delete'
+
 export function deprecateOptions(
     suggestion: WarehouseSuggestionApi,
-    { deleteView, keepMaterialized }: { deleteView: boolean; keepMaterialized: boolean }
+    { deprecateAction, keepMaterialized }: { deprecateAction: DeprecateAction; keepMaterialized: boolean }
 ): AcceptWarehouseSuggestionApi | undefined {
     if (suggestion.kind !== 'deprecate') {
         return undefined
     }
-    if (deleteView) {
+    if (deprecateAction === 'delete') {
         return { delete_view: true }
     }
+    if (deprecateAction === 'unmarked') {
+        return { mark_deprecated: false }
+    }
     return keepMaterialized ? { keep_materialized: true } : undefined
+}
+
+function shownDeprecateAction(
+    suggestion: WarehouseSuggestionApi | null,
+    deprecateAction: DeprecateAction
+): DeprecateAction | undefined {
+    return suggestion?.kind === 'deprecate' ? deprecateAction : undefined
+}
+
+function defaultDeprecateAction(suggestion: WarehouseSuggestionApi | null): DeprecateAction {
+    if (canEditDataCatalog()) {
+        return 'deprecate'
+    }
+    return suggestion && isDeprecatePayload(suggestion.payload) && refreshesTheView(suggestion.payload)
+        ? 'unmarked'
+        : 'delete'
 }
 
 async function fetchIncrementalCheck(viewId: string): Promise<IncrementalEligibilityApi | null> {
@@ -228,7 +255,11 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestion: WarehouseSuggestionApi | null
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
-    deleteView: boolean
+    deprecateAction: DeprecateAction
+    dismissDialogSuggestion: WarehouseSuggestionApi | null
+    dismissDialogSuggestionId: string | null
+    dismissNote: string
+    dismissReason: WarehouseSuggestionDismissalReasonEnumApi
     featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
@@ -280,6 +311,9 @@ export interface warehouseSuggestionsLogicActions {
     closeAcceptConfirm: () => {
         value: true
     }
+    closeDismissDialog: () => {
+        value: true
+    }
     closeMaterializeModal: () => {
         value: true
     }
@@ -305,6 +339,9 @@ export interface warehouseSuggestionsLogicActions {
         value: true
     }
     confirmAccept: () => {
+        value: true
+    }
+    confirmDismiss: () => {
         value: true
     }
     confirmMaterialize: () => {
@@ -373,6 +410,9 @@ export interface warehouseSuggestionsLogicActions {
     openAcceptConfirm: (id: string) => {
         id: string
     }
+    openDismissDialog: (id: string) => {
+        id: string
+    }
     openMaterializeModal: (id: string) => {
         id: string
     }
@@ -395,8 +435,14 @@ export interface warehouseSuggestionsLogicActions {
         id: string
         inFlight: boolean
     }
-    setDeleteView: (deleteView: boolean) => {
-        deleteView: boolean
+    setDeprecateAction: (deprecateAction: DeprecateAction) => {
+        deprecateAction: DeprecateAction
+    }
+    setDismissNote: (note: string) => {
+        note: string
+    }
+    setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => {
+        reason: WarehouseSuggestionDismissalReasonEnumApi
     }
     setKeepMaterialized: (keepMaterialized: boolean) => {
         keepMaterialized: boolean
@@ -418,6 +464,9 @@ export interface warehouseSuggestionsLogicActions {
     }
     suggestionAccepted: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
+    }
+    suggestionDismissed: (id: string) => {
+        id: string
     }
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
@@ -452,6 +501,10 @@ export interface warehouseSuggestionsLogicMeta {
         acceptConfirmSuggestion: (
             suggestions: WarehouseSuggestionApi[] | null,
             acceptConfirmSuggestionId: string | null
+        ) => WarehouseSuggestionApi | null
+        dismissDialogSuggestion: (
+            suggestions: WarehouseSuggestionApi[] | null,
+            dismissDialogSuggestionId: string | null
         ) => WarehouseSuggestionApi | null
         materializeDisabledReason: (
             materializeInterval: DataModelingSyncInterval | null,
@@ -517,12 +570,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             openAcceptConfirm: (id: string) => ({ id }),
             closeAcceptConfirm: true,
             confirmAccept: true,
+            openDismissDialog: (id: string) => ({ id }),
+            closeDismissDialog: true,
+            setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => ({ reason }),
+            setDismissNote: (note: string) => ({ note }),
+            confirmDismiss: true,
             acceptSuggestionFailed: (id: string) => ({ id }),
-            setDeleteView: (deleteView: boolean) => ({ deleteView }),
+            setDeprecateAction: (deprecateAction: DeprecateAction) => ({ deprecateAction }),
             setKeepMaterialized: (keepMaterialized: boolean) => ({ keepMaterialized }),
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            suggestionDismissed: (id: string) => ({ id }),
             reload: true,
             showMore: (placement: ShowMorePlacement) => ({ placement }),
             setShowingMore: (showingMore: boolean) => ({ showingMore }),
@@ -615,6 +674,28 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     acceptSuggestionFailed: (state, { id }) => (state === id ? null : state),
                 },
             ],
+            dismissDialogSuggestionId: [
+                null as string | null,
+                {
+                    openDismissDialog: (_, { id }) => id,
+                    closeDismissDialog: () => null,
+                    suggestionDismissed: (state, { id }) => (state === id ? null : state),
+                },
+            ],
+            dismissReason: [
+                DEFAULT_DISMISS_REASON,
+                {
+                    setDismissReason: (_, { reason }) => reason,
+                    openDismissDialog: () => DEFAULT_DISMISS_REASON,
+                },
+            ],
+            dismissNote: [
+                '',
+                {
+                    setDismissNote: (_, { note }) => note,
+                    openDismissDialog: () => '',
+                },
+            ],
             keepMaterialized: [
                 false,
                 {
@@ -623,12 +704,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     closeAcceptConfirm: () => false,
                 },
             ],
-            deleteView: [
-                false,
+            deprecateAction: [
+                'deprecate' as DeprecateAction,
                 {
-                    setDeleteView: (_, { deleteView }) => deleteView,
-                    openAcceptConfirm: () => false,
-                    closeAcceptConfirm: () => false,
+                    setDeprecateAction: (_, { deprecateAction }) => deprecateAction,
+                    openAcceptConfirm: () => 'deprecate',
+                    closeAcceptConfirm: () => 'deprecate',
                 },
             ],
             materializeInterval: [
@@ -727,6 +808,11 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             ],
             acceptConfirmSuggestion: [
                 (s) => [s.suggestions, s.acceptConfirmSuggestionId],
+                (suggestions: WarehouseSuggestionApi[] | null, id: string | null): WarehouseSuggestionApi | null =>
+                    (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
+            ],
+            dismissDialogSuggestion: [
+                (s) => [s.suggestions, s.dismissDialogSuggestionId],
                 (suggestions: WarehouseSuggestionApi[] | null, id: string | null): WarehouseSuggestionApi | null =>
                     (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
             ],
@@ -878,20 +964,45 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     })
                 },
                 openAcceptConfirm: ({ id }) => {
-                    if (values.acceptConfirmSuggestion?.kind === 'deprecate' && !canEditDataCatalog()) {
-                        actions.setDeleteView(true)
+                    if (values.acceptConfirmSuggestion?.kind === 'deprecate') {
+                        actions.setDeprecateAction(defaultDeprecateAction(values.acceptConfirmSuggestion))
                     }
                     capture('warehouse suggestion confirm opened', {
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
                         surface: props.surface,
+                        deprecate_action: shownDeprecateAction(values.acceptConfirmSuggestion, values.deprecateAction),
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
                     capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
                         surface: props.surface,
+                        deprecate_action: shownDeprecateAction(
+                            selectors.acceptConfirmSuggestion(previousState),
+                            selectors.deprecateAction(previousState)
+                        ),
                     })
+                },
+                openDismissDialog: ({ id }) => {
+                    capture('warehouse suggestion dismiss opened', {
+                        suggestion_id: id,
+                        kind: values.dismissDialogSuggestion?.kind,
+                        surface: props.surface,
+                    })
+                },
+                closeDismissDialog: (_, __, ___, previousState) => {
+                    capture('warehouse suggestion dismiss cancelled', {
+                        suggestion_id: selectors.dismissDialogSuggestionId(previousState),
+                        surface: props.surface,
+                    })
+                },
+                confirmDismiss: () => {
+                    const id = values.dismissDialogSuggestionId
+                    if (!id) {
+                        return
+                    }
+                    actions.dismissSuggestion(id, values.dismissReason, trimmedNote(values.dismissNote))
                 },
                 confirmAccept: () => {
                     const suggestion = values.acceptConfirmSuggestion
@@ -1039,6 +1150,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             { reason, note },
                             { surface: props.surface }
                         )
+                        actions.suggestionDismissed(id)
                         lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
                             button: {

@@ -46,6 +46,9 @@
 
     .quill-input:disabled {
         pointer-events: none;
+    }
+
+    .quill-input:is(:disabled, [aria-disabled='true']) {
         cursor: not-allowed;
         opacity: 0.5;
     }

@@ -44,7 +44,12 @@ class TestAgentEgressRegistry(TestCase):
         OrganizationMembership.objects.create(organization=organization, user=cls.actor)
         OrganizationMembership.objects.create(organization=organization, user=cls.other_actor)
         task = Task.objects.create(team=cls.team, created_by=cls.actor, title="Synthetic operation")
-        cls.task_run = TaskRun.objects.create(team=cls.team, task=task, status=TaskRun.Status.IN_PROGRESS)
+        cls.task_run = TaskRun.objects.create(
+            team=cls.team,
+            task=task,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-registry", "sandbox_backend": "modal"},
+        )
 
     def setUp(self) -> None:
         self.travel = time_machine.travel("2026-11-12T12:00:00Z", tick=False)
@@ -61,6 +66,7 @@ class TestAgentEgressRegistry(TestCase):
         actor_id: int | None = None,
         authority: str = "run-a.egress.example.com",
         relay_key_sha256: str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        sandbox_id: str = "sb-registry",
     ) -> AgentEgressRegistration:
         return self.registry.register(
             team_id=self.team.id,
@@ -70,6 +76,7 @@ class TestAgentEgressRegistry(TestCase):
             actor_id=actor_id if actor_id is not None else self.actor.id,
             authority=authority,
             relay_key_sha256=relay_key_sha256,
+            sandbox_id=sandbox_id,
         )
 
     def test_only_renewal_extends_a_live_lease(self) -> None:
@@ -84,6 +91,7 @@ class TestAgentEgressRegistry(TestCase):
         assert looked_up is not None
         self.assertEqual(repeated.lease_expires_at, registration.lease_expires_at)
         self.assertEqual(repeated.actor_epoch, registration.actor_epoch)
+        self.assertEqual(repeated.created_at, registration.created_at)
         self.assertEqual(looked_up.lease_expires_at, registration.lease_expires_at)
 
         renewed = self.registry.renew(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
@@ -104,6 +112,62 @@ class TestAgentEgressRegistry(TestCase):
         for query in queries.captured_queries:
             self.assertNotIn('"event_names"', query["sql"])
             self.assertNotIn('"event_properties"', query["sql"])
+
+    @parameterized.expand([("missing",), ("replaced",), ("retargeted",), ("backend",), ("unbound",)])
+    def test_sandbox_binding_is_required_for_existing_authority(self, change: str) -> None:
+        registration = self.register()
+        if change == "unbound":
+            AgentEgressRegistration.objects.for_team(self.team.id).filter(id=registration.id).update(sandbox_id=None)
+        else:
+            state = {"sandbox_id": "sb-registry", "sandbox_backend": "modal"}
+            if change == "missing":
+                state.pop("sandbox_id")
+            elif change in ("replaced", "retargeted"):
+                state["sandbox_id"] = "sb-replacement"
+            else:
+                state["sandbox_backend"] = "hogland"
+            TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(state=state)
+        self.assertIsNone(
+            self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
+        )
+        self.assertIsNone(
+            self.registry.renew(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
+        )
+        with self.assertRaises(ValueError):
+            self.register(sandbox_id="sb-replacement" if change == "retargeted" else "sb-registry")
+        with self.assertRaises(ValueError):
+            self.registry.issue_capability(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
+
+    @parameterized.expand([("",), ("sb-foreign",), ("x" * 256,)])
+    def test_registration_rejects_a_sandbox_not_owned_by_the_run(self, sandbox_id: str) -> None:
+        with self.assertRaises(ValueError):
+            self.register(sandbox_id=sandbox_id)
+        self.assertIsNone(self.registry.latest(team_id=self.team.id, run_id=self.task_run.id))
+
+    def test_sandbox_binding_must_be_saved_before_enrollment(self) -> None:
+        previous = self.register()
+        replacement_id = uuid4()
+        with self.assertRaisesMessage(ValueError, "The egress sandbox does not belong to this execution"):
+            self.register(
+                execution_id=replacement_id, previous_execution_id=previous.execution_id, sandbox_id="sb-replacement"
+            )
+        self.assertEqual(self.registry.latest(team_id=self.team.id, run_id=self.task_run.id), previous)
+
+        TaskRun.update_state_atomic(self.task_run.id, updates={"sandbox_id": "sb-replacement"})
+        replacement = self.register(
+            execution_id=replacement_id, previous_execution_id=previous.execution_id, sandbox_id="sb-replacement"
+        )
+        TaskRun.update_state_atomic(self.task_run.id, updates={"sandbox_id": "sb-replacement"})
+
+        self.assertEqual(
+            self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=replacement_id),
+            replacement,
+        )
+        previous.refresh_from_db()
+        self.assertTrue(previous.revoked)
+        self.assertEqual(previous.revocation_reason, "sandbox_changed")
 
     @parameterized.expand([("expired",), ("revoked",)])
     def test_inactive_execution_cannot_renew_register_or_mint(self, reason: str) -> None:
@@ -139,8 +203,14 @@ class TestAgentEgressRegistry(TestCase):
         assert previous is not None
         self.assertEqual(previous.execution_id, self.execution_id)
         self.assertEqual(previous.actor_epoch, 1)
+        previous_revoked_at = previous.revoked_at
         replacement_id = uuid4()
         replacement = self.register(execution_id=replacement_id, previous_execution_id=previous.execution_id)
+        previous.refresh_from_db()
+        self.assertEqual(previous.revoked_at, previous_revoked_at if state == "revoked" else timezone.now())
+        self.assertEqual(previous.revoked_by, "unknown" if state == "revoked" else "tasks-worker")
+        self.assertEqual(previous.revocation_reason, "requested" if state == "revoked" else "replaced")
+        self.assertEqual(replacement.created_at, timezone.now())
         self.assertEqual(replacement.actor_epoch, previous.actor_epoch + 1)
         self.assertEqual(self.registry.latest(team_id=self.team.id, run_id=self.task_run.id), replacement)
         self.assertEqual(
@@ -167,6 +237,31 @@ class TestAgentEgressRegistry(TestCase):
         self.assertEqual(
             self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=replacement_id),
             replacement,
+        )
+
+    def test_revocation_retries_preserve_original_audit_metadata(self) -> None:
+        registration = self.register()
+        self.clock.shift(timedelta(seconds=5))
+        revoked_at = timezone.now()
+        self.assertTrue(
+            self.registry.revoke(
+                team_id=self.team.id,
+                run_id=self.task_run.id,
+                execution_id=self.execution_id,
+                revoked_by="egress-workflow",
+                reason="cancelled",
+            )
+        )
+        self.clock.shift(timedelta(seconds=5))
+        self.assertFalse(
+            self.registry.revoke(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
+        )
+        registration.refresh_from_db()
+        self.assertEqual(registration.revoked_at, revoked_at)
+        self.assertEqual(registration.revoked_by, "egress-workflow")
+        self.assertEqual(registration.revocation_reason, "cancelled")
+        self.assertIsNone(
+            self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
         )
 
     def test_initial_registration_cannot_restart_a_revoked_run(self) -> None:
@@ -302,7 +397,7 @@ class TestAgentEgressRegistry(TestCase):
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
         ).decode()
         self.register()
-        TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(state={"preserved": True})
+        TaskRun.update_state_atomic(self.task_run.id, updates={"preserved": True})
 
         with override_settings(SANDBOX_JWT_PRIVATE_KEY=pem, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None):
             reset_sandbox_jwt_key_cache()
@@ -312,7 +407,13 @@ class TestAgentEgressRegistry(TestCase):
             )
             self.task_run.refresh_from_db()
             self.assertEqual(
-                self.task_run.state, {"preserved": True, SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid()}
+                self.task_run.state,
+                {
+                    "sandbox_id": "sb-registry",
+                    "sandbox_backend": "modal",
+                    "preserved": True,
+                    SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+                },
             )
             self.assertEqual(jwt.get_unverified_header(token)["kid"], self.task_run.state[SANDBOX_JWT_STATE_KID_KEY])
 
@@ -325,8 +426,8 @@ class TestAgentEgressRegistry(TestCase):
     @parameterized.expand([("owner",), ("slack",)])
     def test_permission_failure_does_not_report_revocation(self, actor_source: str) -> None:
         if actor_source == "slack":
-            TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(
-                state={"interaction_origin": "slack", "slack_actor_user_id": self.other_actor.id}
+            TaskRun.update_state_atomic(
+                self.task_run.id, updates={"interaction_origin": "slack", "slack_actor_user_id": self.other_actor.id}
             )
             self.register(actor_id=self.other_actor.id)
         else:

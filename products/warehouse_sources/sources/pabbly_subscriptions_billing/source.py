@@ -88,6 +88,12 @@ You can generate both keys under **Settings → API Settings** in [Pabbly Subscr
             "403 Client Error: Forbidden for url: https://payments.pabbly.com": "Your Pabbly Subscription Billing API key or secret key is invalid or has been regenerated. Generate new keys under Settings → API Settings, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The source retries dropped connections and read timeouts in-process. When that budget runs out,
+        # urllib3 raises "... Max retries exceeded with url: ...". Temporal retries the activity, so the
+        # failure is transient and must not be reported as an exception.
+        return {"Max retries exceeded with url"}
+
     def get_schemas(
         self,
         config: PabblySubscriptionsBillingSourceConfig,

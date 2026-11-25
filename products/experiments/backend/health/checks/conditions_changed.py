@@ -38,12 +38,18 @@ from products.experiments.backend.health.checks.change_wording import (
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     change_rows,
+    change_values,
     changes_to_check,
     count_only_after,
     exposed_when,
     few_exposed_units,
     leave_out,
     not_checked_finding,
+)
+from products.experiments.backend.health.checks.forced_variant import (
+    ALL_CONDITIONS_PINNED,
+    CLOSED_TO_MATCHED_USERS,
+    forced_variant_release_condition,
 )
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
@@ -68,7 +74,14 @@ from products.experiments.backend.health.pinned_share import (
     pinned_conditions,
     pinned_share_severity,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
+from products.experiments.backend.health.skips import (
+    SPLIT_ASSIGNS_NOBODY,
+    CheckOutcome,
+    CheckRows,
+    CheckSkip,
+    CheckValues,
+    not_applicable,
+)
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
@@ -82,6 +95,23 @@ _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
 def release_conditions_changed_rows(ctx: HealthContext) -> CheckRows:
     return change_rows(ctx, ConditionsChange)
+
+
+def release_conditions_changed_values(ctx: HealthContext) -> CheckValues:
+    return change_values(ctx, ConditionsChange)
+
+
+def _compared_nothing_throughout(ctx: HealthContext, effect: ConditionsNetEffect) -> bool:
+    """Whether every condition that served users pinned a variant before the changes, and the forced-variant check
+    warns that it still does. The run then compared nothing, so who enters or leaves adds nothing to that warning."""
+    if any(condition.variant is None for condition in effect.first.before if condition.rollout > 0):
+        return False
+    finding = forced_variant_release_condition(ctx)
+    return (
+        isinstance(finding, ExperimentHealthFinding)
+        and finding.severity == ExperimentHealthFindingSeverity.WARNING
+        and finding.subcode in (ALL_CONDITIONS_PINNED, CLOSED_TO_MATCHED_USERS)
+    )
 
 
 def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
@@ -121,6 +151,8 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             diagnostic_ref="A7",
         )
     if effect.audience_changed:
+        if _compared_nothing_throughout(ctx, effect):
+            return not_applicable(SPLIT_ASSIGNS_NOBODY)
         return _finding(
             history,
             effect,

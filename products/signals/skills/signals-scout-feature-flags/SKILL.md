@@ -1,5 +1,6 @@
 ---
 name: signals-scout-feature-flags
+disable-model-invocation: true
 scout-display-name: Feature flags
 description: >
   Signals scout for PostHog feature flags. Watches the flag roster and the
@@ -98,7 +99,7 @@ ORDER BY calls_14d DESC
 LIMIT 100
 ```
 
-This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`) and the volume ranking that scopes everything else — it scales fine even on projects where `$feature_flag_called` is the top event at millions/day. It does **not** power ghost detection: ghost keys live in the tail below the `LIMIT`, so use the dedicated anti-join in the ghost pattern instead. For the roster side, query `system.feature_flags` via `execute-sql` (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`) — on projects with hundreds of flags this beats paginating `feature-flag-get-all`; note it carries **no `active` column**, so config state still comes from the flag tools. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone, not UTC — use `now() - INTERVAL N DAY` for recency windows, never hand-written timestamp strings.
+This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`) and the volume ranking that scopes everything else — it scales fine even on projects where `$feature_flag_called` is the top event at millions/day. It does **not** power ghost detection: ghost keys live in the tail below the `LIMIT`, so use the dedicated anti-join in the ghost pattern instead. For the roster side, query `system.feature_flags` via `execute-sql` (`id`, `key`, `name`, `filters`, `rollout_percentage`, `active`, `deleted`) — on projects with hundreds of flags this beats paginating `feature-flag-get-all`. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone, not UTC — use `now() - INTERVAL N DAY` for recency windows, never hand-written timestamp strings.
 
 Before any per-flag deep dive, normalize against the whole stream: if **total** `$feature_flag_called` volume cliffed across all flags at once, that's one SDK/capture-path finding (or known ingestion trouble), not N per-flag findings.
 
@@ -213,7 +214,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `pattern:feature-flags:watchlist` — _"High-volume flags: `checkout-v2` (~40k calls/day, 25% rollout, multivariate), `new-nav` (~22k/day, 100% boolean), `pricing-test` (experiment-linked — hands off). Total stream baseline ~80k/day."_
 - key `pattern:feature-flags:checkout-v2` — _"Baseline ~40k calls/day, response mix control 75% / test 25% matching config, last edit v12 2026-05-30. Recheck distribution only if version changes."_
 - key `noise:feature-flags:qa-flags` — _"Keys prefixed `qa-` and `dev-` are internal test flags with spiky low volume — never cliff-worthy."_
-- key `dedupe:feature-flags:checkout-v2-cliff` — _"`checkout-v2` evaluation cliff already handled (40k/day → 200/day, no flag edit). Skip unless volume recovers and cliffs again."_ One stable key per issue — update it in place, don't mint a dated variant.
+- key `dedupe:feature-flags:checkout-v2-cliff` — _"`checkout-v2` evaluation cliff already handled (40k/day → 200/day, no flag edit). Skip unless volume recovers and cliffs again."_ One stable key per issue — update it in place, don't mint a dated variant. Set `expires_at` about 30 days past the last read that confirmed it: a flag quiet that long that cliffs again is a new episode.
 - key `addressed:feature-flags:dead-checks` — _"Dead-check bundle already filed (2 deactivated flags still called ~30k/day). Don't re-file unless the set grows materially (>5 new)."_ **Retire the legacy key on first sight.** Earlier runs wrote `addressed:feature-flags:debt-bundle`, whose text covered stale flags too ("9 stale + 2 dead-check flags"). Scratchpad entries are durable and never expire on their own, so that row still surfaces in the orientation search and reads as "already filed, don't re-file" — which would suppress exactly the per-flag stale reports you are here to write. Carry its dead-check content to this key, `scout-scratchpad-forget` the old one, and never let it gate a stale-flag cleanup report.
 - key `pattern:feature-flags:stale-queue` — _"Stale candidates ranked but not reported yet, strongest first within each evidence class: `legacy-export` (flag 3980, not_called_recently, fully_rolled_out, 210d cold), `old-onboarding` (flag 4412, not_called_recently, not_rolled_out, 95d cold), `ga-toggle` (flag 8811, effectively_full_rollout, fully_rolled_out, 730d old). Re-verify each against its live definition before authoring — this list is a queue, not a verdict."_
 - key `report:feature-flags:checkout-v2` — _"Report `019f0a96-…` covers the `checkout-v2` evaluation cliff. Edit it only when the situation materially changes (recovers, deepens, gets reconfigured, or intent is confirmed) — not every run while the cliff simply persists at the same level; if it was resolved and the flag later re-cliffs, that's a fresh report."_
@@ -281,7 +282,7 @@ Direct calls (read-only):
 - `feature-flags-dependent-flags-retrieve` — flags whose conditions reference this one; the per-flag cleanup-safety check.
 - `advanced-activity-logs-list` (`scopes: ["FeatureFlag"]`) — project-wide flag change timeline, including deletions that `feature-flags-activity-retrieve` can't reach anymore.
 - `execute-sql` against `events` — the traffic side. Properties on `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response` (`true`/`false`/variant key). Keep `event = '$feature_flag_called'` as the only event filter of each scan, as the queries above do. PostHog then reads `posthog.flag_evaluations` for an organization that keeps its flag calls only there. A scan that also matches other events can find none of those calls.
-- `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `rollout_percentage`, `deleted`; no `active` column). Powers the ghost anti-join and any roster-wide aggregation without pagination.
+- `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`, `name`, `filters`, `rollout_percentage`, `active`, `deleted`). Powers the ghost anti-join and any roster-wide aggregation without pagination.
 - `read-data-schema` — check property shape before aggregating. It can list no `$feature_flag_called` definitions for an organization that keeps flag calls only in `posthog.flag_evaluations`, so confirm the stream with the count query in [Quick close-out](#quick-close-out-are-flags-even-in-use), not here.
 
 Stale-flag health issues (the deterministic classifier you read, never re-run):

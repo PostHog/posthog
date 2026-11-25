@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.finnworlds.finnworlds import (
     finnworlds_source,
     get_rows,
     parse_countries,
+    parse_currencies,
     parse_tickers,
     validate_credentials,
 )
@@ -73,6 +74,23 @@ class TestParseTickers:
         raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS + 1))
         with pytest.raises(ValueError, match="Too many tickers"):
             parse_tickers(raw)
+
+
+class TestParseCurrencies:
+    @parameterized.expand(
+        [
+            ("mixed_separators_and_case", "usd, eur\njpy  gbp", ["USD", "EUR", "JPY", "GBP"]),
+            ("dedupes_case_insensitively", "USD, usd, Eur", ["USD", "EUR"]),
+            ("blank", "  ", []),
+            ("none", None, []),
+        ]
+    )
+    def test_parse_currencies(self, _name: str, raw: str | None, expected: list[str]) -> None:
+        assert parse_currencies(raw) == expected
+
+    def test_over_max_currencies_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Too many currencies"):
+            parse_currencies(",".join(f"C{i}" for i in range(finnworlds.MAX_CURRENCIES + 1)))
 
 
 class TestParseCountries:
@@ -169,7 +187,7 @@ class TestGetRows:
         session = _session_returning(*responses)
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], _logger()))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], [], _logger()))
 
         assert len(batches) == 2
         assert batches[0][0]["ticker"] == "AAPL"
@@ -179,7 +197,7 @@ class TestGetRows:
         session = _session_returning(_response({"result": {"output": [{"country": "US", "type": "10Y"}]}}))
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "bond_yields", ["AAPL"], [], _logger()))
+            batches = list(get_rows("key", "bond_yields", ["AAPL"], [], [], _logger()))
 
         assert session.get.call_count == 1
         assert batches == [[{"country": "US", "type": "10Y"}]]
@@ -189,7 +207,7 @@ class TestGetRows:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
             with pytest.raises(FinnworldsAuthError):
-                list(get_rows("bad", "dividends", ["AAPL"], [], _logger()))
+                list(get_rows("bad", "dividends", ["AAPL"], [], [], _logger()))
 
     def test_non_auth_error_skips_ticker(self) -> None:
         # First ticker has no data (non-auth error), second succeeds — the sync continues.
@@ -201,7 +219,7 @@ class TestGetRows:
         logger = _logger()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], logger))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], [], logger))
 
         assert len(batches) == 1
         assert batches[0][0]["ticker"] == "MSFT"
@@ -264,7 +282,7 @@ class TestFinnworldsSource:
     @parameterized.expand([(name,) for name in FINNWORLDS_ENDPOINTS])
     def test_source_response_primary_keys_and_partitioning(self, endpoint: str) -> None:
         config: FinnworldsEndpointConfig = FINNWORLDS_ENDPOINTS[endpoint]
-        response = finnworlds_source("key", endpoint, ["AAPL"], ["United_States"], _logger())
+        response = finnworlds_source("key", endpoint, ["AAPL"], ["United_States"], ["USD"], _logger())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -385,30 +403,77 @@ class TestCompanyIdentifiers:
         assert rows[0]["previous_names"] == [{"name": "APPLE COMPUTER INC", "from": "1994-01-26"}]
 
 
-class TestCountryFanout:
-    def test_macro_requests_one_country_per_call_and_injects_it(self) -> None:
+class TestIdentifierFanout:
+    @parameterized.expand(
+        [
+            # (endpoint, countries, currencies, injected column, values sent, values on the rows)
+            (
+                "macroeconomic_indicators",
+                ["United_Kingdom", "Germany"],
+                [],
+                "country",
+                ["United_Kingdom", "Germany"],
+                ["United_Kingdom", "Germany"],
+            ),
+            (
+                "economic_calendar",
+                ["United_Kingdom", "Germany"],
+                [],
+                "country",
+                ["United_Kingdom", "Germany"],
+                ["United_Kingdom", "Germany"],
+            ),
+            (
+                "stock_market_indices",
+                ["United_States", "France"],
+                [],
+                "country",
+                ["united_states", "france"],
+                ["United_States", "France"],
+            ),
+            ("currency_exchange_rates", ["United_States"], ["USD", "EUR"], "currency", ["USD", "EUR"], ["USD", "EUR"]),
+        ]
+    )
+    def test_requests_one_identifier_per_call_and_injects_it(
+        self,
+        endpoint: str,
+        countries: list[str],
+        currencies: list[str],
+        column: str,
+        sent: list[str],
+        injected: list[str],
+    ) -> None:
+        # Bare-output rows already carry their own country, which the configured spelling replaces.
         responses = [
-            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "-33"}]}}),
-            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "12"}]}}),
+            _response({"result": {"output": [{"country": "from api", "pair": f"{value}/JPY"}]}}) for value in sent
         ]
         session = _session_returning(*responses)
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(
-                get_rows("key", "macroeconomic_indicators", ["AAPL"], ["United_Kingdom", "Germany"], _logger())
-            )
+            batches = list(get_rows("key", endpoint, ["AAPL"], countries, currencies, _logger()))
 
         requested = [call.args[0] for call in session.get.call_args_list]
-        assert "country=United_Kingdom" in requested[0]
-        assert "ticker=" not in requested[0]
-        assert [batch[0]["country"] for batch in batches] == ["United_Kingdom", "Germany"]
+        assert requested == [
+            f"https://api.finnworlds.com/api/v1/{FINNWORLDS_ENDPOINTS[endpoint].path}?key=key&{column}={value}"
+            for value in sent
+        ]
+        assert [batch[0][column] for batch in batches] == injected
 
-    def test_no_countries_configured_makes_no_requests(self) -> None:
+    @parameterized.expand(
+        [
+            ("macroeconomic_indicators", [], ["USD"]),
+            ("stock_market_indices", [], ["USD"]),
+            ("currency_exchange_rates", ["Germany"], []),
+        ]
+    )
+    def test_no_identifiers_configured_makes_no_requests(
+        self, endpoint: str, countries: list[str], currencies: list[str]
+    ) -> None:
         session = _session_returning()
         logger = _logger()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "macroeconomic_indicators", ["AAPL"], [], logger))
+            batches = list(get_rows("key", endpoint, ["AAPL"], countries, currencies, logger))
 
         assert batches == []
         session.get.assert_not_called()

@@ -2,7 +2,7 @@
 
 Use this flow only when the stored personal ranking cannot answer the request:
 
-- The list response's `ranker` is not `personal`, and the person wants a personal order now rather than the recommended order.
+- The list response's `ranker` is not `personal`, and the person wants a personal order now rather than the priority order.
 - The person asks for a ranking with custom weights, such as "ignore the model" or "weight fix chances higher".
 - The person asks to rank by themes from their activity summary that the stored ranking does not use.
 
@@ -42,7 +42,7 @@ Offer to let the person name two or three topics they care about, and use those 
 
 ## Step 2: Gather candidates
 
-Report rows are large (often 3 to 4 KB each, mostly the summary), so pull several small pools rather than one big page.
+Pull several small pools rather than one big page.
 Keep `limit` at 20 or below per call.
 Pass `exclude` with ids you already hold to keep later pools fresh.
 `exclude` takes at most 100 ids and the API rejects a longer list, so send the 100 you most want to skip (the strongest candidates so far) and dedupe the rest locally.

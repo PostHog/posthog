@@ -29,6 +29,7 @@ from products.cohorts.backend.models.team_access import (
 )
 from products.cohorts.backend.realtime_enablement import (
     CohortRefusal,
+    NothingToBackfill,
     RunAlreadyCreated,
     RunCreated,
     RunRefused,
@@ -90,8 +91,12 @@ class TestEnableRealtimeCohorts(BaseTest):
             max_events_per_day=max_events_per_day,
         )
 
-    def _cohort(self, *leaves: dict[str, Any]) -> Cohort:
-        cohort = Cohort.objects.create(team=self.team, filters={"properties": {"type": "AND", "values": list(leaves)}})
+    def _cohort(self, *leaves: dict[str, Any], realtime_enabled_at: datetime | None = STAMPED_AT) -> Cohort:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+            realtime_enabled_at=realtime_enabled_at,
+        )
         # Cohorts saved before the column existed have no `condition_type`.
         Cohort.objects.filter(id=cohort.id).update(condition_type=None)
         return cohort
@@ -180,6 +185,15 @@ class TestEnableRealtimeCohorts(BaseTest):
                 reason="has a filter the realtime catalog drops (unsupported_state_variant)",
             ),
         )
+
+    def test_cohorts_with_realtime_off_get_no_run(self) -> None:
+        self._cohort(PERSON_LEAF, PAGEVIEW_LEAF, realtime_enabled_at=None)
+
+        enablement = self._enable()
+
+        assert (enablement.behavioral, enablement.person) == (NothingToBackfill(), NothingToBackfill())
+        assert not CohortBackfillRun.objects.for_team(self.team.id).exists()
+        assert self._level() == RealtimeCohortLevel.SERVING
 
     def test_a_refused_run_keeps_the_team_processing_until_a_rerun_has_both_runs(self) -> None:
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)

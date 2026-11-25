@@ -266,47 +266,74 @@ def validate_credentials(token: str, api_version: str) -> tuple[bool, str | None
 
 
 ADMIN_TOKEN_MISSING_ERROR = (
-    "Add an organization bot token with the permission-group:read scope to sync permission groups. "
+    "Add an organization bot token to sync this table. "
     "Organization owners create these tokens in the Notion organization console."
 )
 ADMIN_TOKEN_INVALID_ERROR = (
     "Your Notion organization bot token is invalid or revoked. Create a new one in the Notion organization console, "
     "then update this source."
 )
+# A sync-time 403 does not say which table failed, so this message names the scope of each Admin API table.
 ADMIN_TOKEN_FORBIDDEN_ERROR = (
-    "Your Notion organization bot token cannot read permission groups. Give it the permission-group:read scope. "
-    "This scope is only available to eligible Notion Enterprise organizations."
+    "Your Notion organization bot token is missing a scope that this table needs. "
+    "permission_groups and permission_group_members need permission-group:read, user_credit_usage needs user:read, "
+    "and agent_credit_usage needs workflows:read. Only eligible Notion Enterprise organizations can give these scopes."
 )
 
 
-def check_permission_groups_access(token: str, admin_token: str | None, api_version: str) -> str | None:
+def admin_scope_missing_error(scope: str) -> str:
+    return (
+        f"Your Notion organization bot token cannot read this table. Give it the {scope} scope. "
+        "Only eligible Notion Enterprise organizations can give this scope."
+    )
+
+
+def _admin_path(config: NotionEndpointConfig, workspace_id: str) -> str:
+    assert config.admin_path is not None
+    return f"{NOTION_ADMIN_BASE_PATH}{config.admin_path.format(workspace_id=workspace_id)}"
+
+
+def check_admin_endpoints_access(
+    token: str, admin_token: str | None, api_version: str, endpoints: list[str]
+) -> dict[str, str | None]:
+    configs = [
+        config
+        for config in (NOTION_ENDPOINTS.get(endpoint) for endpoint in endpoints)
+        if config is not None and config.admin_path is not None
+    ]
     if not admin_token:
-        return ADMIN_TOKEN_MISSING_ERROR
+        return {config.name: ADMIN_TOKEN_MISSING_ERROR for config in configs}
+
+    access: dict[str, str | None] = {config.name: None for config in configs}
+    if not configs:
+        return access
     try:
         public_session = make_tracked_session(headers=_get_headers(token, api_version), redact_values=(token,))
         me_response = public_session.get(f"{NOTION_BASE_URL}/v1/users/me", timeout=10)
         # A bad integration token is reported by validate_credentials, not as a per-table problem.
         if not me_response.ok:
-            return None
+            return access
         workspace_id = (me_response.json().get("bot") or {}).get("workspace_id")
         if not workspace_id:
-            return None
+            return access
         admin_session = make_tracked_session(
             headers=_get_headers(admin_token, NOTION_ADMIN_API_VERSION), redact_values=(admin_token,)
         )
         query = urlencode({"page_size": 1})
-        response = admin_session.get(
-            f"{NOTION_BASE_URL}{NOTION_ADMIN_BASE_PATH}/v1/spaces/{workspace_id}/groups?{query}", timeout=10
-        )
+        # Tables that page the same list (permission groups and their members) share one probe.
+        statuses: dict[str, int] = {}
+        for config in configs:
+            path = _admin_path(config, workspace_id)
+            if path not in statuses:
+                statuses[path] = admin_session.get(f"{NOTION_BASE_URL}{path}?{query}", timeout=10).status_code
+            if statuses[path] == 401:
+                access[config.name] = ADMIN_TOKEN_INVALID_ERROR
+            elif statuses[path] == 403:
+                assert config.admin_scope is not None
+                access[config.name] = admin_scope_missing_error(config.admin_scope)
     except Exception as e:
         capture_exception(e)
-        return None
-
-    if response.status_code == 401:
-        return ADMIN_TOKEN_INVALID_ERROR
-    if response.status_code == 403:
-        return ADMIN_TOKEN_FORBIDDEN_ERROR
-    return None
+    return access
 
 
 def _search_body(object_filter: str, cursor: str | None) -> dict[str, Any]:
@@ -382,6 +409,8 @@ def _cursor_list_stream(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     throttle: Optional["_RateLimiter"] = None,
+    extra_params: Optional[dict[str, Any]] = None,
+    row_hook: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
 ) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
@@ -389,7 +418,7 @@ def _cursor_list_stream(
     cursor = resume.next_cursor if resume is not None else None
 
     while True:
-        params: dict[str, Any] = {"page_size": NOTION_PAGE_SIZE}
+        params: dict[str, Any] = {**(extra_params or {}), "page_size": NOTION_PAGE_SIZE}
         if cursor:
             params["start_cursor"] = cursor
 
@@ -407,6 +436,8 @@ def _cursor_list_stream(
             cursor = None
             continue
         results = data.get("results", [])
+        if row_hook is not None:
+            results = [row_hook(row) for row in results]
         if results:
             batcher.batch(results)
 
@@ -446,22 +477,139 @@ def _get_workspace_id(
     return workspace_id
 
 
-def _permission_groups_stream(
+def _iter_admin_list_ids(
+    admin_session: requests.Session,
+    path: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[str]:
+    cursor: str | None = None
+    while True:
+        params: dict[str, Any] = {"page_size": NOTION_PAGE_SIZE}
+        if cursor:
+            params["start_cursor"] = cursor
+        data = _request(admin_session, "GET", path, logger, params=params, throttle=throttle)
+        for item in data.get("results", []):
+            yield item["id"]
+        if not data.get("has_more") or not data.get("next_cursor"):
+            return
+        cursor = data["next_cursor"]
+        # The enumeration buffers ids, not rows, and stages no state, so a resume restarts it.
+        resumable_source_manager.safe_point()
+
+
+def _iter_group_members(
+    admin_session: requests.Session,
+    groups_path: str,
+    group_id: str,
+    logger: FilteringBoundLogger,
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[dict[str, Any]]:
+    cursor: str | None = None
+    while True:
+        params: dict[str, Any] = {"page_size": NOTION_PAGE_SIZE}
+        if cursor:
+            params["start_cursor"] = cursor
+        try:
+            data = _request(
+                admin_session, "GET", f"{groups_path}/{group_id}/members", logger, params=params, throttle=throttle
+            )
+        except NotionNotFoundError:
+            logger.warning("Notion: skipping members of a permission group that was deleted", group_id=group_id)
+            return
+        for membership in data.get("results", []):
+            # The member's user id is nested, and it is half of the primary key.
+            yield {"group_id": group_id, **membership, "user_id": (membership.get("member") or {}).get("user_id")}
+        if not data.get("has_more") or not data.get("next_cursor"):
+            return
+        cursor = data["next_cursor"]
+
+
+def _complete_agent_periods(
+    admin_session: requests.Session,
+    agents_path: str,
+    agent: dict[str, Any],
+    logger: FilteringBoundLogger,
+    throttle: Optional["_RateLimiter"] = None,
+) -> dict[str, Any]:
+    # The list returns the first page of each agent's billing periods. The single-agent endpoint
+    # continues them from the agent's nested cursor, so the row holds the whole history.
+    periods = list(agent.get("credit_per_billing_period_list") or [])
+    has_more, next_cursor = agent.get("has_more"), agent.get("next_cursor")
+    pages_fetched = 0
+    while has_more and next_cursor:
+        if pages_fetched >= MAX_CHILD_PAGES_PER_PARENT:
+            logger.warning(
+                "Notion: reached billing period page cap for agent",
+                agent_id=agent["id"],
+                cap=MAX_CHILD_PAGES_PER_PARENT,
+            )
+            break
+        try:
+            data = _request(
+                admin_session,
+                "GET",
+                f"{agents_path}/{agent['id']}/credit_usage",
+                logger,
+                params={"start_cursor": next_cursor},
+                throttle=throttle,
+            )
+        except NotionNotFoundError:
+            logger.warning("Notion: agent was deleted while its billing periods were read", agent_id=agent["id"])
+            break
+        periods.extend(data.get("credit_per_billing_period_list") or [])
+        has_more, next_cursor = data.get("has_more"), data.get("next_cursor")
+        pages_fetched += 1
+
+    row = {key: value for key, value in agent.items() if key not in ("has_more", "next_cursor")}
+    row["credit_per_billing_period_list"] = periods
+    return row
+
+
+def _admin_stream(
     session: requests.Session,
     admin_session: requests.Session,
+    config: NotionEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     throttle: Optional["_RateLimiter"] = None,
 ) -> Iterator[Any]:
     workspace_id = _get_workspace_id(session, logger, throttle)
-    yield from _cursor_list_stream(
-        admin_session,
-        f"{NOTION_ADMIN_BASE_PATH}/v1/spaces/{workspace_id}/groups",
-        "permission_groups",
-        logger,
-        resumable_source_manager,
-        throttle,
-    )
+    path = _admin_path(config, workspace_id)
+
+    if config.stream_type == "permission_group_members":
+
+        def members_for_group(group_id: str) -> Iterator[dict[str, Any]]:
+            return _iter_group_members(admin_session, path, group_id, logger, throttle)
+
+        yield from _page_fan_out(
+            admin_session,
+            logger,
+            resumable_source_manager,
+            members_for_group,
+            throttle,
+            parent_ids=lambda: _iter_admin_list_ids(admin_session, path, logger, resumable_source_manager, throttle),
+        )
+    elif config.stream_type == "agent_credit_usage":
+        agents_path = f"{NOTION_ADMIN_BASE_PATH}/v1/spaces/{workspace_id}/agents"
+
+        def complete_agent(agent: dict[str, Any]) -> dict[str, Any]:
+            return _complete_agent_periods(admin_session, agents_path, agent, logger, throttle)
+
+        yield from _cursor_list_stream(
+            admin_session,
+            path,
+            config.name,
+            logger,
+            resumable_source_manager,
+            throttle,
+            # Deleted agents keep their credit usage, so the table includes them with status "deleted".
+            extra_params={"include_deleted": "true"},
+            row_hook=complete_agent,
+        )
+    else:
+        yield from _cursor_list_stream(admin_session, path, config.name, logger, resumable_source_manager, throttle)
 
 
 def _iter_page_ids(
@@ -565,8 +713,9 @@ def _page_fan_out(
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     rows_for_page: Callable[[str], Iterator[dict[str, Any]]],
     throttle: Optional["_RateLimiter"] = None,
+    parent_ids: Optional[Callable[[], Iterator[str]]] = None,
 ) -> Iterator[Any]:
-    """Fetch rows for every page, with the fan-out position saved as a shrinking queue of page ids."""
+    """Fetch rows for every page (or other parent), with the fan-out position saved as a shrinking queue of ids."""
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -577,7 +726,11 @@ def _page_fan_out(
     else:
         # Materialize the full set of page IDs up front so the fan-out position can be persisted as a
         # shrinking queue (a crash during this initial enumeration restarts it, like other sources).
-        page_ids = list(_iter_page_ids(session, logger, throttle, resumable_source_manager))
+        page_ids = list(
+            parent_ids()
+            if parent_ids is not None
+            else _iter_page_ids(session, logger, throttle, resumable_source_manager)
+        )
 
     last_flush_at = time.monotonic()
     last_empty_stage_at = last_flush_at
@@ -698,13 +851,13 @@ def get_rows(
     session = _build_session(token, api_version)
     throttle = _RateLimiter(NOTION_MIN_REQUEST_INTERVAL_SECONDS)
 
-    if config.stream_type == "permission_groups":
+    if config.admin_path is not None:
         if not admin_token:
             raise NotionAdminTokenMissingError(
-                "Notion permission_groups table requires an organization bot token, but none is configured"
+                f"Notion Admin API tables require an organization bot token, but none is configured: table={endpoint}"
             )
         admin_session = _build_session(admin_token, NOTION_ADMIN_API_VERSION)
-        yield from _permission_groups_stream(session, admin_session, logger, resumable_source_manager, throttle)
+        yield from _admin_stream(session, admin_session, config, logger, resumable_source_manager, throttle)
     elif config.stream_type == "search":
         yield from _search_stream(session, config, logger, resumable_source_manager, throttle)
     elif config.stream_type == "users":
@@ -737,7 +890,7 @@ def notion_source(
             api_version=api_version,
             admin_token=admin_token,
         ),
-        primary_keys=["id"],
+        primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

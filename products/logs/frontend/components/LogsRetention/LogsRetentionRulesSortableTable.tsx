@@ -23,18 +23,15 @@ import { useEffect, useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import { LogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
-import { logsRetentionDaysLabel } from './logsRetentionPeriod'
+import { ruleEnabledToggleDisabledReason } from '../ruleEnabledToggleDisabledReason'
 import { logsRetentionSectionLogic } from './logsRetentionSectionLogic'
-
-/** Read the retention tier out of the rule's config JSON for display. */
-function retentionDaysLabel(rule: LogsRetentionRuleApi): string {
-    const days = (rule.config as Record<string, unknown> | undefined)?.retention_days
-    return typeof days === 'number' ? logsRetentionDaysLabel(days) : '—'
-}
+import { QuillLogsRetentionRulesSortableTable } from './QuillLogsRetentionRulesSortableTable'
+import { retentionDaysLabel } from './retentionDaysLabel'
 
 interface SortableRowProps {
     row: LogsRetentionRuleApi
@@ -100,13 +97,11 @@ function SortableRow({
                 <LemonSwitch
                     checked={row.enabled ?? false}
                     onChange={(checked) => onSetRuleEnabled(row.id, checked)}
-                    disabledReason={
-                        ruleEnabledTogglePendingId === row.id
-                            ? 'Saving…'
-                            : saveRulesOrderPending
-                              ? 'Updating order…'
-                              : undefined
-                    }
+                    disabledReason={ruleEnabledToggleDisabledReason(
+                        row.id,
+                        ruleEnabledTogglePendingId,
+                        saveRulesOrderPending
+                    )}
                     data-attr="logs-retention-rule-enabled-switch"
                 />
             </td>
@@ -134,6 +129,7 @@ export function LogsRetentionRulesSortableTable(): JSX.Element {
         }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleDragEnd = (event: DragEndEvent): void => {
         setIsDragging(false)
@@ -157,6 +153,25 @@ export function LogsRetentionRulesSortableTable(): JSX.Element {
             : localRules.length < 2
               ? 'Add another rule to reorder'
               : null
+
+    if (todayRailNav) {
+        return (
+            <QuillLogsRetentionRulesSortableTable
+                product={product}
+                rules={localRules}
+                initialLoading={rulesLoading && rules.length === 0}
+                reloading={rulesLoading && rules.length > 0}
+                sensors={sensors}
+                dragDisabledReason={dragDisabledReason}
+                ruleEnabledTogglePendingId={ruleEnabledTogglePendingId}
+                saveRulesOrderPending={saveRulesOrderPending}
+                onDraggingChange={setIsDragging}
+                onDragEnd={handleDragEnd}
+                onSetRuleEnabled={setRuleEnabled}
+                onRefresh={loadRules}
+            />
+        )
+    }
 
     if (rulesLoading && rules.length === 0) {
         return (

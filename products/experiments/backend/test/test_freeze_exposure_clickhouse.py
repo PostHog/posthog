@@ -12,12 +12,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.person import Person
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -136,15 +133,15 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            # (name, cutoff set, experiment start offset from the cutoff, events read)
             ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
-            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_without_cutoff_set", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
             ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_fetch_exposed_person_uuids_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
+        self, _name: str, cutoff_set: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         experiment = self._create_running_experiment(
             "freeze-rollout-flag", start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days)
@@ -156,7 +153,7 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         legacy_event_person = self._expose_person("legacy-event-user", "freeze-rollout-flag", exposed_at)
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             uuids = self._service()._fetch_exposed_person_uuids(experiment)
 
         # The snapshot decides who keeps being served a variant, so it must count exposures on

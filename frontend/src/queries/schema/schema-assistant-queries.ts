@@ -2028,6 +2028,8 @@ export interface AssistantDataVisualizationChartSettings {
     goalLines?: AssistantDataVisualizationGoalLine[]
     /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
     stackBars100?: boolean
+    /** Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts. */
+    colorBarsByCategory?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
     /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */

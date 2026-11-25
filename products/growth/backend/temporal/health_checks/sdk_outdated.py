@@ -20,11 +20,19 @@ from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.growth.backend.constants import SDK_TYPES, SdkVersionEntry, github_sdk_versions_key
 from products.growth.backend.models import SdkVersionsDaily
-from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
+from products.growth.backend.sdk_health import (
+    SdkAssessment,
+    SemanticVersion,
+    _is_safe_for_interpolation,
+    compute_sdk_health,
+    outdatedness_baseline,
+    try_parse_version,
+)
 from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS, sdk_versions_from_rollup
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
+# A mobile SDK that is a major version behind never escalates, see `is_mobile_major_upgrade`.
 _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
     "danger": HealthIssue.Severity.CRITICAL,
     "warning": HealthIssue.Severity.WARNING,
@@ -144,15 +152,27 @@ def _issues_from_sdk_usage(
     team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]], github_data: dict[str, dict]
 ) -> dict[int, list[HealthCheckResult]]:
     issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
+    baselines = _outdatedness_baselines(github_data)
     for team_id, sdk_data in team_sdk_data.items():
         combined = _build_combined_data(sdk_data, github_data)
         if not combined:
             continue
-        report = compute_sdk_health(combined, project_id=team_id)
+        report = compute_sdk_health(combined, project_id=team_id, baselines=baselines)
         for assessment in report.sdks:
             if assessment.needs_updating:
                 issues[team_id].append(_build_health_result(assessment))
     return dict(issues)
+
+
+def _outdatedness_baselines(github_data: dict[str, dict]) -> dict[str, SemanticVersion]:
+    """Each SDK's baseline depends only on its release history, which is the same for every project
+    in the batch, so parse each history once instead of once per project."""
+    baselines: dict[str, SemanticVersion] = {}
+    for sdk_type, sdk_github_data in github_data.items():
+        latest = try_parse_version(sdk_github_data["latestVersion"])
+        if latest is not None:
+            baselines[sdk_type] = outdatedness_baseline(sdk_type, latest, sdk_github_data.get("releaseDates", {}))
+    return baselines
 
 
 def _issues_without_github_data(
@@ -197,6 +217,7 @@ def _build_combined_data(
         release_dates = sdk_github_data.get("releaseDates", {})
         combined[lib_name] = {
             "latest_version": latest_version,
+            "release_dates": release_dates,
             "usage": [
                 {
                     "lib_version": entry["lib_version"],
@@ -237,6 +258,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
             "banners": assessment.banners,
             "is_outdated": assessment.is_outdated,
             "is_old": assessment.is_old,
+            "migration_guide_url": assessment.migration_guide_url,
             "usage": [
                 {
                     "lib_version": release.version,

@@ -92,7 +92,7 @@ describe('workflows batch handlers', () => {
             expect(c[1]).toMatchObject({
                 method: 'POST',
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
-                body: { filters: BATCH_FILTERS, sends_email: sendsEmail },
+                body: { filters: BATCH_FILTERS, sends_email: sendsEmail, refresh: true },
             })
             // confirm_token must surface to the agent: it is a required workflows-run-batch input.
             expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })

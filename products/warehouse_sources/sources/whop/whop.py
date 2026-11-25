@@ -29,6 +29,7 @@ from products.warehouse_sources.sources.whop.settings import (
     BASE_URL,
     COMPANY_FILTER_PARAM,
     PAGE_SIZE,
+    RETIRED_ENDPOINTS,
     WHOP_API_VERSION_2025_01_01,
     WHOP_ENDPOINTS,
     sort_mode_for,
@@ -107,7 +108,9 @@ def _list_params(
     api_version: str,
 ) -> dict[str, Any]:
     config = WHOP_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {config.page_size_param: PAGE_SIZE, COMPANY_FILTER_PARAM[api_version]: company_id}
+    params: dict[str, Any] = {config.page_size_param: PAGE_SIZE}
+    if config.company_filter:
+        params[COMPANY_FILTER_PARAM[api_version]] = company_id
 
     if config.supports_created_at_order:
         # Forcing the sort column makes the arrival order knowable, which is what lets this endpoint
@@ -135,6 +138,10 @@ def whop_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    retired_reason = RETIRED_ENDPOINTS.get(endpoint)
+    if retired_reason is not None:
+        raise ValueError(retired_reason)
+
     config = WHOP_ENDPOINTS[endpoint]
     if not config.served_on(api_version):
         raise ValueError(f"Whop table {endpoint} is not available on API version {api_version}")

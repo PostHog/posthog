@@ -29,6 +29,7 @@ def expire_datasets() -> None:
             "datasets_expired": sweep.datasets_expired,
             "revisions_expired": sweep.revisions_expired,
             "versions_deleted": sweep.versions_deleted,
+            "payload_bytes_deleted": sweep.payload_bytes_deleted,
             "datasets_deleted": sweep.datasets_deleted,
             "datasets_failed": sweep.datasets_failed,
             "budget_exhausted": sweep.budget_exhausted,
@@ -37,7 +38,7 @@ def expire_datasets() -> None:
         }
         logger.info("dataset_retention_run", **properties)
         try:
-            with ph_scoped_capture(region=get_instance_region() or "US") as capture:
+            with ph_scoped_capture(region="US", event_region=get_instance_region() or "US") as capture:
                 capture(distinct_id="dataset-retention", event="dataset retention run", properties=properties)
         except Exception:
             logger.exception("dataset_retention_capture_failed")

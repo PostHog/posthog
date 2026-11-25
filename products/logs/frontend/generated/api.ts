@@ -13,9 +13,13 @@ import type {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
+    LogsAlertCreatedDestinationResponseApi,
+    LogsAlertCustomizeDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
     LogsAlertDestinationSendApi,
+    LogsAlertResetDestinationApi,
+    LogsAlertResetDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
     LogsAlertsDestinationsSendsListParams,
@@ -45,6 +49,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSigningSecretApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -266,12 +271,33 @@ export const logsAlertsDestinationsCreate = async (
     id: string,
     logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<LogsAlertDestinationResponseApi> => {
-    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<LogsAlertCreatedDestinationResponseApi> => {
+    return apiMutator<LogsAlertCreatedDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsCustomizeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/customize/`
+}
+
+/**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message, one per event kind, and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const logsAlertsDestinationsCustomizeCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertCustomizeDestinationApi?: LogsAlertCustomizeDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertDestinationResponseApi> => {
+    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCustomizeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertCustomizeDestinationApi),
     })
 }
 
@@ -293,6 +319,27 @@ export const logsAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/reset/`
+}
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const logsAlertsDestinationsResetCreate = async (
+    projectId: string,
+    id: string,
+    logsAlertResetDestinationApi: LogsAlertResetDestinationApi,
+    options?: RequestInit
+): Promise<LogsAlertResetDestinationResponseApi> => {
+    return apiMutator<LogsAlertResetDestinationResponseApi>(getLogsAlertsDestinationsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAlertResetDestinationApi),
     })
 }
 
@@ -1177,6 +1224,57 @@ export const logsServicesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsServicesRequestApi),
+    })
+}
+
+export const getLogsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/`
+}
+
+/**
+ * The secret that servers use to sign log requests for this project.
+ */
+export const logsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/expire_previous/`
+}
+
+/**
+ * End the grace period now, so the previous secret stops being valid immediately. Use it when the replaced secret may be compromised, or once every server uses the new one.
+ */
+export const logsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. The previous secret stays valid for 48 hours, then expires.
+ */
+export const logsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

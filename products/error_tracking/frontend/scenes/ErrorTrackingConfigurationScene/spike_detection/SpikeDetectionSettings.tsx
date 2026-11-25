@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -10,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
 import { ERROR_TRACKING_LOGIC_KEY, errorTrackingEditAccessDisabledReason } from '../../../utils'
+import { QuillSpikeDetectionSettings } from './QuillSpikeDetectionSettings'
 import { RecentSpikes } from './RecentSpikes'
 import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 
@@ -26,6 +28,13 @@ export function SpikeDetectionSettings(): JSX.Element {
             settingId: 'error-tracking-alerting',
         })
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const configureAlerts = (): void => selectSetting('error-tracking-alerting')
+
+    if (todayRailNav) {
+        return <QuillSpikeDetectionSettings onConfigureAlerts={configureAlerts} />
+    }
 
     if (configLoading) {
         return (
@@ -51,7 +60,7 @@ export function SpikeDetectionSettings(): JSX.Element {
                         type="info"
                         action={{
                             children: 'Configure alerts',
-                            onClick: () => selectSetting('error-tracking-alerting'),
+                            onClick: configureAlerts,
                         }}
                     >
                         <p>

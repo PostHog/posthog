@@ -71,7 +71,7 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
     }
 
     return (
-        <div className="relative flex h-full w-full min-h-0 flex-col">
+        <div className="relative flex h-full w-full min-h-0 flex-1 flex-col">
             <BarChart
                 series={chartSeries}
                 labels={labels}

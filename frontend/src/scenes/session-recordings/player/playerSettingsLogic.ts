@@ -48,6 +48,8 @@ export interface playerSettingsLogicValues {
     isPlaylistCollapsed: boolean
     isVerticallyStacked: boolean
     legacyDebugLinkPending: boolean
+    overviewHintDismissed: boolean
+    overviewHintShown: boolean
     playerControlsOverlay: boolean
     playlistOpen: boolean
     playlistTimestampFormat: TimestampFormat
@@ -80,6 +82,9 @@ export interface playerSettingsLogicActions {
         value: true
     }
     dismissDebugHint: () => {
+        value: true
+    }
+    dismissOverviewHint: () => {
         value: true
     }
     openWatchPanelSection: (section: WatchPanelSection) => {
@@ -168,6 +173,11 @@ export interface playerSettingsLogicMeta {
             canOverrideLayout: boolean
         ) => ReplayLayout
         debugMode: (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
+        overviewHintShown: (
+            replayLayout: ReplayLayout,
+            debugHintDismissed: boolean,
+            overviewHintDismissed: boolean
+        ) => boolean
         debugHintShown: (replayLayout: ReplayLayout, debugHintDismissed: boolean) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
@@ -216,6 +226,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setWatchPanelCollapsed: (collapsed: boolean) => ({ collapsed }),
         setWatchDebugDock: (dock: WatchDebugDock) => ({ dock }),
         dismissDebugHint: true,
+        dismissOverviewHint: true,
         setLegacyDebugLinkPending: (pending: boolean) => ({ pending }),
     }),
     reducers(() => ({
@@ -332,6 +343,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 dismissDebugHint: () => true,
+                setDebugMode: (state, { open }) => open || state,
+            },
+        ],
+        overviewHintDismissed: [
+            false,
+            { persist: true },
+            {
+                dismissOverviewHint: () => true,
             },
         ],
         watchPanelOpenSections: [
@@ -386,6 +405,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.debugModePreference, s.urlOverrideSidebarOpen],
             (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null): boolean =>
                 urlOverrideSidebarOpen ?? debugModePreference,
+        ],
+        overviewHintShown: [
+            (s) => [s.replayLayout, s.debugHintDismissed, s.overviewHintDismissed],
+            (replayLayout: ReplayLayout, debugHintDismissed: boolean, overviewHintDismissed: boolean): boolean =>
+                isNewReplayLayout(replayLayout) && debugHintDismissed && !overviewHintDismissed,
         ],
         debugHintShown: [
             (s) => [s.replayLayout, s.debugHintDismissed],

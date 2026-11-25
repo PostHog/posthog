@@ -61,6 +61,7 @@ export interface Workflow {
     name?: string
     on?: unknown
     env?: Record<string, unknown>
+    concurrency?: { group?: string; 'cancel-in-progress'?: unknown }
     jobs: Record<string, RawJob>
 }
 

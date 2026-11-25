@@ -1,9 +1,9 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync } from 'fs'
+import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
-import { Client } from 'pg'
+import { Client, DatabaseError } from 'pg'
 import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
@@ -11,9 +11,10 @@ import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
+import { signal as sendSignal } from './processes'
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
-const PROBE_TIMEOUT_MS = 2000
+export const PROBE_TIMEOUT_MS = 2000
 
 export const SES_RATE_LIMIT_KEY = '@posthog/ses/global'
 
@@ -30,48 +31,96 @@ export const STACK = {
 
 export type Hogli = { command: string; cwd: string }
 
+const HOGLI_STOP_GRACE_MS = 5000
+
 async function hogliExit(
     hogli: Hogli,
     args: string[],
     logFile: string,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
 ): Promise<number | null> {
+    signal.throwIfAborted()
     const log = openSync(logFile, 'a')
-    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log] })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], detached: true })
     closeSync(log)
-    return await new Promise<number | null>((resolve, reject) => {
-        child.once('error', reject)
-        child.once('exit', resolve)
-    })
+    const stopGroup = (sig: NodeJS.Signals): void => {
+        if (child.pid !== undefined) {
+            sendSignal(-child.pid, sig)
+        }
+    }
+    let kill: NodeJS.Timeout | undefined
+    const abort = (): void => {
+        stopGroup('SIGTERM')
+        kill = setTimeout(() => stopGroup('SIGKILL'), HOGLI_STOP_GRACE_MS)
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+            child.once('error', reject)
+            child.once('exit', resolve)
+        })
+        if (signal.aborted) {
+            stopGroup('SIGKILL')
+            signal.throwIfAborted()
+        }
+        return code
+    } finally {
+        signal.removeEventListener('abort', abort)
+        clearTimeout(kill)
+    }
 }
 
-async function runHogli(hogli: Hogli, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
-    const code = await hogliExit(hogli, args, logFile, env)
+async function runHogli(
+    hogli: Hogli,
+    args: string[],
+    logFile: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    const code = await hogliExit(hogli, args, logFile, env, signal)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
 }
 
 const NOT_REACHABLE = 3
+const FIRST_START_TIMEOUT_S = 3600
 
-export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+const STACK_UNITS = {
+    intents: ['product_analytics', 'workflows'],
+    exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
+}
+
+export async function startStack(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv)
+    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
     }
     if (waited !== NOT_REACHABLE) {
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
-    await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
-    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await runHogli(hogli, ['wait'], logFile, hogliEnv)
+    writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
+    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
 }
 
-export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+export async function syncTemplates(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env, signal)
 }
 
 export async function withPostgres<T>(
@@ -146,16 +195,19 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(docker: string, args: string[]): Promise<string> {
-    try {
-        const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
-            timeout: 10_000,
-        })
-        return stdout
-    } catch (error) {
+export async function rpkOrThrow(docker: string, args: string[], signal?: AbortSignal): Promise<string> {
+    const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        timeout: 10_000,
+        signal,
+    })
+    return stdout
+}
+
+export function rpk(docker: string, args: string[]): Promise<string> {
+    return rpkOrThrow(docker, args).catch((error: unknown) => {
         const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string }
         return `${stdout}${stderr}` || String(error)
-    }
+    })
 }
 
 export async function groupMembers(group: string, docker: string): Promise<number> {
@@ -167,13 +219,19 @@ export async function groupMembers(group: string, docker: string): Promise<numbe
     return members
 }
 
+const groupOrPartitionErrored = (rpkDescribe: string): boolean =>
+    /^ERROR\s/m.test(rpkDescribe) || /^TOPIC\s.*\sERROR\s*$/m.test(rpkDescribe)
+
 export function lagOf(rpkDescribe: string): number | null {
+    if (groupOrPartitionErrored(rpkDescribe)) {
+        return null
+    }
     const lag = /^TOTAL-LAG\s+(\d+)\s*$/m.exec(rpkDescribe)
     return lag ? Number(lag[1]) : null
 }
 
 export async function groupLag(group: string, docker: string): Promise<number> {
-    const output = await rpk(docker, ['group', 'describe', group])
+    const output = await rpkOrThrow(docker, ['group', 'describe', group])
     const lag = lagOf(output)
     if (lag === null) {
         throw new Error(`Could not read the lag of ${group} from rpk:\n${output}`)
@@ -199,6 +257,30 @@ export function seekFailures(rpkSeek: string): string[] {
         const [topic, partition] = row.trim().split(/\s+/)
         return error ? [`${topic}/${partition}: ${error}`] : []
     })
+}
+
+const CREATED_OR_PRESENT = /^(OK|TOPIC_ALREADY_EXISTS\b)/
+
+export function topicCreateFailures(rpkCreate: string): string[] {
+    const [header = '', ...rows] = rpkCreate.split('\n').filter((line) => line.trim() !== '')
+    if (!/^TOPIC\s+STATUS\s*$/.test(header)) {
+        return [rpkCreate.trim() || 'rpk printed nothing']
+    }
+    return rows.flatMap((row) => {
+        const [topic, ...words] = row.trim().split(/\s+/)
+        const status = words.join(' ')
+        return CREATED_OR_PRESENT.test(status) ? [] : [`${topic}: ${status}`]
+    })
+}
+
+export async function createTopics(topics: string[], docker: string): Promise<void> {
+    if (topics.length === 0) {
+        return
+    }
+    const failures = topicCreateFailures(await rpk(docker, ['topic', 'create', '--', ...topics]))
+    if (failures.length > 0) {
+        throw new Error(`Could not create the Kafka topics the roles read:\n${failures.join('\n')}`)
+    }
 }
 
 export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string): Promise<void> {
@@ -338,19 +420,31 @@ async function pingKafka(): Promise<void> {
     await new Promise((resolve) => producer.disconnect(resolve))
 }
 
+class HttpAnswer extends Error {}
+
 export async function expectOk(url: string): Promise<void> {
     const { status } = await internalFetch(url, { timeoutMs: PROBE_TIMEOUT_MS })
     if (status !== 200) {
-        throw new Error(`${url} answered ${status}`)
+        throw new HttpAnswer(`${url} answered ${status}`)
     }
 }
 
-export async function downServices(
+export type ProbeFailure = {
+    name: string
+    reason: string
+    unanswered: boolean
+    hostLimit?: string
+    sockets?: Record<string, number>
+}
+
+export type Probes = Record<string, () => Promise<unknown>>
+
+export function dependencyProbes(
     edgeUrl: string | undefined,
     postgresUrl: string,
     sesValkey: { host: string; port: number }
-): Promise<string[]> {
-    const probes: Record<string, () => Promise<unknown>> = {
+): Probes {
+    return {
         postgres: () => withPostgres((client) => client.query('SELECT 1'), postgresUrl),
         kafka: pingKafka,
         redis: () => pingRedis(STACK.redis),
@@ -358,13 +452,77 @@ export async function downServices(
         personhog: () => expectOk(STACK.personhogReadinessUrl),
         'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
     }
+}
+
+const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
+
+const HOST_LIMITS: Record<string, string> = {
+    EADDRNOTAVAIL: 'local ports',
+    EMFILE: 'file descriptors',
+    ENFILE: 'file descriptors',
+}
+
+const TIMER_SLACK_MS = 10
+
+const SOCKET_GROUPS_KEPT = 20
+
+// A host out of local ports lists tens of thousands of sockets, which is past execFile's 1 MiB default.
+const SOCKET_LISTING_MAX_BYTES = 64 * 1024 * 1024
+
+// What held the host's ports is gone once the run ends, so the check keeps the busiest TCP states and peers.
+async function socketsOf(): Promise<Record<string, number> | undefined> {
+    try {
+        const { stdout } = await promisify(execFile)('ss', ['-tanH'], {
+            timeout: PROBE_TIMEOUT_MS,
+            maxBuffer: SOCKET_LISTING_MAX_BYTES,
+        })
+        const counts = new Map<string, number>()
+        for (const line of stdout.split('\n')) {
+            const [state, , , , peer] = line.trim().split(/\s+/)
+            if (peer !== undefined) {
+                counts.set(`${state} ${peer}`, (counts.get(`${state} ${peer}`) ?? 0) + 1)
+            }
+        }
+        return Object.fromEntries([...counts].sort(([, a], [, b]) => b - a).slice(0, SOCKET_GROUPS_KEPT))
+    } catch {
+        return undefined
+    }
+}
+
+const codeOf = (error: unknown): unknown =>
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+
+const isTypedAnswer = (error: unknown): boolean =>
+    error instanceof HttpAnswer || error instanceof DatabaseError || ANSWER_CODES.has(String(codeOf(error)))
+
+const isAnswer = (error: unknown): boolean =>
+    isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
+
+export const hostLimitOf = (error: unknown): string | undefined =>
+    HOST_LIMITS[String(codeOf(error))] ??
+    (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
+
+export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
-        Object.entries(probes).map(([name, probe]) =>
-            probe().then(
-                () => null,
-                () => name
-            )
-        )
+        Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
+            const startedAt = performance.now()
+            try {
+                await probe()
+                return null
+            } catch (error) {
+                const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
+                const reason = error instanceof Error ? error.message : String(error)
+                const hostLimit = hostLimitOf(error)
+                const sockets = hostLimit ? await socketsOf() : undefined
+                return {
+                    name,
+                    reason,
+                    unanswered: ranOutItsClock && !isAnswer(error),
+                    ...(hostLimit ? { hostLimit } : {}),
+                    ...(sockets ? { sockets } : {}),
+                }
+            }
+        })
     )
-    return results.filter((name): name is string => name !== null)
+    return results.filter((failure): failure is ProbeFailure => failure !== null)
 }

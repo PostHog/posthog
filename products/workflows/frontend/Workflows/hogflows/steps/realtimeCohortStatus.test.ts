@@ -26,6 +26,7 @@ describe('keepOnlyRealtimeCohort', () => {
         ['an empty audience', []],
         // Keeping only an exclusion would drop the other conditions and still fail to save.
         ['the cohort excluded', [email, cohort(2, PropertyOperator.NotIn)]],
+        ['the cohort excluded by negation', [email, { ...cohort(2), negation: true } as AnyPropertyFilter]],
     ])('changes nothing, never emptying the audience, with %s', (_name, properties) => {
         expect(keepOnlyRealtimeCohort(properties, 2)).toBeNull()
     })

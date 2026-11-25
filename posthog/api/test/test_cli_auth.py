@@ -130,12 +130,27 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         self.assertEqual(api_key.scoped_organizations, [])
         self.assertIn("CLI -", api_key.label)
 
-    def test_authorization_honors_submitted_scopes(self):
+    @parameterized.expand(
+        [
+            (
+                "current_names",
+                ["user:read", "project:read", "query:read", "insight:write"],
+                ["user:read", "project:read", "query:read", "insight:write"],
+            ),
+            (
+                "renamed_objects",
+                ["user:read", "review_hog:read", "stamphog:write"],
+                ["user:read", "code_review:read", "code_review_approval:write"],
+            ),
+        ]
+    )
+    def test_authorization_honors_submitted_scopes(
+        self, _name: str, submitted_scopes: list[str], expected_scopes: list[str]
+    ):
         # The browser consent screen derives scopes from the requested use cases
         # (e.g. the `agent` use case grants the MCP scope set) and submits them.
         # The endpoint must mint a key with exactly those scopes, not CLI_SCOPES.
-        submitted_scopes = ["user:read", "project:read", "query:read", "insight:write"]
-
+        # An older CLI still asks for renamed scope objects by their old names.
         response = self.client.post(
             "/api/cli-auth/authorize/",
             {"user_code": self.user_code, "project_id": self.team.id, "scopes": submitted_scopes},
@@ -144,7 +159,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert api_key is not None
-        self.assertEqual(api_key.scopes, submitted_scopes)
+        self.assertEqual(api_key.scopes, expected_scopes)
         self.assertEqual(api_key.scoped_teams, [self.team.id])
 
     @parameterized.expand(

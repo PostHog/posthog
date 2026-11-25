@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
@@ -37,6 +38,7 @@ import {
     firstRunCheckProblem,
     needsFirstRunCheck,
     runFirstRunCheck,
+    trainingStartRefusal,
 } from './firstRunCheck'
 import {
     autoresearchModelsList,
@@ -428,10 +430,10 @@ export interface autoresearchPipelineLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     closeArtifact: () => any
@@ -1821,13 +1823,15 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.success('Training run started')
         },
         startTrainingFailure: ({ errorObject }) => {
+            const refusal = trainingStartRefusal(errorObject)
             posthog.capture('autoresearch model action failed', {
                 action: 'train',
                 pipeline_id: props.id,
                 status: errorObject?.status,
+                ...(refusal.code ? { error_code: refusal.code } : {}),
             })
             // A project at its daily training limit explains when the next run can start in `detail`.
-            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
+            lemonToast.error(refusal.reason ?? 'Could not start training run')
         },
         stopTraining: async () => {
             const run = values.liveTrainingRun

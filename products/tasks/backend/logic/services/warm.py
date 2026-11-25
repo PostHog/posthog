@@ -29,7 +29,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import resolve_scopes
 
 from products.tasks.backend.access import get_posthog_ai_access_decision

@@ -598,7 +598,7 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
                 error_code="cannot_parse_datetime",
             ),
             "cannot_parse_datetime",
-            "ClickHouse rejected the query with error CANNOT_PARSE_DATETIME.",
+            "Cannot parse a date and time. Check your datetime values and their format.",
             id="clickhouse_rejection_uses_curated_text",
         ),
         pytest.param(
@@ -1128,12 +1128,22 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param("x", id="plain_prompt"),
+        pytest.param(
+            "Run: SELECT toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS h, count() FROM events WHERE {{date_range}} GROUP BY h",
+            id="interval_used_for_bucketing",
+        ),
+    ],
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
 async def test_unfrozen_run_returns_plan_to_persist(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock, prompt: str
 ) -> None:
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
     # so the next delivery is deterministic. The envelope must carry the plan AND the relevant_events it
@@ -1153,7 +1163,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist == {
         "version": AI_QUERY_PLAN_VERSION,
@@ -1320,13 +1330,19 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
-    "spec,run_result",
+    "spec,run_result,prompt",
     [
         # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
-        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, "x", id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
-        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
-        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
+        pytest.param(_spec(steps=1), _OK_RUN, "x", id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, "x", id="no_step_found_data"),
+        pytest.param(
+            _spec_with_window_placeholder(),
+            _OK_RUN,
+            "Run exactly: SELECT count() FROM ci_jobs WHERE created_at >= today() - INTERVAL 21 DAY",
+            id="prompt_sets_own_date_bounds",
+        ),
     ],
 )
 @patch(_SLO_CAPTURE)
@@ -1340,6 +1356,7 @@ async def test_unfreezable_plans_are_not_frozen(
     _mock_capture: MagicMock,
     spec: EnrichedPromptSpec,
     run_result: tuple,
+    prompt: str,
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
@@ -1349,7 +1366,7 @@ async def test_unfreezable_plans_are_not_frozen(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist is None
     assert result.query_plan_status == AIQueryPlanStatus.NOT_FROZEN

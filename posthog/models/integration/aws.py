@@ -2,7 +2,6 @@
 
 import re
 import json
-import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
@@ -15,6 +14,7 @@ from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model, row_writes
@@ -125,6 +125,27 @@ def _return_non_empty_str_from_config_for_aws(config: Mapping, key: str, friendl
 AWS_ROLE_ARN_RE = re.compile(r"^arn:aws(-[a-z-]+)?:iam::\d{12}:role/.+")
 
 
+def _assume_role_is_allowed(sts: Any, aws_role_arn: str, **kwargs: str) -> bool:
+    """Whether STS lets us assume the role. Only an AccessDenied counts as a refusal."""
+    from botocore.exceptions import (  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        BotoCoreError,
+        ClientError,
+    )
+
+    try:
+        sts.assume_role(RoleArn=aws_role_arn, RoleSessionName="PostHog-validate-aws-role-arn", **kwargs)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "AccessDenied":
+            return False
+        LOGGER.exception("Assume role probe failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
+    except BotoCoreError:
+        # A timeout says nothing about the trust policy, so it must not pass as a refusal.
+        LOGGER.exception("Assume role probe failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
+    return True
+
+
 def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id: str) -> None:
     """Validate we can assume an AWS role ARN.
 
@@ -178,27 +199,13 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
 
     # These two tests are required to test both that an external id is
     # required and that it's not set to wildcard.
-    try:
-        _ = external_sts.assume_role(
-            RoleArn=aws_role_arn,
-            RoleSessionName="PostHog-validate-aws-role-arn",
-            ExternalId=f"posthog-{secrets.token_hex(67)}",
-        )
-    except Exception:
-        pass
-    else:
+    # Generated the way organization IDs are, so a wildcard that matches organization IDs also lets this one through.
+    if _assume_role_is_allowed(external_sts, aws_role_arn, ExternalId=f"posthog-{UUIDT()}"):
         raise common.IntegrationError(
             f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
         )
 
-    try:
-        _ = external_sts.assume_role(
-            RoleArn=aws_role_arn,
-            RoleSessionName="PostHog-validate-aws-role-arn",
-        )
-    except Exception:
-        pass
-    else:
+    if _assume_role_is_allowed(external_sts, aws_role_arn):
         raise common.IntegrationError(
             f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
         )

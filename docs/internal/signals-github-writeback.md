@@ -17,6 +17,7 @@ Instead, the write queues the `post_source_issue_links` Celery task after commit
 A source issue gets its comment when the report is filed. The worker does not wait for the GitHub source to ingest the issue as a signal, because a scout usually reports before that sync.
 Anyone who files a report can name any issue URL, so a source issue gets a comment only when the project's GitHub warehouse source syncs issues from its repository.
 A GitHub integration that can reach the repository is not enough, because an organization-wide installation can reach repositories the project never connected.
+Grouping also writes a `source_issue` for each GitHub issue signal, on the report that the signal opens or joins. The per-issue claim keeps the signal and the record from posting two comments.
 When the issue's signal later joins the report by exact match, grouping queues the same task again. The comment claim stops a second comment.
 An edit queues it only when it adds an issue the report did not name yet.
 The task has no retry. A pending claim on a scout report recovers on the next edit that adds an issue, or when a GitHub issue signal joins the report and research settles it.

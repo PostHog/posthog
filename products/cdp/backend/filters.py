@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,6 +19,7 @@ from products.actions.backend.facade.contracts import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
+PROPERTY_GROUP_TYPES = frozenset({"AND", "OR"})
 
 # Internal events (e.g. activity logs) carry real nested JSON objects in their properties — such as
 # `detail` on `$activity_log_entry_created`, which the activity log filter UI exposes as `detail.name`
@@ -243,16 +244,57 @@ class _WarehouseRowFields(CloningVisitor):
         return super().visit_field(node)
 
 
-def _as_row_properties(properties: list[Any]) -> list[Any]:
+def _as_row_property(prop: Any) -> Any:
     """Read a `data_warehouse` column filter from `properties`, where the consumer puts the row.
 
     Such a filter otherwise compiles to a bare field such as `organization`, which the filter
     globals never carry, so the row fails the filter.
     """
-    return [
-        {**prop, "type": "event"} if isinstance(prop, dict) and prop.get("type") == "data_warehouse" else prop
-        for prop in properties
-    ]
+    return {**prop, "type": "event"} if isinstance(prop, dict) and prop.get("type") == "data_warehouse" else prop
+
+
+def _as_row_properties(properties: list[Any]) -> list[Any]:
+    return [_as_row_property(prop) for prop in properties]
+
+
+def is_property_group(node: Any) -> bool:
+    return isinstance(node, dict) and isinstance(node.get("type"), str) and node["type"] in PROPERTY_GROUP_TYPES
+
+
+def iter_property_leaves(node: Any) -> Iterator[Any]:
+    """The leaf filters of a flat property list or of AND/OR groups nested to any depth."""
+    if isinstance(node, list):
+        for item in node:
+            yield from iter_property_leaves(item)
+    elif is_property_group(node):
+        yield from iter_property_leaves(node.get("values") or [])
+    else:
+        yield node
+
+
+def _property_group_to_expr(group: dict, team: Team, as_row: bool) -> ast.Expr | None:
+    """None for a group with no filters in it.
+
+    The editor stores a group the person added but has not filled in yet. Such a group is skipped, because
+    compiling it to true would make an OR around it match everyone. For the same reason a filter that does not
+    parse, or that compiles to true (such as an empty value list), raises, where a flat list ANDs it away.
+    """
+    exprs: list[ast.Expr] = []
+    for value in group.get("values") or []:
+        if is_property_group(value):
+            expr = _property_group_to_expr(value, team, as_row)
+            if expr is not None:
+                exprs.append(expr)
+        else:
+            expr = property_to_expr(_as_row_property(value) if as_row else value, team, strict=True)
+            if isinstance(expr, ast.Constant) and expr.value in (True, 1):
+                raise ValueError("A filter inside a filter group is incomplete. Fill it in or remove it.")
+            exprs.append(expr)
+    if not exprs:
+        return None
+    if len(exprs) == 1:
+        return exprs[0]
+    return ast.And(exprs=exprs) if group["type"] == "AND" else ast.Or(exprs=exprs)
 
 
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
@@ -260,7 +302,13 @@ def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
     if not filters.get("properties"):
         return []
     properties = filters["properties"]
-    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+    as_row = filters.get("source") in DATA_WAREHOUSE_SOURCES
+    # Only a group at the top level is expanded. A group stored as an item of a flat list keeps
+    # compiling through property_to_expr, so a saved list compiles the same way it always did.
+    if is_property_group(properties):
+        expr = _property_group_to_expr(properties, team, as_row)
+        return [expr] if expr is not None else []
+    if as_row:
         properties = _as_row_properties(properties)
     return [property_to_expr(prop, team) for prop in properties]
 
@@ -414,26 +462,14 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
 def collect_property_cohort_ids(node: Any) -> set[int]:
     """Cohort ids in a property tree (lists, AND/OR groups, and cohort leaves)."""
     ids: set[int] = set()
-
-    def _walk(current: Any) -> None:
-        if isinstance(current, list):
-            for item in current:
-                _walk(item)
-            return
-        if not isinstance(current, dict):
-            return
-        if current.get("type") in ("AND", "OR"):
-            _walk(current.get("values") or [])
-            return
-        if _is_cohort_filter(current):
-            value = current.get("value")
+    for leaf in iter_property_leaves(node):
+        if _is_cohort_filter(leaf):
+            value = leaf.get("value")
             if isinstance(value, str | int) and not isinstance(value, bool):
                 try:
                     ids.add(int(value))
                 except ValueError:
                     pass
-
-    _walk(node)
     return ids
 
 

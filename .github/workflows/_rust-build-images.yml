@@ -237,6 +237,7 @@ jobs:
                       BUILD_FEATURES=${{ matrix.features || '' }}
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
+                      SQLX_DATABASES=${{ matrix.sqlx_databases || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
                       SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |

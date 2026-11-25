@@ -4,9 +4,12 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest.mock import MagicMock
+
+from django.utils import timezone
 
 import requests
 
@@ -173,11 +176,42 @@ TRACKING = _object(
     refine=_clicks_need_opens,
 )
 
+
+# zod 4's `z.string().datetime({ offset: true })`: seconds always, then `Z` or an offset with a colon.
+_ZOD_DATETIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)"
+)
+
+
+def _parse_scheduled_at(value: str) -> datetime | None:
+    # Node's `z.string().datetime({ offset: true })`, then `new Date()`, which keeps milliseconds.
+    if not _ZOD_DATETIME.fullmatch(value):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.replace(microsecond=parsed.microsecond // 1000 * 1000)
+
+
+def _scheduled_at(value: Any, path: list[Any]) -> Issues:
+    if not isinstance(value, str):
+        return [_issue("invalid_type", path)]
+    return [] if _parse_scheduled_at(value) else [_issue("invalid_format", path)]
+
+
+def _iso_milliseconds(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
+
+
 _TEMPLATE_REQUEST_KEYS = {
     "to": _Key(_email),
     "distinct_id": _Key(_string(min_length=1)),
     "variables": _Key(_record, optional=True),
     "idempotency_key": _Key(_string(min_length=1, max_length=255), optional=True),
+    "scheduled_at": _Key(_scheduled_at, optional=True),
 }
 
 
@@ -194,7 +228,7 @@ class FakeCdpApi:
     takes_attachments: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
-    idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
+    idempotency_keys: dict[tuple[str, str], tuple[str, dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def queued_sends(self) -> list[dict[str, Any]]:
@@ -215,17 +249,27 @@ class FakeCdpApi:
             return _response(422, {"error": "recipient_unreachable"})
         if issues:
             return _response(400, {"error": _json_dumps(issues)})
-        key = request.get("idempotency_key") if is_code_send else None
-        fingerprint = _code_send_fingerprint(url, request) if key is not None else ""
-        if key is not None and key in self.idempotency_keys:
-            stored_fingerprint, reply = self.idempotency_keys[key]
+        key = request.get("idempotency_key")
+        claim = (url.split("/api/projects/")[1].split("/")[0], key) if key is not None else None
+        fingerprint = _send_fingerprint(url, request) if claim is not None else ""
+        if claim is not None and claim in self.idempotency_keys:
+            stored_fingerprint, reply = self.idempotency_keys[claim]
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
+        requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
+        if requested_at is not None and requested_at > timezone.now() + timedelta(days=30):
+            return _response(400, {"error": "invalid_scheduled_at", "reason": "too_far"})
+        scheduled_at = requested_at if requested_at is not None and requested_at > timezone.now() else None
         self.queued.append({name: value for name, value in request.items() if name in keys})
-        reply = {"invocation_id": str(uuid.uuid4()), **(_sender_kind(request["send"]) if is_code_send else {})}
-        if key is not None:
-            self.idempotency_keys[key] = (fingerprint, reply)
+        reply = {
+            "status": "scheduled" if scheduled_at else "queued",
+            "invocation_id": str(uuid.uuid4()),
+            "scheduled_at": _iso_milliseconds(scheduled_at) if scheduled_at else None,
+            **(_sender_kind(request["send"]) if is_code_send else {}),
+        }
+        if claim is not None:
+            self.idempotency_keys[claim] = (fingerprint, reply)
         return _response(202, reply)
 
     @contextmanager
@@ -265,7 +309,18 @@ class FakeAnalytics:
         return [event["properties"] for event in self.events if event.get("event") == name]
 
 
-def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
+def _send_fingerprint(url: str, request: dict[str, Any]) -> str:
+    requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
+    if "send" not in request:
+        return _json_dumps(
+            [
+                url,
+                request["to"],
+                request.get("distinct_id"),
+                request.get("variables"),
+                _iso_milliseconds(requested_at) if requested_at else None,
+            ]
+        )
     sender = request["send"].get("from") or {}
     chosen = (
         {"email": sender.get("email"), "name": sender.get("name")}
@@ -273,7 +328,14 @@ def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
         else None
     )
     return _json_dumps(
-        [url, request["to"], request["distinct_id"], request.get("variables"), {**request["send"], "from": chosen}]
+        [
+            url,
+            request["to"],
+            request["distinct_id"],
+            request.get("variables"),
+            {**request["send"], "from": chosen},
+            _iso_milliseconds(requested_at) if requested_at else None,
+        ]
     )
 
 
@@ -290,7 +352,7 @@ def _json_loads(data: bytes | str) -> Any:
 
 
 def _json_dumps(value: Any) -> str:
-    return json.dumps(value)
+    return json.dumps(value, sort_keys=True)
 
 
 def _response(status_code: int, body: dict[str, Any]) -> requests.Response:

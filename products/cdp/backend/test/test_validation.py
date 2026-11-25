@@ -604,6 +604,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
 
+    @parameterized.expand(
+        [
+            (
+                "stale_wrap",
+                build_html_wrap_design("<p>Old</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_wrap",
+                build_html_wrap_design("<p>Same</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>Same</p>",
+                False,
+            ),
+            (
+                "stale_old_editor_design",
+                {"body": {"rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Old</p>"}}]}]}]}},
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Old</p>"},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_old_editor_design",
+                {
+                    "body": {
+                        "rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Same</p>"}}]}]}]
+                    }
+                },
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Same</p>"},
+                "<p>Same</p>",
+                False,
+            ),
+        ]
+    )
+    def test_email_document_stored_with_the_design(self, _name, design, document, html, replaced):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        stored = {**design, "emailDocument": document}
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": stored}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == (build_html_wrap_design(html) if replaced else stored)
+
     def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         edited_design = build_html_wrap_design("<p>Inner block</p>")
@@ -1722,6 +1767,21 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestIntegrationFieldInputValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("numeric_id", 512345678, "512345678"),
+            ("string_id", "512345678", "512345678"),
+        ]
+    )
+    def test_integration_field_value_is_stored_as_a_string(self, _name, value, expected):
+        schema = [{"key": "accountId", "type": "integration_field", "integration_key": "linkedinAdsIntegration"}]
+
+        validated = validate_inputs(schema, {"accountId": {"value": value}})
+
+        assert validated["accountId"]["value"] == expected
 
 
 class TestChoiceInputTemplating(SimpleTestCase):

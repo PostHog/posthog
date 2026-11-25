@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.eventbrite.eventbrite import (
     _format_changed_since,
     validate_credentials,
 )
+from products.warehouse_sources.sources.eventbrite.settings import EVENTBRITE_ENDPOINTS
 from products.warehouse_sources.sources.eventbrite.source import EventbriteSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
@@ -84,6 +85,72 @@ class TestIncrementalFilter:
         assert result.raised is None
         assert result.paths == ["/v3/users/me/organizations/", "/v3/organizations/org1/orders/"]
         assert result.params("changed_since") == [None, "2026-01-01T00:00:00Z"]
+
+
+class TestFanOutEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, parent_pages, expected_paths, expected_params, expected_keys",
+        [
+            (
+                "ticket_groups",
+                [_page("organizations", [{"id": "org1"}])],
+                ["/v3/users/me/organizations/", "/v3/organizations/org1/ticket_groups/"],
+                {"status": [None, "all"]},
+                ("id",),
+            ),
+            (
+                "members",
+                [_page("organizations", [{"id": "org1"}])],
+                ["/v3/users/me/organizations/", "/v3/organizations/org1/members/"],
+                {},
+                ("_organizations_id", "user_id"),
+            ),
+            (
+                "discounts",
+                [
+                    _page("organizations", [{"id": "org1"}]),
+                    _page("events", [{"id": "ev1", "organization_id": "org7"}]),
+                ],
+                [
+                    "/v3/users/me/organizations/",
+                    "/v3/organizations/org1/events/",
+                    "/v3/organizations/org7/discounts/",
+                ],
+                {"scope": [None, None, "event"], "event_id": [None, None, "ev1"]},
+                ("_events_id", "id"),
+            ),
+            (
+                "inventory_tiers",
+                [
+                    _page("organizations", [{"id": "org1"}]),
+                    _page("events", [{"id": "ev1", "organization_id": "org1"}]),
+                ],
+                ["/v3/users/me/organizations/", "/v3/organizations/org1/events/", "/v3/events/ev1/inventory_tiers/"],
+                {},
+                ("_events_id", "id"),
+            ),
+        ],
+    )
+    def test_fan_out_request_and_rows(
+        self,
+        endpoint: str,
+        parent_pages: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_params: dict[str, list[str | None]],
+        expected_keys: tuple[str, ...],
+    ) -> None:
+        data_key = EVENTBRITE_ENDPOINTS[endpoint].data_key
+        leaf_row = {"id": "row1", "user_id": "user1"}
+        result = _driver().run(endpoint, [*parent_pages, _page(data_key, [leaf_row])])
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        for name, values in expected_params.items():
+            assert result.params(name) == values
+        assert result.response is not None
+        assert tuple(result.response.primary_keys or []) == expected_keys
+        assert len(result.rows) == 1
+        assert all(result.rows[0].get(key) is not None for key in expected_keys)
 
 
 class TestValidateCredentials:

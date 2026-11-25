@@ -134,6 +134,7 @@ describe('activityAgentContext', () => {
     // Without the rule the agent answers from filters it was never sent, as if they matched the screen.
     it.each([
         ['explore', buildExploreAgentContext(ActivityTab.ExploreEvents, getDefaultEventsSceneQuery())],
+        ['flag calls', buildExploreAgentContext(ActivityTab.ExploreFlagCalls, getDefaultEventsSceneQuery())],
         ['live', buildLiveEventsAgentContext({ eventType: null, properties: [] })],
     ])('tells the agent what an elided field means on the %s context', (_surface, items) => {
         const instructions = items.find((item) => item.type === 'instructions')
@@ -144,6 +145,7 @@ describe('activityAgentContext', () => {
     it.each([
         ['events_explorer_query', ActivityTab.ExploreEvents],
         ['sessions_explorer_query', ActivityTab.ExploreSessions],
+        ['flag_calls_explorer_query', ActivityTab.ExploreFlagCalls],
     ] as const)('names the %s item type in the instructions it ships with', (expectedType, tab) => {
         const [queryItem, instructionsItem] = buildExploreAgentContext(tab, getDefaultEventsSceneQuery())
 

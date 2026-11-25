@@ -13,9 +13,16 @@ import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.se
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
+import { filteredMetric, rejectsEventName } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
+import {
+    EventNameGate,
+    buildEventNameGate,
+    filteredFlowMetric,
+    runsOnEvents,
+    triggersOnEvents,
+} from './event-name-gate'
 import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'
 import {
     counterEventNameSource,
@@ -31,6 +38,16 @@ const isEventObject = (value: unknown): value is RawClickHouseEvent =>
     typeof value === 'object' && value !== null && !Array.isArray(value)
 
 type TeamWithEventNameGate = { team: Team; gate: EventNameGate }
+
+// Runs outside the pipelines' per-event error handling, so a malformed stored filter admits the source here
+// and its filter run records the failure, as before.
+const rejectsEventNameSafely = (filters: HogFunctionType['filters'], eventName: string): boolean => {
+    try {
+        return rejectsEventName(filters, eventName)
+    } catch {
+        return false
+    }
+}
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -112,12 +129,30 @@ export class CdpEventsConsumer<
             this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: runsOnEvents,
+                // Drops a function whose event filter names only other events, so its filter never runs.
+                // filterFunctionInstrumented records a `filtered` metric in that case, so this records the same metric.
+                invocationFilterFn: (fn, globals) => {
+                    if (!rejectsEventNameSafely(fn.filters, globals.event.event)) {
+                        return true
+                    }
+                    this.hogFunctionMonitoringService.queueAppMetric(filteredMetric(fn), 'hog_function')
+                    return false
+                },
             }),
             // Source-compatibility lives in the consumer. The events consumer matches event-triggered
             // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
             // are dispatched from their respective consumers and never reach the executor from here.
             this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
-                eligibilityFn: triggersOnEvents,
+                eligibilityFn: (flow, globals) => {
+                    if (!triggersOnEvents(flow)) {
+                        return false
+                    }
+                    if (!rejectsEventNameSafely(flow.trigger.filters, globals.event.event)) {
+                        return true
+                    }
+                    this.hogFunctionMonitoringService.queueAppMetric(filteredFlowMetric(flow), 'hog_flow')
+                    return false
+                },
             }),
         ])
         const hogInvocations = hogBuild.invocations

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import (
+    COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_BACKFILL_TRIGGER_COUNTER,
     COHORT_REALTIME_STATE_ORPHANED_COUNTER,
 )
@@ -95,6 +96,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(window_days, person_hash=person_hash),
         )
 
@@ -249,6 +251,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(7),
             last_backfill_events_at=ready_at,
             last_realtime_cohort_calculation_at=ready_at,
@@ -323,6 +326,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             Cohort.objects.create(
                 team=self.team,
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
                 filters=self._filters(7, windowless=True),
             )
 
@@ -344,6 +348,23 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
 
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_a_cohort_with_realtime_off_enqueues_nothing_and_reports_no_refusal(self) -> None:
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort = Cohort.objects.create(
+                team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(7, person_hash="person-a")
+            )
+            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.save()
+
+        enqueue.assert_not_called()
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
+
     def _refused_count(self, kind: CohortBackfillKind) -> float:
         return COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="refused_ineligible")._value._value
 
@@ -352,18 +373,23 @@ class TestBehavioralBackfillDependencies(BaseTest):
             {tuple(call.kwargs["args"][2:]) for call in enqueue.call_args_list},
             {(trigger, CohortBackfillKind.BEHAVIORAL), (trigger, CohortBackfillKind.PERSON_PROPERTY)},
         )
-        self.assertEqual({call.kwargs["countdown"] for call in enqueue.call_args_list}, {300})
         self.assertEqual(
-            {call.args[0] for call in redis.set.call_args_list},
+            {(call.kwargs["args"][3], call.kwargs["countdown"]) for call in enqueue.call_args_list},
+            {(kind, COHORT_BACKFILL_DEBOUNCE_SECONDS[kind]) for kind in CohortBackfillKind},
+        )
+        # Without nx every save enqueues a replay. Without ex the key never expires and swallows every
+        # later save, and an ex longer than the countdown swallows a save that lands after the task read
+        # its state. Both are the debounce design's whole contract.
+        self.assertEqual(
+            {call.args[0]: call.kwargs for call in redis.set.call_args_list},
             {
-                f"cohort_backfill_behavioral_pending:{cohort.id}",
-                f"cohort_backfill_person_property_pending:{cohort.id}",
+                f"cohort_backfill_{kind.value}_pending:{cohort.id}": {
+                    "nx": True,
+                    "ex": COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
+                }
+                for kind in CohortBackfillKind
             },
         )
-        # Without nx every save enqueues a replay; without ex outliving the countdown, an expired
-        # window swallows saves forever. Both are the debounce design's whole contract.
-        for call in redis.set.call_args_list:
-            self.assertEqual(call.kwargs, {"nx": True, "ex": 300})
 
     @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
     def test_create_enqueues_one_debounced_task_per_leaf_kind(self) -> None:
@@ -403,7 +429,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # well: a pruning person run stores state valid only for the tree it pinned, and the
         # behavioral run is what nulls the events stamp flags route on. The cohort is created before
         # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -418,12 +449,15 @@ class TestBehavioralBackfillDependencies(BaseTest):
     def _assert_one_debounced_task(self, enqueue, redis, cohort: Cohort, kind: CohortBackfillKind) -> None:
         enqueue.assert_called_once_with(
             args=[self.team.id, cohort.id, "cohort_edited", kind],
-            countdown=300,
+            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
         # The value is the pending task's trigger kind, which the cohort API reads to show a build
         # as queued during the countdown, before any run row exists.
         redis.set.assert_called_once_with(
-            f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300
+            f"cohort_backfill_{kind.value}_pending:{cohort.id}",
+            "cohort_edited",
+            nx=True,
+            ex=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
 
     @parameterized.expand(
@@ -473,7 +507,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
         # because the person run its hash change would ask for is refused: the cohort has no person
         # leaf left to pin.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -645,13 +684,21 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         enqueue.assert_called_once_with(
             args=[self.team.id, cohort.id, "cohort_edited", kind],
-            countdown=300,
+            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
         # The value is the pending task's trigger kind, which the cohort API reads to show a build
         # as queued during the countdown, before any run row exists.
         self.assertEqual(
             redis.set.call_args_list,
-            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300)] * 2,
+            [
+                mock.call(
+                    f"cohort_backfill_{kind.value}_pending:{cohort.id}",
+                    "cohort_edited",
+                    nx=True,
+                    ex=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
+                )
+            ]
+            * 2,
         )
 
     @parameterized.expand(
@@ -670,6 +717,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         params: dict = {
             "team": self.team,
             "cohort_type": CohortType.REALTIME,
+            "realtime_enabled_at": timezone.now(),
             "filters": self._filters(7, **filter_kwargs),
             **overrides,
         }

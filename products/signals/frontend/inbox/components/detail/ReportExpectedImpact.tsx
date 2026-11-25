@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
@@ -54,7 +56,6 @@ export function ReportExpectedImpact({
     report: SignalReport
     reportUrl: string
 }): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -62,13 +63,15 @@ export function ReportExpectedImpact({
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     if (!monitoringEnabled) {
         return null
     }
     const measurements = buildReportCheckRows(
         reportChecks ?? [],
         latestCheckExplanations(reportArtefacts ?? []),
-        report.status
+        report.status,
+        scoutNamesBySkill
     )
         .filter(({ check }) => check.status !== 'cancelled')
         .flatMap((row) => {
@@ -164,24 +167,7 @@ export function ReportExpectedImpact({
                                 ) : (
                                     <p className="text-tertiary m-0">The query is not available to you.</p>
                                 )}
-                                {config.monitoring ? (
-                                    <ReportMonitoringDetails
-                                        config={config}
-                                        monitoring={config.monitoring}
-                                        metric={metric}
-                                        timingDescription={
-                                            <ReportCheckTiming
-                                                check={check}
-                                                reportStatus={reportStatus}
-                                                detail={
-                                                    showApprovalLabel && check.soak_minutes != null
-                                                        ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                                        : detail
-                                                }
-                                            />
-                                        }
-                                    />
-                                ) : (
+                                {!config.monitoring && (
                                     <>
                                         {config.baseline_value != null && (
                                             <p className="m-0 text-secondary text-sm">{`Baseline: ${formatReportMetricValue(metric, config.baseline_value) ?? config.baseline_value}`}</p>
@@ -189,13 +175,52 @@ export function ReportExpectedImpact({
                                         <p className="m-0 text-secondary text-sm">{detail}</p>
                                     </>
                                 )}
-                                {config.query != null && (
-                                    <details className="text-sm">
-                                        <summary className="cursor-pointer">View measurement query</summary>
-                                        <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
-                                            {JSON.stringify(config.query, null, 2)}
-                                        </pre>
-                                    </details>
+                                {(config.monitoring || config.query != null) && (
+                                    <LemonCollapse
+                                        multiple
+                                        embedded
+                                        size="small"
+                                        panels={[
+                                            !!config.monitoring && {
+                                                key: 'details',
+                                                dataAttr: 'report-measurement-details-toggle',
+                                                header: 'Measurement details',
+                                                content: (
+                                                    <ReportMonitoringDetails
+                                                        config={config}
+                                                        monitoring={config.monitoring}
+                                                        metric={metric}
+                                                        timingDescription={
+                                                            <ReportCheckTiming
+                                                                check={check}
+                                                                reportStatus={reportStatus}
+                                                                detail={
+                                                                    showApprovalLabel && check.soak_minutes != null
+                                                                        ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                                                        : detail
+                                                                }
+                                                            />
+                                                        }
+                                                    />
+                                                ),
+                                            },
+                                            config.query != null && {
+                                                key: 'query',
+                                                dataAttr: 'report-measurement-query-toggle',
+                                                header: 'Measurement query',
+                                                content: (
+                                                    <CodeSnippet
+                                                        language={Language.JSON}
+                                                        compact
+                                                        thing="measurement query"
+                                                        className="[&_pre]:max-h-64 [&_pre]:overflow-auto"
+                                                    >
+                                                        {JSON.stringify(config.query, null, 2)}
+                                                    </CodeSnippet>
+                                                ),
+                                            },
+                                        ]}
+                                    />
                                 )}
                             </div>
                         )
@@ -223,23 +248,21 @@ export function ReportExpectedImpact({
                         >
                             Looks good
                         </LemonButton>
-                        {hasPostHogAiAccess && (
-                            <LemonButton
-                                data-attr="report-expected-impact-suggest-metrics"
-                                type="secondary"
-                                size="small"
-                                disabledReason={
-                                    openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined
-                                }
-                                onClick={() => setModalOpen(true)}
-                            >
-                                Suggest different metrics
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            data-attr="report-expected-impact-suggest-metrics"
+                            type="secondary"
+                            size="small"
+                            disabledReason={
+                                openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined
+                            }
+                            onClick={() => setModalOpen(true)}
+                        >
+                            Suggest different metrics
+                        </LemonButton>
                     </div>
                 )}
             </div>
-            {allOpenApproved && hasPostHogAiAccess && (
+            {allOpenApproved && (
                 <Link
                     data-attr="report-expected-impact-suggest-another-metric"
                     className="self-start text-sm"

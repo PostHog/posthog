@@ -318,7 +318,7 @@ function PublicBackgroundChoice(): JSX.Element {
                         </div>
                         {authorizationDisabledReason ? (
                             <div className="text-sm">
-                                Ask a web analytics editor to authorize this URL, or choose Screenshot.
+                                Ask a project admin to authorize this URL, or choose Screenshot.
                             </div>
                         ) : (
                             <LemonButton

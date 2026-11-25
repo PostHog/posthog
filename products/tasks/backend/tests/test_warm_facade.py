@@ -503,14 +503,24 @@ class TestWarmTaskSandbox(APIBaseTest):
         ]
     )
     def test_births_repo_less_report_discussion_draft_without_consuming_the_report_cap(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
 
         report = SignalReport.objects.create(team=self.team)
+        default_image = SandboxCustomImage.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="Implementation image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="implementation-image:v1",
+        )
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image.id)
         captured: dict[str, Any] = {}
 
         def fake_warm(self_warmer, **kwargs):
             captured.update(kwargs)
-            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            run = self_warmer.task.create_run(
+                mode="interactive", extra_state={**kwargs["extra_state"], "await_user_message": True}
+            )
             return WarmResult(run=run, just_created=True)
 
         report_kwargs: dict[str, Any] = {
@@ -535,6 +545,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.github_integration_id == (self.integration.id if entitled else None)
         assert captured["extra_state"]["run_source"] == "signal_report"
         assert captured["extra_state"]["signal_report_id"] == str(report.id)
+        assert captured["extra_state"].get("custom_image_id") == (str(default_image.id) if entitled else None)
         assert (
             SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals") == []
         )
@@ -842,7 +853,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             self.team.id, self.user.id, validated_data=validated, client_provenance=client_provenance
         )
 
-    def _report_warm_run(self, report, *, github_integration: Integration | None = None) -> tuple[Task, TaskRun]:
+    def _report_warm_run(
+        self, report, *, github_integration: Integration | None = None, custom_image_id: str | None = None
+    ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
             title="",
@@ -862,6 +875,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 "branch": None,
                 "run_source": "signal_report",
                 "signal_report_id": str(report.id),
+                **({"custom_image_id": custom_image_id} if custom_image_id else {}),
             },
             branch=None,
         )
@@ -887,10 +901,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         ]
     )
     def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
 
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
+        default_image = SandboxCustomImage.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="Implementation image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="implementation-image:v1",
+        )
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image.id)
+        warm_task, _run = self._report_warm_run(
+            report,
+            github_integration=self.integration if entitled else None,
+            custom_image_id=str(default_image.id) if entitled else None,
+        )
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, code_access_allowed=entitled)
@@ -1040,7 +1066,12 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             steer_after_patch = self.client.post(command_url, message, format="json")
             assert steer_after_patch.status_code == 409, steer_after_patch.content
 
-            warm_task.create_run(mode="interactive", extra_state={"run_source": "signal_report"}, branch=None)
+            warm_task.create_run(
+                environment=TaskRun.Environment.LOCAL,
+                mode="interactive",
+                extra_state={"run_source": "signal_report"},
+                branch=None,
+            )
             hidden = facade.run_task(
                 warm_task.id,
                 self.team.id,
@@ -2009,6 +2040,32 @@ class TestWarmRunRelease(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
         deliver.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("signal_response_is_lost", []),
+            ("connect_fails_on_the_retry", [RuntimeError("connection refused")]),
+        ]
+    )
+    def test_release_with_unknown_signal_delivery_keeps_the_run_fenced(self, _name, retry_connect_errors) -> None:
+        run = self._run(awaiting=True)
+        lost_response = AsyncMock(side_effect=RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+        with (
+            patch("products.tasks.backend.facade.api.send_cancel"),
+            patch("products.tasks.backend.facade.cancellation.sync_connect") as connect,
+        ):
+            connect.return_value.get_workflow_handle.return_value.signal = lost_response
+            response = self._release(run)
+            for connect_error in retry_connect_errors:
+                connect.side_effect = connect_error
+                response = self._release(run)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        with (
+            patch("products.tasks.backend.temporal.client.signal_task_followup_message"),
+            self.assertRaises(facade.WarmRunActivationUnavailable),
+        ):
+            facade._deliver_warm_run_message(run, message="Continue the example task", artifact_ids=[])
+
     def test_release_does_not_cancel_if_its_claim_cannot_be_saved(self) -> None:
         run = self._run(awaiting=True)
         with (
@@ -2454,17 +2511,44 @@ class TestRunTaskWarmActivation(APIBaseTest):
             warm.refresh_from_db()
             assert warm.state["billing_product"] == "posthog_ai"
 
-    @parameterized.expand([("run_task",), ("user_message",)])
-    def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:
+    def test_run_task_does_not_activate_a_warm_run_beside_a_live_sibling(self) -> None:
         task, run = self._warm_run()
         live = TaskRun.objects.create(
             task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
         )
         TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
 
-        with (
-            patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started,
-            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as signal:
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
+            )
+
+        assert result is not None and result.error is not None
+        assert result.error.code == "run_in_progress"
+        signal.assert_not_called()
+        assert task.runs.count() == 2
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+
+    @parameterized.expand([("run_task",), ("user_message",)])
+    def test_a_run_started_while_the_first_message_is_delivered_is_refused(self, activation: str) -> None:
+        task, run = self._warm_run()
+        admitted_during_delivery: list[bool] = []
+
+        def start_a_run_during_delivery(*args: Any, **kwargs: Any) -> None:
+            try:
+                task.create_run(mode="interactive")
+            except facade.TaskRunAlreadyLiveError:
+                admitted_during_delivery.append(False)
+            else:
+                admitted_during_delivery.append(True)
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=start_a_run_during_delivery,
         ):
             if activation == "run_task":
                 facade.run_task(
@@ -2473,10 +2557,25 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     self.user.id,
                     validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
                 )
+            else:
+                facade.signal_task_run_user_message(
+                    run.id, task.id, self.team.id, content="go", artifact_ids=[], actor_user_id=self.user.id
+                )
+
+        assert admitted_during_delivery == [False]
+        assert task.runs.count() == 1
+
+    def test_a_delivered_first_message_logs_a_live_sibling_once(self) -> None:
+        task, run = self._warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
             facade.activate_warm_task_run(run.id)
             facade.activate_warm_task_run(run.id)
 
-        assert task.runs.count() == 2
         log_started.assert_called_once_with(run, [live.id])
         run.refresh_from_db()
         assert "await_user_message" not in run.state

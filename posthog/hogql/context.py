@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -190,6 +190,8 @@ class HogQLContext:
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
     # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
+    # Set when the resolver gives a lazy table a copy of a join predicate. `take_join_filters` skips its walk without it.
+    holds_join_filters: bool = field(default=False, compare=False, repr=False)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.
@@ -229,8 +231,8 @@ class HogQLContext:
         )
 
     def flag_calls_only_in_flag_evaluations(self) -> bool:
-        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. The events table
-        that the query reads holds no new flag calls then, so a read that flag_evaluations cannot answer fails."""
+        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. A read that
+        flag_evaluations cannot answer fails, and does not fall back to the events table."""
         database = self.database
         return database is not None and (
             database.organization_flag_calls_only_in_flag_evaluations
@@ -238,11 +240,16 @@ class HogQLContext:
         )
 
     def reads_flag_calls_with_union(self) -> bool:
-        """Whether flag calls that a mixed query reads come from events and flag_evaluations together."""
+        """Whether flag calls that a mixed query reads come from events and flag_evaluations together.
+
+        A query whose flag calls are only in flag_evaluations reads the union, unless FLAG_EVALUATIONS_UNION_DISABLED
+        is on. On READ_FLAG_EVALUATIONS, a query reads the union only when the organization's hogql-flag-calls-union
+        flag is on.
+        """
         database = self.database
-        return (
-            database is not None and database.flag_calls_union_enabled and self.reads_flag_calls_from_flag_evaluations()
-        )
+        if database is None or not database.flag_calls_union_enabled:
+            return False
+        return database.flag_calls_union_opted_in or self.flag_calls_only_in_flag_evaluations()
 
     def _reads_native_events_with_flag_evaluations(self) -> bool:
         database = self.database

@@ -68,7 +68,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
     )
     def test_paused_sending_is_not_ready(self, _name, paused_fields) -> None:
         self._add_email_channel(verified=True)
-        TeamWorkflowsConfig.objects.create(team=self.team, **paused_fields)
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(**paused_fields)
 
         body = self._status()
 
@@ -79,8 +79,8 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
     def test_a_set_up_project_has_every_step_done(self) -> None:
         self._add_email_channel(verified=True)
         create_message_category_for_test(team_id=self.team.id, key="product-updates", name="Product updates")
-        TeamWorkflowsConfig.objects.create(
-            team=self.team, marketing_frequency_cap_max_messages=1, marketing_frequency_cap_window_days=2
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(
+            marketing_frequency_cap_max_messages=1, marketing_frequency_cap_window_days=2
         )
         create_message_template_for_test(
             team_id=self.team.id, name="Welcome", content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}}

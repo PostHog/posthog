@@ -12,6 +12,7 @@ import {
     platformAlertsDestinationsList,
 } from 'products/alerts_platform/frontend/generated/api'
 import {
+    DestinationTypeEnumApi,
     PlatformAlertCreateDestinationApi,
     PlatformAlertDestinationApi,
     PlatformAlertDestinationTypeEnumApi,
@@ -33,6 +34,12 @@ export interface AlertDestinationsApi {
     list: (projectId: string, alertId: string) => Promise<AlertDestinationEntry[]>
     create: (projectId: string, alertId: string, destination: PlatformAlertCreateDestinationApi) => Promise<unknown>
     remove: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
+    /** Moves a stock destination onto HogFunctions whose message can be edited, and returns their ids. */
+    customize?: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<string[]>
+    /** Retires a customized destination's HogFunctions so it sends the standard message again. */
+    reset?: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
+    /** Where a person edits the message of the HogFunctions `customize` returned. */
+    messageEditorUrl?: (alertId: string, hogFunctionIds: string[]) => string
 }
 
 export const PLATFORM_DESTINATIONS_API: AlertDestinationsApi = {
@@ -43,18 +50,25 @@ export const PLATFORM_DESTINATIONS_API: AlertDestinationsApi = {
         platformAlertsDestinationsDeleteCreate(projectId, alertId, { destination_ids: [destination.id] }),
 }
 
-export const DESTINATION_TYPE_OPTIONS: { label: string; value: PlatformAlertDestinationTypeEnumApi }[] = [
-    { label: 'Slack', value: PlatformAlertDestinationTypeEnumApi.Slack },
-    { label: 'Microsoft Teams', value: PlatformAlertDestinationTypeEnumApi.Teams },
-    { label: 'Discord', value: PlatformAlertDestinationTypeEnumApi.Discord },
-    { label: 'PagerDuty', value: PlatformAlertDestinationTypeEnumApi.Pagerduty },
-    { label: 'Webhook', value: PlatformAlertDestinationTypeEnumApi.Webhook },
-]
+// The backend's DestinationType labels.
+const TYPE_LABELS: Record<DestinationTypeEnumApi, string> = {
+    slack: 'Slack',
+    discord: 'Discord',
+    webhook: 'Webhook',
+    teams: 'Microsoft Teams',
+    pagerduty: 'PagerDuty',
+    incident_io: 'incident.io',
+    email: 'Email',
+    in_app: 'In-app notification',
+}
 
-const TYPE_LABELS = Object.fromEntries(DESTINATION_TYPE_OPTIONS.map(({ value, label }) => [value, label])) as Record<
-    PlatformAlertDestinationTypeEnumApi,
-    string
->
+export const DESTINATION_TYPE_OPTIONS: { label: string; value: PlatformAlertDestinationTypeEnumApi }[] = [
+    PlatformAlertDestinationTypeEnumApi.Slack,
+    PlatformAlertDestinationTypeEnumApi.Teams,
+    PlatformAlertDestinationTypeEnumApi.Discord,
+    PlatformAlertDestinationTypeEnumApi.Pagerduty,
+    PlatformAlertDestinationTypeEnumApi.Webhook,
+].map((value) => ({ label: TYPE_LABELS[value], value }))
 
 const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotificationUrlInput>> = {
     [PlatformAlertDestinationTypeEnumApi.Teams]: {
@@ -68,8 +82,8 @@ const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotif
     [PlatformAlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
 }
 
-export function destinationTypeLabel(type: PlatformAlertDestinationTypeEnumApi): string {
-    return TYPE_LABELS[type] ?? type
+export function destinationTypeLabel(type: DestinationTypeEnumApi): string {
+    return TYPE_LABELS[type]
 }
 
 // The URL shapes the API accepts for each provider, so a URL it would refuse is caught before the alert is
@@ -157,7 +171,7 @@ export interface DestinationDescription {
 }
 
 export function describeDestination(destination: AlertDestinationEntry): DestinationDescription {
-    const title = TYPE_LABELS[destination.type] ?? destination.type
+    const title = destinationTypeLabel(destination.type)
     switch (destination.type) {
         case PlatformAlertDestinationTypeEnumApi.Slack:
             return { title, detail: `#${destination.slack_channel_name || destination.slack_channel_id || 'channel'}` }
@@ -176,7 +190,7 @@ export function describeDestination(destination: AlertDestinationEntry): Destina
 }
 
 export function describePendingDestination(destination: PlatformAlertCreateDestinationApi): DestinationDescription {
-    const title = TYPE_LABELS[destination.type] ?? destination.type
+    const title = destinationTypeLabel(destination.type)
     switch (destination.type) {
         case PlatformAlertDestinationTypeEnumApi.Slack:
             return { title, detail: `#${destination.slack_channel_name ?? destination.slack_channel_id ?? 'channel'}` }

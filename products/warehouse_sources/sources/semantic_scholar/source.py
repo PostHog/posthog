@@ -57,8 +57,8 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
             caption=(
                 "Request an API key from the [Semantic Scholar API page]"
                 "(https://www.semanticscholar.org/product/api#api-key-form). "
-                "Enter a specific query to select papers. Citations and references make additional requests for each matching paper. "
-                "Each sync refreshes all results. Links without a related paper ID are excluded."
+                "Enter a specific query to select papers. Citations, references, and paper authors make additional requests for each matching paper. "
+                "Each sync refreshes all results. Links without a related paper ID and authors without an author ID are excluded."
             ),
             fields=cast(
                 list[FieldType],

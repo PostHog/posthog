@@ -19,6 +19,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.event_usage import report_user_action
@@ -223,7 +224,6 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
-# `config` is a read-only method field, so it never reaches validated_data: form data sends it as a string, JSON as an object
 def _config_from_request(request: request.Request) -> dict:
     if "config" not in request.data:
         return {}
@@ -360,7 +360,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPOrganizationPropertyAccessPermission]
     hide_api_docs = True
 
     def dangerously_get_permissions(self):
@@ -809,6 +809,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
+    permission_classes = [CDPPropertyAccessPermission]
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
     hide_api_docs = True

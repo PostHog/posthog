@@ -144,7 +144,9 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         )
         let response: NonNullable<HogQLAutocomplete['response']>
         try {
-            response = await performQuery<HogQLAutocomplete>(query)
+            response = await performQuery<HogQLAutocomplete>(query, {
+                captureQueryTelemetry: logic.props.captureQueryTelemetry,
+            })
         } catch {
             return emptyCompletionList()
         }

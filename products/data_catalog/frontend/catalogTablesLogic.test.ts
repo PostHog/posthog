@@ -10,6 +10,8 @@ import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
+import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from './catalogTablesLogic'
 import { catalogDataQualityLogic } from './dataQuality/catalogDataQualityLogic'
 
@@ -342,6 +344,18 @@ describe('catalogTablesLogic', () => {
             qualityLogic.actions.setSearch('CHARGES')
             expect(qualityLogic.values.scopeCounts).toEqual({ all: 1, failing: 0 })
             expect(qualityLogic.values.shownRows).toEqual([])
+            qualityLogic.unmount()
+        })
+
+        it('the data quality section switches to Failing when a finished run asks to show failing checks', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+
+            dataQualityOverviewLogic.actions.setFilters({ status: 'failing' })
+
+            expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['mrr'])
             qualityLogic.unmount()
         })
 

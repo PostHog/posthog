@@ -325,11 +325,11 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         oauth_credentials_source="slack_app",
         # Email and write scopes require separate security approval. Every scope here must be declared in the
         # production Slack app manifest, because Slack refuses an authorize request for an undeclared scope. With the
-        # slack-app-slack-mcp flag on, a Slack account link requests exactly this list and connects the server only
-        # while its token holds exactly this list. The manifest marks the three private search scopes user_optional,
-        # so a person who clears one of them on the consent screen gets a link that does not connect the server.
-        # Slack's MCP server offers `slack_search_public_and_private` only when the token holds the private search
-        # scopes, and reads private channels, DMs, and group DMs only with the matching history scopes.
+        # slack-app-slack-mcp flag on, a Slack account link requests exactly this list. Its token connects the server
+        # only while it holds nothing outside this list and every scope here except the three private search scopes,
+        # which the manifest marks user_optional. Slack's MCP server offers `slack_search_public_and_private` only
+        # when the token holds the private search scopes, and reads private channels, DMs, and group DMs only with the
+        # matching history scopes.
         oauth_scope_allowlist=(
             "channels:read",
             "channels:history",

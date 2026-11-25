@@ -24,6 +24,11 @@ class JustCallEndpointConfig:
     order: str = "asc"
     # Per-endpoint page-size cap where JustCall documents a lower maximum than the default of 100.
     page_size: Optional[int] = None
+    # False where JustCall documents no page-size cap: a server cap below `page_size` would make every
+    # page look short, so those endpoints stop on an empty page instead of a short one.
+    stop_on_short_page: bool = True
+    # Fans the endpoint out over every Sales Dialer campaign, binding `campaign_id` per campaign.
+    campaign_fanout: bool = False
     extra_params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -43,9 +48,10 @@ def _incremental_fields(cursor: str) -> list[IncrementalField]:
 
 # Endpoints are the JustCall v2.1 list resources a warehouse user is most likely to want:
 # telephony (calls), messaging (texts), the sales-dialer contact-center calls, plus the
-# supporting dimensions (contacts, users, user groups, phone numbers, campaigns), and the per-call
-# JustCall AI analysis. Analytics/aggregate endpoints are intentionally excluded — they return
-# computed rollups, not raw records.
+# supporting dimensions (contacts, users, user groups, phone numbers, campaigns, text tags, Sales
+# Dialer contacts and campaign membership), and the per-call JustCall AI analysis.
+# Analytics/aggregate endpoints are intentionally excluded — they return computed rollups, not raw
+# records.
 JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
     "calls": JustCallEndpointConfig(
         name="calls",
@@ -95,6 +101,26 @@ JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
         path="/calls_ai",
         page_size=20,
         extra_params={"platform": "justcall", "fetch_transcription": "true"},
+    ),
+    "texts_tags": JustCallEndpointConfig(
+        name="texts_tags",
+        path="/texts/tags",
+    ),
+    # The Sales Dialer contact book, separate from the JustCall CRM `contacts` table. Contacts have
+    # no update filter, so full refresh.
+    "sales_dialer_contacts": JustCallEndpointConfig(
+        name="sales_dialer_contacts",
+        path="/sales_dialer/contacts",
+        order="ASC",
+        stop_on_short_page=False,
+    ),
+    # Campaign membership: one row per contact per campaign. A contact can sit in several campaigns,
+    # so the primary key pairs the injected `campaign_id` with the contact `id`.
+    "sales_dialer_campaign_contacts": JustCallEndpointConfig(
+        name="sales_dialer_campaign_contacts",
+        path="/sales_dialer/campaigns/contacts",
+        stop_on_short_page=False,
+        campaign_fanout=True,
     ),
 }
 

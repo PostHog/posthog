@@ -149,6 +149,8 @@ describe('PostHogToolbarController', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
                 accessToken: 'pha_test_token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'phr_refresh',
                 clientId: 'client-id',
             })
@@ -177,6 +179,8 @@ describe('PostHogToolbarController', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
                 accessToken: 'pha_test_token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'phr_refresh',
                 clientId: 'client-id',
             })
@@ -191,6 +195,8 @@ describe('PostHogToolbarController', () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
                 accessToken: 'pha_test_token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'phr_refresh',
                 clientId: 'client-id',
             })

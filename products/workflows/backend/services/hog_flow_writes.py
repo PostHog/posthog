@@ -23,6 +23,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     RECHECKED_TRIGGER_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
+    SANDBOX_EMAIL_ACTION_TYPE,
     HogFlow,
     exit_condition_that_runs,
 )
@@ -30,6 +31,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
+from products.workflows.backend.services.conversion_goals import record_conversion_goals
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
     is_apply_eligible,
@@ -76,6 +78,8 @@ def create_workflow(
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
+        if instance.status == HogFlow.State.ACTIVE:
+            record_conversion_goals(instance.team_id, instance.pk, [instance.conversion])
         if tags:
             set_tags_on_object(tags, instance)
         HogFlowRevision.objects.create(
@@ -104,6 +108,33 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
 def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime]) -> str:
     draft_stamp = draft_updated_at.isoformat() if draft_updated_at else ""
     return f"{hog_flow_id}:{draft_stamp}"
+
+
+def _enables_on_sandbox_sender(before_update: HogFlow, validated_data: dict, *, route_to_draft: bool) -> bool:
+    if before_update.status == HogFlow.State.ACTIVE or validated_data.get("status") != HogFlow.State.ACTIVE:
+        return False
+    # A staged write puts the submitted steps in the draft, so the stored steps are the ones that go live.
+    actions = before_update.actions if route_to_draft else validated_data.get("actions", before_update.actions)
+    return any(
+        isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        for action in (actions if isinstance(actions, list) else [])
+    )
+
+
+def publish_moves_to_sandbox_sender(*, status: str, live_actions: Any, draft: Any) -> bool:
+    """Whether publishing the staged draft of an enabled workflow puts email steps on the PostHog test sender
+    that the live workflow does not already send from it."""
+    if status != "active" or not isinstance(draft, dict):
+        return False
+
+    def sandbox_ids(actions: Any) -> set[str]:
+        return {
+            str(action.get("id"))
+            for action in (actions if isinstance(actions, list) else [])
+            if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        }
+
+    return bool(sandbox_ids(draft.get("actions")) - sandbox_ids(live_actions))
 
 
 def _without_bytecode_contracts(node: Any) -> Any:
@@ -144,27 +175,40 @@ def _save_live(
         data["encrypted_inputs"] = strip_secrets_from_content(
             data, template_cache=template_cache if template_cache is not None else {}
         )
+    previous_conversion = instance.conversion
+    was_active = instance.status == HogFlow.State.ACTIVE
     for attr, value in data.items():
         setattr(instance, attr, value)
     if instance.status == HogFlow.State.ACTIVE:
         require_sandbox_runtime(instance.actions)
     instance.save()
+    # Runs start only while a workflow is active. The outgoing goal is stamped too: runs that started under it
+    # keep it after this save replaces it or pauses the workflow.
+    if was_active or instance.status == HogFlow.State.ACTIVE:
+        record_conversion_goals(instance.team_id, instance.pk, [previous_conversion, instance.conversion])
+
+
+TRANSACTIONAL_STEP_TYPES: dict[str, str] = {
+    HogFlow.OriginProduct.TRANSACTIONAL_EMAILS: "function_email",
+    HogFlow.OriginProduct.TRANSACTIONAL_PUSH: "function_push",
+}
 
 
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
-    # A transactional email's protection follows its template, and only the template sync writes it.
+    # A transactional message's protection follows its template, and only the template sync writes it.
     # Every other write, such as publishing a restored version, keeps the live setting.
-    if before.origin_product != HogFlow.OriginProduct.TRANSACTIONAL_EMAILS or "actions" not in validated_data:
+    step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
+    if step_type is None or "actions" not in validated_data:
         return validated_data
     sensitive = any(
         isinstance(action, dict)
-        and action.get("type") == "function_email"
+        and action.get("type") == step_type
         and (action.get("config") or {}).get("sensitive") is True
         for action in before.actions or []
     )
     actions = [
         {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
-        if isinstance(action, dict) and action.get("type") == "function_email"
+        if isinstance(action, dict) and action.get("type") == step_type
         else action
         for action in validated_data["actions"] or []
     ]
@@ -416,6 +460,7 @@ def update_workflow(
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
     before_write: Optional[Callable[[], None]] = None,
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -473,6 +518,12 @@ def update_workflow(
             ):
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
+            raise WorkflowStale()
+        # The caller checked the steps before it asked, and showed no test sender warning. Steps that
+        # moved onto the test sender since then must not go live behind that check.
+        if sandbox_sender_warned is False and _enables_on_sandbox_sender(
+            before_update, validated_data, route_to_draft=route_to_draft
+        ):
             raise WorkflowStale()
         if before_write is not None:
             before_write()
@@ -639,14 +690,23 @@ def publish_draft(
     hog_flow_id: UUID,
     previewed_value: str,
     validate: Callable[[WorkflowEditState, dict], dict],
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     """Promote the staged draft to the live config. `validate` receives the locked workflow and the draft
-    content, and returns the validated fields to write."""
+    content, and returns the validated fields to write. `sandbox_sender_warned` is False when the caller
+    showed no test sender warning, so a publish that would now move steps onto the test sender is refused.
+    None skips that check."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if not locked.draft:
             raise WorkflowHasNoDraft()
         if previewed_value != publish_confirm_value(hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at):
+            raise WorkflowStale()
+        # A live write since the preview can turn a publish that warned of nothing into one that moves steps
+        # onto the test sender, so the rule runs again on the locked row.
+        if sandbox_sender_warned is False and publish_moves_to_sandbox_sender(
+            status=locked.status, live_actions=locked.actions, draft=locked.draft
+        ):
             raise WorkflowStale()
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
