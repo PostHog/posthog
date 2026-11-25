@@ -38,7 +38,7 @@ class ZepResumeConfig:
     # added/removed between a crash and the retry can't resume us into the wrong thread.
     thread_id: str | None = None
     cursor: int | None = None
-    # Graph fan-out (graph_edges, graph_nodes, graph_episodes): the graph to resume at and the
+    # Graph fan-out (graph_edges, graph_nodes, graph_episodes, ...): the graph to resume at and the
     # opaque page cursor within it. None for the cursor means the first page of that graph.
     graph_scope: str | None = None
     graph_owner_id: str | None = None
@@ -83,11 +83,20 @@ _retry_request = retry_with_deadline(
 
 
 @_retry_request
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
+) -> dict:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise ZepRetryableError(f"Zep API error (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 404 and allow_not_found:
+        return {}
 
     if not response.ok:
         # Never log the response body: Zep error payloads can echo customer content (users,
@@ -342,7 +351,7 @@ def _fan_out_graph_rows(
     resumable_source_manager: ResumableSourceManager[ZepResumeConfig],
     config: ZepEndpointConfig,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every user graph and standalone graph, yielding the graph's edges, nodes or episodes."""
+    """Fan out over every user graph and standalone graph, yielding the rows of one graph list endpoint."""
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.graph_finished:
         return
@@ -414,6 +423,21 @@ def _fan_out_graph_rows(
         current = nxt
 
 
+def _ontology_rows(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, config: ZepEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    """Flatten the project ontology into one row per entity type and edge type."""
+    # The API documents a 404 for this endpoint; treat it as a project with no types.
+    data = _fetch_page(session, _build_url(config.path, {}), headers, logger, allow_not_found=True) or {}
+    rows = [
+        {**item, "kind": kind}
+        for kind, key in (("entity", "entity_types"), ("edge", "edge_types"))
+        for item in data.get(key) or []
+    ]
+    if rows:
+        yield rows
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -433,6 +457,8 @@ def get_rows(
         yield from _fan_out_message_rows(session, headers, logger, resumable_source_manager, config)
     elif config.fan_out_over_graphs:
         yield from _fan_out_graph_rows(session, headers, logger, resumable_source_manager, config)
+    elif config.ontology:
+        yield from _ontology_rows(session, headers, logger, config)
     else:
         yield from _page_based_rows(session, headers, logger, resumable_source_manager, config)
 
@@ -455,8 +481,8 @@ def zep_source(
         ),
         primary_keys=config.primary_keys,
         # Rows arrive oldest-first (created_at ascending / message cursor order). The graph fan-out
-        # restarts the order for each graph, so it is not one ordered series.
-        sort_mode=None if config.fan_out_over_graphs else "asc",
+        # restarts the order for each graph, so it is not one ordered series, and the ontology has no order.
+        sort_mode=None if config.fan_out_over_graphs or config.ontology else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

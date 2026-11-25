@@ -2,7 +2,12 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.lightfield._config import LightfieldSourceConfig
 from products.warehouse_sources.sources.lightfield.lightfield import check_token, lightfield_source
-from products.warehouse_sources.sources.lightfield.settings import ENDPOINTS, INCREMENTAL_FIELDS, LIGHTFIELD_ENDPOINTS
+from products.warehouse_sources.sources.lightfield.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    LIGHTFIELD_ENDPOINTS,
+    LightfieldEndpointConfig,
+)
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -20,6 +25,14 @@ from products.warehouse_sources.sources.sdk import (
     build_endpoint_schemas,
     detect,
 )
+
+
+def _missing_scopes(endpoint: LightfieldEndpointConfig | None, granted: set[str]) -> str | None:
+    missing = [scope for scope in endpoint.scopes if scope not in granted] if endpoint else []
+    if not missing:
+        return None
+    names = " and ".join(f"`{scope}`" for scope in missing)
+    return f"the {names} scope" + ("s" if len(missing) > 1 else "")
 
 
 @SourceRegistry.register
@@ -79,10 +92,11 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         # scopes for the tables they intend to sync. Per-schema checks enforce the scope.
         if schema_name is not None and scopes is not None:
             endpoint = LIGHTFIELD_ENDPOINTS.get(schema_name)
-            if endpoint is not None and endpoint.scope is not None and endpoint.scope not in scopes:
+            missing = _missing_scopes(endpoint, set(scopes))
+            if missing:
                 return (
                     False,
-                    f"Your Lightfield API key is missing the `{endpoint.scope}` scope required to sync {schema_name}.",
+                    f"Your Lightfield API key is missing {missing} required to sync {schema_name}.",
                 )
 
         return True, None
@@ -103,11 +117,8 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         granted = set(scopes)
         permissions: dict[str, str | None] = {}
         for name in endpoints:
-            endpoint = LIGHTFIELD_ENDPOINTS.get(name)
-            if endpoint is None or endpoint.scope is None or endpoint.scope in granted:
-                permissions[name] = None
-            else:
-                permissions[name] = f"API key is missing the `{endpoint.scope}` scope"
+            missing = _missing_scopes(LIGHTFIELD_ENDPOINTS.get(name), granted)
+            permissions[name] = f"API key is missing {missing}" if missing else None
         return permissions
 
     def source_for_pipeline(self, config: LightfieldSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -138,6 +149,10 @@ You can create an API key in your Lightfield settings (admin access required). G
 - `lists:read` - lists
 - `members:read` - members
 - `emails:read` - emails
+- `messages:read` - messages
+- `sequences:read` - sequences and sequence enrollments
+
+The list accounts, list contacts and list opportunities tables need `lists:read` and the read scope for that record type, such as `accounts:read`.
 
 Custom objects need no extra scope. The field and relationship definitions tables include each object type the key can read.
 """,

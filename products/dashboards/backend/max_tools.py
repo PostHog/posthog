@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -38,6 +39,7 @@ from products.dashboards.backend.prompts import (
     UPSERT_DASHBOARD_TOOL_PROMPT,
 )
 from products.product_analytics.backend.facade.api import (
+    create_saved_insight,
     get_or_create_saved_insight,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
@@ -145,6 +147,15 @@ class ReflowTileLayoutUpdate(TypedDict):
     layouts: dict[str, dict[str, int]]
 
 
+@frozen
+class _NewInsight:
+    """An insight that the agent built in the conversation and that is not saved yet."""
+
+    name: str
+    description: str
+    query: dict[str, Any]
+
+
 class UpsertDashboardTool(MaxTool):
     name: Literal["upsert_dashboard"] = "upsert_dashboard"
     description: str = UPSERT_DASHBOARD_TOOL_PROMPT
@@ -216,12 +227,12 @@ class UpsertDashboardTool(MaxTool):
             raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
 
         validated_artifacts = cast(list[VisualizationWithSourceResult], artifacts)
-        insights = self._resolve_insights(validated_artifacts)
+        resolved = self._resolve_insights(validated_artifacts)
 
-        if not insights:
+        if not resolved:
             return CREATE_NO_INSIGHTS_PROMPT, None
 
-        dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
+        dashboard, insights = await self._create_dashboard_with_tiles(action.name, action.description, resolved)
         # AI dashboards are always built from scratch (no template, no duplicate); set the same provenance
         # props the serializer create() path emits so `from_template`/`duplicated` filters include AI traffic.
         await self._report_dashboard_action(
@@ -375,14 +386,14 @@ class UpsertDashboardTool(MaxTool):
         dashboard.save(update_fields=["variables"])
         return dashboard
 
-    def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:
+    def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight | _NewInsight]:
         """
-        Resolve insight_ids using VisualizationHandler.
-        Returns (resolved_insights, missing_ids) in same order as input.
+        Resolve each artifact to its saved insight, in the same order as the input.
 
-        For State/Artifact sources, creates and saves new Insights before adding to dashboard.
+        A State or Artifact source has no saved insight yet, so it resolves to a `_NewInsight`, which
+        `_create_resolved_insights` saves before the insight goes on the dashboard.
         """
-        resolved: list[Insight] = []
+        resolved: list[Insight | _NewInsight] = []
 
         for result in artifacts:
             if isinstance(result, ModelArtifactResult):
@@ -400,15 +411,13 @@ class UpsertDashboardTool(MaxTool):
                 else:
                     converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
 
-                insight = Insight(
-                    team=self._team,
-                    created_by=self._user,
-                    name=(content.name or "Untitled")[:400],
-                    description=(content.description or "")[:400],
-                    query=converted,
-                    saved=True,
+                resolved.append(
+                    _NewInsight(
+                        name=(content.name or "Untitled")[:400],
+                        description=(content.description or "")[:400],
+                        query=converted,
+                    )
                 )
-                resolved.append(insight)
 
         return resolved
 
@@ -443,34 +452,42 @@ class UpsertDashboardTool(MaxTool):
                     team=self._team,
                 )
 
-    def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
+    def _create_resolved_insights(self, resolved: list[Insight | _NewInsight]) -> list[Insight]:
         """
-        Create insights that are not yet saved.
+        Save the insights that are not yet saved, and return all insights in the same order.
         """
-        for insight in results:
-            if getattr(insight, "pk", None):
-                continue
-            insight.save()
-        return results
+        return [self._save_new_insight(item) if isinstance(item, _NewInsight) else item for item in resolved]
+
+    def _save_new_insight(self, new_insight: _NewInsight) -> Insight:
+        insight_id = create_saved_insight(
+            team_id=self._team.id,
+            user_id=self._user.id,
+            name=new_insight.name,
+            description=new_insight.description,
+            query=new_insight.query,
+        )
+        return insights_including_soft_deleted_for_team(team_id=self._team.id, insight_ids=[insight_id])[0]
 
     @database_sync_to_async
     @transaction.atomic
-    def _create_dashboard_with_tiles(self, name: str, description: str, insights: list[Insight]) -> Dashboard:
-        """Create a new dashboard with tiles for the given insights."""
+    def _create_dashboard_with_tiles(
+        self, name: str, description: str, resolved: list[Insight | _NewInsight]
+    ) -> tuple[Dashboard, list[Insight]]:
+        """Create a new dashboard with tiles for the given insights, and return it with the saved insights."""
         dashboard = Dashboard.objects.create(
             name=name,
             description=description,
             team=self._team,
             created_by=self._user,
         )
-        insights = self._create_resolved_insights(insights)
+        insights = self._create_resolved_insights(resolved)
         DashboardTile.objects.bulk_create(
             [
                 DashboardTile(dashboard=dashboard, team_id=dashboard.team_id, insight=insight, layouts={})
                 for insight in insights
             ]
         )
-        return dashboard
+        return dashboard, insights
 
     @database_sync_to_async
     @transaction.atomic
@@ -479,8 +496,8 @@ class UpsertDashboardTool(MaxTool):
     ) -> list[tuple[VisualizationWithSourceResult, Insight]]:
         """Add or restore insight tiles without changing any other dashboard tiles."""
         created_insights: list[tuple[VisualizationWithSourceResult, Insight]] = []
-        for artifact_id, artifact, insight in zip(insight_ids, artifacts, self._resolve_insights(artifacts)):
-            if not isinstance(artifact, ModelArtifactResult):
+        for artifact_id, artifact, resolved in zip(insight_ids, artifacts, self._resolve_insights(artifacts)):
+            if isinstance(resolved, _NewInsight):
                 # Stable IDs let the database deduplicate artifact retries, including concurrent calls.
                 identity = f"dashboard:{dashboard.id}:{artifact.source.value}:{artifact_id}"
                 short_id = urlsafe_b64encode(hashlib.sha256(identity.encode()).digest()[:9]).decode()
@@ -488,13 +505,15 @@ class UpsertDashboardTool(MaxTool):
                     team_id=self._team.id,
                     user_id=self._user.id,
                     short_id=short_id,
-                    name=insight.name,
-                    description=insight.description,
-                    query=insight.query,
+                    name=resolved.name,
+                    description=resolved.description,
+                    query=resolved.query,
                 )
                 insight = insights_including_soft_deleted_for_team(team_id=self._team.id, insight_ids=[insight_pk])[0]
                 if created:
                     created_insights.append((artifact, insight))
+            else:
+                insight = resolved
 
             check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 

@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -56,6 +56,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
@@ -137,6 +138,18 @@ def request_subject(request: Request) -> Optional[Subject]:
     """
     user = getattr(request, "user", None)
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def filter_visible_project_objects[M: Model](
+    queryset: QuerySet[M], *, team_id: int, include_all_if_admin: bool, user_id: int | None = None
+) -> QuerySet[M]:
+    """Filter rows already scoped to the project for the given user, or the current request's user."""
+    return filter_queryset(
+        queryset,
+        resource=Resource(type=ResourceType(cast(str, model_to_resource(queryset.model))), project_id=team_id),
+        subject=Subject(user_id=user_id) if user_id is not None else None,
+        include_all_if_admin=include_all_if_admin,
+    )
 
 
 def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
@@ -1602,6 +1615,32 @@ def posthog_feature_flag_enabled(
             only_evaluate_locally=only_evaluate_locally,
             caller_properties=caller_properties,
         )
+    )
+
+
+DASHBOARD_V2_FLAG = "dashboard-v2"
+DASHBOARD_V2_USERS_FLAG = "dashboard-v2-users"
+
+
+def dashboard_v2_enabled(team: Team, user: object | None) -> bool:
+    """`dashboard-v2` picks the projects and `dashboard-v2-users` picks the people in them, as the web app does.
+    Without a signed-in user, such as a shared link or a background job, the answer is no."""
+    if not isinstance(user, User):
+        return False
+    distinct_id = str(user.distinct_id or user.uuid)
+    return posthog_feature_flag_enabled(
+        DASHBOARD_V2_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    ) and posthog_feature_flag_enabled(
+        DASHBOARD_V2_USERS_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        person_properties={"email": user.email},
+        only_evaluate_locally=True,
     )
 
 

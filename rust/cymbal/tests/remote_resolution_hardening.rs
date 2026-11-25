@@ -16,8 +16,11 @@ use common::{
     build_event, make_config, make_ctx, process_one, remote_stage, spawn_stub_server, unbound_addr,
     wait_until_routable, ServerBehavior,
 };
+use cymbal::error::EventError;
+use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::remote::dns::DnsResolver;
 use cymbal::stages::resolution::remote::resolver::RemoteResolutionContext;
+use cymbal::types::{batch::Batch, stage::Stage};
 use cymbal_proto::cymbal::resolution::v1::ErrorKind;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -64,21 +67,24 @@ async fn stream_interruption_reroutes_in_flight_items() {
 }
 
 #[tokio::test]
-async fn server_per_item_terminal_error_fails_batch_under_all_or_nothing_policy() {
+async fn server_poison_item_fails_only_its_event() {
     let (lossy, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
-        kind: ErrorKind::InvalidPayload,
+        kind: ErrorKind::Poison,
     })
     .await;
     let ctx = make_ctx(&[lossy], 1, Duration::from_secs(2)).await;
-    let evt = build_event(3);
+    let batch: Batch<ParsedPipelineItem> = Batch::from(vec![Ok(build_event(3))]);
 
-    let err = process_one(remote_stage(ctx), evt)
+    let items: Vec<_> = remote_stage(ctx)
+        .process(batch)
         .await
-        .expect_err("server per-item Error must fail the batch");
-    let msg = format!("{err}");
+        .expect("a poison item must not fail the batch")
+        .into_iter()
+        .collect();
+
     assert!(
-        msg.contains("items_failed") || msg.contains("failed terminally"),
-        "expected per-item-error failure surface, got: {msg}"
+        matches!(items[..], [Err(EventError::ProcessingFailed { .. })]),
+        "expected one failed event"
     );
 }
 

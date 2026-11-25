@@ -39,17 +39,15 @@ get filled over time.
 | URL / screen targeting           | yes                             | decoded but **NOT evaluated** (`// TODO`) | decoded but **NOT evaluated**      | **NOT evaluated** (native gap)     | **explicitly excluded** in filter |
 | Feature-flag / cohort targeting  | yes                             | yes                                       | yes                                | yes (native side)                  | yes                               |
 | `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | yes (≥ 4.81.5)                    |
-| `surveyPopupDelaySeconds`        | yes                             | **not implemented**                       | **not implemented**                | **not implemented**                | **not implemented** (TODO)        |
-| `enable_partial_responses`       | yes (≥ 1.240.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
-| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | **no**                                    | **no**                             | **no**                             | **no**                            |
+| `surveyPopupDelaySeconds`        | yes                             | yes (≥ 3.54.0)                            | yes (≥ 3.49.0)                     | yes (≥ 5.54.0)                     | yes (≥ 4.85.0)                    |
+| `enable_partial_responses`       | yes (≥ 1.240.0)                 | yes (≥ 3.79.0)                            | yes (≥ 3.70.0)                     | yes (≥ 5.48.0)                     | yes (≥ 4.75.0)                    |
+| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | yes (≥ 3.77.0)                            | yes (≥ 3.66.4; Compose UI ≥ 0.3.0) | yes (≥ 5.45.0)                     | yes (≥ 4.26.0)                    |
 
-The last two rows are per the editor's own help text ("Doesn't work with the mobile SDKs for
-now" / "Not available for the mobile SDKs at the moment") rather than a per-SDK source audit.
+The minimum versions match the SDK version warnings in the survey editor.
 
 Consequences worth memorizing:
 
-- **`surveyPopupDelaySeconds` is web-only.** If a mobile ticket blames the delay, it's a red herring.
-- **Partial responses and auto-submit are web-only too.** On mobile a survey always stores one response at the end, and a rating tap never self-submits. Don't carry a web diagnosis onto a mobile ticket.
+- **Popup delay, partial responses, and auto-submit need a recent mobile SDK.** Check the customer's SDK version against the table before blaming one of them. On older versions the delay is skipped, a survey stores one response at the end, and a rating tap never self-submits.
 - **URL targeting is effectively web-only.** Mobile SDKs decode the field but never enforce it; React Native filters those surveys out entirely. A mobile survey with a URL condition behaves as "no URL condition" (mobile/flutter) or "never shows" (RN).
 - **Android ships no survey UI.** The app (or the Flutter plugin) must provide a `PostHogSurveysDelegate`. "Survey never renders on Android" is often a missing delegate, not a PostHog bug.
 - **Flutter is hybrid:** triggering/eligibility runs in the native iOS/Android layer; rendering is Dart (`SurveyService.showSurvey` → `showModalBottomSheet`). It does _not_ "just call native" for UI. So a Flutter rendering bug lives in Dart; a Flutter eligibility bug lives in native.
@@ -225,7 +223,7 @@ Usually not a bug — see [How a response actually gets stored](#how-a-response-
 
 ### "The respondent says they didn't mean to submit"
 
-- **`skipSubmitButton`, shown in the editor as "Automatically submit on selection".** When true no submit button renders at all (`BottomSection.tsx`) and one click both records the answer and advances — `setRating(response)` then `handleSubmit(response)` → `onNextButtonClick` in the same handler invocation, no debounce, no confirm. Rating and single-choice-without-open-choice only (`canQuestionSkipSubmitButton`); web-only. It is **on by default in every survey template** (`constants.tsx`) and in quick-create, so customers rarely know they enabled it.
+- **`skipSubmitButton`, shown in the editor as "Automatically submit on selection".** When true no submit button renders at all (`BottomSection.tsx`) and one click both records the answer and advances — `setRating(response)` then `handleSubmit(response)` → `onNextButtonClick` in the same handler invocation, no debounce, no confirm. Rating and single-choice-without-open-choice only (`canQuestionSkipSubmitButton`). It is **on by default in every survey template** (`constants.tsx`) and in quick-create, so customers rarely know they enabled it.
 - **It compounds with popup placement.** `appearance.position: middle_center`, a large `maxWidth`, and a non-zero `surveyPopupDelaySeconds` mean the popup materializes seconds after the trigger under a cursor that's still moving, and the next click lands on an answer. Consecutive auto-submitting questions let someone click through most of a survey without reading it.
 - **Diagnose with shown→sent latency,** then confirm from the replay (`sessionRecordingUrl` on `survey sent`). A cluster of sub-10-second completions on a multi-question survey is the signature; genuine respondents take longer and leave text behind. Fix is to uncheck the setting — **not** to move the question, since the behavior follows the question wherever it sits.
 

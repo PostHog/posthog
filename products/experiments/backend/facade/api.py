@@ -44,7 +44,6 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
@@ -81,7 +80,7 @@ from .contracts import (
     TeamExperimentsSettingsUpdate,
     Unset,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
 
 logger = structlog.get_logger(__name__)
 
@@ -437,6 +436,15 @@ def get_experiment_team_id(experiment_id: int) -> int | None:
     # The Vercel SSO redirect has no team yet. It checks the user's membership in the returned team.
     # nosemgrep: idor-lookup-without-team
     return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
+
+
+def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
+    """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
+    (or among all of them when it is None)."""
+    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    if experiment_ids is not None:
+        experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
+    return frozenset(str(id) for id in experiments.values_list("id", flat=True))
 
 
 def team_has_launched_experiments(team_id: int) -> bool:
