@@ -51,6 +51,7 @@ from products.slack_app.backend.logic.daily_focus import (
     set_daily_focus_time,
     turn_off_daily_focus,
     turn_on_daily_focus,
+    turn_on_daily_focus_by_default,
 )
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import get_state, record_feature_used, set_tips_enabled
@@ -1726,6 +1727,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Work
     if not slack_user_id:
         return
 
+    turn_on_daily_focus_by_default(integration, slack_user_id, source="home_default")
     slack = SlackIntegration(integration)
     render = _build_home_view(slack, integration, slack_user_id)
     try:

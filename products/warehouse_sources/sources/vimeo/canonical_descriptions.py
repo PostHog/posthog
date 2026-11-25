@@ -86,4 +86,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Display name of the user.",
         },
     },
+    "video_tags": {
+        "description": "Tags on the videos of the authenticated user. A tag appears once for each video that has it.",
+        "docs_url": "https://developer.vimeo.com/api/reference/videos",
+        "columns": {
+            "video_uri": "URI of the video that has the tag.",
+            "uri": "Relative URI that identifies the tag on the video.",
+            "name": "Tag value as the user entered it.",
+            "canonical": "Normalized canonical tag name.",
+        },
+    },
+    "followers": {
+        "description": "Users who follow the authenticated user.",
+        "docs_url": "https://developer.vimeo.com/api/reference/users",
+        "columns": {
+            "uri": "URI that identifies the follower.",
+            "name": "Display name of the follower.",
+            "created_time": "Time when the follower's Vimeo account was created, in ISO 8601 format.",
+        },
+    },
 }

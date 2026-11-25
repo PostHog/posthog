@@ -5,15 +5,15 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { LoadedCard, load, stepsOf } from '../cards'
+import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
+import { type LiveRamp, watchRamp } from '../judge/ramp'
 import { SeedState, StepGate, drive } from './generator'
 import { OfferContext, kafkaEmit } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
-const CDP_API = { url: 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
+const CDP_API = { nextUrl: () => 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
 const NO_FEEDBACK: OfferContext['sesFeedback'] = { settled: () => Promise.reject(new Error('no follow-up expected')) }
 
 const seededFor = (teamIds: number[], traffic: string): SeedState => ({
@@ -241,7 +241,7 @@ describe('drive', () => {
                     ACKNOWLEDGED,
                     {
                         signal: interrupt.signal,
-                        cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                        cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
                         sesFeedback: { settled },
                     }
                 )
@@ -300,7 +300,7 @@ describe('drive', () => {
         } satisfies LoadedCard
         try {
             const { driving } = startDrive(transactional, ACKNOWLEDGED, {
-                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
             })
 
             await jest.advanceTimersByTimeAsync(50)
@@ -357,7 +357,7 @@ describe('drive', () => {
         }
         try {
             const { driving } = startDrive(transactional, ACKNOWLEDGED, {
-                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
                 gate,
             })
 
@@ -409,7 +409,7 @@ describe('drive', () => {
                 {
                     cdpApi: {
                         ...CDP_API,
-                        url: `http://127.0.0.1:${port}`,
+                        nextUrl: () => `http://127.0.0.1:${port}`,
                         clock: {
                             now: () => elapsedMs,
                             wait: (ms) => {
@@ -546,43 +546,23 @@ describe('drive', () => {
         (delayMs: number, percent: number): LiveRamp['writerCpu'] =>
         ({ startedAt }) =>
             new Promise((resolve) => setTimeout(() => resolve([{ at: startedAt, percent }]), delayMs))
-    const BROKE_AT_1X = {
-        end: 'broke',
-        sustainedScale: null,
-        broke: {
-            scale: 1,
-            offeredPerSecond: 1,
-            by: 'writer_cpu_under',
-            kind: 'bar',
-            at: expect.any(String),
-            part: 'db:cyclotron',
-        },
-        reason: 'writer_cpu_under broke at the 1x step',
-    }
 
     it.each<[string, LiveRamp['writerCpu'], object]>([
         [
-            'its writer CPU broke the bar at the 1x step, read during the 2x step',
+            'its writer CPU broke the bar at the 1x step, which is no hard failure, read during the 2x step',
             cpuReadAfter(30_000, 90),
             {
-                offeredSteps: [0, 1],
+                offeredSteps: [0, 1, 2],
                 steps: [
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 105_000, firstOfferMs: MINUTE },
+                    { fromMs: MINUTE, toMs: 2 * MINUTE, firstOfferMs: MINUTE },
+                    { fromMs: 2 * MINUTE, toMs: 3 * MINUTE, firstOfferMs: 2 * MINUTE },
                 ],
-                ramp: BROKE_AT_1X,
-            },
-        ],
-        [
-            'its writer CPU broke the bar at the 1x step, read only after the 2x step was due to end',
-            cpuReadAfter(MINUTE, 90),
-            {
-                offeredSteps: [0, 1],
-                steps: [
-                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
+                stopped: undefined,
+                broken: [
+                    { index: 0, bars: ['writer_cpu_under'] },
+                    { index: 1, bars: ['writer_cpu_under'] },
                 ],
-                ramp: BROKE_AT_1X,
             },
         ],
         [
@@ -595,7 +575,11 @@ describe('drive', () => {
                     { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
                     { fromMs: 135_000, toMs: 195_000, firstOfferMs: 135_000 },
                 ],
-                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+                stopped: undefined,
+                broken: [
+                    { index: 0, bars: [] },
+                    { index: 1, bars: [] },
+                ],
             },
         ],
         [
@@ -607,9 +591,10 @@ describe('drive', () => {
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
                     { fromMs: MINUTE, toMs: 75_000, firstOfferMs: MINUTE },
                 ],
-                ramp: {
+                stopped: {
+                    index: 0,
                     end: 'harness_limit',
-                    sustainedScale: null,
+                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                     broke: {
                         scale: 1,
                         offeredPerSecond: 1,
@@ -618,12 +603,12 @@ describe('drive', () => {
                         at: expect.any(String),
                         part: null,
                     },
-                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                 },
+                broken: [{ index: 0, bars: ['writer_cpu_under'] }],
             },
         ],
     ])(
-        'a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, when %s',
+        'the live verdict on step N gates the drive, halting it by the end of step N+1 only on a hard failure, when %s',
         async (_story, writerCpu, expected) => {
             jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
             const ramped = rampedCard(
@@ -670,18 +655,11 @@ describe('drive', () => {
                         startedAt,
                     ...(waitedFor !== undefined && { waitedFor }),
                 })),
-                ramp: rampOf({
-                    planned: stepsOf(ramped.card.drive),
-                    steps,
-                    minOffered: 0.9,
-                    stop: watch.stopped(),
-                    bars: [],
-                    invariants: [],
-                    gates: {},
-                    journal,
-                    admissions: [],
-                    converged: true,
-                }),
+                stopped: watch.stopped(),
+                broken: [...watch.settled()].map(([index, results]) => ({
+                    index,
+                    bars: results.filter(({ passed }) => !passed).map(({ name }) => name),
+                })),
             }).toEqual(expected)
         }
     )

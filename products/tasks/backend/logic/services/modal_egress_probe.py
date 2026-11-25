@@ -10,7 +10,11 @@ from uuid import uuid4
 from django.conf import settings
 
 import modal
-from modal.exception import NotFoundError, SandboxFilesystemNotFoundError
+from modal.exception import (
+    Error as ModalError,
+    NotFoundError,
+    SandboxFilesystemNotFoundError,
+)
 from modal.stream_type import StreamType
 
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
@@ -20,6 +24,10 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
 )
 from products.tasks.backend.logic.services.sandbox_config import (
+    AGENT_EGRESS_DOMAIN_PATTERN,
+    MAX_SANDBOX_TTL_SECONDS,
+    agent_egress_enrollment_enabled,
+    agent_egress_enrollment_environment,
     agent_egress_staging_environment,
     agent_egress_staging_probe_enabled,
 )
@@ -89,7 +97,7 @@ with (directory / "identity.lock").open("w") as lock:
 """
 
 _START_RELAY = """
-import fcntl, os, sys
+import fcntl, json, os, sys
 from pathlib import Path
 directory = Path(sys.argv[1])
 lock = (directory / "relay.lock").open("w")
@@ -98,10 +106,90 @@ try:
 except BlockingIOError:
     sys.exit(0)
 os.set_inheritable(lock.fileno(), True)
+identity = {
+    "pid": os.getpid(),
+    "start_time": Path('/proc/self/stat').read_text().rsplit(')', 1)[1].split()[19],
+    "executable": str(Path(sys.argv[2]).resolve()),
+}
+temporary = directory / "relay-process.tmp"
+temporary.write_text(json.dumps(identity))
+temporary.replace(directory / "relay-process.json")
 with (directory / "relay.stderr").open("a") as errors:
     os.dup2(errors.fileno(), 2)
 os.execv(sys.argv[2], sys.argv[2:])
 """
+
+_RELAY_RUNNING = """
+import fcntl, sys
+from pathlib import Path
+with (Path(sys.argv[1]) / 'relay.lock').open('a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print('running')
+"""
+
+_RENEW_CERTIFICATE = """
+import fcntl, json, os, signal, sys, time, urllib.request
+from pathlib import Path
+directory, candidate = Path(sys.argv[1]), Path(sys.argv[2])
+deadline = time.monotonic() + 4
+def counters():
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError('Relay reload acknowledgement expired')
+    with urllib.request.urlopen(sys.argv[3], timeout=min(.5, remaining)) as response:
+        values = {}
+        for line in response.read(65536).decode().splitlines():
+            for outcome in ('success', 'failure'):
+                prefix = 'egress_reload_total{outcome="' + outcome + '"} '
+                if line.startswith(prefix):
+                    values[outcome] = float(line[len(prefix):])
+        return values
+def verify_process(identity):
+    process = Path('/proc') / str(identity['pid'])
+    if (
+        identity['pid'] <= 1
+        or process.joinpath('stat').read_text().rsplit(')', 1)[1].split()[19] != identity['start_time']
+        or str(process.joinpath('exe').resolve()) != identity['executable']
+    ):
+        raise RuntimeError('The relay process has changed')
+try:
+    with (directory / 'certificate.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        identity = json.loads((directory / 'relay-process.json').read_text())
+        pidfd = os.pidfd_open(identity['pid'])
+        try:
+            verify_process(identity)
+            before = counters()
+            certificate = directory / 'relay.pem'
+            previous = certificate.read_bytes()
+            candidate.chmod(0o600)
+            candidate.replace(certificate)
+            try:
+                signal.pidfd_send_signal(pidfd, signal.SIGHUP)
+                while True:
+                    after = counters()
+                    verify_process(identity)
+                    if after.get('failure', 0) > before.get('failure', 0):
+                        raise RuntimeError('The relay rejected its renewed certificate')
+                    if after.get('success', 0) > before.get('success', 0):
+                        break
+                    time.sleep(min(.05, max(0, deadline - time.monotonic())))
+            except BaseException:
+                candidate.write_bytes(previous)
+                candidate.chmod(0o600)
+                candidate.replace(certificate)
+                raise
+        finally:
+            os.close(pidfd)
+finally:
+    candidate.unlink(missing_ok=True)
+"""
+
+
+class AgentEgressCertificateDeliveryError(RuntimeError):
+    pass
 
 
 class ModalEgressProbe:
@@ -125,7 +213,8 @@ class ModalEgressProbe:
         if (
             not ((settings.DEBUG or settings.TEST) and str(settings.SANDBOX_PROVIDER).upper() == "MODAL_DOCKER")
             and not agent_egress_staging_probe_enabled()
-            and not (cleanup and agent_egress_staging_environment())
+            and not agent_egress_enrollment_enabled()
+            and not (cleanup and (agent_egress_staging_environment() or agent_egress_enrollment_environment()))
         ):
             raise RuntimeError("Egress probes require the local MODAL_DOCKER provider")
         sandbox_class = get_sandbox_class_for_run_backend("modal")
@@ -143,19 +232,22 @@ class ModalEgressProbe:
         return output
 
     @staticmethod
-    def _destination(endpoint: str, ttl_seconds: int, dev_proxy_ipv4: str | None) -> tuple[str, IPv4Address | None]:
+    def _destination(
+        endpoint: str, ttl_seconds: int, dev_proxy_ipv4: str | None, *, max_ttl_seconds: int = 1800
+    ) -> tuple[str, IPv4Address | None]:
         target = urlsplit(endpoint)
         if (
             target.scheme != "https"
             or not target.hostname
             or target.netloc != target.netloc.lower()
-            or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", target.hostname)
+            or len(target.hostname) > 253
+            or not re.fullmatch(AGENT_EGRESS_DOMAIN_PATTERN, target.hostname)
             or target.username is not None
             or target.password is not None
             or target.path not in ("", "/")
             or target.query
             or target.fragment
-            or not 60 <= ttl_seconds <= 1800
+            or not 60 <= ttl_seconds <= max_ttl_seconds
         ):
             raise ValueError("Invalid egress probe endpoint or lifetime")
         target_port = target.port or 443
@@ -261,7 +353,9 @@ class ModalEgressProbe:
         dev_proxy_ipv4: str | None = None,
     ) -> ModalEgressProbe:
         sandbox_class = cls._sandbox_class()
-        hostname, proxy_ip = cls._destination(endpoint, ttl_seconds, dev_proxy_ipv4)
+        hostname, proxy_ip = cls._destination(
+            endpoint, ttl_seconds, dev_proxy_ipv4, max_ttl_seconds=MAX_SANDBOX_TTL_SECONDS
+        )
         raw = modal.Sandbox.from_id(sandbox_id)
         if raw.poll() is not None:
             raise ValueError("The egress sandbox has ended")
@@ -301,7 +395,13 @@ class ModalEgressProbe:
             raise ValueError("The egress sandbox or relay no longer exists") from None
         return cls(sandbox, sidecar, endpoint, ttl_seconds, relay_name)
 
-    def start_relay(self, *, certificate: str, server_ca: str) -> None:
+    def start_relay(self, *, certificate: str, server_ca: str, client_ca: str | None = None) -> None:
+        if (
+            client_ca is not None
+            and self._execute(self.sidecar, "python3", "-c", _RELAY_RUNNING, "/run/egress").strip()
+        ):
+            self.renew_certificate(certificate)
+            return
         self.sidecar.filesystem.write_text(certificate, "/run/egress/relay.pem")
         self.sidecar.filesystem.write_text(server_ca, "/run/egress/server-ca.pem")
         configuration = {
@@ -314,6 +414,9 @@ class ModalEgressProbe:
             "request_timeout_seconds": 20,
             "shutdown_timeout_seconds": 5,
         }
+        if client_ca is not None:
+            self.sidecar.filesystem.write_text(client_ca, "/run/egress/enrollment-ca.pem")
+            configuration["client_ca_file"] = "/run/egress/enrollment-ca.pem"
         self.sidecar.filesystem.write_text(json.dumps(configuration), "/run/egress/relay.json")
         self.sidecar.exec(
             "python3",
@@ -328,6 +431,23 @@ class ModalEgressProbe:
             stderr=StreamType.DEVNULL,
         )
         self._execute(self.sidecar, "python3", "-c", _WAIT_READY, timeout=30)
+
+    def renew_certificate(self, certificate: str) -> None:
+        candidate = f"/run/egress/relay-{uuid4().hex}.pem"
+        try:
+            self.sidecar.filesystem.write_text(certificate, candidate)
+            self._execute(
+                self.sidecar,
+                "python3",
+                "-c",
+                _RENEW_CERTIFICATE,
+                "/run/egress",
+                candidate,
+                "http://127.0.0.1:9090/metrics",
+                timeout=7,
+            )
+        except (OSError, RuntimeError, ModalError) as error:
+            raise AgentEgressCertificateDeliveryError("Relay certificate delivery failed") from error
 
     def publish_capability(self, token: str) -> None:
         guest = self.sandbox._sandbox

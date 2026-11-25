@@ -227,13 +227,14 @@ class ResendImportProvider(ImportProvider):
             label="Contacts",
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. Each "
-                "person updated counts as one event. Needs Suppression list, Unsubscribed contacts and Topic "
+                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. "
+                "Needs Suppression list, Unsubscribed contacts and Topic "
                 "preferences selected too, so no one who left in Resend gets marketing email."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=("suppressions", "opt_outs", "topic_opt_outs"),
             needs=("suppressions", "opt_outs", "topic_opt_outs"),
+            counts_as_events=True,
         ),
         new_people_step("Resend"),
         # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
@@ -243,11 +244,12 @@ class ResendImportProvider(ImportProvider):
             description=(
                 "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
                 "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads up to about 25,000 contacts an hour. Each person updated counts as one event."
+                "PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),
             needs=("contacts",),
+            counts_as_events=True,
         ),
     )
 
@@ -438,13 +440,17 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
     contacts = ContactCollector()
     unsubscribed: set[str] = set()
+    read = 0
     for page in client.pages("/contacts"):
+        read += len(page.data)
         _collect(contacts, page.data)
         unsubscribed.update(
             email.lower()
             for contact in page.data
             if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
         )
+    # Read before the segments, whose contacts are all repeats of contacts already read.
+    repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
     # The opt-out steps saw only these contacts, so a contact added to Resend later waits for the next import.
     scanned = {row["email"].lower() for row in contacts.everyone}
     segments: list[ContactList] = []
@@ -481,11 +487,16 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     # One shared set, so a large opt-out list isn't copied once per segment.
     non_members = frozenset(unsubscribed)
     yield ImportPage(
-        processed=len(everyone),
+        processed=read,
         save=partial(
             save_contact_lists,
             context,
-            replace(_everyone(everyone), non_members=non_members),
+            replace(
+                _everyone(everyone),
+                non_members=non_members,
+                repeats_merged=repeats_merged,
+                invalid_skipped=invalid_skipped,
+            ),
             # Unsubscribed contacts stay out of every cohort, as they do for the cohort of all contacts.
             [replace(segment, non_members=non_members) for segment in segments],
             contacts.other_spellings,

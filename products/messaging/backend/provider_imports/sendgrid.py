@@ -183,7 +183,10 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Opts people out of the category for each group they left. Needs asm.groups.read and suppression.read."
             ),
-            count_labels=(("opted_out", "People with a new opt-out"), ("invalid", "Skipped, address isn't valid")),
+            count_labels=(
+                ("opted_out", "New opt-outs, counted per group"),
+                ("invalid", "Skipped, address isn't valid"),
+            ),
         ),
         ImportStepSpec(
             key="templates",
@@ -804,7 +807,7 @@ def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> Save
                 )
             )
             continue
-        converted = convert_version(design)
+        converted = convert_version(design, contact_fields=True)
         notes = (*converted.notes, *converted.send_notes, _SENDER_NOTE)
         items.append(_create(context, key, name, converted, notes, "", counts))
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))

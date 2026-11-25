@@ -1306,7 +1306,7 @@ async fn test_backup_secret_api_token_authentication() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
 
-    // Create a team with both secret_api_token and secret_api_token_backup using helper
+    // Create a team with PSAK mirror rows for both a primary and a backup secret value
     let backup_token_value = feature_flags::utils::test_utils::random_string("phs_backup_", 12);
     let (team, _secret_token, backup_secret_token) = context
         .create_team_with_secret_token(None, None, Some(&backup_token_value))

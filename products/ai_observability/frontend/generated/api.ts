@@ -24,6 +24,7 @@ import type {
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesListParams,
+    AiObservabilityTracesMetricsListParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
@@ -64,6 +65,7 @@ import type {
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
     EvalSuggestionListApi,
+    EvalSuggestionSettingsApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -141,11 +143,11 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
-    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
     PatchedDatasetUpdateApi,
+    PatchedEvalSuggestionSettingsApi,
     PatchedEvaluationApi,
     PatchedEvaluationDirectoryApi,
     PatchedEvaluationReportUpdateApi,
@@ -160,7 +162,6 @@ import type {
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
-    PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
     ProviderKeyDependentConfigsApi,
@@ -176,13 +177,8 @@ import type {
     ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
-    TaggerApi,
-    TaggerUpdateApi,
-    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
-    TestHogTaggerRequestApi,
-    TestHogTaggerResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
@@ -195,6 +191,7 @@ import type {
     TraceExportFileApi,
     TraceFeedbackApi,
     TraceListApi,
+    TraceMetricsApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeParserTestApi,
@@ -1505,6 +1502,40 @@ export const aiObservabilityTracesAvailabilityCreate = async (
     })
 }
 
+export const getAiObservabilityTracesMetricsListUrl = (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/metrics/`
+}
+
+/**
+ * Six metrics for the project's traces in a date range, each compared with the period right before it, and
+ * the same metrics for each hour or day of the range.
+ */
+export const aiObservabilityTracesMetricsList = async (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams,
+    options?: RequestInit
+): Promise<TraceMetricsApi> => {
+    return apiMutator<TraceMetricsApi>(getAiObservabilityTracesMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityTracesPeopleCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_observability/traces/people/`
 }
@@ -2226,6 +2257,43 @@ export const evaluationSuggestionsDismissCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(evalSuggestionDismissApi),
+    })
+}
+
+export const getEvaluationSuggestionsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Whether the project gets suggestions.
+ */
+export const evaluationSuggestionsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
+ */
+export const evaluationSuggestionsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedEvalSuggestionSettingsApi?: PatchedEvalSuggestionSettingsApi,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvalSuggestionSettingsApi),
     })
 }
 
@@ -4176,113 +4244,5 @@ export const llmPromptsResolveNameRetrieve = async (
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/taggers/?${stringifiedParams}`
-        : `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersList = async (
-    projectId: string,
-    params?: TaggersListParams,
-    options?: RequestInit
-): Promise<PaginatedTaggerListApi> => {
-    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersUpdate = async (
-    projectId: string,
-    id: string,
-    taggerUpdateApi: TaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerUpdateApi),
-    })
-}
-
-export const getTaggersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedTaggerUpdateApi?: PatchedTaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaggerUpdateApi),
-    })
-}
-
-export const getTaggersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const taggersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getTaggersDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getTaggersTestHogCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/test_hog/`
-}
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-export const taggersTestHogCreate = async (
-    projectId: string,
-    testHogTaggerRequestApi: TestHogTaggerRequestApi,
-    options?: RequestInit
-): Promise<TestHogTaggerResponseApi> => {
-    return apiMutator<TestHogTaggerResponseApi>(getTaggersTestHogCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(testHogTaggerRequestApi),
     })
 }

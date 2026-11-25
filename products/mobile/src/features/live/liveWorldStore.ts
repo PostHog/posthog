@@ -2,12 +2,14 @@ import { create } from 'zustand'
 
 import { addSessionEndTask } from '@/auth/authStore'
 import type { LiveWorld } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS, type LiveTrafficFilters } from '@/model/liveTrafficFilters'
 
 export interface LiveWorldShare {
     users?: boolean
     webOnly?: boolean
     mobileOnly?: boolean
     filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     world: LiveWorld | null
     paused: boolean
 }
@@ -19,6 +21,7 @@ const EMPTY: LiveWorldShare = {
     mobileOnly: false,
     webOnly: false,
     filterTestAccounts: false,
+    trafficFilters: DEFAULT_LIVE_TRAFFIC_FILTERS,
 }
 
 /**

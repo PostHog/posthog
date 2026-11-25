@@ -38,6 +38,7 @@ import {
 import { CustomImagePicker } from '../CustomImagePicker'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutPrecheckSection } from './ScoutPrecheckSection'
+import { ScoutReportActionsSection } from './ScoutReportActionsSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
@@ -421,6 +422,13 @@ export function ScoutConfigForm({
             />
             <ScoutToolsSection config={config} onUpdate={onUpdate} updating={updating} surface={surface} />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
+            {/* Keyed by scout so an unsaved draft does not become the next scout's save. */}
+            <ScoutReportActionsSection
+                key={`report-actions-${config.id}`}
+                config={config}
+                onUpdate={onUpdate}
+                updating={updating}
+            />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
             {onDelete && config.scout_origin === 'custom' ? (
