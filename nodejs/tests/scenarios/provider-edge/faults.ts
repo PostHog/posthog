@@ -91,8 +91,8 @@ export type FaultRule = {
 
 type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
 
-// The hit is the unit id, or the addresses or host when a request names no unit.
-export type Hit = { hit: string; key: string }
+// A request that names no unit is picked by its addresses or host, and stays out of the recorded hits.
+export type Hit = { unitId?: string; key: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 const THROTTLED: SesStatusAnswer = {
@@ -141,9 +141,7 @@ const SCORE_BYTES = 6
 
 // A unit id is `<run id>-<ordinal>`, so the ordinal names the same unit in every run of a card.
 export function hitOf(unitId: string | undefined, fallback: string): Hit {
-    return unitId === undefined
-        ? { hit: fallback, key: fallback }
-        : { hit: unitId, key: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
+    return unitId === undefined ? { key: fallback } : { unitId, key: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
 }
 
 function picked(pick: string, key: string, attempt: number, share: number): boolean {
@@ -241,13 +239,18 @@ export class FaultList {
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
         const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
-        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
+        // A seeded share answers before a counted fault, so what the count takes first cannot change its picks.
+        const seeded = matching.filter((fault) => fault.rule.pick !== undefined && 'share' in fault.rule.dose)
+        const rest = matching.filter((fault) => !throttles.includes(fault) && !seeded.includes(fault))
+        const answering = [...throttles, ...seeded, ...rest].find((fault) => {
             fault.matched += 1
             return doseTakes(fault, now, hit)
         })
         if (answering) {
             answering.applied += 1
-            this.hits.set(answering.id, (this.hits.get(answering.id) ?? new Set()).add(hit.hit))
+            if (hit.unitId !== undefined) {
+                this.hits.set(answering.id, (this.hits.get(answering.id) ?? new Set()).add(hit.unitId))
+            }
             if (!this.firstApplied.has(answering.id)) {
                 this.firstApplied.set(answering.id, now)
             }
