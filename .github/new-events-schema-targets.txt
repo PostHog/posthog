@@ -112,6 +112,7 @@ products/feature_flags/backend/test/test_facade_usage.py
 products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
+products/feature_flags/backend/test/test_flag_windows_last_values.py
 products/feature_flags/backend/test/test_request_usage.py
 products/growth/backend/tests/test_team_sdk_versions.py
 products/growth/dags/tests/test_team_production_event_activation.py
