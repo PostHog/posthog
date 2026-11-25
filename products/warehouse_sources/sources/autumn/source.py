@@ -2,13 +2,16 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.autumn._config import AutumnSourceConfig
 from products.warehouse_sources.sources.autumn.autumn import (
+    UNSUPPORTED_API_VERSION_PREFIX,
     AutumnResumeConfig,
     autumn_source,
+    unsupported_api_version_message,
     validate_credentials as validate_autumn_credentials,
 )
 from products.warehouse_sources.sources.autumn.settings import (
     AUTUMN_API_VERSION_2_3_0,
     AUTUMN_API_VERSION_2_4_0,
+    AUTUMN_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -59,6 +62,7 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
                 "Your Autumn secret key does not have access to this data. Check the key's environment "
                 "in the Autumn dashboard."
             ),
+            UNSUPPORTED_API_VERSION_PREFIX: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -84,7 +88,11 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_autumn_credentials(config.api_key, self.resolve_api_version(api_version))
+        resolved_version = self.resolve_api_version(api_version)
+        endpoint = AUTUMN_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and resolved_version in endpoint.unsupported_api_versions:
+            return False, unsupported_api_version_message(endpoint, resolved_version)
+        return validate_autumn_credentials(config.api_key, resolved_version)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AutumnResumeConfig]:
         return ResumableSourceManager[AutumnResumeConfig](inputs, AutumnResumeConfig)
@@ -116,7 +124,8 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Autumn",
             caption=(
-                "Sync customers, usage events, features, plans, entities, invoices, rewards, and licenses from Autumn. "
+                "Sync customers, subscriptions, purchases, balances, the balance ledger, usage events, features, plans, "
+                "entities, invoices, rewards, and licenses from Autumn. "
                 "Create a secret key (`am_sk_...`) in the Autumn dashboard under Developer settings. "
                 "Sandbox and production have separate keys, so use the key for the environment you want to sync."
             ),

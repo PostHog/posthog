@@ -26,6 +26,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutNote,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalTeamConfig,
 )
 from products.signals.backend.scout_harness.model_selection import ScoutModel
@@ -102,6 +103,7 @@ class TestScoutTrialAPI(APIBaseTest):
         assert response.status_code == 200, response.data
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
+        assert not SignalScratchpadRevision.objects.for_team(self.team.id).exists()
 
     def test_private_memory_write_with_a_stale_if_updated_at_conflicts(self) -> None:
         self._as_trial()

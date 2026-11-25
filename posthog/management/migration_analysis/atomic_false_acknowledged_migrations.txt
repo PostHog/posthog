@@ -70,3 +70,10 @@ business_knowledge.0029_backfill_knowledge_run_citations
 skills.0012_backfill_skill_search_vectors
 posthog.1439_drop_retired_recording_relevance_filters
 replay_vision.0153_drop_retired_recording_relevance_fields
+cohorts.0024_backfill_cohort_condition_type
+
+# Repairs signing secret rows one short transaction each so team locks release as the
+# scan proceeds. Every write is conditional on the row still mirroring the token, so a
+# failed run resumes safely and re-running changes nothing already repaired.
+conversations.0091_reconcile_signing_secrets
+ai_observability.0089_remove_tagger_state

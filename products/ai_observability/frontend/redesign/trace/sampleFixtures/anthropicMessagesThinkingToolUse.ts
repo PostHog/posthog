@@ -147,6 +147,8 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
         sessionId: null,
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
+        totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree,
     initialNodeId: GENERATION_ID,

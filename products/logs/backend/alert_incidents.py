@@ -5,15 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from django.db import transaction
-
 from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     configured_destination_template_ids,
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
 from products.logs.backend.alert_event_properties import incident_closed_event_properties
 from products.logs.backend.alert_state_machine import IncidentCloseReason
@@ -46,32 +43,20 @@ def incident_closed_properties(
 def close_incident(
     alert: LogsAlertConfiguration, reason: IncidentCloseReason, *, flush_timeout_seconds: float | None = None
 ) -> bool:
-    """Send the close for an alert leaving firing, and return whether it was handed off.
+    """Send the close for an alert the logs stack owns leaving firing, and return whether it was handed
+    off. The platform closes the incident of an alert it owns from its copy.
 
     With `flush_timeout_seconds`, the return value says the broker took the close, and a lost close
     also shows in the delivery failure metric and log. Without it, the return value only says the
     close was queued. A web request passes none, because the flush waits on the process-wide producer.
     """
     now = datetime.now(UTC)
-    # The owner is read and the close enqueued under the row lock a cutover also takes, so a
-    # cutover cannot land between the two.
-    with transaction.atomic():
-        owner = (
-            LogsAlertConfiguration.objects.select_for_update()
-            .filter(pk=alert.pk)
-            .values_list("owner", flat=True)
-            .first()
-        )
-        if owner == PlatformAlertOwner.PLATFORM:
-            # The platform closes the incident of an alert it owns. Reported as handed off, so a
-            # caller that waits for the close before a state change does not wait forever.
-            return True
-        produce_result = produce_alert_internal_event(
-            team_id=alert.team_id,
-            event_name=LOGS_ALERT_INCIDENT_CLOSED_EVENT,
-            properties=incident_closed_properties(alert, reason, now),
-            timestamp=now,
-        )
+    produce_result = produce_alert_internal_event(
+        team_id=alert.team_id,
+        event_name=LOGS_ALERT_INCIDENT_CLOSED_EVENT,
+        properties=incident_closed_properties(alert, reason, now),
+        timestamp=now,
+    )
     if produce_result is None:
         return False
     if flush_timeout_seconds is None:

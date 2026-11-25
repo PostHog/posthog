@@ -30,6 +30,7 @@ from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.alerts.backend.max_tools import UpsertAlertTool
+from products.dashboards.backend.max_tools import UpsertDashboardTool
 from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
@@ -43,7 +44,7 @@ from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit, 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.survey import ReadOnlySurveyAgentToolkit
-from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
+from ee.hogai.tools import CreateInsightTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI, mock_contextual_tool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

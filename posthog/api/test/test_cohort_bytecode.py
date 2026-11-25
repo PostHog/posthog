@@ -469,7 +469,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # 7. Cohort with more than 20M persons should not be realtime
 
         # Create a realtime-eligible cohort
-        filters = {
+        filters: dict[str, Any] = {
             "properties": {
                 "type": "OR",
                 "values": [
@@ -491,7 +491,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         cohort.count = 20_000_001
         cohort.save()
 
-        # Update the cohort with the same filters - should no longer be realtime
+        filters["properties"]["values"][0]["values"][0]["key"] = "$os"
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertIsNone(cohort2.cohort_type)
 

@@ -9,6 +9,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { newBroadcastAgentLogic } from '../Broadcasts/newBroadcastAgentLogic'
 import { PUSH_CHANNELS } from '../Channels/channelSummary'
@@ -126,7 +128,7 @@ export interface workflowsSetupGuideLogicMeta {
         steps: (
             integrations: IntegrationType[] | null,
             chosenReachChannels: ('email' | 'push')[] | null,
-            categories: import('products/messaging/frontend/generated/api.schemas').MessageCategoryApi[],
+            categories: MessageCategoryApi[],
             categoriesLoading: boolean,
             templates: MessageTemplate[],
             templatesLoading: boolean,

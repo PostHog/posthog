@@ -2,7 +2,14 @@ import posthog from 'posthog-js'
 
 import type { TraceDrawerListId } from './traceDrawerLists'
 import type { SummaryOpenedFrom } from './traceSummaryLogic'
-import type { FeedbackEntry, MessagesOpening, NodeLoadTrigger, SummaryItemKind, SummaryModeState } from './types'
+import type {
+    FeedbackEntry,
+    MessagesOpening,
+    NodeLoadTrigger,
+    StepKeySource,
+    SummaryItemKind,
+    SummaryModeState,
+} from './types'
 
 /**
  * Usage tracking for the trace view, on the trace page and in the trace drawer.
@@ -29,6 +36,7 @@ import type { FeedbackEntry, MessagesOpening, NodeLoadTrigger, SummaryItemKind, 
 const EVENTS = {
     viewLoaded: 'llma trace view loaded',
     nodeLoaded: 'llma trace node loaded',
+    stepKeyed: 'llma trace view step keyed',
     drawerOpened: 'llma trace drawer opened',
     drawerStepped: 'llma trace drawer stepped',
     drawerClosed: 'llma trace drawer closed',
@@ -70,17 +78,29 @@ export const traceViewTracking = {
      *
      * `trigger` says what started the read:
      * - `selection`: a click on the step.
+     * - `keyboard`: a step reached with the J and K keys or the arrow keys, read once the keys settle.
      * - `navigation`: a step the view selected without a click, such as the default step, an `event` link or browser
      *   history.
      * - `prefetch`: a hover over the step's tree row. This is not a user action, so leave it out of usage counts.
      * - `thread`: a read that the Thread mode starts for its generations.
      *
      * `load_ms` runs from the first request for the step, retries included. `waited_ms` runs from a click on the step
-     * to its content, and is null when nobody clicked before the content was ready. A click during a prefetch does not
+     * to its content, or from the moment the keys settled on it, and is null when nobody selected the step before its
+     * content was ready. A click during a prefetch does not
      * start a second read, so a `prefetch` event can carry `waited_ms`.
      */
     nodeLoaded: (trigger: NodeLoadTrigger, loadMs: number, waitedMs: number | null): void => {
         posthog.capture(EVENTS.nodeLoaded, { load_ms: loadMs, trigger, waited_ms: waitedMs })
+    },
+    /**
+     * Sent when a person moves through the steps of the tree by key, once per run of keys: the keys must rest for a
+     * moment before it is sent, so holding a key down sends one event. A run that moves nothing, such as J on the last
+     * step, sends no event. `source` is `shortcut` for the J and K keys, which also send `keybind triggered` on every
+     * press, and `arrow` for the arrow, Home and End keys, which work while the tree has focus. It names the last key
+     * of the run.
+     */
+    stepKeyed: (source: StepKeySource): void => {
+        posthog.capture(EVENTS.stepKeyed, { source })
     },
     /**
      * Sent when the drawer opens over a list. Stepping to another trace in the drawer does not send it again.

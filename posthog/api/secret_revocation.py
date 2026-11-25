@@ -115,13 +115,12 @@ _REVOKERS = {
 # on purpose, so per-request cost is still bounded only by LeakedKeyReportThrottle's
 # per-IP rate limit, not by this check.
 #
-# Team-level secret tokens (Team.secret_api_token) share SECRET_API_TOKEN_PREFIX
-# with project secret API keys but are deliberately not in this map: unlike these
-# four, a match there can't be auto-rotated on the spot
-# (Team.rotate_secret_token_and_save needs a user to attribute the rotation to), so
-# github.py handles that case itself as a fallback rather than through this shared,
-# type-agnostic path. A team token with a backfilled PSAK row (#63111) does match the
-# project-secret-api-key path, which then also sends the rotate-your-key notice.
+# Retired team-level secret tokens (Team.secret_api_token, #66179) share
+# SECRET_API_TOKEN_PREFIX with project secret API keys and are deliberately not in
+# this map: a leaked one matches the project-secret-api-key path through its
+# backfilled PSAK mirror row (#63111), which revokes the credential and sends the
+# rotate-your-key notice. github.py keeps a notify-only fallback for column values
+# with no mirror row, until the column drops.
 _PREFIX_TO_CANONICAL_TYPE = {
     PERSONAL_API_KEY_PREFIX: CANONICAL_PERSONAL_API_KEY,
     SECRET_API_TOKEN_PREFIX: CANONICAL_PROJECT_SECRET_API_KEY,

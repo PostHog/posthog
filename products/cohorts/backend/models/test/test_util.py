@@ -577,6 +577,26 @@ class TestCohortUtils(BaseTest):
         )
         self.assertEqual(rows[0][0], 1)
 
+    def test_insert_by_query_skips_actors_without_a_person(self):
+        from products.cohorts.backend.models.util import insert_actors_into_cohort_by_query
+
+        cohort = Cohort.objects.create(team=self.team, name="query cohort", is_static=True)
+        member = uuid.uuid4()
+
+        written = insert_actors_into_cohort_by_query(
+            cohort,
+            "SELECT arrayJoin([toUUID(%(member)s), toUUID('00000000-0000-0000-0000-000000000000')]) AS actor_id",
+            {"member": str(member)},
+            HogQLContext(team_id=self.team.id),
+            team_id=self.team.id,
+        )
+
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        self.assertEqual((written, rows), (1, [(member,)]))
+
     def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
         person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())

@@ -23,8 +23,10 @@ REGISTRATION_ATTRIBUTE = "TEMPORAL"
 
 
 class ActivityDefinition(Protocol):
-    # An activity is a sync or async function with any signature, so only the call shape is typed.
-    # The validator checks @activity.defn.
+    # An activity is a sync or async function with any signature, so only the call shape and the
+    # function name are typed. The validator checks @activity.defn.
+    __name__: str
+
     def __call__(self, *args: Any, **kwargs: Any) -> object: ...
 
 

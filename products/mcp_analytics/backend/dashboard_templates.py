@@ -1,9 +1,10 @@
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
+from products.dashboards.backend.facade.enums import DashboardTemplateScope
 
 
-def get_mcp_analytics_default_template() -> DashboardTemplate:
+def get_mcp_analytics_default_template() -> DashboardTemplateDefinition:
     """Default dashboard template for MCP analytics."""
-    return DashboardTemplate(
+    return DashboardTemplateDefinition(
         template_name="MCP Analytics Default",
         dashboard_description="Overview of your MCP usage.",
         dashboard_filters={"date_from": "-7d"},
@@ -124,6 +125,6 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
             },
         ],
         tags=["mcp-analytics"],
-        scope=DashboardTemplate.Scope.GLOBAL,
+        scope=DashboardTemplateScope.GLOBAL,
         availability_contexts=["mcp-analytics"],
     )

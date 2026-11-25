@@ -30,8 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    UNSUPPORTED_AUTH_OPTION_ERROR,
     UNSUPPORTED_FILE_OPTION_ERROR,
     MongoResumeConfig,
+    UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
     _parse_connection_string,
     filter_mongo_incremental_fields,
@@ -82,6 +84,12 @@ _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "sign in with a username and password, and try again."
 )
 
+_MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE = (
+    "Your connection string sets an authentication mechanism PostHog doesn't support. PostHog signs "
+    "in with the username and password in the connection string. Remove authMechanism and "
+    "authMechanismProperties, or set authMechanism=SCRAM-SHA-256, and try again."
+)
+
 _MONGO_GSSAPI_UNSUPPORTED_MESSAGE = (
     "Your connection string sets authMechanism=GSSAPI, which signs in with Kerberos. PostHog "
     "doesn't support that authentication mechanism. Sign in with a username and password "
@@ -97,6 +105,13 @@ _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE = (
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SRV_RECORD_MISSING_MESSAGE = (
+    "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
+    "scheme only works with a host that publishes SRV records, such as a MongoDB Atlas cluster. "
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "If your host doesn't, use the mongodb:// scheme with the host and port instead, then try again."
 )
 
 _MONGO_SERVER_TOO_OLD_MESSAGE = (
@@ -187,6 +202,13 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_
 # NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
+
+# dnspython's NoAnswer carries this fixed prefix when the SRV name resolves but the zone
+# publishes no `_mongodb._tcp` SRV record for it — the `mongodb+srv://` scheme needs one, and a
+# self-hosted or non-Atlas host (e.g. a plain TCP endpoint) never has it configured. Distinct from
+# NXDOMAIN above: the name exists, the SRV record type just isn't there. This never resolves on
+# retry; the user must drop the `+srv` from the scheme instead.
+_SRV_NO_ANSWER_MARKER = "The DNS response does not contain an answer to the question"
 
 # pymongo raises ConfigurationError from server selection when every server's wire version is
 # below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
@@ -319,6 +341,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+            UNSUPPORTED_AUTH_OPTION_ERROR: _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
             _GSSAPI_AUTH_UNSUPPORTED_MARKER: _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
@@ -370,6 +393,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # The same answer for a mongodb+srv:// URI, whose SRV lookup fails before pymongo picks a
             # server. The raw dnspython text echoes the cluster host, so it never reaches the customer.
             _SRV_DNS_NAME_NOT_FOUND_MARKER: _MONGO_HOST_UNRESOLVED_MESSAGE,
+            # The SRV name resolves but carries no `_mongodb._tcp` record, because the host doesn't
+            # support SRV-based discovery at all. Distinct guidance: the fix is the connection string
+            # scheme, not the spelling.
+            _SRV_NO_ANSWER_MARKER: _MONGO_SRV_RECORD_MISSING_MESSAGE,
             # pymongo removes every server whose replica set name differs from the `replicaSet` the
             # connection string asks for, which empties the topology and names the set rather than a
             # host in the selection error. A cluster that is merely down keeps its servers as Unknown
@@ -582,6 +609,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except UnsupportedAuthOptionError:
+            return False, _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE
         except UnsupportedConnectionOptionError:
             return False, _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE
         except HostNotAllowedError:
@@ -612,6 +641,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SRV_NO_ANSWER_MARKER in message:
+                return False, _MONGO_SRV_RECORD_MISSING_MESSAGE
             if _SERVER_TOO_OLD_MARKER in message:
                 return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:

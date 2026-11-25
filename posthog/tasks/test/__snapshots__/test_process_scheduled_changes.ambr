@@ -492,6 +492,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -771,6 +772,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -913,9 +915,13 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_scheduledchange"
+  INNER JOIN "posthog_team" ON ("posthog_scheduledchange"."team_id" = "posthog_team"."id")
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_scheduledchange"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_scheduledchange"."executed_at" IS NULL
-         AND "posthog_scheduledchange"."scheduled_at" <= '2023-12-21 09:00:00+00:00'::timestamptz)
+         AND "posthog_scheduledchange"."scheduled_at" <= '2023-12-21 09:00:00+00:00'::timestamptz
+         AND NOT (NOT "posthog_organization"."is_active"
+                  AND "posthog_organization"."is_active" IS NOT NULL))
   ORDER BY "posthog_scheduledchange"."scheduled_at" ASC
   LIMIT 10000
   FOR
@@ -1425,6 +1431,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1800,6 +1807,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",

@@ -9,7 +9,6 @@ from django.db.models import Model
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -21,9 +20,8 @@ from posthog.schema import ProductKey
 
 from posthog import cloud_utils
 from posthog.api import project_tags
-from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
+from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -45,20 +43,17 @@ from posthog.api.team.integration_config import (
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
-    validate_secret_token_generation,
 )
 from posthog.api.team.live_events import _default_data_color_theme_id, live_events_token_for_request
 from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
-    hide_secret_api_tokens,
     validate_team_attrs,
     validate_team_workflows_config,
 )
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
-    TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamCustomerAnalyticsConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
@@ -71,13 +66,18 @@ from posthog.api.team.team_serializer import (
     REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
+    HomeTabDashboardField,
     TeamSerializer,
     available_error_tracking_ai_features,
-    flag_evaluations_read_mode_for,
+    flag_evaluations_read_config_for,
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
 )
-from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
+from posthog.api.team.viewsets import (
+    EventIngestionRestrictionSerializer,
+    team_event_ingestion_restrictions_view,
+    team_settings_as_of_view,
+)
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
@@ -92,7 +92,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
     Change,
     Detail,
     dict_changes_between,
@@ -109,7 +108,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -123,7 +121,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
@@ -153,9 +150,9 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.authorization.backend.presentation.querysets import filter_visible_projects
-from products.dashboards.backend.models import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flags import events_lack_new_flag_calls
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -398,66 +395,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-
-def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
-    """
-    Return the project settings as of the provided timestamp.
-    Query params:
-    - at: ISO8601 datetime (required)
-    - scope: optional, one or multiple keys to filter the returned settings
-    """
-    at_param = request.query_params.get("at")
-    if not at_param:
-        raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
-
-    as_of = parse_datetime(at_param)
-    if as_of is None:
-        raise exceptions.ValidationError({"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."})
-    if timezone.is_naive(as_of):
-        as_of = timezone.make_aware(as_of)
-
-    settings_fields = set(TEAM_CONFIG_FIELDS)
-    snapshot: dict[str, Any] = {}
-    for field_name in settings_fields:
-        if hasattr(team, field_name):
-            snapshot[field_name] = getattr(team, field_name)
-        elif hasattr(team, f"{field_name}_id"):
-            snapshot[field_name] = getattr(team, f"{field_name}_id")
-        else:
-            snapshot[field_name] = None
-
-    logs = (
-        ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
-        .order_by("-created_at")
-        .only("detail", "created_at", "activity")
-    )
-
-    for log in logs.iterator():
-        detail = log.detail or {}
-        changes = detail.get("changes") or []
-        for change in changes:
-            field = change.get("field")
-            action = change.get("action")
-            before = change.get("before")
-
-            target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
-            if target not in settings_fields:
-                continue
-
-            if action == "changed":
-                snapshot[target] = before
-            elif action == "created":
-                snapshot[target] = None
-            elif action == "deleted":
-                snapshot[target] = before
-
-    scope_values = request.query_params.getlist("scope")
-    if scope_values:
-        filtered = {k: snapshot.get(k, None) for k in scope_values}
-        return response.Response(filtered)
-
-    return response.Response(snapshot)
 
 
 def team_default_evaluation_contexts_view(
@@ -711,11 +648,9 @@ class ProjectBackwardCompatSerializer(
     )
     # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
     # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
-    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
-        queryset=Dashboard.objects.all(),
+    home_tab_dashboard = HomeTabDashboardField(
         required=False,
         allow_null=True,
-        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
         help_text=(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
@@ -828,8 +763,6 @@ class ProjectBackwardCompatSerializer(
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
             "flags_persistence_default",  # Compat with TeamSerializer
-            "secret_api_token",  # Compat with TeamSerializer
-            "secret_api_token_backup",  # Compat with TeamSerializer
             "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
@@ -882,8 +815,6 @@ class ProjectBackwardCompatSerializer(
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
-            "secret_api_token",
-            "secret_api_token_backup",
             "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
@@ -947,8 +878,6 @@ class ProjectBackwardCompatSerializer(
             "surveys_opt_in",
             "heatmaps_opt_in",
             "flags_persistence_default",
-            "secret_api_token",
-            "secret_api_token_backup",
             "receive_org_level_activity_logs",
             "business_model",
             "conversations_enabled",
@@ -1056,7 +985,6 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        hide_secret_api_tokens(representation)
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
@@ -1077,11 +1005,11 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        read_mode = flag_evaluations_read_mode_for(self.context, obj.organization_id)
-        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_mode)
+        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
+        return events_lack_new_flag_calls(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:
@@ -1382,8 +1310,7 @@ class ProjectBackwardCompatSerializer(
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         if "home_tab_dashboard" in validated_data:
-            dashboard = team.home_tab_dashboard
-            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
+            team_before_update["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1405,8 +1332,8 @@ class ProjectBackwardCompatSerializer(
         # generic passthrough loop below.
         if "home_tab_dashboard" in validated_data:
             dashboard = validated_data.pop("home_tab_dashboard")
-            team.home_tab_dashboard = dashboard
             home_tab_dashboard_id = dashboard.id if dashboard else None
+            dashboards_api.set_home_tab_dashboard(team_id=team.id, dashboard_id=home_tab_dashboard_id)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -2021,27 +1948,6 @@ class ProjectViewSet(
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        # Minting a durable credential needs a fresh session, like PSAK creation does.
-        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
-    )
-    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team)
-        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
-        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
-        project.passthrough_team.rotate_secret_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated(request)
-        )
-        data = ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data
-        # Show-once: this response is the only read of the token this request minted; every other
-        # response nulls it. The demoted backup stays hidden because rotation often answers a leak.
-        data["secret_api_token"] = project.passthrough_team.secret_api_token
-        return response.Response(data)
-
     @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
     @action(
         methods=["PATCH"],
@@ -2052,19 +1958,6 @@ class ProjectViewSet(
     def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
-            user=request.user, is_impersonated_session=is_impersonated(request)
-        )
-        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
-    )
-    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = self.get_object()
-        project.passthrough_team.delete_secret_token_backup_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)

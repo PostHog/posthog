@@ -41,11 +41,14 @@ SECOND_ACCOUNT_KEY = "SG.second-account-key"
 NARROW_KEY = "SG.suppressions-only-key"
 NO_SCOPE_KEY = "SG.no-scopes-key"
 EMPTY_ACCOUNT_KEY = "SG.empty-account-key"
+# A full-access key on an account without Marketing Campaigns, where SendGrid grants no marketing scope.
+EMAIL_API_ONLY_KEY = "SG.email-api-only-key"
 _SCOPES_BY_KEY = {
     FULL_KEY: ALL_READ_SCOPES,
     EU_KEY: ALL_READ_SCOPES,
     SECOND_ACCOUNT_KEY: ALL_READ_SCOPES,
     EMPTY_ACCOUNT_KEY: ALL_READ_SCOPES,
+    EMAIL_API_ONLY_KEY: [scope for scope in ALL_READ_SCOPES if not scope.startswith("marketing.")],
     NARROW_KEY: ["suppression.read"],
     NO_SCOPE_KEY: [],
 }
@@ -274,8 +277,6 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _senders(self, account: dict[str, Any], query: dict[str, str]) -> tuple[int, Any, dict[str, str]]:
         rows = account["verified_senders"]
-        if "id" in query:
-            rows = [row for row in rows if row["id"] == int(query["id"])]
         if "lastSeenID" in query:
             rows = [row for row in rows if row["id"] > int(query["lastSeenID"])]
         return 200, {"results": rows[: int(query.get("limit", 100))]}, {}

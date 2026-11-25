@@ -127,6 +127,12 @@ class BaselineResolutionError(Exception):
     pass
 
 
+class BaselineRepairError(Exception):
+    """The ledger cannot be repaired against the baseline file now."""
+
+    pass
+
+
 class PullRequestClosedError(ValueError):
     """Finalize blocked because the run's pull request is closed or merged.
 

@@ -7,7 +7,7 @@ from products.warehouse_sources.sources.chargebee.chargebee import (
     chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
-from products.warehouse_sources.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS, PRIMARY_KEYS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -142,7 +142,7 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
             column_hints=resource.column_hints,
         )
 

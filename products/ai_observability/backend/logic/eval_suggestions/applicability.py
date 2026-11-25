@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
+from ..traces.tool_calls import called_tool_names
 from . import adapters
 from .adapters import AdaptedCheck
 from .measure import SampledTrace, TraceSample, captures_output
@@ -41,10 +42,7 @@ class ContentProfile:
 def _tool_calls(sampled: SampledTrace) -> Counter[str]:
     calls: Counter[str] = Counter()
     for event in sampled.trace.events:
-        if event.event == "$ai_generation":
-            calls.update(
-                tool.strip() for tool in str(event.properties.get("$ai_tools_called") or "").split(",") if tool.strip()
-            )
+        calls.update(called_tool_names(event.event, event.properties.get("$ai_tools_called")))
     return calls
 
 

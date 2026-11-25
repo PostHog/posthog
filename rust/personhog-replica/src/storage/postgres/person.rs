@@ -1900,9 +1900,7 @@ async fn tombstone_persons_by_ids_in_tx(
         UPDATE posthog_person
         SET is_deleted = true,
             version = COALESCE(version, 0) + 1,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = NULL,
-            properties_last_operation = NULL
+            properties = '{}'::jsonb
         WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
         RETURNING id as "id!", uuid as "uuid!", version as "version!"
         "#,

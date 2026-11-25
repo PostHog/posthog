@@ -124,32 +124,6 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('plays when 5 is pressed after the holiday flag arrives', () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date(2026, 9, 22))
-        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
-        const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
-        let playsBeforeFlag = 0
-        let playsAfterFlag = 0
-
-        try {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
-            playsBeforeFlag = play.mock.calls.length
-
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
-                [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
-            })
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
-            playsAfterFlag = play.mock.calls.length
-        } finally {
-            play.mockRestore()
-            pause.mockRestore()
-            jest.useRealTimers()
-        }
-        expect(playsBeforeFlag).toBe(0)
-        expect(playsAfterFlag).toBe(1)
-    })
-
     // A scene that never mounts must not leave the address bar on it with the previous scene still
     // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {
@@ -394,6 +368,28 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
         }
     )
+
+    it.each([
+        ['/data-pipelines/overview', urls.sources()],
+        ['/data-pipelines/destinations', urls.destinations()],
+        ['/data-pipelines/transformations', urls.transformations()],
+        ['/data-pipelines/batch-exports', urls.destinations('batch')],
+        ['/data-pipelines/new/destination', urls.dataPipelinesNew('destination')],
+        ['/messaging', urls.workflows()],
+        ['/messaging/campaigns', urls.workflows()],
+        ['/messaging/opt-outs', urls.workflows('opt-outs')],
+        ['/messaging/broadcasts', urls.broadcasts()],
+        [
+            '/messaging/broadcasts/01a1f39d-0000-7000-8000-000000000001',
+            urls.broadcast('01a1f39d-0000-7000-8000-000000000001'),
+        ],
+    ])('redirects the unrouted %s to %s instead of a 404', async (path, expected) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search).toEqual(
+            expected
+        )
+    })
 
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')

@@ -11,3 +11,4 @@ class AmplitudeSourceConfig(config.Config):
     api_key: str
     secret_key: str
     region: Literal["us", "eu"] = config.value(default="us")
+    management_api_key: str | None = None
