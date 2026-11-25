@@ -331,6 +331,10 @@ def compare_sql_series_values_shadow(
     except _CANCELLATION:
         raise
     except Exception as err:
+        capture_exception(
+            err,
+            {"feature": "alerts", "phase": "series_values_shadow", "team_id": alert.team_id, "alert_id": str(alert.id)},
+        )
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
     _record(alert, alert_kind, NodeKind.HOG_QL_QUERY.value, comparison, duration_seconds=time.monotonic() - started)
