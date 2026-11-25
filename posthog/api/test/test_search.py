@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -12,6 +12,7 @@ from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import ObjectIds
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -370,8 +371,14 @@ class TestSearch(APIBaseTest):
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
 
-    def test_search_query_count_with_and_without_counts(self):
+    @patch(
+        "products.authorization.backend.facade.api.list_objects",
+        return_value=ObjectIds(ids=frozenset(), complete=True, excluded=True),
+    )
+    def test_search_query_count_with_and_without_counts(self, _list_objects):
         mock_view = Mock()
+        mock_view.user_access_control.team = self.team
+        mock_view.user_access_control.user = self.user
         mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
 
         with CaptureQueriesContext(connection) as ctx_with:
@@ -517,12 +524,18 @@ class TestSearchAccessLevels(APIBaseTest):
         FeatureFlag.objects.create(key="searchable-a", team=self.team, created_by=self.other_user)
         own = FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.user)
         EventDefinition.objects.create(team=self.team, name="searchable-event")
-        AccessControl.objects.create(team=self.team, resource="feature_flag", resource_id=None, access_level="none")
+        create_workflow_for_test(team_id=self.team.id, name="searchable workflow", created_by_id=self.other_user.pk)
+        own_workflow = create_workflow_for_test(
+            team_id=self.team.id, name="searchable own workflow", created_by_id=self.user.pk
+        )
+        for resource in ("feature_flag", "hog_flow"):
+            AccessControl.objects.create(team=self.team, resource=resource, resource_id=None, access_level="none")
 
         response = self.client.get("/api/projects/@current/search?q=searchable")
 
         assert response.status_code == 200
         assert set(self._levels_by_result_id(response, "feature_flag")) == {str(own.id)}
+        assert set(self._levels_by_result_id(response, "hog_flow")) == {own_workflow.id}
         assert set(self._levels_by_result_id(response, "event_definition").values()) == {None}
 
     def test_object_grants_resolve_by_pk_for_short_id_entities(self):

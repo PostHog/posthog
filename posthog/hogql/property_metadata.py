@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, cast
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.clickhouse.materialized_column_types import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -20,6 +22,8 @@ from posthog.property_columns import PropertyName, TableColumn
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
+    from posthog.models.user import User
+
 MaterializedColumnsByTable = Mapping[
     TablesWithMaterializedColumns, Mapping[tuple[PropertyName, TableColumn], MaterializedColumn]
 ]
@@ -27,6 +31,28 @@ MaterializedColumnsByTable = Mapping[
 
 def _no_materialized_columns() -> MaterializedColumnsByTable:
     return {}
+
+
+def get_restricted_query_properties(*, team_id: int, user: "User") -> set[RestrictedProperty] | None:
+    """Load restricted property names for HogQL. Return None if the query has no usable access filter."""
+    from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
+    from products.event_definitions.backend.models import PropertyDefinition  # noqa: PLC0415
+
+    properties = authorization.list_objects(
+        resource=Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=team_id),
+        action=Action.QUERY,
+        subject=Subject(user_id=user.pk),
+    )
+    if not properties.complete or not properties.excluded:
+        return None
+    return {
+        RestrictedProperty(name=name, property_type=property_type, group_type_index=group_type_index)
+        for name, property_type, group_type_index in PropertyDefinition.objects.filter(
+            pk__in=properties.ids
+        ).values_list("name", "type", "group_type_index")
+    }
 
 
 @dataclass(frozen=True)

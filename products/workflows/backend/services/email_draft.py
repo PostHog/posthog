@@ -7,8 +7,6 @@ template otherwise, so the caller always gets something to put in front of the u
 import html
 from uuid import UUID
 
-from django.db.models import Model
-
 import structlog
 
 from posthog.dataclasses import frozen
@@ -19,7 +17,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.cohorts.backend.models.cohort import Cohort
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.facade.api import get_issue_basics
@@ -73,7 +74,7 @@ def load_email_draft_context(team: Team, user: User, source: EmailDraftSource, s
     Raises EmailDraftSourceNotFound when the team has no such entity, and EmailDraftSourceForbidden when an
     access control hides it from the user, so a restricted entity's text never reaches the draft.
     """
-    fields = _context_fields(team, source, source_id, UserAccessControl(user=user, team=team))
+    fields = _context_fields(team, source, source_id, Subject(user_id=user.pk))
     if fields is None:
         raise EmailDraftSourceNotFound()
     return EmailDraftContext(
@@ -138,7 +139,7 @@ def _ai_unavailable_reason(team: Team) -> EmailDraftFallbackReason | None:
 
 
 def _context_fields(
-    team: Team, source: EmailDraftSource, source_id: str, access: UserAccessControl
+    team: Team, source: EmailDraftSource, source_id: str, subject: Subject
 ) -> list[EmailDraftContextField] | None:
     match source:
         case EmailDraftSource.ERROR_TRACKING:
@@ -157,7 +158,10 @@ def _context_fields(
             feature = EarlyAccessFeature.objects.filter(team_id=team.id, id=feature_id).first() if feature_id else None
             if feature is None:
                 return None
-            _check_view(feature, access)
+            if not authorization.check(
+                resource=resource_for_object(feature, team=team), action=Action.VIEW, subject=subject
+            ):
+                raise EmailDraftSourceForbidden()
             return [
                 EmailDraftContextField(label="Feature name", value=feature.name),
                 EmailDraftContextField(label="Feature description", value=feature.description),
@@ -168,7 +172,10 @@ def _context_fields(
             survey = Survey.objects.filter(team_id=team.id, id=survey_id).first() if survey_id else None
             if survey is None:
                 return None
-            _check_view(survey, access)
+            if not authorization.check(
+                resource=resource_for_object(survey, team=team), action=Action.VIEW, subject=subject
+            ):
+                raise EmailDraftSourceForbidden()
             questions = [
                 str(question.get("question", ""))
                 for question in (survey.questions or [])[:MAX_SURVEY_QUESTIONS]
@@ -188,7 +195,10 @@ def _context_fields(
             )
             if flag is None:
                 return None
-            _check_view(flag, access)
+            if not authorization.check(
+                resource=resource_for_object(flag, team=team), action=Action.VIEW, subject=subject
+            ):
+                raise EmailDraftSourceForbidden()
             return [
                 EmailDraftContextField(label="Feature flag key", value=flag.key),
                 EmailDraftContextField(label="Feature flag description", value=flag.name or ""),
@@ -200,16 +210,14 @@ def _context_fields(
             )
             if cohort is None:
                 return None
-            _check_view(cohort, access)
+            if not authorization.check(
+                resource=resource_for_object(cohort, team=team), action=Action.VIEW, subject=subject
+            ):
+                raise EmailDraftSourceForbidden()
             return [
                 EmailDraftContextField(label="Cohort name", value=cohort.name or ""),
                 EmailDraftContextField(label="Cohort description", value=cohort.description),
             ]
-
-
-def _check_view(entity: Model, access: UserAccessControl) -> None:
-    if not access.check_access_level_for_object(entity, "viewer"):
-        raise EmailDraftSourceForbidden()
 
 
 def _as_row_id(value: str) -> int | None:

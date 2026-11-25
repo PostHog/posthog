@@ -16,6 +16,9 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
@@ -371,7 +374,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _workflow_access(self) -> WorkflowViewAccess:
         # Sends inherit the access of the workflow behind their email.
-        return get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
+        return get_workflow_view_access(team_id=self.team_id, subject=Subject(user_id=self.user_access_control.user.pk))
 
     @validated_request(
         query_serializer=TransactionalEmailLogListQuerySerializer,
@@ -465,7 +468,9 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound()
         # Session users skip API scopes, and access control checks only the hog_flow scope_object.
         for resource in ("person", "query"):
-            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+            if not authorization.check(
+                resource=Resource(type=ResourceType(resource), project_id=self.team_id), action=Action.VIEW
+            ):
                 raise PermissionDenied(f"You need access to {resource} data to see what the recipient did.")
         with query_concurrency_slots(self.team):
             activity = get_transactional_email_activity(
@@ -570,7 +575,9 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
         event = query.get("event") or None
-        if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if event and not authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team_id), action=Action.VIEW
+        ):
             raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             impact = transactional_email_impact(

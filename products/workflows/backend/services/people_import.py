@@ -30,9 +30,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from products.access_control.backend.property_access_control import get_non_writable_property_names
+from products.access_control.backend.facade.api import get_non_writable_property_names
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import PropertyDefinition
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
 
 logger = get_logger(__name__)
@@ -406,10 +409,30 @@ def _check_distinct_id(distinct_id: str, line: int) -> None:
 
 
 def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -> None:
-    non_writable = get_non_writable_property_names(
-        team_id=team.id, user=user, property_type=PropertyDefinition.Type.PERSON
-    )
-    blocked = sorted(set(columns) & non_writable)
+    if user is None:
+        # A userless import follows only default property rules, even inside an authenticated request.
+        blocked = sorted(
+            set(columns)
+            & get_non_writable_property_names(team_id=team.id, user=None, property_type=PropertyDefinition.Type.PERSON)
+        )
+    else:
+        definitions = list(
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name__in=columns)
+            .values_list("id", "name")
+        )
+        subject = Subject(user_id=user.pk)
+        writable = authorization.check(
+            [
+                CheckRequest(
+                    resource=Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=team.id, id=str(pk)),
+                    action=Action.EDIT,
+                    subject=subject,
+                )
+                for pk, _ in definitions
+            ]
+        )
+        blocked = sorted({name for (_, name), allowed in zip(definitions, writable, strict=True) if not allowed})
     if blocked:
         raise PeopleImportInvalid(
             f"You can't change these person properties: {', '.join(blocked)}. Remove those columns and try again."

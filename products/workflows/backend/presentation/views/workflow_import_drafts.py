@@ -21,8 +21,9 @@ from posthog.models.scoping import team_scope
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.facade.api import (
     create_cohort_from_filters,
     find_cohort_by_description_prefix,
@@ -90,14 +91,14 @@ def import_campaigns(
     sources = [_campaign_source(payload) for payload in payloads]
     context = _RequestContext(
         request=request,
-        access=UserAccessControl(user=user, team=team),
+        subject=Subject(user_id=user.pk),
         previous={source_id: previous_import(team, source_id) for source_id in {_source_id(s) for s in sources}},
         snippet_room=SnippetRoom(),
     )
     left_alone = _left_alone(team, context)
     content = import_content(team.id, sources, options, sender_identities, segments, deadline, left_alone)
     converted = _convert_segments(team, user, content, dry_run, context, left_alone)
-    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, context.access))
+    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, team.id, context.subject))
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -124,7 +125,7 @@ class _RequestContext:
     """What every automation in one import request shares."""
 
     request: Request
-    access: UserAccessControl
+    subject: Subject
     # The earlier import of each automation in the request, read once for both eligibility checks.
     previous: dict[str, PreviousImport]
     snippet_room: SnippetRoom
@@ -239,7 +240,7 @@ class _CohortCreation:
 
     @cached_property
     def blocked(self) -> str:
-        return _cohort_creation_blocked(self.context)
+        return _cohort_creation_blocked(self.team.id, self.context)
 
     def convert(self, segment_id: str, segment: ImportSegment) -> _SegmentOutcome:
         label = segment_label(segment_id, segment)
@@ -352,13 +353,17 @@ def _cohort_triggers_unavailable(team: Team, user: User) -> str:
     return ""
 
 
-def _cohort_creation_blocked(context: _RequestContext) -> str:
+def _cohort_creation_blocked(team_id: int, context: _RequestContext) -> str:
     """Why this caller can't create cohorts, or an empty string when they can."""
     # Creating a cohort is a write outside the workflow, so the caller needs the access the cohort API asks for.
     scopes = get_authenticator_scopes(getattr(context.request, "successful_authenticator", None))
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["cohort:write"]):
         return "Creating a cohort needs the cohort:write scope, which this API key or sign-in doesn't have."
-    if not context.access.check_access_level_for_resource("cohort", "editor"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.COHORT, project_id=team_id),
+        action=Action.EDIT,
+        subject=context.subject,
+    ):
         return "You need edit access to cohorts to create one."
     return ""
 
@@ -373,7 +378,12 @@ def _left_alone(team: Team, context: _RequestContext) -> frozenset[str]:
         source_id
         for source_id, previous in context.previous.items()
         if previous.hog_flow_id is not None
-        and (not previous.hog_flow_is_draft or not _can_edit(context.access, team, previous))
+        and (
+            not previous.hog_flow_is_draft
+            or not authorization.check(
+                resource=_previous_workflow_resource(team, previous), action=Action.EDIT, subject=context.subject
+            )
+        )
     )
 
 
@@ -423,7 +433,9 @@ def import_campaign(
     }
     previous = context.previous.get(translated.source_id) or previous_import(team, translated.source_id)
     # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
-    if previous.hog_flow_id is not None and not _can_edit(context.access, team, previous):
+    if previous.hog_flow_id is not None and not authorization.check(
+        resource=_previous_workflow_resource(team, previous), action=Action.EDIT, subject=context.subject
+    ):
         return _skipped(
             result,
             previous.hog_flow_id,
@@ -550,22 +562,25 @@ def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> 
     return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
 
 
-def _can_upload_media(request: Request, access: UserAccessControl) -> bool:
+def _can_upload_media(request: Request, team_id: int, subject: Subject) -> bool:
     # Copying images writes to the media library, so the caller needs the same access as an upload there.
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["uploaded_media:write"]):
         return False
-    return access.check_access_level_for_resource("uploaded_media", "editor")
+    return authorization.check(
+        resource=Resource(type=ResourceType.UPLOADED_MEDIA, project_id=team_id),
+        action=Action.EDIT,
+        subject=subject,
+    )
 
 
-def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -> bool:
-    ref = ObjectAccessRef(
-        resource="hog_flow",
+def _previous_workflow_resource(team: Team, previous: PreviousImport) -> Resource:
+    return Resource(
+        type=ResourceType.HOG_FLOW,
         id=str(previous.hog_flow_id),
-        team_id=team.id,
+        project_id=team.id,
         created_by_id=previous.hog_flow_created_by_id,
     )
-    return access.check_access_level_for_ref(ref, "editor")
 
 
 def _validated_draft(

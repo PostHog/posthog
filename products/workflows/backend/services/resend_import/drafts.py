@@ -9,7 +9,9 @@ import structlog
 
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ProviderAutomationResult
 from products.workflows.backend.facade.enums import WorkflowImportSource
@@ -30,9 +32,6 @@ logger = structlog.get_logger(__name__)
 # Resend's automation API isn't typed, so a field can hold a value of a type the translator doesn't expect.
 _UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
 
-_page_access: ContextVar[dict[tuple[int, int], UserAccessControl] | None] = ContextVar(
-    "resend_import_page_access", default=None
-)
 _page_gated_templates: ContextVar[dict[int, frozenset[str]] | None] = ContextVar(
     "resend_import_page_gated_templates", default=None
 )
@@ -42,13 +41,12 @@ _page_gated_templates: ContextVar[dict[int, frozenset[str]] | None] = ContextVar
 def reuse_import_access() -> Iterator[None]:
     """Load each user's access rules, and the team's flag-gated templates, once for every automation imported inside
     the block. A flag check can call the flag service, and the page holds its run's row lock meanwhile."""
-    access_token = _page_access.set({})
     templates_token = _page_gated_templates.set({})
     try:
-        yield
+        with authorization.authorization_session():
+            yield
     finally:
         _page_gated_templates.reset(templates_token)
-        _page_access.reset(access_token)
 
 
 def _gated_templates(team: Team) -> frozenset[str]:
@@ -58,16 +56,6 @@ def _gated_templates(team: Team) -> frozenset[str]:
     if team.id not in cache:
         cache[team.id] = frozenset(hidden_gated_template_ids(team))
     return cache[team.id]
-
-
-def _access(team: Team, user: User) -> UserAccessControl:
-    cache = _page_access.get()
-    if cache is None:
-        return UserAccessControl(user=user, team=team)
-    key = (team.id, user.id)
-    if key not in cache:
-        cache[key] = UserAccessControl(user=user, team=team)
-    return cache[key]
 
 
 def import_resend_automation(
@@ -104,12 +92,16 @@ def import_resend_automation(
             workflow_id=str(previous.hog_flow_id),
             notes=("You imported this automation before, so PostHog left it as it is.",),
         )
-    access = _access(team, user)
+    subject = Subject(user_id=user.pk)
     # The import runs in the background, so the person who started it may have lost access since.
     if (
         not user.is_active
-        or not access.has_project_access
-        or not access.check_access_level_for_resource("hog_flow", "editor")
+        or not authorization.check(resource=Resource.project(team_id), action=Action.VIEW, subject=subject)
+        or not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            action=Action.EDIT,
+            subject=subject,
+        )
     ):
         return ProviderAutomationResult(
             status="failed",
@@ -125,7 +117,7 @@ def import_resend_automation(
     context = TranslationContext(
         step_emails=step_emails or {},
         segment_cohorts={
-            segment_id: _segment_cohort(team_id, user, access, segment_id, name)
+            segment_id: _segment_cohort(team_id, user, segment_id, name)
             for segment_id, name in (segments or {}).items()
         },
         segment_members_imported=segment_members_imported,
@@ -147,15 +139,12 @@ def import_resend_automation(
     return save_provider_draft(team, user, translated, WorkflowImportSource.RESEND, record_id=previous.record_id)
 
 
-def _segment_cohort(
-    team_id: int, user: User, access: UserAccessControl, segment_id: str, name: str | None
-) -> SegmentCohort:
+def _segment_cohort(team_id: int, user: User, segment_id: str, name: str | None) -> SegmentCohort:
     if name is None:
         return SegmentCohort(problem="This segment no longer exists in Resend.")
     return import_cohort(
         team_id,
         user,
-        access,
         description=resend_segment_description(segment_id),
         name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
         source=f'the Resend segment "{name}"',

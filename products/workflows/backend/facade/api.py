@@ -3,13 +3,15 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import Q, QuerySet
 
-from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -113,50 +115,20 @@ def search_workflows(
     ``with_access_levels`` adds ``user_access_level``, the user's resolved level for each workflow.
     ``include_count=False`` skips the count query and reports a total of 0.
     """
-    statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
-    if include_archived:
-        statuses.append(HogFlow.State.ARCHIVED)
-    queryset = access_control.filter_queryset_by_access_level(
-        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
-        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
-    )
+    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415 — keeps tag views off startup
 
-    if query:
-        queryset = queryset.annotate(rank=build_rank({"name": "A", "description": "C"}, query, config="simple"))
-        queryset = queryset.filter(rank__gt=0.05).order_by("-rank")
-    else:
-        queryset = queryset.order_by(F("name").asc(nulls_first=True))
-
-    total_count = queryset.count() if include_count else 0
-    fields = ["id", "name", "description", "status", "created_by_id"]
-    if query:
-        fields.append("rank")
-
-    rows = list(queryset[offset : offset + limit].values(*fields))
-    access_levels = (
-        access_control.bulk_object_access_levels("hog_flow", [(str(row["id"]), row["created_by_id"]) for row in rows])
-        if with_access_levels
-        else {}
-    )
-
-    results: list[dict[str, Any]] = []
-    for workflow in rows:
-        result: dict[str, Any] = {
-            "type": "hog_flow",
-            "result_id": str(workflow["id"]),
-            "extra_fields": {
-                "name": workflow["name"],
-                "description": workflow["description"],
-                "status": workflow["status"],
-            },
-        }
-        if query:
-            result["rank"] = workflow["rank"]
-        if with_access_levels:
-            result["user_access_level"] = access_levels.get(str(workflow["id"]))
-        results.append(result)
-
-    return results, total_count
+    with authorization.authorization_session():
+        authorization.reuse_current_rules(access_control)
+        return hog_flow_reads.search_workflows(
+            project_id=project_id,
+            query=query,
+            access_control=access_control,
+            limit=limit,
+            offset=offset,
+            include_archived=include_archived,
+            with_access_levels=with_access_levels,
+            include_count=include_count,
+        )
 
 
 def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
@@ -184,16 +156,15 @@ def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set
 
 def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
     """Whether the user is active, still in the team's organization, and may edit its workflows."""
-    user = User.objects.filter(id=user_id, is_active=True).first() if user_id else None
-    team = Team.objects.get(id=team_id)
-    # Access rules alone don't say whether the person is still in the organization.
-    if (
-        user is None
-        or not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
-    ):
+    if user_id is None or not User.objects.filter(pk=user_id, is_active=True).exists():
         return False
-    access = UserAccessControl(user=user, team=team)
-    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+    subject = Subject(user_id=user_id)
+    with authorization.authorization_session():
+        return authorization.check(
+            resource=Resource.project(team_id), action=Action.VIEW, subject=subject
+        ) and authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id), action=Action.EDIT, subject=subject
+        )
 
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
@@ -260,17 +231,16 @@ def _team_workflows(team_id: int, workflow_ids: Iterable[str] | None) -> QuerySe
 def get_viewable_workflow_ids(
     *,
     team_id: int,
-    user_access_control: UserAccessControl,
+    user_id: int,
     workflow_ids: Iterable[str] | None = None,
     tag_name: str | None = None,
 ) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
-    workflows = _team_workflows(team_id, workflow_ids)
-    if tag_name is not None:
-        workflows = workflows.filter(tagged_items__tag__name=tag_name)
-    return {
-        str(pk) for pk in user_access_control.filter_queryset_by_access_level(workflows).values_list("id", flat=True)
-    }
+    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415 — keeps tag views off startup
+
+    return hog_flow_reads.get_viewable_workflow_ids(
+        team_id=team_id, subject=Subject(user_id=user_id), workflow_ids=workflow_ids, tag_name=tag_name
+    )
 
 
 def get_workflow_access_levels(
@@ -278,24 +248,35 @@ def get_workflow_access_levels(
 ) -> Mapping[str, str | None]:
     """The reader's effective access level for each of the team's workflows, keyed by the workflow id as a string."""
     rows = HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "created_by_id")
-    return user_access_control.bulk_object_access_levels("hog_flow", [(str(pk), creator) for pk, creator in rows])
+    with authorization.authorization_session():
+        authorization.reuse_current_rules(user_access_control)
+        return authorization.object_access_levels(
+            resource_type=ResourceType.HOG_FLOW,
+            project_id=team_id,
+            objects=[(str(pk), creator) for pk, creator in rows],
+            subject=Subject(user_id=user_access_control.user.pk),
+        )
 
 
 def get_workflow_view_access(
-    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+    *, team_id: int, subject: Subject | None = None, workflow_ids: Iterable[str] | None = None
 ) -> WorkflowViewAccess:
     """What the reader may view, for records that outlive their workflow. A denial outlives the workflow it names, so a
     deleted workflow stays hidden from a reader denied it, and otherwise follows their access to workflows as a whole."""
-    viewable = get_viewable_workflow_ids(
-        team_id=team_id, user_access_control=user_access_control, workflow_ids=workflow_ids
-    )
-    existing = {str(pk) for pk in _team_workflows(team_id, workflow_ids).values_list("id", flat=True)}
+    resource = Resource(type=ResourceType.HOG_FLOW, project_id=team_id)
+    with authorization.authorization_session():
+        view = authorization.list_objects(resource=resource, action=Action.VIEW, subject=subject, creator_exempt=True)
+        historical = authorization.list_objects(resource=resource, action=Action.QUERY, subject=subject)
+    existing = {
+        str(pk): creator for pk, creator in _team_workflows(team_id, workflow_ids).values_list("id", "created_by_id")
+    }
+    viewable = {pk for pk, creator in existing.items() if view.allows(pk, created_by_user_id=creator)}
+    can_view_deleted = historical.complete and historical.excluded
+    denied = historical.ids if can_view_deleted else frozenset()
     return WorkflowViewAccess(
         viewable_ids=frozenset(viewable),
-        blocked_ids=frozenset(
-            (existing | user_access_control.blocked_resource_ids_by_scope.get("hog_flow", frozenset())) - viewable
-        ),
-        can_view_deleted=user_access_control.has_resource_access("hog_flow"),
+        blocked_ids=(frozenset(existing) | denied) - viewable,
+        can_view_deleted=can_view_deleted,
     )
 
 

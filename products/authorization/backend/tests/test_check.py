@@ -23,7 +23,11 @@ from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
-from products.access_control.backend.facade.testing import create_access_control, create_role
+from products.access_control.backend.facade.testing import (
+    create_access_control,
+    create_property_access_control,
+    create_role,
+)
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
@@ -36,6 +40,7 @@ from products.authorization.backend.logic import session
 from products.authorization.backend.middleware import AuthorizationSessionMiddleware
 from products.authorization.backend.presentation.resources import resource_for_object
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 V1_LEVELS = {Action.VIEW: "viewer", Action.CREATE: "editor", Action.EDIT: "editor", Action.DELETE: "editor"}
@@ -159,6 +164,45 @@ class TestCheckMatchesCurrentRules(BaseTest):
         ]
 
         assert results == [self._v1(action) for action in CATEGORY_ACTIONS]
+
+    @parameterized.expand(
+        [
+            ("denied", True, "none", None, False, False),
+            ("read_only", True, "read", None, True, False),
+            ("member_override", True, "none", "read_write", True, True),
+            ("feature_disabled", False, "none", None, True, True),
+        ]
+    )
+    def test_property_value_checks_agree_with_query_list(
+        self, _name: str, enabled: bool, default: str, member: str | None, readable: bool, writable: bool
+    ) -> None:
+        if enabled:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+
+        definition = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
+        create_property_access_control(team_id=self.team.id, property_definition_id=definition.id, access_level=default)
+        if member is not None:
+            create_property_access_control(
+                team_id=self.team.id,
+                property_definition_id=definition.id,
+                access_level=member,
+                organization_member_id=self.organization_membership.id,
+            )
+        subject = Subject(user_id=self.user.id)
+        resource = Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=self.team.id, id=str(definition.id))
+
+        assert authorization.check(
+            [CheckRequest(resource=resource, action=action, subject=subject) for action in (Action.QUERY, Action.EDIT)]
+        ) == [readable, writable]
+        assert (
+            authorization.list_objects(
+                resource=Resource(type=resource.type, project_id=self.team.id), action=Action.QUERY, subject=subject
+            ).allows(str(definition.id))
+            == readable
+        )
 
     @parameterized.expand([("sourced_table", True, False), ("self_managed_table", False, True)])
     def test_warehouse_table_falls_back_to_its_source(self, _name: str, sourced: bool, expected: bool) -> None:

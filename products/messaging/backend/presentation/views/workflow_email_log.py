@@ -17,6 +17,7 @@ from posthog.models import User
 from posthog.scopes.catalog import APIScopeObject
 from posthog.utils import flag_identity
 
+from products.authorization.backend.facade.contracts import Subject
 from products.messaging.backend.facade.contracts import EmailDeliveryStatus, WorkflowEmailSend
 from products.messaging.backend.facade.transactional_email_log import ACTIVITY_WINDOW_DAYS
 from products.messaging.backend.facade.workflow_email_log import (
@@ -139,7 +140,7 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise NotFound()
 
     def _workflow_access(self) -> WorkflowViewAccess:
-        return get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
+        return get_workflow_view_access(team_id=self.team_id, subject=Subject(user_id=self.user_access_control.user.pk))
 
     def _require_access(self, *resources: APIScopeObject) -> None:
         # Session users skip API scopes, and access control checks only the hog_flow scope_object.

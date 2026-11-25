@@ -18,6 +18,9 @@ from posthog.models.user import User
 from posthog.permissions import TeamMemberAdminManagementPermission
 from posthog.rate_limit import PushTokenImportThrottle
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.enums import PushTokenImportRowFailureReason, PushTokenImportStatus
 from products.workflows.backend.facade.push_token_import import (
     MAX_FILE_BYTES,
@@ -115,7 +118,10 @@ class PushTokenImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         super().initial(request, *args, **kwargs)
         # Session users skip API scopes, and access control checks only the integration scope_object.
         writes = self.action in self.scope_object_write_actions
-        if not self.user_access_control.check_access_level_for_resource("person", "editor" if writes else "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PERSON, project_id=self.team_id),
+            action=(Action.EDIT if writes else Action.VIEW),
+        ):
             raise exceptions.PermissionDenied("You need access to persons to import push devices.")
 
     def get_throttles(self) -> list[Any]:

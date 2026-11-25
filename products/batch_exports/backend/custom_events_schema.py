@@ -18,6 +18,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.property_metadata import get_restricted_query_properties
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -173,6 +174,21 @@ def _from_stored_restricted_properties(stored: list["StoredRestrictedProperty"])
     }
 
 
+def _query_property_restrictions(team_id: int, user: "User | None") -> set[RestrictedProperty]:
+    # The Temporal worker imports this module before it initializes Django.
+    if user is None:
+        from products.access_control.backend.facade.api import (  # noqa: PLC0415
+            get_restricted_properties_with_group_type_index_for_team,
+        )
+
+        return get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+
+    restrictions = get_restricted_query_properties(team_id=team_id, user=user)
+    if restrictions is None:
+        raise UnsupportedHogQLQueryError("Unsupported HogQL query")
+    return restrictions
+
+
 def recompile_stored_schema(
     team_id: int, schema: "BatchExportSchema", hogql_query: str
 ) -> tuple[list["BatchExportField"], dict[str, typing.Any]]:
@@ -230,22 +246,25 @@ def parse_events_hogql_query(
     hogql_query: str, team_id: int, user: "User | None"
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Parse a HogQL SelectQuery from a string query."""
-    from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
-        get_restricted_properties_with_group_type_index_for_team,
-    )
+    return _parse_events_hogql_query(hogql_query, team_id, user)
 
+
+def _parse_events_hogql_query(
+    hogql_query: str, team_id: int, user: "User | None", *, restrictions: set[RestrictedProperty] | None = None
+) -> ast.SelectQuery | ast.SelectSetQuery:
     try:
         parsed_query = parse_select(hogql_query)
     except Exception:
         raise UnsupportedHogQLQueryError("Failed to parse query")
 
     try:
-        restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
         context = HogQLContext(
             team_id=team_id,
             user=user,
             enable_select_queries=True,
-            restricted_properties=restricted_properties,
+            restricted_properties=restrictions
+            if restrictions is not None
+            else _query_property_restrictions(team_id, user),
             use_new_events_schema=batch_exports_read_new_events_table(team_id),
             modifiers=HogQLQueryModifiers(
                 # A materialized column would replace `properties` in the prepared query, and the field check below
@@ -287,7 +306,9 @@ class _DatabaseFieldFinder(TraversingVisitor):
         super().visit_field(node)
 
 
-def _check_events_hogql_query(team_id: int, user: "User | None", hogql_query: str) -> ast.SelectQuery:
+def _check_events_hogql_query(
+    team_id: int, user: "User | None", hogql_query: str, restrictions: set[RestrictedProperty]
+) -> ast.SelectQuery:
     """Validate a HogQL query being used for events batch exports.
 
     This function checks that a query is supported by batch exports:
@@ -297,7 +318,7 @@ def _check_events_hogql_query(team_id: int, user: "User | None", hogql_query: st
     4. Subqueries in SELECT expressions are not supported.
     5. Query must select only from those fields we expose from the events table.
     """
-    parsed = parse_events_hogql_query(hogql_query, team_id=team_id, user=user)
+    parsed = _parse_events_hogql_query(hogql_query, team_id=team_id, user=user, restrictions=restrictions)
 
     if isinstance(parsed, ast.SelectSetQuery):
         raise UnsupportedHogQLQueryError("UNIONs are not supported")
@@ -344,17 +365,21 @@ def serialize_events_query_schema(
     team_id: int, user: "User | None", hogql_query: ast.SelectQuery
 ) -> "BatchExportSchema":
     """Return a batch export schema from a HogQL query ast."""
-    from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
-        get_restricted_properties_with_group_type_index_for_team,
-    )
+    return _serialize_events_query_schema(team_id, user, hogql_query, _query_property_restrictions(team_id, user))
 
-    restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+def _serialize_events_query_schema(
+    team_id: int,
+    user: "User | None",
+    hogql_query: ast.SelectQuery,
+    restrictions: set[RestrictedProperty],
+) -> "BatchExportSchema":
     context = HogQLContext(
         team_id=team_id,
         user=user,
         enable_select_queries=True,
         limit_top_select=False,
-        restricted_properties=restricted_properties,
+        restricted_properties=restrictions,
         use_new_events_schema=batch_exports_read_new_events_table(team_id),
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
@@ -365,10 +390,12 @@ def serialize_events_query_schema(
         schema = serialize_batch_export_query(hogql_query, context)
     except ExposedHogQLError:
         raise UnsupportedHogQLQueryError("Unsupported HogQL query")
-    schema["restricted_properties"] = _to_stored_restricted_properties(restricted_properties)
+    schema["restricted_properties"] = _to_stored_restricted_properties(restrictions)
     return schema
 
 
 def build_events_query_schema(team_id: int, user: "User | None", hogql_query: str) -> "BatchExportSchema":
     """Check a legacy events model query, and return the schema an export stores for it."""
-    return serialize_events_query_schema(team_id, user, _check_events_hogql_query(team_id, user, hogql_query))
+    restrictions = _query_property_restrictions(team_id, user)
+    parsed = _check_events_hogql_query(team_id, user, hogql_query, restrictions)
+    return _serialize_events_query_schema(team_id, user, parsed, restrictions)

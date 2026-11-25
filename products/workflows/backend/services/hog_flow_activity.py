@@ -3,10 +3,10 @@ the workflow's fields from before and after the write."""
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Final, Literal, Optional, cast
+from typing import Any, Final, Literal, Optional
 from uuid import UUID
 
-from django.db import models, transaction
+from django.db import transaction
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import (
@@ -18,7 +18,10 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSchedule
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_writes import field_values
@@ -157,17 +160,17 @@ def resume_workflow_email_sending(*, team_id: int, hog_flow_id: UUID, actor: Wor
 
 
 def bulk_delete_archived_workflows(
-    *, team_id: int, workflow_ids: list[UUID], user_access_control: UserAccessControl, actor: WorkflowActor
+    *, team_id: int, workflow_ids: list[UUID], subject: Subject, actor: WorkflowActor
 ) -> list[tuple[UUID, Optional[str]]]:
     """Delete the archived workflows among `workflow_ids` that the caller may edit, and log each one.
     Returns the id and name of each deleted workflow."""
     # Deleting needs object-level editor access, as the single delete does. An access filter only drops
     # invisible workflows, so an object-specific viewer override would otherwise be bulk-deletable.
     candidates = list(HogFlow.objects.filter(team_id=team_id, id__in=workflow_ids, status=HogFlow.State.ARCHIVED))
-    user_access_control.preload_object_access_controls(cast("list[models.Model]", candidates))
-    deletable = [
-        flow for flow in candidates if user_access_control.check_access_level_for_object(flow, required_level="editor")
-    ]
+    allowed = authorization.check(
+        [CheckRequest(resource=resource_for_object(flow), action=Action.EDIT, subject=subject) for flow in candidates]
+    )
+    deletable = [flow for flow, can_edit in zip(candidates, allowed, strict=True) if can_edit]
     # Lock the rows so the audit entries match exactly what this call deletes (a row another request removes
     # or restores first gets no entry), and share the delete's transaction so a failed delete rolls its audit
     # rows back.

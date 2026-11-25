@@ -9,8 +9,10 @@ from rest_framework.response import Response
 
 from posthog.api.project import update_team_workflows_config
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.organization import OrganizationMembership
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
@@ -85,8 +87,7 @@ class WorkflowSendingRulesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @current.mapping.patch
     def update_current(self, request: Request, **kwargs: Any) -> Response:
         # Matches the admin-only rule on workflows_config in project settings.
-        level = self.user_permissions.team(self.team).effective_membership_level
-        if level is None or level < OrganizationMembership.Level.ADMIN:
+        if not authorization.check(resource=Resource.project(self.team.id), action=Action.EDIT):
             raise PermissionDenied("Only project admins can change sending rules.")
         payload = WorkflowSendingRulesSerializer(data=request.data, partial=True)
         payload.is_valid(raise_exception=True)

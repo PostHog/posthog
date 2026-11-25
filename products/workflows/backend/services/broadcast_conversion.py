@@ -1,12 +1,15 @@
 """Moving a workflow that only sends one email to a batch audience over to the broadcasts product."""
 
-from typing import Final, Optional, cast
+from typing import Final
 from uuid import UUID
 
 from django.db import models, transaction
 from django.utils import timezone
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSummary
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_activity import log_workflow_activity
@@ -69,9 +72,7 @@ def _step_id(step_type: str) -> models.Func:
     )
 
 
-def list_broadcast_conversion_candidates(
-    *, team_id: int, user_access_control: Optional[UserAccessControl], limit: int
-) -> list[WorkflowSummary]:
+def list_broadcast_conversion_candidates(*, team_id: int, subject: Subject | None, limit: int) -> list[WorkflowSummary]:
     """Up to `limit` of the team's workflows that could become broadcasts and that the caller may edit,
     newest first. The shape checks run in Postgres, so only small columns load and never every row."""
     queryset = (
@@ -119,14 +120,12 @@ def list_broadcast_conversion_candidates(
             break
         offset += len(page)
         page = [flow for flow in page if _joins_in_order(flow, flow._trigger_id, flow._email_id, flow._exit_id)]
-        if user_access_control is not None:
+        if subject is not None:
             # Converting needs editor access, so a workflow the caller can only view is not offered.
-            user_access_control.preload_object_access_controls(cast("list[models.Model]", page))
-            page = [
-                flow
-                for flow in page
-                if user_access_control.check_access_level_for_object(flow, required_level="editor")
-            ]
+            allowed = authorization.check(
+                [CheckRequest(resource=resource_for_object(flow), action=Action.EDIT, subject=subject) for flow in page]
+            )
+            page = [flow for flow, can_edit in zip(page, allowed, strict=True) if can_edit]
         found.extend(page)
     return [WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status) for flow in found[:limit]]
 

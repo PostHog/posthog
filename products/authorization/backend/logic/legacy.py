@@ -10,7 +10,7 @@ from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade import api as access_control_api
-from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
+from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef, PropertyAccessLevel
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
     AccessControlLevelMember,
@@ -33,6 +33,7 @@ RESOURCE_LEVELS: dict[Action, AccessControlLevelResource] = {
     Action.CREATE: "editor",
     Action.MANAGE_ACCESS: "manager",
 }
+PROPERTY_VALUE_ACTIONS = frozenset({Action.QUERY, Action.EDIT})
 
 _Level = OrganizationMembership.Level
 _ADMIN_ACTIONS = dict.fromkeys((Action.EDIT, Action.DELETE, Action.SHARE, Action.MANAGE_ACCESS), _Level.ADMIN)
@@ -61,7 +62,28 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
         raise NotImplementedError("The current access rules read no request context.")
     session = current() or Session()
     _load_projects(session, requests)
-    return [_check(session, request) for request in requests]
+    property_levels: dict[tuple[int, Subject | None], dict[str, PropertyAccessLevel] | None] = {}
+    results: list[bool] = []
+    for request in requests:
+        resource = request.resource
+        if (
+            resource.type == ResourceType.PROPERTY_DEFINITION
+            and resource.id is not None
+            and request.action in PROPERTY_VALUE_ACTIONS
+        ):
+            if resource.project_id is None:
+                raise ValueError("A property access check needs `project_id`.")
+            key = (resource.project_id, request.subject)
+            if key not in property_levels:
+                property_levels[key] = property_access_levels(session, resource.project_id, request.subject)
+            levels = property_levels[key]
+            results.append(
+                levels is not None
+                and property_level_allows(levels.get(resource.id, PropertyAccessLevel.READ_WRITE), request.action)
+            )
+        else:
+            results.append(_check(session, request))
+    return results
 
 
 def reuse(access: UserAccessControl, permissions: UserPermissions | None = None) -> None:
@@ -79,10 +101,45 @@ def reuse(access: UserAccessControl, permissions: UserPermissions | None = None)
         session.permissions.setdefault(access.user.pk, permissions)
 
 
+def object_access_levels(
+    resource_type: ResourceType,
+    project_id: int,
+    objects: Sequence[tuple[str, int | None]],
+    subject: Subject,
+) -> dict[str, str | None]:
+    if not objects:
+        return {}
+    session = current() or Session()
+    principal = _principal(session, subject)
+    access = _access(session, principal, project_id) if principal is not None else None
+    if access is None:
+        return {}
+    return dict(access.bulk_object_access_levels(_scope(resource_type), objects))
+
+
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
     actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
     results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
+
+
+def property_access_levels(
+    session: Session, project_id: int, subject: Subject | None
+) -> dict[str, PropertyAccessLevel] | None:
+    principal = _principal(session, subject)
+    if principal is None:
+        return None
+    access = _access(session, principal, project_id)
+    if access is None or access.team is None:
+        return None
+    membership = access.organization_membership
+    if isinstance(principal, User) and membership is None:
+        return None
+    return access_control_api.get_property_access_levels(team=access.team, membership=membership)
+
+
+def property_level_allows(level: PropertyAccessLevel, action: Action) -> bool:
+    return level == PropertyAccessLevel.READ_WRITE if action == Action.EDIT else level.grants_access()
 
 
 def _check(session: Session, request: CheckRequest) -> bool:

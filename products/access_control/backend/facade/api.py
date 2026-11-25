@@ -57,6 +57,7 @@ from ..models.property_access_control import PropertyAccessControl
 from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_non_writable_property_names as _get_non_writable_property_names,
+    get_property_access_levels as _get_property_access_levels,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     has_restricted_properties_in_organization as _has_restricted_properties_in_organization,
     is_property_access_control_enabled,
@@ -202,6 +203,17 @@ def get_restricted_group_property_names_by_type_index(
         if restriction.property_type == PropertyDefinition.Type.GROUP:
             names_by_index[restriction.group_type_index].add(restriction.name)
     return {index: frozenset(names) for index, names in names_by_index.items()}
+
+
+def get_non_writable_property_names(*, user: User | None, team_id: int, property_type: int) -> set[str]:
+    return _get_non_writable_property_names(user=user, team_id=team_id, property_type=property_type)
+
+
+def get_property_access_levels(
+    *, team: Team, membership: OrganizationMembership | None
+) -> dict[str, PropertyAccessLevel]:
+    """Return resolved property levels by definition ID. Unlisted definitions use the system default."""
+    return _get_property_access_levels(team=team, membership=membership)
 
 
 def get_non_writable_group_property_names(*, user: User | None, team_id: int, group_type_index: int) -> frozenset[str]:

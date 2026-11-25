@@ -115,7 +115,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 existing=frozenset(requested.values()), visible=frozenset(), linkable=frozenset()
             )
         access = get_workflow_view_access(
-            team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=requested.keys()
+            team_id=self.team_id,
+            workflow_ids=requested.keys(),
         )
         names = {
             summary.id: summary
