@@ -1,5 +1,6 @@
 import base64
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -179,7 +180,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("share_link",), ("signed_in",), ("no_user",)])
     def test_the_generic_query_path_refuses_span_queries_outside_a_dashboard_batch(self, principal: str):
-        users = {
+        users: dict[str, Any] = {
             "share_link": SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True)),
             "signed_in": self.user,
             "no_user": None,
