@@ -7360,7 +7360,7 @@ Note: Docs pages are server-rendered HTML with no OpenAPI file, so I read the en
 
 ## Honeybadger — gaps
 
-Today (18): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `team_members`, `uptime_checks`
+Today (19): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `status_pages`, `team_members`, `uptime_checks`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
@@ -7382,13 +7382,13 @@ Note: Static endpoint list; source dir products/warehouse_sources/sources/honeyb
 
 Re-audited 2026-11-19 against: <https://docs.honeybadger.io/api/v3/openapi.json>
 
-- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high)
+- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Alarms (GET /projects/{project_id}/alarms)` — alarm definitions, the parent that alarm_history fans out over and the lookup for its alarm IDs (medium)
 - [ ] `Teams (GET /teams)` — team lookup, the parent that team_members fans out over (medium)
-- [ ] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium)
-- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium)
+- [x] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium). Added as `status_pages` from v2 `GET /accounts/{id}/status_pages` (fan-out over `accounts`, full refresh; off by default).
+- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Status page incident updates (GET /status_pages/{status_page_id}/incidents/{incident_id}/updates)` — timeline of updates per status page incident; fan-out over incidents (low)
-- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium)
+- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Project stats (GET /projects/{project_id}/stats)` — per-project rollup counts for dashboards (low)
 - [ ] `Fault summary (GET /projects/{project_id}/faults/summary)` — fault counts by state per project (low)
 - [ ] `Dashboards (GET /projects/{project_id}/dashboards)` — saved Insights dashboard definitions per project (low)
@@ -7816,7 +7816,7 @@ Note: Enumerated GET edges in Meta's official iguser.py, igmedia.py, and igcomme
 
 ## Instana — gaps
 
-Today (30): `access_logs`, `alert_configs`, `alerting_channels`, `apdex_configs`, `apdex_reports`, `application_metrics`, `applications`, `audit_logs`, `built_in_event_specifications`, `business_perspectives`, `custom_event_specifications`, `endpoint_metrics`, `endpoints`, `events`, `groups`, `host_agents`, `infrastructure_snapshots`, `mobile_apps`, `releases`, `service_metrics`, `services`, `slo_configs`, `slo_reports`, `synthetic_datacenters`, `synthetic_locations`, `synthetic_test_ci_cds`, `synthetic_tests`, `teams`, `users`, `websites`
+Today (35): `access_logs`, `alert_configs`, `alerting_channels`, `apdex_configs`, `apdex_reports`, `application_alert_configs`, `application_metrics`, `applications`, `audit_logs`, `built_in_event_specifications`, `business_perspectives`, `custom_event_specifications`, `endpoint_metrics`, `endpoints`, `events`, `groups`, `host_agents`, `infra_alert_configs`, `infrastructure_snapshots`, `maintenance_windows`, `mobile_app_alert_configs`, `mobile_apps`, `releases`, `service_metrics`, `services`, `slo_configs`, `slo_reports`, `synthetic_datacenters`, `synthetic_locations`, `synthetic_test_ci_cds`, `synthetic_tests`, `teams`, `users`, `website_alert_configs`, `websites`
 
 Diffed against: <https://instana.github.io/openapi/openapi.json>
 
@@ -7837,10 +7837,10 @@ Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 
 
 Re-audited 2026-11-19 against: <https://github.com/instana/client-python/blob/main/README.md>
 
-- [ ] `Maintenance windows (GET /api/settings/v2/maintenance)` — planned downtime windows that explain alert and SLO gaps; also GET /api/settings/maintenance in v1 (high)
-- [ ] `Smart alert configs for applications (GET /api/events/settings/application-alert-configs)` — application alert rules; alert_configs covers only the classic /api/events/settings/alerts (high)
-- [ ] `Infra alert configs (GET /api/events/settings/infra-alert-configs)` — infrastructure alert rules, same gap as above (medium)
-- [ ] `Website and mobile smart alert configs (GET /api/events/settings/website-alert-configs; GET /api/events/settings/mobile-app-alert-configs)` — alert rules for the websites and mobile_apps tables we sync (medium)
+- [x] `Maintenance windows (GET /api/settings/v2/maintenance)` — planned downtime windows that explain alert and SLO gaps; also GET /api/settings/maintenance in v1 (high). Added as `maintenance_windows`. The v1 `/api/settings/maintenance` is skipped: the spec marks it deprecated.
+- [x] `Smart alert configs for applications (GET /api/events/settings/application-alert-configs)` — application alert rules; alert_configs covers only the classic /api/events/settings/alerts (high). Added as `application_alert_configs` (fan-out over `applications`, because the endpoint requires `applicationId`).
+- [x] `Infra alert configs (GET /api/events/settings/infra-alert-configs)` — infrastructure alert rules, same gap as above (medium). Added as `infra_alert_configs`.
+- [x] `Website and mobile smart alert configs (GET /api/events/settings/website-alert-configs; GET /api/events/settings/mobile-app-alert-configs)` — alert rules for the websites and mobile_apps tables we sync (medium). Added as `website_alert_configs` and `mobile_app_alert_configs` (fan-out over `websites` and `mobile_apps`, because each endpoint requires the parent id).
 - [ ] `SLI configs (GET /api/settings/sli)` — service level indicator definitions that slo_configs refer to (medium)
 - [ ] `SLO correction windows (GET /api/settings/correction)` — time ranges excluded from SLO attainment, needed to read slo_reports correctly (medium)
 - [ ] `RBAC roles (GET /api/settings/rbac/roles)` — role lookup for the users, teams and groups tables (medium)
@@ -7969,9 +7969,9 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 Re-audited 2026-11-19 against: <https://api.intruder.io/v1/swagger.json>
 
-- [ ] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
-- [ ] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
-- [ ] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
+- [x] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
+- [x] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
+- [x] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
 
 Note (2026-11-19): Re-read the live swagger.json and listed every GET and POST path. The previous audit predates the ai-pentests and attack-surface routes, which are not in the current tables. Still excluded: health, licenses (seat and billing), occurrence comments and scanner_output (large free text), target authentications and api_schemas (scan config), and all write routes. The ai-pentests routes may depend on the account having that product.
 
@@ -8356,7 +8356,7 @@ Re-audited 2026-11-19 against <https://docs.kapa.ai/api/reference>: no new gaps 
 
 ## Katana — gaps
 
-Today (31): `bin_inventory`, `bin_locations`, `bom_rows`, `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_order_operation_rows`, `manufacturing_order_productions`, `manufacturing_order_recipe_rows`, `manufacturing_orders`, `materials`, `operators`, `price_list_rows`, `price_lists`, `products`, `purchase_order_rows`, `purchase_orders`, `sales_order_fulfillments`, `sales_order_rows`, `sales_orders`, `sales_return_rows`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktake_rows`, `stocktakes`, `suppliers`, `tax_rates`, `variants`
+Today (38): `additional_costs`, `bin_inventory`, `bin_locations`, `bom_rows`, `customer_addresses`, `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_order_operation_rows`, `manufacturing_order_production_ingredients`, `manufacturing_order_productions`, `manufacturing_order_recipe_rows`, `manufacturing_orders`, `materials`, `operators`, `po_additional_cost_rows`, `price_list_rows`, `price_lists`, `product_operation_rows`, `products`, `purchase_order_rows`, `purchase_orders`, `sales_order_addresses`, `sales_order_fulfillments`, `sales_order_rows`, `sales_orders`, `sales_return_rows`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktake_rows`, `stocktakes`, `supplier_addresses`, `suppliers`, `tax_rates`, `variants`
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
@@ -8377,15 +8377,15 @@ Note: The docs site (developer.katanamrp.com) is a ReadMe app, but the live gate
 
 Re-audited 2026-11-19 against: <https://api.katanamrp.com/v1/openapi.json>
 
-- [ ] `Production ingredients (GET /manufacturing_order_production_ingredients)` — Ingredients actually consumed by each production we sync, for yield and material variance (high)
-- [ ] `Additional costs (GET /additional_costs; GET /po_additional_cost_rows)` — Landed cost lines on purchase orders we sync, needed for true cost of goods (high)
-- [ ] `Sales order addresses (GET /sales_order_addresses; GET /customer_addresses; GET /supplier_addresses)` — Billing and shipping addresses behind sales orders, customers and suppliers, for regional analysis (medium)
+- [x] `Production ingredients (GET /manufacturing_order_production_ingredients)` — Ingredients actually consumed by each production we sync, for yield and material variance (high) — built 2026-11-24 as `manufacturing_order_production_ingredients`, full refresh (rows carry no created_at or updated_at)
+- [x] `Additional costs (GET /additional_costs; GET /po_additional_cost_rows)` — Landed cost lines on purchase orders we sync, needed for true cost of goods (high) — built 2026-11-24 as `additional_costs` and `po_additional_cost_rows`
+- [x] `Sales order addresses (GET /sales_order_addresses; GET /customer_addresses; GET /supplier_addresses)` — Billing and shipping addresses behind sales orders, customers and suppliers, for regional analysis (medium) — built 2026-11-24 as `sales_order_addresses`, `customer_addresses` and `supplier_addresses`
 - [ ] `Sales order shipping fees (GET /sales_order_shipping_fee)` — Shipping charged per sales order we sync, part of revenue (medium)
 - [ ] `Serial numbers (GET /serial_numbers; GET /serial_numbers_stock)` — Unit level traceability and where each serial is in stock (medium)
 - [ ] `Batch stocks (GET /batch_stocks)` — Stock per batch with expiry, for traceability and shelf life reports (medium)
 - [ ] `Bin transfers (GET /bin_transfers; GET /bin_transfer_rows)` — Stock moves between bins, below the location grain of stock transfers (medium)
 - [ ] `Price list customers (GET /price_list_customers)` — Join table linking customers to the price lists we sync (medium)
-- [ ] `Product operation rows and recipes (GET /product_operation_rows; GET /recipes)` — Routing and recipe definitions per product, the planned side of manufacturing order rows (medium)
+- [x] `Product operation rows and recipes (GET /product_operation_rows; GET /recipes)` — Routing and recipe definitions per product, the planned side of manufacturing order rows (medium) — built 2026-11-24 as `product_operation_rows`; `/recipes` skipped, Katana deprecates it in favor of BOM rows, which `bom_rows` already syncs
 - [ ] `Users (GET /users)` — Lookup for the user ids that appear on activity and operations (low)
 
 Note (2026-11-19): Parsed all 120 paths of the live openapi.json and listed every GET. Also unsynced and lower value: demand_forecasts, negative_stock, inventory_signals, custom_field_definitions, sales_returns/return_reasons, outsourced_purchase_order_recipe_rows, accounting_metadata routes. Excluded: per-record activity_log routes, returnable and traceability lookups, factory, user_info and webhooks. Most list routes take page and limit paging; address and row tables may need a parent id.
