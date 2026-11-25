@@ -501,8 +501,8 @@ This is the default for when your skill body says nothing about format. If your 
 # can't drift on the parameters — each of them silently re-opens a duplicate/re-report failure mode.
 _INBOX_SEARCH_RECIPE = (
     "Call `inbox-reports-list`, filtering or searching by the entity, error, or topic, with "
-    "`ordering=-updated_at` (the default ordering buckets by your own reviewer-match and status first, so "
-    "the most recent duplicate can sort below older rows) and `include_all_statuses=true` (statuses hidden "
+    "`ordering=-updated_at` (the default order is not by recency, so the most recent duplicate can sort below "
+    "older rows), `limit=25` (a page holds 10 rows otherwise) and `include_all_statuses=true` (statuses hidden "
     "by default, human-dismissed ones especially, show up too), and `include_unlisted=true` (reports kept out of "
     "the inbox, your own included, show up too). Read each row's `status` before deciding, "
     "and read the closest matches in full with `inbox-reports-retrieve`. Don't filter by "

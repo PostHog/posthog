@@ -106,7 +106,7 @@ Candidates hold it until it is enough (_Candidates_).
 When the new feedback gave fewer than three verdicts to place, look back at one subject.
 Pick the candidate closest to the bar, or else one scout, one product area or one person, different from the last look back.
 
-1. Read the last 30 days of outcomes for it, whatever the cursor says: `scout-notes-list` with `text` or a wider `date_from`, and `inbox-reports-list` with `scout`, `status`, `created_after` and `include_all_statuses=true`.
+1. Read the last 30 days of outcomes for it, whatever the cursor says: `scout-notes-list` with `text` or a wider `date_from`, and `inbox-reports-list` with `scout`, `status`, `created_after`, `include_all_statuses=true` and `limit=100`.
 2. Compare what was dismissed, and why, with what was resolved or acted on.
 3. Place the findings through the candidate steps, counted as in _New feedback_.
 
