@@ -37,6 +37,7 @@ from products.slack_app.backend.facade.types import (
     SlackChannelSettings,
     SlackPersonalSettingsChange,
     SlackReactionChoice,
+    SlackRepositoryOptions,
     SlackSetupNotFound,
     WorkspaceSetup,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "get_slack_app_settings",
     "get_slack_workspace_setup",
     "list_slack_channel_settings",
+    "list_slack_repository_options",
     "update_slack_channel_settings",
     "update_slack_personal_settings",
     "update_slack_workspace_settings",
@@ -290,6 +292,12 @@ def update_slack_personal_settings(
     integration = _setup_integration(team_id, integration_id)
     settings_page.update_personal_settings(integration, user, change)
     return settings_page.get_settings(integration, user)
+
+
+def list_slack_repository_options(team_id: int, integration_id: int, user: User) -> SlackRepositoryOptions:
+    from products.slack_app.backend.logic import settings_page  # noqa: PLC0415
+
+    return settings_page.list_repository_options(_setup_integration(team_id, integration_id), user)
 
 
 def list_slack_channel_settings(team_id: int, integration_id: int) -> tuple[SlackChannelSettings, ...]:
