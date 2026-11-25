@@ -17,6 +17,7 @@ from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.models.user import User
+from posthog.permissions import dashboard_v2_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.api import (
@@ -24,7 +25,6 @@ from products.dashboards.backend.facade.api import (
     DashboardNotFound,
     DashboardNotViewable,
     QueryBatchBusy,
-    dashboard_v2_enabled,
     query_batch_stream,
     viewable_dashboard_id,
 )
@@ -155,7 +155,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "This endpoint is available only in the web app. Use /query with an API key."
             )
         user = cast(User, request.user)
-        if not dashboard_v2_enabled(self.team, str(user.distinct_id)):
+        if not dashboard_v2_enabled(self.team, user):
             raise exceptions.NotFound()
         dashboard_id = request.validated_data.get("dashboard")
         if dashboard_id is not None:

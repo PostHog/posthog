@@ -62,12 +62,16 @@ class _QueryBatchMixin:
 
     def _enable_flag(self) -> None:
         self.flag_on_for_project: int | None = self.team.pk
+        self.dashboard_v2_users: set[str] | None = None
         patcher = patch("posthoganalytics.feature_enabled", side_effect=self._flag_enabled)
         patcher.start()
         cast(Any, self).addCleanup(patcher.stop)
 
     def _flag_enabled(self, flag: str, distinct_id: str, **kwargs: Any) -> bool:
         groups = kwargs.get("groups") or {}
+        if flag == "dashboard-v2-users":
+            email = (kwargs.get("person_properties") or {}).get("email")
+            return self.dashboard_v2_users is None or email in self.dashboard_v2_users
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
     def _batch(self, queries: list[dict], **body: Any) -> Any:
@@ -161,6 +165,12 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             (
                 "flag_off",
                 lambda test: setattr(test, "flag_on_for_project", test.team.pk + 1),
+                {},
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "member_not_in_the_audience",
+                lambda test: setattr(test, "dashboard_v2_users", set()),
                 {},
                 status.HTTP_404_NOT_FOUND,
             ),
