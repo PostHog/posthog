@@ -1698,7 +1698,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         date_from=date_range.date_from,
                         date_to=cursor_ts.isoformat(),
                     )
-            except (KeyError, ValueError, json.JSONDecodeError):
+            except (KeyError, TypeError, ValueError):
                 pass  # Invalid cursor format, continue with original date range
 
         paging = _LogsBodyLimitSerializer(data=query_data)
