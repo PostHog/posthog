@@ -27,6 +27,8 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils.timezone import now
 
+from pydantic import JsonValue
+
 from posthog.caching.insight_result import InsightResult
 from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
@@ -69,13 +71,13 @@ from products.dashboards.backend.logic import (
     frames as frames_logic,
     search as search_logic,
     team_settings as team_settings_logic,
-    template_instantiation as template_instantiation_logic,
     template_library as template_library_logic,
     templates as templates_logic,
     tiles as tiles_logic,
     usage as usage_logic,
     visibility as visibility_logic,
 )
+from products.dashboards.backend.logic.template_instantiation import create_from_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -190,10 +192,56 @@ def create_dashboard_from_tiles(
         created_by=user,
         creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
-    template_instantiation_logic.create_from_template(
-        dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team)
-    )
+    create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def apply_dashboard_template(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from the saved or code-defined template named `template_key`.
+
+    Raises AttributeError when the team can see no template with that name. The template writes the
+    dashboard row, so reload a dashboard model read before the call. With a `user_id`, the insights and
+    widgets it adds name that user as their creator. With a `user_access_control`, each widget first
+    checks that user's access to its product. Opens no transaction: wrap the call to roll back the
+    tiles of a template that fails part way.
+    """
+    templates_logic.apply_template_by_key(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template_key=template_key,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
+
+
+def apply_dashboard_template_json(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from a template body in the `create_from_template_json` request shape.
+
+    Raises KeyError when the body has no `template_name`, `dashboard_description`, `dashboard_filters` or
+    `tiles`. What `apply_dashboard_template` says about the dashboard row, the user, the access control
+    and the transaction applies here too.
+    """
+    templates_logic.apply_template_json(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template=template,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
 
 
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -1234,6 +1282,8 @@ __all__ = [
     "can_access_dashboard",
     "add_insight_tile",
     "add_insight_to_dashboard",
+    "apply_dashboard_template",
+    "apply_dashboard_template_json",
     "check_insight_tile_limit",
     "create_dashboard",
     "create_dashboard_from_tiles",

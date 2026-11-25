@@ -159,15 +159,13 @@ from products.dashboards.backend.facade.api import (
     CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
+    apply_dashboard_template,
+    apply_dashboard_template_json,
     board_stream_cached_event,
     create_unlisted_dashboard,
     read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
-)
-from products.dashboards.backend.facade.dashboard_creation import (
-    apply_dashboard_template,
-    apply_dashboard_template_json,
 )
 from products.dashboards.backend.facade.enums import ResultFormat
 from products.dashboards.backend.facade.query_sharing import (
@@ -2238,6 +2236,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         dashboard_id=dashboard.id,
                         template_key=use_template,
                         user_id=cast(User, request.user).id,
+                        user_access_control=user_access_control,
                     )
                 except (AttributeError, ValueError) as error:
                     logger.error(
@@ -4948,6 +4947,7 @@ class DashboardsViewSet(
                 dashboard_id=dashboard.id,
                 template=template_body,
                 user_id=cast(User, request.user).id,
+                user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
             dashboard.refresh_from_db()
 

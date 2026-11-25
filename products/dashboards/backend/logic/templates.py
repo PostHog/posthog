@@ -82,25 +82,28 @@ def _dashboard_to_fill(*, team_id: int, dashboard_id: int) -> Dashboard:
     return Dashboard.objects.db_manager(router.db_for_write(Dashboard)).get(id=dashboard_id, team_id=team_id)
 
 
-def _access_control(user: User | None, *, team_id: int) -> UserAccessControl | None:
-    if user is None:
-        return None
-    # Bind to the team the request names. For an environment, the dashboard row belongs to the project's root team.
-    return UserAccessControl(user=user, team=Team.objects.get(id=team_id))
-
-
-def apply_template_by_key(*, team_id: int, dashboard_id: int, template_key: str, user_id: int | None) -> None:
+def apply_template_by_key(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     dashboard = _dashboard_to_fill(team_id=team_id, dashboard_id=dashboard_id)
     user = User.objects.get(id=user_id) if user_id is not None else None
-    create_dashboard_from_template(
-        template_key, dashboard, user, user_access_control=_access_control(user, team_id=team_id)
-    )
+    create_dashboard_from_template(template_key, dashboard, user, user_access_control=user_access_control)
 
 
 def apply_template_json(
-    *, team_id: int, dashboard_id: int, template: Mapping[str, JsonValue], user_id: int | None
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
 ) -> None:
     template_row = dashboard_template_from_creation_payload(dict(template))
     dashboard = _dashboard_to_fill(team_id=team_id, dashboard_id=dashboard_id)
     user = User.objects.get(id=user_id) if user_id is not None else None
-    create_from_template(dashboard, template_row, user, user_access_control=_access_control(user, team_id=team_id))
+    create_from_template(dashboard, template_row, user, user_access_control=user_access_control)
