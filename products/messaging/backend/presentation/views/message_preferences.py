@@ -5,7 +5,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -22,10 +22,12 @@ from products.messaging.backend.facade.preferences import (
     RecipientPreferences,
     add_opt_out,
     bulk_opt_out,
+    erase_recipient,
     export_opt_outs_csv,
     list_opt_outs,
     remove_opt_out,
 )
+from products.messaging.backend.facade.suppression import ComplaintConfirmationRequired
 
 MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
@@ -66,6 +68,28 @@ class RemoveOptOutRequestSerializer(serializers.Serializer):
     category_key = serializers.CharField(
         required=False,
         help_text="Optional message category key. If omitted, the recipient is opted back in to all marketing messages.",
+    )
+
+
+class EraseRecipientRequestSerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The email address to erase. Matches stored addresses in any case.",
+    )
+    confirm_complaints = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set to true to erase an address that is suppressed because the recipient reported a message "
+        "as spam. Without it, a request for such an address erases nothing and returns 400.",
+    )
+
+
+class ErasedRecipientSerializer(serializers.Serializer):
+    preferences_deleted = serializers.IntegerField(
+        help_text="Number of preference records deleted for the address. 0 when there were none."
+    )
+    suppressions_deleted = serializers.IntegerField(
+        help_text="Number of suppression list entries deleted for the address. 0 when there were none."
     )
 
 
@@ -175,7 +199,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # keys (and therefore MCP); webhook_url and generate_link stay session-only by being listed
     # in neither.
     scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
-    scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out"]
+    scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out", "erase_recipient"]
     serializer_class = _FallbackSerializer
 
     def _require_resource_access(self, required_level: Literal["viewer", "editor"], message: str) -> None:
@@ -271,6 +295,37 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
         return Response(MessagePreferencesSerializer(changed.preferences).data, status=response_status)
+
+    @validated_request(
+        EraseRecipientRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=ErasedRecipientSerializer),
+            400: OpenApiResponse(description="The address is suppressed for a spam complaint, unconfirmed."),
+        },
+        summary="Erase a recipient's preferences and suppression entries",
+    )
+    @action(detail=False, methods=["post"])
+    def erase_recipient(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Permanently delete an email address's preferences and suppression list entries, matching it in any
+        case. Preference links in emails sent before the erase stop working. Deleting the opt-outs means a later
+        send can reach the address again. Repeating a call is safe."""
+        self._require_resource_access("editor", "You need hog_flow editor access to erase a recipient.")
+
+        try:
+            erased = erase_recipient(
+                self.team_id, request.validated_data["identifier"], request.validated_data["confirm_complaints"]
+            )
+        except ComplaintConfirmationRequired as error:
+            raise ValidationError(
+                {
+                    "confirm_complaints": (
+                        "This address is suppressed because the recipient reported a message as spam: "
+                        f"{', '.join(error.identifiers)}. Set confirm_complaints to true to erase it."
+                    )
+                },
+                code="complaint_confirmation_required",
+            )
+        return Response(ErasedRecipientSerializer(erased).data)
 
     @extend_schema(
         parameters=[

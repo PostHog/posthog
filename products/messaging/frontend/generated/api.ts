@@ -22,6 +22,8 @@ import type {
     CodeEmailApi,
     CodeEmailSourceCandidatesApi,
     EmailStatusApi,
+    EraseRecipientRequestApi,
+    ErasedRecipientApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
     MakeTransactionalApi,
@@ -537,6 +539,29 @@ export const messagingPreferencesBulkAddOptOutsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkAddOptOutsRequestApi),
+    })
+}
+
+export const getMessagingPreferencesEraseRecipientCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/erase_recipient/`
+}
+
+/**
+ * Permanently delete an email address's preferences and suppression list entries, matching it in any
+ * case. Preference links in emails sent before the erase stop working. Deleting the opt-outs means a later
+ * send can reach the address again. Repeating a call is safe.
+ * @summary Erase a recipient's preferences and suppression entries
+ */
+export const messagingPreferencesEraseRecipientCreate = async (
+    projectId: string,
+    eraseRecipientRequestApi: EraseRecipientRequestApi,
+    options?: RequestInit
+): Promise<ErasedRecipientApi> => {
+    return apiMutator<ErasedRecipientApi>(getMessagingPreferencesEraseRecipientCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eraseRecipientRequestApi),
     })
 }
 

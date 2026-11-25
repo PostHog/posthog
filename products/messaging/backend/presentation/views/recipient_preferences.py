@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -5,6 +6,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
+import jwt
 import structlog
 
 from posthog.api.capture import capture_internal
@@ -23,6 +25,7 @@ from products.messaging.backend.facade.preferences import (
     email_send_reference,
     get_or_create_recipient,
     marketing_categories,
+    preference_link_revoked,
     preference_status,
     record_unsubscribe_metric,
     sync_to_customerio,
@@ -119,6 +122,22 @@ def _is_live_recipient(team_id: int | None, identifier: str | None) -> bool:
     return bool(team_id and identifier) and Team.objects.filter(id=team_id).exists()
 
 
+REVOKED_LINK_ERROR = "This link no longer works. Use the link in a more recent email to manage your preferences."
+
+
+def _link_revoked(token: str, team_id: int, identifier: str) -> bool:
+    return preference_link_revoked(team_id, identifier, _issued_at(token))
+
+
+def _issued_at(token: str) -> datetime | None:
+    # The plugin server already checked this token's signature, so its claims can be read without the key.
+    try:
+        issued_at = jwt.decode(token, options={"verify_signature": False}).get("iat")
+    except jwt.InvalidTokenError:
+        return None
+    return datetime.fromtimestamp(issued_at, tz=UTC) if isinstance(issued_at, int | float) else None
+
+
 @ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
@@ -137,6 +156,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     identifier = data.get("identifier")
     if not _is_live_recipient(team_id, identifier):
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
+    if _link_revoked(token, team_id, identifier):
+        return render(request, "message_preferences/error.html", {"error": REVOKED_LINK_ERROR}, status=400)
 
     recipient = get_or_create_recipient(team_id, identifier)
     current_preferences = recipient.preferences
@@ -259,6 +280,8 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     identifier = data.get("identifier")
     if not _is_live_recipient(team_id, identifier):
         return JsonResponse({"error": "Invalid recipient"}, status=400)
+    if _link_revoked(token, team_id, identifier):
+        return JsonResponse({"error": REVOKED_LINK_ERROR}, status=400)
 
     try:
         preferences = request.POST.getlist("preferences[]")

@@ -570,6 +570,29 @@ export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
+ * Permanently delete an email address's preferences and suppression list entries, matching it in any
+ * case. Preference links in emails sent before the erase stop working. Deleting the opt-outs means a later
+ * send can reach the address again. Repeating a call is safe.
+ * @summary Erase a recipient's preferences and suppression entries
+ */
+export const messagingPreferencesEraseRecipientCreateBodyIdentifierMax = 512
+
+export const messagingPreferencesEraseRecipientCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingPreferencesEraseRecipientCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesEraseRecipientCreateBodyIdentifierMax)
+        .describe('The email address to erase. Matches stored addresses in any case.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingPreferencesEraseRecipientCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to erase an address that is suppressed because the recipient reported a message as spam. Without it, a request for such an address erases nothing and returns 400.'
+        ),
+})
+
+/**
  * Generate an unsubscribe link for the current user's email address
  * @summary Generate a preferences page link for a recipient
  */

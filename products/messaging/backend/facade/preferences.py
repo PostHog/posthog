@@ -12,6 +12,7 @@ from products.messaging.backend.models import message_preferences as preference_
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.services import (
     customerio_sync_service,
+    erasure as erasure_service,
     preferences as preferences_service,
     unsubscribe_metrics,
 )
@@ -102,6 +103,27 @@ def remove_opt_out(
     except preferences_service.CategoryNotFound as e:
         raise MessageCategoryNotFound("Category not found") from e
     return ChangedPreferences(preferences=_to_contract(row), created=created)
+
+
+@frozen
+class ErasedRecipient:
+    preferences_deleted: int
+    suppressions_deleted: int
+
+
+def erase_recipient(team_id: int, identifier: str, confirm_complaints: bool) -> ErasedRecipient:
+    """Hard-delete the address's preference and suppression rows, in any case, and revoke its older preference links.
+
+    Raises the suppression facade's ComplaintConfirmationRequired, and deletes nothing, when the address is
+    suppressed for a spam complaint and `confirm_complaints` is false. Customer.io is not told.
+    """
+    erased = erasure_service.erase_recipient(team_id, identifier, confirm_complaints)
+    return ErasedRecipient(preferences_deleted=erased.preferences, suppressions_deleted=erased.suppressions)
+
+
+def preference_link_revoked(team_id: int, identifier: str, issued_at: datetime | None) -> bool:
+    """Whether the team erased the address after the preference link was minted."""
+    return erasure_service.link_revoked(team_id, identifier, issued_at)
 
 
 class TopicsNotFound(Exception):

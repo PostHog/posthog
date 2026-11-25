@@ -2,6 +2,7 @@ from .email_hard_bounce import EmailHardBounce
 from .first_code_send import FirstCodeSend
 from .message_category import MessageCategory, MessageCategoryType
 from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageRecipientPreference, PreferenceStatus
+from .message_recipient_erasure import MessageRecipientErasure
 from .message_suppression import MessageSuppression, SuppressionSource
 from .message_template import MessageTemplate
 from .optout_sync_config import OptOutSyncConfig
@@ -15,6 +16,7 @@ __all__ = [
     "FirstCodeSend",
     "MessageCategory",
     "MessageCategoryType",
+    "MessageRecipientErasure",
     "MessageRecipientPreference",
     "MessageSuppression",
     "MessageTemplate",
