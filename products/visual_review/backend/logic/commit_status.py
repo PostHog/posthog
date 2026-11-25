@@ -537,7 +537,9 @@ def _setup_check_skipped_at(repo: Repo, commit_sha: str, setup_check: str) -> da
 def _no_run_reported(repo: Repo, commit_sha: str) -> bool:
     """Whether CI's job that reports that the commit needs no run succeeded. Lets `GITHUB_READ_REFUSED` through."""
     check_runs = github_api.actions_check_runs(repo, commit_sha, NO_RUN_REPORT_CHECK, Priority.BATCH)
-    return bool(check_runs) and all(check_run.conclusion == "success" for check_run in check_runs)
+    if not check_runs:
+        return False
+    return all(check_run.conclusion == "success" for check_run in check_runs)
 
 
 def _retargeted_since(repo: Repo, pr_numbers: tuple[int, ...], since: datetime) -> bool:
