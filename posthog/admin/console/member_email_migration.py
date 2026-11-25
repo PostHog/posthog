@@ -10,23 +10,19 @@ from django.db.models.functions import Lower
 
 import structlog
 from rest_framework import serializers
-from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import (
-    EmailLookupHandler,
     EmailNormalizer,
-    EmailValidationHelper,
     email_domain,
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
 )
-from posthog.models.id_jag_identity import IdJagIdentity
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
-from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_email_change_emails
 
 logger = structlog.get_logger(__name__)
@@ -174,20 +170,10 @@ class MemberEmailMigration:
                     return "The account changed while this ran"
                 # The plan checked every row before any write. Check again with the database fold, so
                 # an earlier row of this run cannot hold an address that folds onto this one.
-                if self._is_taken(new_email, user):
+                change = UserEmailChange(user=user, new_email=new_email)
+                if change.is_taken():
                     return "Another account already uses this email"
-                user.email = EmailNormalizer.normalize(new_email)
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the identity at the old provider can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
-                # An ID-JAG resolves a bound subject without reading the email. Delete the bindings to this
-                # organization's identity providers, so the old provider cannot get access tokens for the account.
-                IdJagIdentity.objects.filter(
-                    user=user, identity_provider_config__organization=self.organization
-                ).delete()
-                # In the same transaction, so an email never changes while the old sessions stay signed in.
-                revoke_other_sessions(user, keep_session_key=None)
+                change.apply(keep_session_key=None)
                 # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin
                 # page shows the change. It commits with the change, so no change is left without history.
                 LogEntry.objects.log_actions(
@@ -239,14 +225,6 @@ class MemberEmailMigration:
         # member out and remove their SSO links for nothing.
         if new_email == EmailNormalizer.normalize(user.email):
             return "Already uses this email"
-        if new_email.lower() in seen_targets or self._is_taken(new_email, user):
+        if new_email.lower() in seen_targets or UserEmailChange(user=user, new_email=new_email).is_taken():
             return "Another account already uses this email"
         return None
-
-    @staticmethod
-    def _is_taken(new_email: str, user: User) -> bool:
-        return (
-            EmailLookupHandler.users_matching_email(new_email).exclude(pk=user.pk).exists()
-            or EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
-            or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
-        )

@@ -16,11 +16,12 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
 from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 
 if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
-    from products.signals.backend.report_assignments import PullRequestDetails
+    from products.signals.backend.report_assignments import MergerLookups, PullRequestDetails
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +32,15 @@ class PullRequestStateSource(StrEnum):
     GITHUB = "github"
     TASK_OUTPUT = "task_output"
     LEGACY_ASSIGNMENT = "legacy_assignment"
+
+
+def _record_merger(pr: SignalReportPullRequest, merged_by: PullRequestMerger | None) -> list[str]:
+    """Store who merged the pull request, once. Returns the fields that changed."""
+    if pr.state != SignalReportPullRequest.State.MERGED or pr.merged_by_login is not None or merged_by is None:
+        return []
+    pr.merged_by_login = merged_by.login
+    pr.merged_by_github_id = merged_by.github_id
+    return ["merged_by_login", "merged_by_github_id"]
 
 
 def schedule_participant_refresh(pr: SignalReportPullRequest) -> None:
@@ -78,8 +88,9 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
             .filter(team_id=team_id, id__in=report_ids)
             .order_by("id")
         )
+        merger_lookups: MergerLookups = {}
         for report in reports:
-            apply_report_completion(report)
+            apply_report_completion(report, merger_lookups=merger_lookups)
             schedule_report_replacements(team_id, str(report.id))
 
 
@@ -127,6 +138,7 @@ def link_pull_request(
     if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None and details.merged_at is not None:
         pr.merged_at = details.merged_at
         update_fields.append("merged_at")
+    update_fields.extend(_record_merger(pr, details.merged_by))
     if update_fields:
         pr.save(update_fields=[*update_fields, "updated_at"])
         # Wait for the complete PR batch and release its locks before locking shared reports.
@@ -246,7 +258,7 @@ def _repair_missing_merge_times(report: SignalReport, prs: Sequence["Implementat
         )
 
 
-def apply_report_completion(report: SignalReport) -> None:
+def apply_report_completion(report: SignalReport, *, merger_lookups: "MergerLookups | None" = None) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
     from products.signals.backend.supersession import pending_replacement
@@ -262,7 +274,13 @@ def apply_report_completion(report: SignalReport) -> None:
         merged_prs = [pr for pr in prs if pr.state == "merged"]
         merge_times = [pr.merged_at for pr in merged_prs if pr.merged_at is not None]
         merged_at = max(merge_times) if merge_times and len(merge_times) == len(merged_prs) else None
-        _apply_pr_report_state(report, state, merged_at=merged_at, prs=[pr for pr in prs if pr.state == state])
+        _apply_pr_report_state(
+            report,
+            state,
+            merged_at=merged_at,
+            prs=[pr for pr in prs if pr.state == state],
+            merger_lookups=merger_lookups,
+        )
         if (
             state == "merged"
             and merged_at is None
@@ -350,7 +368,13 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
 
 
 def update_pull_request_state(
-    *, team_id: int, repository: str, number: int, state: str, merged_at: datetime | None = None
+    *,
+    team_id: int,
+    repository: str,
+    number: int,
+    state: str,
+    merged_at: datetime | None = None,
+    merged_by: PullRequestMerger | None = None,
 ) -> int:
     report_ids = SignalReportArtefact.objects.filter(
         team_id=team_id,
@@ -382,14 +406,16 @@ def update_pull_request_state(
         if state == SignalReportPullRequest.State.MERGED and pr.merged_at is None and merged_at is not None:
             pr.merged_at = merged_at
             update_fields.append("merged_at")
+        update_fields.extend(_record_merger(pr, merged_by))
         pr.checked_at = timezone.now()
         pr.save(update_fields=update_fields)
         schedule_participant_refresh(pr)
         from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
 
         schedule_pull_request_ready_push(pr, previous_state=previous_state)
+        merger_lookups: MergerLookups = {}
         for report in reports:
-            apply_report_completion(report)
+            apply_report_completion(report, merger_lookups=merger_lookups)
         return len(reports)
 
 

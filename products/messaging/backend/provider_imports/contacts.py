@@ -46,6 +46,8 @@ CONTACT_COUNT_LABELS = (
     ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
+    ("repeats_merged", "Repeated addresses merged"),
+    ("invalid_skipped", "Invalid addresses skipped"),
 )
 
 
@@ -63,6 +65,8 @@ class ContactList:
     empty_note: str = "No contacts to import."
     # Lowercased addresses whose people stay out of the cohort, such as contacts who unsubscribed.
     non_members: frozenset[str] = frozenset()
+    repeats_merged: int = 0
+    invalid_skipped: int = 0
 
 
 def new_people_step(provider_label: str) -> ImportStepSpec:
@@ -92,10 +96,13 @@ class ContactCollector:
         self._spellings: dict[str, set[str]] = {}
         self._memberships = 0
         self._bytes = 0
+        self.repeats_merged = 0
+        self.invalid_skipped = 0
 
     def add(self, email: Any, properties: Mapping[str, Any]) -> dict[str, str] | None:
         address = exact_email(email)
         if address is None:
+            self.invalid_skipped += 1
             return None
         self._memberships += 1
         if self._memberships > MAX_CONTACT_MEMBERSHIPS:
@@ -104,11 +111,13 @@ class ContactCollector:
         if row is None:
             row = self._rows[address.lower()] = {"email": address}
             self._bytes += _row_bytes(row)
-        elif address != row["email"]:
-            spellings = self._spellings.setdefault(address.lower(), {row["email"]})
-            if address not in spellings:
-                spellings.add(address)
-                self._bytes += len(address.encode())
+        else:
+            self.repeats_merged += 1
+            if address != row["email"]:
+                spellings = self._spellings.setdefault(address.lower(), {row["email"]})
+                if address not in spellings:
+                    spellings.add(address)
+                    self._bytes += len(address.encode())
         self._bytes += _add_properties(row, properties)
         if self._bytes > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
@@ -168,12 +177,26 @@ def save_contact_lists(
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
-    # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
+    saved = _save_lists(context, everyone, lists, result, create_people=create_people)
+    # A send matches an opt-out by exact address, and the person may spell it differently from the provider. Last,
+    # because it locks preferences until the save commits, and someone unsubscribing then waits. No one becomes a
+    # person or joins a cohort before the commit.
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
+    return saved
+
+
+def _save_lists(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Iterable[ContactList],
+    result: ProviderContactsResult,
+    *,
+    create_people: bool,
+) -> SavedPage:
     if result.status == "failed":
         # The lists' contacts never became people, so the step fails rather than leave every list empty.
         return SavedPage(
@@ -181,6 +204,13 @@ def save_contact_lists(
             error=f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}",
         )
     notes = _notes(everyone, result)
+    if merged := everyone.repeats_merged:
+        notes.append(
+            f"{_contacts(merged)} had the same email as another contact, ignoring capital letters and spaces, so "
+            f"{_they(merged)} merged with that contact."
+        )
+    if invalid := everyone.invalid_skipped:
+        notes.append(f"{_contacts(invalid)} had no valid email, so {_they(invalid)} skipped.")
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
@@ -210,6 +240,8 @@ def save_contact_lists(
             "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
             "dropped": result.dropped,
+            "repeats_merged": everyone.repeats_merged,
+            "invalid_skipped": everyone.invalid_skipped,
         },
         items=tuple(items),
         people_imports=tuple(plan for plan in plans if plan is not None),
@@ -248,6 +280,10 @@ def _notes(contact_list: ContactList, result: ProviderContactsResult) -> list[st
 
 def _contacts(count: int) -> str:
     return f"{count:,} contact" if count == 1 else f"{count:,} contacts"
+
+
+def _they(count: int) -> str:
+    return "it was" if count == 1 else "they were"
 
 
 def _match_no_one(count: int) -> str:

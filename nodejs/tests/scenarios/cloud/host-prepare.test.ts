@@ -141,8 +141,16 @@ describe('host-prepare.sh', () => {
         )
         expect(
             residentBacklogIntact.check(
-                { journal: [], truth: [], fetchRetries: 0, resident, janitorResets: 0 },
-                undefined
+                {
+                    journal: [],
+                    truth: [],
+                    fetchRetries: 0,
+                    resident,
+                    janitorResets: 0,
+                    boundary: { truthFrom: 0, horizon: { seq: 0, at: 0 }, unobserved: [] },
+                },
+                undefined,
+                {}
             )
         ).toMatchObject({ passed: true })
 

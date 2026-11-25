@@ -228,6 +228,7 @@ export namespace Schemas {
         propertyGroupsMode: PropertyGroupsMode | null;
         pushDownPredicates: boolean | null;
         s3TableUseInvalidColumns: boolean | null;
+        sessionFilterGlobalJoin: boolean | null;
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
@@ -4553,6 +4554,7 @@ export namespace Schemas {
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
+        limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         offset?: (number | null) | undefined;
@@ -5996,13 +5998,23 @@ export namespace Schemas {
     /**
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build
+     * * `unsupported_criteria` - Unsupported criteria
+     * * `action_criteria` - Action criteria
+     * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+     * * `members_over_limit` - Members over limit
+     * * `test_account_filter` - Test account filter
      */
     export type CohortRealtimeUnavailableReasonEnum =
         | "history_over_limit"
-        | "too_large_to_build";
+        | "too_large_to_build"
+        | "unsupported_criteria"
+        | "action_criteria"
+        | "includes_non_realtime_cohort"
+        | "members_over_limit"
+        | "test_account_filter";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
@@ -6023,10 +6035,15 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
+         * * `unsupported_criteria` - Unsupported criteria
+         * * `action_criteria` - Action criteria
+         * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+         * * `members_over_limit` - Members over limit
+         * * `test_account_filter` - Test account filter
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
@@ -6233,6 +6250,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter2 = {
@@ -6324,6 +6342,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter3 = {
@@ -6420,6 +6439,7 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionRateInputType = "manual" | "automatic";
@@ -10700,7 +10720,8 @@ export namespace Schemas {
      * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
      * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `primary_metric_count` - Primary metrics of the experiment
+     * * `secondary_metric_count` - Secondary metrics of the experiment
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
      * * `metric_count` - Metrics that the calculation computes
      * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10711,6 +10732,7 @@ export namespace Schemas {
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
      * * `metric_name` - The name of a metric
@@ -10729,6 +10751,8 @@ export namespace Schemas {
      * * `forced_count` - Users or groups that a release condition with a variant override served
      * * `forced_percentage` - forced_count as a share of variant_matched_count
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+     * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10737,6 +10761,8 @@ export namespace Schemas {
      * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
      * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `cohort_count` - Cohorts that the exposure criteria filter on
+     * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
      * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -10762,6 +10788,7 @@ export namespace Schemas {
         | "unserved_exposed_percentage"
         | "only_count_matured_users"
         | "primary_metric_count"
+        | "secondary_metric_count"
         | "waiting_metric_count"
         | "metric_count"
         | "completed_metric_count"
@@ -10772,6 +10799,7 @@ export namespace Schemas {
         | "flag_rolled_out"
         | "shipped_variant"
         | "flag_last_called_at"
+        | "flag_called"
         | "since_start_hours"
         | "daily_calculation_ends_at"
         | "metric_name"
@@ -10790,6 +10818,8 @@ export namespace Schemas {
         | "forced_count"
         | "forced_percentage"
         | "traffic_since_at"
+        | "history_since_at"
+        | "change_count"
         | "changed_at"
         | "before_exposure"
         | "changed_setting"
@@ -10798,6 +10828,8 @@ export namespace Schemas {
         | "before_filters"
         | "after_filters"
         | "flag_service_call_percentage"
+        | "cohort_count"
+        | "dynamic_cohort_count"
         | "event"
         | "event_received"
         | "invalid_metric_count"
@@ -10833,7 +10865,8 @@ export namespace Schemas {
          * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
          * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `primary_metric_count` - Primary metrics of the experiment
+         * * `secondary_metric_count` - Secondary metrics of the experiment
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
          * * `metric_count` - Metrics that the calculation computes
          * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10844,6 +10877,7 @@ export namespace Schemas {
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
          * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `flag_called` - Whether PostHog has recorded a call of the feature flag
          * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
          * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
          * * `metric_name` - The name of a metric
@@ -10862,6 +10896,8 @@ export namespace Schemas {
          * * `forced_count` - Users or groups that a release condition with a variant override served
          * * `forced_percentage` - forced_count as a share of variant_matched_count
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+         * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10870,6 +10906,8 @@ export namespace Schemas {
          * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
          * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `cohort_count` - Cohorts that the exposure criteria filter on
+         * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
          * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -10903,7 +10941,8 @@ export namespace Schemas {
          * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
          * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `primary_metric_count` - Primary metrics of the experiment
+         * * `secondary_metric_count` - Secondary metrics of the experiment
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
          * * `metric_count` - Metrics that the calculation computes
          * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10914,6 +10953,7 @@ export namespace Schemas {
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
          * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `flag_called` - Whether PostHog has recorded a call of the feature flag
          * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
          * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
          * * `metric_name` - The name of a metric
@@ -10932,6 +10972,8 @@ export namespace Schemas {
          * * `forced_count` - Users or groups that a release condition with a variant override served
          * * `forced_percentage` - forced_count as a share of variant_matched_count
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+         * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10940,6 +10982,8 @@ export namespace Schemas {
          * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
          * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `cohort_count` - Cohorts that the exposure criteria filter on
+         * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
          * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -11087,6 +11131,88 @@ export namespace Schemas {
          */
         activation: string | null;
     };
+    /**
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist
+     */
+    export type StatsMethodEnum = "bayesian" | "frequentist";
+    /**
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant
+     */
+    export type ExperimentHealthMultipleVariantHandlingEnum =
+        | "exclude"
+        | "first_seen";
+    export type ExperimentHealthAnalysisSetup = {
+        /**
+         * The statistical method of the results.
+         *
+         * * `bayesian` - Bayesian
+         * * `frequentist` - Frequentist
+         */
+        stats_method: StatsMethodEnum;
+        /**
+         * The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95.
+         */
+        confidence_level: number;
+        /**
+         * Whether the frequentist test uses sequential testing. Null for the Bayesian method.
+         */
+        sequential_testing: boolean | null;
+        /**
+         * Whether the experiment leaves sequential testing unset, so the project's default applies.
+         */
+        sequential_testing_from_project_default: boolean;
+        /**
+         * Whether the results apply CUPED variance reduction to the metrics that support it.
+         */
+        cuped: boolean;
+        /**
+         * The days before exposure that CUPED reads. Null when CUPED is off.
+         */
+        cuped_lookback_days: number | null;
+        /**
+         * Whether the experiment leaves CUPED unset, so the project's default applies.
+         */
+        cuped_from_project_default: boolean;
+        /**
+         * Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies.
+         */
+        cuped_lookback_days_from_project_default: boolean;
+        /**
+         * The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their metric type. Empty when CUPED is off.
+         */
+        metrics_without_cuped_support: Array<string>;
+        /**
+         * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+         */
+        filters_test_accounts: boolean | null;
+        /**
+         * How many of the project's test account filters the results apply. 0 when they count test accounts.
+         */
+        test_account_filter_count: number;
+        /**
+         * What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
+         *
+         * * `exclude` - Exclude from analysis
+         * * `first_seen` - Use first seen variant
+         */
+        multiple_variant_handling:
+            | ExperimentHealthMultipleVariantHandlingEnum
+            | NullEnum;
+        /**
+         * Whether a user counts only after their conversion or retention window is complete.
+         */
+        only_count_matured_users: boolean;
+        /**
+         * The variant that the others are compared against.
+         */
+        baseline_variant: string;
+        /**
+         * The variants that the results leave out.
+         */
+        excluded_variants: Array<string>;
+    };
     export type ExperimentHealthSetup = {
         /**
          * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
@@ -11127,6 +11253,10 @@ export namespace Schemas {
          * What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table.
          */
         exposure: ExperimentHealthExposureSetup | null;
+        /**
+         * What the results calculation reads besides the metrics, with the project's defaults applied.
+         */
+        analysis: ExperimentHealthAnalysisSetup;
     };
     export type ExperimentHealth = {
         /**
@@ -11968,6 +12098,10 @@ export namespace Schemas {
          */
         live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
+        /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         */
+        last_checked_at: string | null;
         /**
          * The latest error that occurred when syncing this schema.
          */
@@ -13737,6 +13871,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from an action.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from an action.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13852,6 +13990,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from events.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from events.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13947,6 +14089,10 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        /**
+         * A conversion goal counted from a data warehouse table.
+         */
+        use_in_recommendations?: (boolean | null) | undefined;
         /**
          * A conversion goal counted from a data warehouse table.
          */
@@ -17414,6 +17560,16 @@ export namespace Schemas {
          */
         id: string;
     };
+    export type TeamCustomerAnalyticsRoleDefaultPinnedProperties = {
+        /**
+         * Organization role whose members inherit these properties.
+         */
+        role_id: string;
+        /**
+         * Ordered account properties shown to members of this role.
+         */
+        pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+    };
     export type TeamCustomerAnalyticsConfig = Partial<{
         activity_event: unknown;
         signup_pageview_event: unknown;
@@ -17422,6 +17578,7 @@ export namespace Schemas {
         payment_event: unknown;
         account_group_type_index: number | null;
         default_pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+        role_default_pinned_properties: Array<TeamCustomerAnalyticsRoleDefaultPinnedProperties>;
     }>;
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;
@@ -17896,7 +18053,7 @@ export namespace Schemas {
          */
         available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
-         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**

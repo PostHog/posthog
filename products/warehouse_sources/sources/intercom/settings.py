@@ -382,6 +382,58 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         primary_keys=["conversation_id", "hitl_cycle_id", "event_type", "round_index"],
         api_versions=("2.17",),
     ),
+    "calls": IntercomEndpointConfig(
+        # `GET /calls` — phone calls with their timing and outcome. Paged by `page`/`per_page`
+        # (max 25) with a nested `pages.total_pages`, and no timestamp filter.
+        name="calls",
+        path="/calls",
+        data_selector="data",
+        paginator_kind="page_number",
+        page_size=25,
+        total_pages_path="pages.total_pages",
+        sort_mode=None,
+        api_versions=("2.15", "2.16", "2.17"),
+    ),
+    "conversation_handling_events": IntercomEndpointConfig(
+        # Substream of `conversations`: `GET /conversations/{id}/handling_events` for each parent
+        # the conversations search returns. The events are the pause and resume actions of
+        # teammates and have no id, hence the composite key. Each yielded event carries
+        # `conversation_id` and `teammate_id`.
+        name="conversation_handling_events",
+        path="",
+        data_selector="",
+        paginator_kind="substream",
+        parent_endpoint="conversations",
+        primary_keys=["conversation_id", "teammate_id", "type", "timestamp"],
+        partition_key="timestamp",
+        sort_mode=None,
+        api_versions=("2.15", "2.16", "2.17"),
+    ),
+    "contact_notes": IntercomEndpointConfig(
+        # Substream of `contacts`: `GET /contacts/{id}/notes` for each contact the contacts search
+        # returns. A new note does not reliably move the contact's `updated_at`, so this is full
+        # refresh. Each yielded note carries `contact_id`.
+        name="contact_notes",
+        path="",
+        data_selector="",
+        paginator_kind="substream",
+        parent_endpoint="contacts",
+        primary_keys=["contact_id", "id"],
+        page_size=60,
+        sort_mode=None,
+    ),
+    "data_connectors": IntercomEndpointConfig(
+        # `GET /data_connectors` — the HTTP connectors workflows and Fin call. Paged by a
+        # `pages.next.starting_after` cursor (`per_page` max 50), most recently updated first,
+        # with no timestamp filter. `created_at`/`updated_at` are ISO 8601 strings.
+        name="data_connectors",
+        path="/data_connectors",
+        data_selector="data",
+        paginator_kind="pages",
+        page_size=50,
+        sort_mode="desc",
+        api_versions=("2.16", "2.17"),
+    ),
 }
 
 ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
@@ -401,13 +453,17 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 #   rows' `created_at`. Intercom lists the events only once a consultation ends,
 #   and the end (a reply, an escalation, a takeover) updates the conversation, so
 #   a parent with new events is refetched.
+# - conversation_handling_events: child of conversations, on the same source cursor
+#   as conversation_hitl_events. Intercom does not say whether a pause or resume
+#   updates the conversation, but the teammate activity around it does, so an
+#   event lands at the latest with the next update of its conversation.
 #
 # Companies, segments, and company_segments are intentionally excluded: their
 # list endpoints don't accept a timestamp filter, and a "client-side cursor"
 # that walks every page each run is identical in API cost to a full refresh.
 #
 # `field_type=Integer` because Intercom returns Unix epoch seconds, not ISO —
-# except on macros, which return ISO 8601 strings.
+# except on macros and handling events, which return ISO 8601 strings.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "contacts": [
         {
@@ -455,6 +511,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "type": IncrementalFieldType.DateTime,
             "field": "created_at",
             "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    "conversation_handling_events": [
+        {
+            "label": "timestamp",
+            "type": IncrementalFieldType.DateTime,
+            "field": "timestamp",
+            "field_type": IncrementalFieldType.DateTime,
         }
     ],
     "macros": [

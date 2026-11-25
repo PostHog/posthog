@@ -2821,7 +2821,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
             }
         },
-        loadBroadcastFailure: () => {
+        loadBroadcastFailure: ({ errorObject }) => {
+            // The scene renders NotFound for a broadcast that never loaded, and a refresh cannot fix a 404
+            if (errorObject?.status === 404 && !values.broadcast) {
+                return
+            }
             lemonToast.error("Couldn't load the broadcast. Refresh the page to try again.")
         },
     })),

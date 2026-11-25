@@ -27,7 +27,13 @@ from products.growth.backend.enrichment.fit_score import (
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import CuratedLists, load_active_lists
 
-from .account_fields import fill_only_account_fields, overwritten_account_fields, unoccupied_fields
+from .account_fields import (
+    DESCRIPTION_MIRROR_FIELD,
+    account_description,
+    fill_only_account_fields,
+    overwritten_account_fields,
+    unoccupied_fields,
+)
 from .constants import (
     ACCOUNT_FILL_FIELDS,
     DEFAULT_CHUNK_SIZE,
@@ -40,7 +46,7 @@ from .constants import (
     YC_INVESTOR_NAME,
 )
 from .harmonic_client import AsyncHarmonicClient
-from .harmonic_company import is_sub_entity
+from .harmonic_company import is_sub_entity, website_path_is_root
 from .redis_cache import get_accounts_from_redis, store_accounts_in_redis
 from .salesforce_client import get_salesforce_client
 
@@ -60,7 +66,7 @@ def _extract_domain(url: str | None) -> str | None:
         return None
 
     try:
-        parsed = urlparse(url if url.startswith(("http://", "https://")) else f"https://{url}")
+        parsed = urlparse(url if url.lower().startswith(("http://", "https://")) else f"https://{url}")
         # Use hostname to get domain without port, fallback to netloc if hostname is None
         domain = parsed.hostname or parsed.netloc or url
     except Exception:
@@ -277,6 +283,7 @@ def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
+        DESCRIPTION_MIRROR_FIELD: account_description(company_info.get("description")),
         "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         # Funding Info
@@ -469,16 +476,18 @@ async def _load_icp_lists() -> CuratedLists | None:
 
 
 def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Read the current values of ACCOUNT_FILL_FIELDS from Salesforce, keyed by Account Id.
+    """Read the current values of ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD and Website, keyed by Account Id.
 
+    unoccupied_fields() compares Description with the mirror, and add_unoccupied_fill_fields() checks the Website.
     An Account whose read fails is left out of the result.
     """
     logger = LOGGER.bind(function="_read_fill_field_values")
     current_values: dict[str, dict[str, Any]] = {}
+    fields = ", ".join((*ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD, "Website"))
 
     for start in range(0, len(account_ids), SALESFORCE_UPDATE_BATCH_SIZE):
         query = format_soql(
-            f"SELECT Id, {', '.join(ACCOUNT_FILL_FIELDS)} FROM Account WHERE Id IN {{}}",
+            f"SELECT Id, {fields} FROM Account WHERE Id IN {{}}",
             account_ids[start : start + SALESFORCE_UPDATE_BATCH_SIZE],
         )
         try:
@@ -490,28 +499,52 @@ def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[st
     return current_values
 
 
+def _is_root_website_on(website: str | None, domain: str | None) -> bool:
+    if not website or not domain:
+        return False
+    return _extract_domain(website) == domain and website_path_is_root(website)
+
+
 def add_unoccupied_fill_fields(
-    sf: "Salesforce", update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
+    sf: "Salesforce",
+    update_records: list[dict[str, Any]],
+    fill_fields_by_account: dict[str, dict[str, Any]],
+    queried_domains: dict[str, str],
 ) -> None:
-    """Add each Account's fill-only fields to its update record, for the fields that hold no value in Salesforce.
+    """Add each Account's fill-only fields to its update record, for the fields that unoccupied_fields() allows.
 
     The current values are read here, immediately before the write. The cached Account records can be hours old,
     and a value that another writer set in that time must not be replaced. Salesforce has no conditional update,
     so a value set between this read and the write can still be replaced.
 
+    Description also needs the Account's current Website to be a site root on the domain that the job queried. A
+    Website below the root is one page of a shared host, and the record for that domain describes the host.
+
+    An Account that the read does not return gets no fill fields, and its record also loses DESCRIPTION_MIRROR_FIELD.
+    If the mirror took Harmonic's new text while Description kept the job's earlier copy, the two would no longer
+    match, and no later run would refresh that Description.
+
     Args:
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates, changed in place
         fill_fields_by_account: Output from fill_only_account_fields(), keyed by Account Id
+        queried_domains: The domain that each Account's fill-only fields were built for, keyed by Account Id
     """
     current_values = _read_fill_field_values(
-        sf, [account_id for account_id, fill_fields in fill_fields_by_account.items() if fill_fields]
+        sf, [record["Id"] for record in update_records if fill_fields_by_account.get(record["Id"])]
     )
 
     for record in update_records:
         fill_fields = fill_fields_by_account.get(record["Id"])
-        if fill_fields:
-            record.update(unoccupied_fields(fill_fields, current_values.get(record["Id"], {})))
+        if not fill_fields:
+            continue
+        current = current_values.get(record["Id"])
+        if current is None:
+            record.pop(DESCRIPTION_MIRROR_FIELD, None)
+            continue
+        if not _is_root_website_on(current.get("Website"), queried_domains.get(record["Id"])):
+            fill_fields = {field: value for field, value in fill_fields.items() if field != "Description"}
+        record.update(unoccupied_fields(fill_fields, current))
 
 
 @frozen
@@ -603,6 +636,23 @@ def bulk_update_salesforce_accounts(
     return BulkUpdateResult(succeeded=total_success, failed=total_errors)
 
 
+def write_account_updates(
+    sf: "Salesforce",
+    update_records: list[dict[str, Any]],
+    fill_fields_by_account: dict[str, dict[str, Any]],
+    queried_domains: dict[str, str],
+) -> None:
+    """Write the update records one batch at a time, each batch directly after its own read of the current values.
+
+    Each Account's read comes one Salesforce round trip before its write, so an edit that a person makes while an
+    earlier batch is written is not replaced.
+    """
+    for start in range(0, len(update_records), SALESFORCE_UPDATE_BATCH_SIZE):
+        batch = update_records[start : start + SALESFORCE_UPDATE_BATCH_SIZE]
+        add_unoccupied_fill_fields(sf, batch, fill_fields_by_account, queried_domains)
+        bulk_update_salesforce_accounts(sf, batch)
+
+
 def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     """Query Salesforce for all accounts matching the given domain.
 
@@ -631,7 +681,7 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     # Matches: "example.com", "www.example.com", "api.example.com"
     # Does NOT match: "notexample.com", "example.com.evil.com"
     query = format_soql(
-        """SELECT Id, Name, Domain__c, CreatedDate
+        """SELECT Id, Name, Domain__c, Website, CreatedDate
            FROM Account
            WHERE Domain__c = {} OR Domain__c LIKE '%{:like}'
            ORDER BY CreatedDate DESC""",
@@ -754,14 +804,10 @@ def _fetch_updated_account_fields(
 
     account_ids = [acc["Id"] for acc in accounts]
 
-    # Collect all unique fields from update_records (excluding Id and attributes)
-    fields_to_fetch = {"Id", "Name", "Domain__c"}  # Always include these base fields
-    for record in update_records:
-        for field in record.keys():
-            if field not in ("Id", "attributes"):
-                fields_to_fetch.add(field)
-
-    fields_list = ", ".join(sorted(fields_to_fetch))
+    base_fields = {"Id", "Name", "Domain__c"}
+    # An Account's unsent fields stay out of the workflow result, because they can hold another writer's text.
+    fields_by_account = {record["Id"]: base_fields | (record.keys() - {"attributes"}) for record in update_records}
+    fields_list = ", ".join(sorted(base_fields.union(*fields_by_account.values())))
 
     try:
         query = format_soql(
@@ -770,8 +816,10 @@ def _fetch_updated_account_fields(
         )
         result = sf.query_all(query)
 
-        # Return records with only the fields we queried
-        return [{field: record.get(field) for field in fields_to_fetch} for record in result["records"]]
+        return [
+            {field: record.get(field) for field in fields_by_account.get(record["Id"], base_fields)}
+            for record in result["records"]
+        ]
     except Exception as e:
         logger.warning(
             "Failed to fetch updated account data",
@@ -989,11 +1037,21 @@ async def _enrich_specific_domain_debug(
         try:
             if update_records:
                 sf = get_salesforce_client()
-                if not rejected_sub_entity:
-                    fill_fields = fill_only_account_fields(harmonic_result, queried_domain=domain)
-                    fill_fields_by_account = {record["Id"]: fill_fields for record in update_records}
-                    await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
-                bulk_update_salesforce_accounts(sf, update_records)
+                queried_domains = {
+                    account["Id"]: _extract_domain(account.get("Website") or account["Domain__c"]) or ""
+                    for account in accounts
+                }
+                fill_fields_by_account = (
+                    {}
+                    if rejected_sub_entity
+                    else {
+                        account_id: fill_only_account_fields(harmonic_result, queried_domain=queried_domain)
+                        for account_id, queried_domain in queried_domains.items()
+                    }
+                )
+                await asyncio.to_thread(
+                    write_account_updates, sf, update_records, fill_fields_by_account, queried_domains
+                )
                 salesforce_updated = True
                 records_updated = len(update_records)
                 logger.info("Successfully updated Salesforce accounts", accounts_updated=records_updated)
@@ -1164,9 +1222,9 @@ async def enrich_accounts_chunked_async(
 
     # Update Salesforce accounts
     if update_records:
-        # The read runs in a thread, so that it does not hold the event loop in addition to the write below.
-        await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
-        bulk_update_salesforce_accounts(sf, update_records)
+        # The reads and writes run in a thread, so that they do not hold the event loop.
+        queried_domains = {item["account_id"]: item["domain"] for item in account_data}
+        await asyncio.to_thread(write_account_updates, sf, update_records, fill_fields_by_account, queried_domains)
 
     result = _build_result(
         chunk_number=chunk_number,

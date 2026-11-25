@@ -148,6 +148,14 @@ export class LiveController<T> {
         return this.readNow()
     }
 
+    /** A changed query must drop its old result and cancel the outstanding request even when Live is paused. */
+    resetRead(): void {
+        this.stop()
+        this.emptyReads = 0
+        this.update({ data: null, updatedAt: null, failures: 0 })
+        this.start()
+    }
+
     checkRecovery(): Promise<void> {
         return this.running ? this.readNow() : Promise.resolve()
     }

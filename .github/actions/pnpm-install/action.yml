@@ -8,6 +8,8 @@ description: |
     instead of fragmenting across runner-arch casings or per-workflow keys.
     Restore only: .github/workflows/pnpm-store-cache.yml writes the entry on
     master from a cold install, and explains why no consumer may save it.
+    A job that installs a small part of the workspace can set `store-key-prefix`
+    to restore a smaller store, which pnpm-store-cache.yml writes from a cold install.
 
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
@@ -41,6 +43,13 @@ inputs:
             against index files that travel in the same entry, so a release build turns them off.
         required: false
         default: 'true'
+    store-key-prefix:
+        description: |
+            Prefix of the pnpm store cache key. Keep the default for an install that links most of
+            the workspace. A job whose filtered install links a small part of it can restore a
+            store of only those packages under its own prefix, which pnpm-store-cache.yml writes.
+        required: false
+        default: pnpm
 
 runs:
     using: composite
@@ -62,8 +71,8 @@ runs:
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
-              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-              restore-keys: pnpm-${{ runner.os }}-
+              key: ${{ inputs.store-key-prefix }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+              restore-keys: ${{ inputs.store-key-prefix }}-${{ runner.os }}-
 
         # pnpm 11 checks the lockfile against the supply-chain policies in pnpm-workspace.yaml
         # on every install, and the check fetches registry metadata even when the store is warm.

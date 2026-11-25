@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.sources.sdk.testing import (
@@ -24,6 +25,7 @@ from products.warehouse_sources.sources.signoz.signoz import (
     UNEXPECTED_RESPONSE_ERROR,
     SigNozResumeConfig,
     _extract_config_items,
+    _extract_meter_rows,
     _extract_raw_rows,
     _to_epoch_ms,
     validate_credentials,
@@ -185,24 +187,47 @@ class TestValidateCredentials:
 
 class TestSigNozSourceResponse:
     @pytest.mark.parametrize(
-        ("endpoint", "expected_pks", "expected_partition_key"),
+        ("endpoint", "expected_pks", "expected_partition_key", "expected_sort_mode"),
         [
-            ("logs", ["id"], "timestamp"),
-            ("traces", ["trace_id", "span_id"], "timestamp"),
-            ("alert_rules", ["id"], "createdAt"),
-            ("dashboards", ["id"], "createdAt"),
-            ("notification_channels", ["id"], "createdAt"),
+            ("logs", ["id"], "timestamp", "asc"),
+            ("traces", ["trace_id", "span_id"], "timestamp", "asc"),
+            ("alert_rules", ["id"], "createdAt", "asc"),
+            ("dashboards", ["id"], "createdAt", "asc"),
+            ("notification_channels", ["id"], "createdAt", "asc"),
+            # One series after another, so the rows are not in timestamp order.
+            ("meter_usage", ["metric_name", "timestamp", "service_name", "deployment_environment"], "timestamp", None),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_partition_key: str) -> None:
+    def test_source_response_shape(
+        self, endpoint: str, expected_pks: list[str], expected_partition_key: str, expected_sort_mode: str | None
+    ) -> None:
         response = SourceDriver(SigNozSource(), CONFIG).run(endpoint, always(ScriptedResponse(json=_page([])))).response
 
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == expected_sort_mode
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [expected_partition_key]
+
+
+def _meter_response(series: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "data": {
+            "type": "time_series",
+            "data": {"results": [{"queryName": "A", "aggregations": [{"index": 0, "series": series}]}]},
+        },
+    }
+
+
+def _meter_series(labels: dict[str, Any], values: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"labels": [{"key": {"name": k}, "value": v} for k, v in labels.items()], "values": values}
+
+
+METER_METRICS = SIGNOZ_ENDPOINTS["meter_usage"].metric_names
+DAY_MS = 86_400_000
+JAN_1_MS = 1767225600000  # 2026-01-01T00:00:00Z
 
 
 def _page(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -428,3 +453,133 @@ class TestGetRows:
         body = result.requests[0].json()
         lookback_days = (body["end"] - body["start"]) / 1000 / 86400
         assert round(lookback_days) == SIGNOZ_ENDPOINTS["logs"].default_lookback_days
+
+
+class TestMeterUsage:
+    def _metric_queried(self, request: Any) -> str:
+        return request.json()["compositeQuery"]["queries"][0]["spec"]["aggregations"][0]["metricName"]
+
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_queries_every_metric_and_shapes_daily_rows(self) -> None:
+        first = _meter_response(
+            [
+                _meter_series(
+                    {"service.name": "checkout", "deployment.environment": "prod"},
+                    [
+                        {"timestamp": JAN_1_MS, "value": 120.0},
+                        {"timestamp": JAN_1_MS + DAY_MS, "value": 80.0},
+                        {"timestamp": JAN_1_MS + 2 * DAY_MS, "value": 5.0, "partial": True},
+                    ],
+                ),
+                # A series without an environment label, and a point with no value.
+                _meter_series(
+                    {"service.name": "search"},
+                    [{"timestamp": JAN_1_MS, "value": 7}, {"timestamp": JAN_1_MS + DAY_MS}],
+                ),
+            ]
+        )
+        responses = [first] + [_meter_response([]) for _ in METER_METRICS[1:]]
+        result = SourceDriver(SigNozSource(), CONFIG).run("meter_usage", [ScriptedResponse(json=r) for r in responses])
+
+        assert result.raised is None
+        assert [self._metric_queried(r) for r in result.requests] == list(METER_METRICS)
+        spec = result.requests[0].json()["compositeQuery"]["queries"][0]["spec"]
+        assert spec["source"] == "meter"
+        assert spec["stepInterval"] == 86400
+        assert spec["aggregations"][0]["timeAggregation"] == "increase"
+        assert spec["groupBy"] == [{"name": "service.name"}, {"name": "deployment.environment"}]
+        # Whole UTC days only: the window ends at today's midnight.
+        body = result.requests[0].json()
+        assert body["end"] == int(datetime(2026, 3, 10, tzinfo=UTC).timestamp() * 1000)
+        assert body["start"] % DAY_MS == 0
+        assert result.rows == [
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+                "service_name": "checkout",
+                "deployment_environment": "prod",
+                "value": 120.0,
+            },
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 2, tzinfo=UTC),
+                "service_name": "checkout",
+                "deployment_environment": "prod",
+                "value": 80.0,
+            },
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+                "service_name": "search",
+                "deployment_environment": "",
+                "value": 7,
+            },
+        ]
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "last_value", "expected_start"),
+        [
+            # The watermark day and the day before it are read again.
+            (True, datetime(2026, 3, 5, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
+            (True, "2026-03-05T00:00:00+00:00", datetime(2026, 3, 4, tzinfo=UTC)),
+            (False, None, datetime(2025, 3, 10, tzinfo=UTC)),
+        ],
+    )
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_window_start(self, should_use_incremental_field: bool, last_value: Any, expected_start: datetime) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            always(ScriptedResponse(json=_meter_response([]))),
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert {r.json()["start"] for r in result.requests} == {int(expected_start.timestamp() * 1000)}
+
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_watermark_today_queries_nothing(self) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            always(ScriptedResponse(json=_meter_response([]))),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 12, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests == []
+
+    def test_resume_continues_with_the_next_metric_in_the_pinned_window(self) -> None:
+        resume = SigNozResumeConfig(window_start_ms=JAN_1_MS, window_end_ms=JAN_1_MS + 3 * DAY_MS, offset=3)
+        series = _meter_series({"service.name": "api"}, [{"timestamp": JAN_1_MS, "value": 1}])
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            [ScriptedResponse(json=_meter_response([series])), ScriptedResponse(json=_meter_response([series]))],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert [self._metric_queried(r) for r in result.requests] == list(METER_METRICS[3:])
+        assert {(r.json()["start"], r.json()["end"]) for r in result.requests} == {(JAN_1_MS, JAN_1_MS + 3 * DAY_MS)}
+        assert [row["metric_name"] for row in result.rows] == list(METER_METRICS[3:])
+        assert [state.offset for state in result.saved_states] == [4, 5]
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {},
+            {"data": {"data": {"results": None}}},
+            {"data": {"data": {"results": [{"queryName": "A", "aggregations": None}]}}},
+            {"data": {"data": {"results": [{"aggregations": [{"series": [{"labels": None, "values": None}]}]}]}}},
+            {
+                "data": {
+                    "data": {
+                        "results": [{"aggregations": [{"series": [{"values": [{"timestamp": "x", "value": 1}]}]}]}]
+                    }
+                }
+            },
+            "unexpected",
+        ],
+    )
+    def test_malformed_time_series_returns_empty(self, response: Any) -> None:
+        assert _extract_meter_rows(response, SIGNOZ_ENDPOINTS["meter_usage"], METER_METRICS[0]) == []
