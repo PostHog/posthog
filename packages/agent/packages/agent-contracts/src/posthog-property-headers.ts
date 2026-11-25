@@ -99,6 +99,24 @@ export function buildPosthogUserHeaderLines(
     : "";
 }
 
+const POSTHOG_DISTINCT_ID_HEADER = "X-PostHog-Distinct-Id";
+
+export function buildPosthogDistinctIdHeaderRecord(
+  distinctId: string | null | undefined,
+): Record<string, string> {
+  return distinctId
+    ? { [POSTHOG_DISTINCT_ID_HEADER]: sanitizeHeaderValue(distinctId) }
+    : {};
+}
+
+export function buildPosthogDistinctIdHeaderLines(
+  distinctId: string | null | undefined,
+): string {
+  return distinctId
+    ? `${POSTHOG_DISTINCT_ID_HEADER}: ${sanitizeHeaderValue(distinctId)}`
+    : "";
+}
+
 export function buildPosthogProjectHeaderRecord(
   projectId: number | null | undefined,
 ): Record<string, string> {

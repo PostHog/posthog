@@ -384,6 +384,57 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
     )
 
 
+def resolve_personal_default_integration_id(slack_workspace_id: str, slack_user_id: str) -> int | None:
+    """The integration this Slack user's own row routes mentions to. None means the workspace default applies."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("default_integration_id", flat=True)
+        .first()
+    )
+
+
+def set_personal_default_integration(slack_workspace_id: str, slack_user_id: str, integration_id: int | None) -> None:
+    """The caller checks that the person can open the target project."""
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"default_integration_id": integration_id},
+    )
+
+
+def resolve_external_channels_enabled(slack_workspace_id: str) -> bool:
+    """Whether PostHog may work in externally shared channels of this workspace.
+
+    An admin's choice wins. With no choice, a workspace where someone already approved an externally
+    shared channel stays on, so the people who use it today keep it, and every other workspace is off.
+    """
+    from products.slack_app.backend.models import SlackChannel, SlackSettings
+
+    stored = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id__isnull=True)
+        .values_list("external_channels_enabled", flat=True)
+        .first()
+    )
+    if stored is not None:
+        return stored
+    return SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, approved_at__isnull=False).exists()
+
+
+def set_external_channels_enabled(slack_workspace_id: str, enabled: bool) -> None:
+    """The caller checks that the actor may change workspace settings."""
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=None,
+        defaults={"external_channels_enabled": enabled},
+    )
+
+
 __all__ = [
     "ONBOARDING_VERSION",
     "OnboardingState",

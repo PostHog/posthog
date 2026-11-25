@@ -20,6 +20,8 @@ common-kafka = { path = "../common/kafka" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
+common-ingestion-response = { path = "../common/ingestion-response" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-redis = { path = "../common/redis" }
 redis = { workspace = true }
 common-posthog = { path = "../common/posthog" }
@@ -28,7 +30,7 @@ posthog-symbol-data = { path = "../common/symbol_data" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"

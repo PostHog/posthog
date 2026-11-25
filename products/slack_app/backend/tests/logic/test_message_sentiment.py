@@ -85,20 +85,14 @@ def _model(choice: str) -> MagicMock:
     return client
 
 
-def _flags(response: bool, gif_urls: list[str] | None, gif_flag: bool | None = None) -> dict[str, FeatureFlagResult]:
-    def result(key: str, enabled: bool, payload: object = None) -> FeatureFlagResult:
-        return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
-
-    return {
-        feature_flags.SLACK_APP_FRUSTRATION_RESPONSE_FLAG: result(
-            feature_flags.SLACK_APP_FRUSTRATION_RESPONSE_FLAG, response
-        ),
-        feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG: result(
-            feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG,
-            gif_urls is not None if gif_flag is None else gif_flag,
-            json.dumps({"gif_urls": gif_urls}) if gif_urls is not None else None,
-        ),
-    }
+def _gif_flag(gif_urls: list[str] | None, enabled: bool | None = None) -> FeatureFlagResult:
+    return FeatureFlagResult(
+        key=feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG,
+        enabled=gif_urls is not None if enabled is None else enabled,
+        variant=None,
+        payload=json.dumps({"gif_urls": gif_urls}) if gif_urls is not None else None,
+        reason=None,
+    )
 
 
 @pytest.mark.django_db
@@ -119,19 +113,14 @@ class TestRespondToSentiment:
 
     def _respond(
         self,
-        flags: dict[str, FeatureFlagResult],
+        gif_flag: FeatureFlagResult,
         choice: str,
         *,
         model_error: Exception | None = None,
         privacy_mode: bool = False,
     ) -> SentimentResult | None:
         with (
-            patch.object(
-                feature_flags.posthoganalytics, "feature_enabled", side_effect=lambda key, *a, **k: flags[key].enabled
-            ),
-            patch.object(
-                feature_flags.posthoganalytics, "get_feature_flag_result", side_effect=lambda key, *a, **k: flags[key]
-            ),
+            patch.object(feature_flags.posthoganalytics, "get_feature_flag_result", return_value=gif_flag),
             patch.object(
                 message_sentiment, "build_system_one_client", return_value=_model(choice), side_effect=model_error
             ) as build,
@@ -168,7 +157,7 @@ class TestRespondToSentiment:
     def test_reaction_and_gif_follow_the_sentiment(self, _name, choice, reacted, gif_url):
         gifs = ["https://example.com/elsewhere.gif", "https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif"]
 
-        assert self._respond(_flags(True, gifs), choice) == SentimentResult(sentiment=Sentiment(choice))
+        assert self._respond(_gif_flag(gifs), choice) == SentimentResult(sentiment=Sentiment(choice))
 
         assert self.slack_client.reactions_add.called is reacted
         if reacted:
@@ -178,39 +167,29 @@ class TestRespondToSentiment:
         assert self.capture.call_args_list[0].kwargs["sentiment"] == choice
 
     def test_frustrated_without_the_gif_flag_gets_only_the_reaction(self):
-        assert self._respond(_flags(True, None), "frustrated") == SentimentResult(sentiment=Sentiment.FRUSTRATED)
+        assert self._respond(_gif_flag(None), "frustrated") == SentimentResult(sentiment=Sentiment.FRUSTRATED)
 
         self.slack_client.reactions_add.assert_called_once()
         self.slack_client.chat_postEphemeral.assert_not_called()
         assert self._events() == ["slack app message sentiment classified"]
 
     def test_gif_flag_without_a_payload_uses_the_default_gifs(self):
-        assert self._respond(_flags(True, None, gif_flag=True), "frustrated") == SentimentResult(
+        assert self._respond(_gif_flag(None, enabled=True), "frustrated") == SentimentResult(
             sentiment=Sentiment.FRUSTRATED
         )
 
         image = self.slack_client.chat_postEphemeral.call_args.kwargs["blocks"][0]["image_url"]
         assert image in DEFAULT_FRUSTRATION_GIF_URLS
 
-    def test_flag_off_runs_no_model(self):
-        assert (
-            self._respond(_flags(False, ["https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif"]), "frustrated")
-            is None
-        )
-
-        assert self.model_built is False
-        self.slack_client.reactions_add.assert_not_called()
-        assert self._events() == []
-
     def test_a_failed_model_call_is_a_calm_verdict_not_a_missing_one(self):
         # None would make the interview checks call the failing model a second time.
-        result = self._respond(_flags(True, None), "frustrated", model_error=TimeoutError())
+        result = self._respond(_gif_flag(None), "frustrated", model_error=TimeoutError())
 
         assert result == SentimentResult(sentiment=None)
         self.slack_client.reactions_add.assert_not_called()
 
     @parameterized.expand([("privacy_on", True), ("privacy_off", False)])
     def test_the_model_call_follows_the_organizations_privacy_mode(self, _name, privacy_mode):
-        self._respond(_flags(True, None), "neutral", privacy_mode=privacy_mode)
+        self._respond(_gif_flag(None), "neutral", privacy_mode=privacy_mode)
 
         assert self.model_privacy_mode is privacy_mode

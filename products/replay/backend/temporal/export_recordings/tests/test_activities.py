@@ -30,13 +30,14 @@ from products.replay.backend.temporal.export_recordings.activities import (
     ByteBudget,
     CustomerBucket,
     SessionRow,
+    ViewportReader,
     check_destination,
     destination_error,
     export_session,
     export_shard,
     fetch_blocks_in_order,
     list_shard_sessions,
-    load_session_metadata,
+    load_day_viewports,
     load_shard_session_ids,
     policy_statements,
     quote_storage_key,
@@ -51,6 +52,7 @@ from products.replay.backend.temporal.export_recordings.quote import (
 )
 from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
+    DayViewportsInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -59,7 +61,7 @@ from products.replay.backend.temporal.export_recordings.types import (
 
 
 def _list(input: ExportShardInput) -> list[SessionRow]:
-    return list_shard_sessions(input, load_shard_session_ids(input))
+    return list_shard_sessions(input, load_shard_session_ids(input.session_ids_prefix, input.day, input.shard))
 
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
@@ -174,7 +176,18 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             # A pool thread has its own connection and cannot see this test's uncommitted rows.
             patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
         ):
+            async_to_sync(self._load_viewports)(self.quote)
             return async_to_sync(self._run_activity)(env, self._shard_input())
+
+    async def _load_viewports(self, quote: Quote) -> None:
+        input = DayViewportsInput(
+            team_id=self.team.pk,
+            run_id="run-1",
+            day=self.day.date().isoformat(),
+            shards_per_day=quote.shards_per_day,
+            session_ids_prefix=quote.session_ids_prefix,
+        )
+        await ActivityEnvironment().run(load_day_viewports, input)
 
     def _shard_input(self, day: datetime | None = None, quote: Quote | None = None, shard: int = 0) -> ExportShardInput:
         return ExportShardInput(
@@ -293,8 +306,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert magic == b"PHREC1"
         assert (header["session_id"], header["block_count"], header["distinct_id"]) == ("s1", 2, "d-s1")
         assert header["person"]["properties"] == {"email": "person@example.com"}
-        assert [(v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
-            ("1280", "720", "https://example.com/a")
+        assert [(v["timestamp"], v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
+            (int((self.day + timedelta(seconds=5)).timestamp() * 1000), "1280", "720", "https://example.com/a")
         ]
         # Blocks follow playback order, not the order of block_urls.
         assert blocks == EXPECTED_BLOCKS
@@ -345,7 +358,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_lost_shard_list_fails_the_shard_without_retrying(self) -> None:
         with pytest.raises(ApplicationError) as error:
-            load_shard_session_ids(self._shard_input(quote=dataclasses.replace(self.quote, session_ids_prefix="gone")))
+            load_shard_session_ids("gone", self.day.date().isoformat(), 0)
 
         assert error.value.non_retryable
 
@@ -528,21 +541,41 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
         )
 
-    def test_viewport_batches_that_hit_the_row_limit_are_split(self) -> None:
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d-s2",
-            timestamp=self.day + timedelta(seconds=5),
-            properties={"$session_id": "s2", "$viewport_width": 800, "$viewport_height": 600},
-        )
+    @parameterized.expand([("filtered_in_the_query", 10_000), ("filtered_after_the_query", 0)])
+    def test_day_viewports_go_to_each_listed_sessions_shard(self, _name: str, max_filtered_sessions: int) -> None:
+        for event, session_id, width in (
+            ("$screen", "s2", 800),
+            ("$autocapture", "s1", 1),
+            ("$pageview", "s9", 1),
+            ("$pageview", "s1", "wide"),
+            ("$pageview", "x" * 140_000, 1),
+        ):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=f"d-{session_id}",
+                timestamp=self.day + timedelta(seconds=5),
+                properties={"$session_id": session_id, "$viewport_width": width, "$viewport_height": 600},
+            )
         flush_persons_and_events()
-        sessions = [s for s in _list(self._shard_input()) if s.session_id in ("s1", "s2")]
+        quote = self._quote(None, shards_per_day=4)
 
-        with patch.object(activities, "VIEWPORT_ROW_LIMIT", 1):
-            viewports, _ = load_session_metadata(self.team.pk, sessions)
+        with (
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
+            patch.object(activities, "MAX_FILTERED_SESSIONS", max_filtered_sessions),
+        ):
+            async_to_sync(self._load_viewports)(quote)
 
-        assert {session_id: len(rows) for session_id, rows in viewports.items()} == {"s1": 1, "s2": 1}
+        day = self.day.date().isoformat()
+        by_shard = {}
+        for shard in range(4):
+            listed = {s.session_id for s in _list(self._shard_input(quote=quote, shard=shard))}
+            viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("", "~")
+            assert set(viewports) <= listed
+            by_shard.update({session_id: [v["width"] for v in rows] for session_id, rows in viewports.items()})
+        # s1's autocapture and non-numeric width are dropped, s9 is not in the quote, and an overlong session ID
+        # would otherwise break the line-by-line read.
+        assert by_shard == {"s1": ["1280"], "s2": ["800"]}
 
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()

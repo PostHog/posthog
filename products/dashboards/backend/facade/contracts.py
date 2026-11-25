@@ -22,7 +22,9 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
+    QueryBatchEngine,
     QueryBatchLanguage,
+    QueryBatchTargetFormat,
 )
 
 GRID_COLUMNS = 12
@@ -402,7 +404,8 @@ class DashboardExtras:
     quick_filter_ids: list[str] | None
 
 
-FrameFieldType = Literal["time", "number"]
+# Cached tiles draw time and number fields. A query batch table also has string, boolean and other columns.
+FrameFieldType = Literal["time", "number", "string", "boolean", "other"]
 
 
 @frozen
@@ -412,8 +415,10 @@ class FrameField:
     name: str
     type: FrameFieldType
     # A time field holds epoch milliseconds. A number field holds null for a gap.
-    values: Sequence[float | None]
+    values: Sequence[JsonValue]
     unit: str | None = None
+    # The series' labels, on each value field of a pivoted table.
+    labels: dict[str, str] | None = None
 
 
 @frozen
@@ -421,18 +426,21 @@ class FrameMeta:
     """What a frame covers: its bucket size and date range."""
 
     # PostHog's interval name: second_15 to week for metrics, minute to month for trends.
-    interval: str | None
-    date_from: datetime | None
-    date_to: datetime | None
+    interval: str | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
     # The same series over the compared period, with that period's dates.
     previous: bool = False
+    # The table had more rows than were returned, so the frame is cut.
+    truncated: bool = False
 
 
 @frozen
 class Frame:
     """One chart-ready series, the contract between a tile's query and its chart (Dash's `DataFrame`)."""
 
-    name: str
+    # None for a table frame, which has no series name.
+    name: str | None
     labels: dict[str, str]
     fields: list[FrameField]
     meta: FrameMeta
@@ -440,13 +448,17 @@ class Frame:
 
 @frozen
 class QueryBatchTarget:
-    """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
-    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`.
-    For `promql` and `logql`, it is the expression, run as a range query over the batch's time range."""
+    """A panel's query. For `query`, `query` is a PostHog query node as JSON, bare or as
+    `{query: <query node>, filters?, variables?}`. For `hogql`, it is the SQL, which reads the batch's time range
+    through `{filters}`. For `promql` and `logql`, it is the expression, run as a range query over the batch's time
+    range. `legend` and `format` are the client's and come back unchanged on the target's line."""
 
     ref_id: str
     language: QueryBatchLanguage
     query: str
+    legend: str | None = None
+    format: QueryBatchTargetFormat | None = None
+    engine: QueryBatchEngine | None = None
 
 
 @frozen

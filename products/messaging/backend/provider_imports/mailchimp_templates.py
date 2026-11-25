@@ -351,8 +351,8 @@ class _Converter:
                 continue
             if replacement.value:
                 where = context.where()
-                in_plain_attribute = where == "value" and context.plain_attribute() and not replacement.raw
-                if context.untrusted or (where != "text" and not in_plain_attribute):
+                in_plain_attribute = where == "title" or (where == "value" and context.plain_attribute())
+                if context.untrusted or (where != "text" and (replacement.raw or not in_plain_attribute)):
                     self.unsupported.append(replacement.source)
                     continue
                 context.feed("x")

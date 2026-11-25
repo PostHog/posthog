@@ -31,6 +31,8 @@ TRIGGER_ID = "trigger_node"
 _EXIT_ID = "exit_node"
 _MAX_DELAY_SECONDS = 365 * 86400
 _MAX_WAIT_SECONDS = 30 * 86400
+_MIN_REENTRY_SECONDS = 60
+_MAX_REENTRY_SECONDS = 3 * 365 * 86400
 # Unit, seconds per unit, and the largest amount a workflow accepts in that unit.
 _DURATION_UNITS: tuple[tuple[str, int, int | None], ...] = (
     ("d", 86400, None),
@@ -144,6 +146,14 @@ class _Builder:
                 "ones the other notes name, then remove its `false` condition.",
             )
             self.audience.append(_NOBODY)
+        masking = self._trigger_masking()
+        if masking is not None:
+            self.note(
+                NoteLevel.APPROXIMATED,
+                "The limit on how often a person can enter starts counting in PostHog, so people who already went "
+                "through in Customer.io can enter again."
+                + (" It also counts people the `Audience` step turns away." if self.audience else ""),
+            )
         if self.audience:
             posthog_actions.insert(1, self._audience_step())
             if _EXIT_ID not in kept_ids:
@@ -164,7 +174,7 @@ class _Builder:
             "exit_condition": self._exit_condition(),
             # Sent even when empty, so a re-import clears a goal or a re-entry limit the automation dropped.
             "conversion": self._conversion(),
-            "trigger_masking": self._trigger_masking(),
+            "trigger_masking": masking,
         }
         self._campaign_notes()
         self._static_segment_notes()
@@ -290,13 +300,25 @@ class _Builder:
         }
 
     def _trigger_masking(self) -> dict[str, Any] | None:
-        mode = self.campaign.get("restart_mode")
-        if self.campaign.get("type") not in ("seg_attr", "behavioral", "rel_seg_attr"):
+        kind, mode = self.campaign.get("type"), self.campaign.get("restart_mode")
+        interval = int(self.campaign.get("restart_min_interval") or 0)
+        once: dict[str, Any] = {"hash": "{person.id}", "ttl": None, "threshold": None}
+        # Event and form automations always store `rematch`, so only the interval says how often a person can enter.
+        if kind in ("transactional", "form"):
+            mode = "rematch"
+        elif kind not in ("seg_attr", "behavioral", "rel_seg_attr"):
             return None
-        if mode == "none":
-            return {"hash": "{person.id}", "ttl": None, "threshold": None}
-        if mode == "interval" and self.campaign.get("restart_min_interval"):
-            return {"hash": "{person.id}", "ttl": int(self.campaign["restart_min_interval"]), "threshold": None}
+        if mode == "none" or (mode == "rematch" and interval < 0):
+            return once
+        if mode in ("rematch", "interval") and interval > 0:
+            ttl = min(max(interval, _MIN_REENTRY_SECONDS), _MAX_REENTRY_SECONDS)
+            if ttl != interval:
+                self.note(
+                    NoteLevel.APPROXIMATED,
+                    f"A person can enter once per {_duration(interval)} in Customer.io. PostHog's limit goes from a "
+                    f"minute to 3 years, so it became {_duration(ttl)}.",
+                )
+            return {**once, "ttl": ttl}
         return None
 
     def _conversion(self) -> dict[str, Any] | None:
@@ -536,6 +558,20 @@ class _Builder:
                 f"The {field} uses Customer.io's `{name}` Liquid variables, which PostHog does not have.",
                 action,
             )
+        for name in rewritten.removed_tags:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"The {field} uses Customer.io's `{name}` tag, which PostHog does not have. The tag was removed, so "
+                "check the text or link around it.",
+                action,
+            )
+        if rewritten.ignored_filters:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"The {field} uses Customer.io Liquid filters that do nothing in PostHog: "
+                f"{', '.join(f'`{name}`' for name in rewritten.ignored_filters)}. Replace them.",
+                action,
+            )
         return rewritten.text
 
     def _email(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
@@ -553,6 +589,10 @@ class _Builder:
         }
         if template.get("body_plain"):
             email["text"] = self._liquid(self._with_subject(template["body_plain"], subject), action, "plain-text body")
+        for key in ("cc", "bcc"):
+            if isinstance(template.get(key), str) and template[key]:
+                email[key] = self._liquid(template[key], action, key)
+        self._dropped_email_parts(template, action)
         if not template:
             # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
             email["subject"] = email["subject"] or action["name"]
@@ -579,6 +619,34 @@ class _Builder:
             config["tracking_enabled"] = False
         return {"type": "function_email", "config": config}
 
+    def _dropped_email_parts(self, template: dict[str, Any], action: dict[str, Any]) -> None:
+        raw_headers = template.get("headers")
+        headers = (
+            [str(item["name"]) for item in raw_headers if _header_name(item)] if isinstance(raw_headers, list) else []
+        )
+        if headers:
+            self.note(
+                NoteLevel.UNSUPPORTED,
+                f"The custom email headers {', '.join(f'`{name}`' for name in headers)} were left out.",
+                action,
+            )
+        if template.get("body_amp"):
+            self.note(NoteLevel.UNSUPPORTED, "The AMP version of the email was left out.", action)
+        if template.get("fake_bcc") and template.get("bcc"):
+            self.note(
+                NoteLevel.APPROXIMATED,
+                "Customer.io sends the BCC addresses a separate copy. PostHog sends them a real BCC.",
+                action,
+            )
+        languages = template.get("languages")
+        if isinstance(languages, list) and languages:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io also sends this email in {', '.join(str(item) for item in languages)}. Only the default language "
+                "was imported. Add the others with a branch on the person's language property.",
+                action,
+            )
+
     def _with_subject(self, body: str, subject: str) -> str:
         """The body with Customer.io's `{{ message.subject }}` replaced by the subject, while the copies fit the room."""
         count = len(_MESSAGE_SUBJECT.findall(body)) if subject else 0
@@ -596,11 +664,11 @@ class _Builder:
         if layout and _LAYOUT_CONTENT.search(layout):
             # A comment in the layout shows up as text in the plain-text version of the email.
             return _LAYOUT_CONTENT.sub(lambda _: body, _strip_comments(layout), count=1)
-        if layout_id:
+        if layout_id or layout:
             self.note(
                 NoteLevel.NEEDS_INPUT,
-                f"Customer.io wraps this email in layout {layout_id}, which was not part of the import. Import "
-                "again with the layout, or add its header and footer to the HTML.",
+                f"Customer.io wraps this email in layout {layout_id or _layout_name(layout)}, which could not be "
+                "applied. Import again with the layout, or add its header and footer to the HTML.",
                 action,
             )
         if body and "<html" not in body.lower() and "font-family" not in body.lower():
@@ -1165,6 +1233,15 @@ def _plain_name(name: Any) -> str:
     text = _LIQUID_TAG.sub("", str(name or "")[:2000])
     text = re.sub(r"\s+([!?.,:;])", r"\1", re.sub(r"\s+", " ", text)).strip()
     return text[:400]
+
+
+def _layout_name(layout: str | None) -> str:
+    # The App API names the layout or returns its HTML.
+    return layout[:100] if layout and "<" not in layout else "from Customer.io"
+
+
+def _header_name(header: Any) -> bool:
+    return isinstance(header, dict) and bool(header.get("name"))
 
 
 def _html_subject(subject: str) -> str:

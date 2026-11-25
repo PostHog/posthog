@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { enclosingColumns, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
 import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
-import { htmlSentAsWritten } from '../renderEmailHtml'
+import { htmlSentAsWritten, safeEmailLink } from '../renderEmailHtml'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailHtmlCodeField } from './EmailHtmlCodeField'
@@ -75,11 +75,15 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             value={node.attrs.href}
                             onChange={(href) => setBlockAttribute(editor, pos, 'href', href)}
                             data-attr="email-editor-button-link"
-                            status={node.attrs.href ? 'default' : 'danger'}
+                            status={safeEmailLink(node.attrs.href) ? 'default' : 'danger'}
                         />
                     </EmailFieldRow>
                     {!node.attrs.href ? (
                         <span className="text-xs text-danger">Add a link, or this button won't go anywhere.</span>
+                    ) : !safeEmailLink(node.attrs.href) ? (
+                        <span className="text-xs text-danger">
+                            Enter a full link, such as https://example.com, or this button won't go anywhere.
+                        </span>
                     ) : null}
                     <EmailColorField
                         label="Background"
@@ -251,8 +255,14 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             placeholder="https://example.com"
                             onChange={(href) => setBlockAttribute(editor, pos, 'href', href)}
                             data-attr="email-editor-image-link"
+                            status={node.attrs.href && !safeEmailLink(node.attrs.href) ? 'danger' : 'default'}
                         />
                     </EmailFieldRow>
+                    {node.attrs.href && !safeEmailLink(node.attrs.href) ? (
+                        <span className="text-xs text-danger">
+                            Enter a full link, such as https://example.com, or this image won't go anywhere.
+                        </span>
+                    ) : null}
                     <EmailNumberField
                         label="Width"
                         value={style.width}
