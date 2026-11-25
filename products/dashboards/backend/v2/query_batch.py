@@ -1246,10 +1246,12 @@ class QueryBatch:
 
         def fetch(start: datetime, end: datetime) -> SpanRows:
             nonlocal first_run
-            if not first_run and not self._take_extra_span_run():
+            if first_run:
+                first_run = False
+                return fetch_span(start, end)
+            if not self._take_extra_span_run():
                 raise NotBucketable("the batch has used its budget of extra bucket runs")
-            first_run = False
-            return fetch_span(start, end)
+            return self._charged(fetch_span, start, end)
 
         answer = assemble(
             query=checked,
@@ -1271,7 +1273,10 @@ class QueryBatch:
             date_from=resolved.date_from,
             date_to=date_to,
             now=started,
-            fetch=partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, None),
+            fetch=partial(
+                self._charged,
+                partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, None),
+            ),
             store_key=key,
             on_done=connections.close_all,
         )
@@ -1290,6 +1295,16 @@ class QueryBatch:
         if "result" in line:
             line["result"]["provenance"] = {**line["result"]["provenance"], **provenance(answer, grid)}
         return line
+
+    def _charged(self, fetch: Callable[[datetime, datetime], SpanRows], start: datetime, end: datetime) -> SpanRows:
+        """A run beyond the one each query was admitted with holds its own share of the user's and organization's
+        query budget while it runs, and is refused when they have no room."""
+        if not _reserve_queries(self._shares, 1):
+            raise NotBucketable("the query budget has no room for another bucket run")
+        try:
+            return fetch(start, end)
+        finally:
+            _release_queries(self._shares, 1)
 
     def _take_extra_span_run(self) -> bool:
         with self._bucket_lock:

@@ -880,6 +880,9 @@ def maybe_shadow_check(
                     expected_rows=len(expected),
                     actual_rows=len(actual),
                 )
+        except NotBucketable:
+            # The whole run had no room in the query budget, so the sample is skipped rather than failed.
+            SHADOW_CHECKS.labels(outcome="skipped").inc()
         except Exception:
             SHADOW_CHECKS.labels(outcome="error").inc()
             logger.warning("dashboard_v2_bucketed_shadow_failed", store_key=store_key, exc_info=True)
