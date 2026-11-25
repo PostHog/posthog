@@ -27,6 +27,7 @@ from posthog.schema import (
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
     HogQLQueryResponse,
     MultipleVariantHandling,
 )
@@ -151,24 +152,35 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
             ) as warehouse,
         ):
-            warehouse.return_value = HogQLQueryResponse(
-                columns=["day", "variant", "exposures"],
-                results=[
-                    [date(2024, 1, 2), "control", 3],
-                    [date(2024, 1, 2), "test", 2],
-                    [date(2024, 1, 3), "control", 1],
-                    [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
-                ],
-            )
+            warehouse.side_effect = [
+                HogQLQueryResponse(
+                    columns=["day", "variant", "exposures"],
+                    results=[
+                        [date(2024, 1, 2), "control", 3],
+                        [date(2024, 1, 2), "test", 2],
+                        [date(2024, 1, 3), "control", 1],
+                        [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
+                    ],
+                ),
+                # The second statement counts the rows the first one left out, by reason.
+                HogQLQueryResponse(
+                    columns=["reason", "value", "rows"],
+                    results=[["unknown_variant", "Control", 3], ["before_window", None, 4], ["empty_id", None, 1]],
+                ),
+            ]
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._warehouse_native_query(str(connection.id))
             ).calculate()
 
-        statement = warehouse.call_args.kwargs
+        statement, left_out = (call.kwargs for call in warehouse.call_args_list)
         assert statement["send_raw_query"] is True
         assert statement["connection_id"] == str(connection.id)
         assert "FROM exposures" in statement["query"]
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
+        assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
+        assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
+            unknown_variants={"Control": 3}, empty_id=1, before_window=4, after_window=0
+        )
         assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
         control = next(series for series in response.timeseries if series.variant == "control")
         assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
