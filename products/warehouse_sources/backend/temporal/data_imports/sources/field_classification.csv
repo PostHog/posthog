@@ -1431,7 +1431,7 @@ ZohoBilling,,,,,,zoho-billing
 ZohoBooks,,,,,,zoho-books
 ZohoCRM,region client_id client_secret refresh_token,,,,,zoho-crm
 ZohoCampaign,,,,,,zoho-campaign
-ZohoDesk,,,,,,zoho-desk
+ZohoDesk,region client_id client_secret refresh_token organization_id,,,,,zoho-desk
 ZohoExpense,,,,,,zoho-expense
 ZohoInventory,,,,,,zoho-inventory
 ZohoInvoice,,,,,,zoho-invoice
