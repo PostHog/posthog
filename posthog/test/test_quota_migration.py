@@ -39,6 +39,7 @@ from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
     QuotaResource,
     _last_copy_limited_team_attributes,
+    _snapshot_shared_limited_team_attributes,
     add_limited_team_tokens,
     get_fresh_team_limited_resources,
     is_team_limited,
@@ -692,6 +693,19 @@ class TestQuotaMigration(SimpleTestCase):
             patch.object(self.secondary, "zrangebyscore", side_effect=RedisTimeoutError("member=private-token")),
         ):
             assert list_limited_team_attributes(self.resource, self.cache, use_cache=False) == expected
+
+    def test_quota_run_snapshot_reads_shared_redis_on_every_run(self) -> None:
+        self.secondary.zadd(self.key, {"copy-only": 1900000000})
+        snapshots = []
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READS_ENABLED=True),
+            patch("posthog.cache_utils.TEST", False),
+        ):
+            for token in ("first-run", "second-run"):
+                self.shared.delete(self.key)
+                self.shared.zadd(self.key, {token: 1900000000})
+                snapshots.append(_snapshot_shared_limited_team_attributes(self.cache)[self.resource.value])
+        assert snapshots == [["first-run"], ["second-run"]]
 
     @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:

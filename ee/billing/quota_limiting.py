@@ -290,9 +290,14 @@ def _read_limited_team_attributes(client: QuotaRedisClient, key: str) -> list[st
 
 
 def _read_shared_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
-    """Reads shared Redis whatever the read switch says. The quota run takes its snapshot here
-    because it writes shared Redis."""
+    """Reads shared Redis whatever the read switch says."""
     return _read_limited_team_attributes(get_client(), f"{cache_key.value}{resource.value}")
+
+
+def _snapshot_shared_limited_team_attributes(cache_key: QuotaLimitingCaches) -> dict[str, list[str]]:
+    """The quota run's own snapshot. It writes shared Redis from this, so it must read shared Redis
+    on every run, never a cached or switched copy."""
+    return {resource.value: _read_shared_limited_team_attributes(resource, cache_key) for resource in QuotaResource}
 
 
 _last_copy_limited_team_attributes: dict[tuple[QuotaResource, QuotaLimitingCaches], list[str]] = {}
@@ -371,9 +376,8 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     return score is not None and score >= timezone.now().timestamp()
 
 
-def _read_scores_without_transaction(client: QuotaRedisClient, keys: Sequence[str], token: str) -> list[float | None]:
-    # Cluster clients reject transactional pipelines, and these keys hash to different slots.
-    pipe = client.pipeline(transaction=False)
+def _read_scores(client: QuotaRedisClient, keys: Sequence[str], token: str, *, transaction: bool) -> list[float | None]:
+    pipe = client.pipeline(transaction=transaction)
     for key in keys:
         pipe.zscore(key, token)
     return pipe.execute()
@@ -387,16 +391,14 @@ def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource,
         try:
             scores = read_secondary_quota_store(
                 "read_score",
-                partial(_read_scores_without_transaction, keys=keys, token=team_api_token),
+                # Cluster clients reject transactional pipelines, and these keys hash to different slots.
+                partial(_read_scores, keys=keys, token=team_api_token, transaction=False),
                 resource=QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value,
             )
         except SecondaryQuotaStoreUnavailable:
             return dict.fromkeys(QuotaResource, False)
     else:
-        pipe = get_client().pipeline()
-        for key in keys:
-            pipe.zscore(key, team_api_token)
-        scores = pipe.execute()
+        scores = _read_scores(get_client(), keys, team_api_token, transaction=True)
     return {resource: score is not None and score >= now_ts for resource, score in zip(QuotaResource, scores)}
 
 
@@ -1787,14 +1789,12 @@ def update_all_orgs_billing_quotas(
     failed_team_tokens: set[str] = set()
 
     # Reconciliation must use this run's own snapshot, not the asynchronous 30-second cache.
-    previously_quota_limited_team_tokens = {
-        resource.value: _read_shared_limited_team_attributes(resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-        for resource in QuotaResource
-    }
-    previously_quota_limiting_suspended_team_tokens = {
-        resource.value: _read_shared_limited_team_attributes(resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
-        for resource in QuotaResource
-    }
+    previously_quota_limited_team_tokens = _snapshot_shared_limited_team_attributes(
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
+    previously_quota_limiting_suspended_team_tokens = _snapshot_shared_limited_team_attributes(
+        QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+    )
     store_snapshots = snapshot_quota_stores(
         {
             **{
