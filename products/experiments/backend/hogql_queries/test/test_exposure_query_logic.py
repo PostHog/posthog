@@ -212,7 +212,7 @@ class TestGetExposureConfigParamsForBuilder:
     )
     def test_refuses_warehouse_native_exposure_as_a_query_error(self, _name, exposure_criteria):
         with pytest.raises(ExposedHogQLError, match="cannot be calculated yet"):
-            get_exposure_config_params_for_builder(exposure_criteria, Team(id=1, project_id=1), None)
+            get_exposure_config_params_for_builder(exposure_criteria, None)
 
 
 class TestGetTestAccountsFilter:

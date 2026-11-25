@@ -211,6 +211,13 @@ describe('certificationsLogic', () => {
         expect(router.values.searchParams.table).toBeUndefined()
     })
 
+    it('opens with only the proposed certifications when the link asks for them', () => {
+        router.actions.push('/data-catalog?tab=certifications&filter=proposed')
+
+        expect(logic.values.filters.status).toEqual('proposed')
+        expect(router.values.searchParams.filter).toBeUndefined()
+    })
+
     it('removes the row when revoking', async () => {
         ;(dataCatalogCertificationsDestroy as jest.Mock).mockResolvedValue(undefined)
 

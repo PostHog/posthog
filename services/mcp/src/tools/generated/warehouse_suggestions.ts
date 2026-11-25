@@ -42,7 +42,7 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
             inputSchema: WarehouseSuggestionsAcceptSchema(),
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
-                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
+                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If mark_deprecated is false, its refreshes stop but it is not marked deprecated. If delete_view is true, the view is deleted for good. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -96,6 +96,9 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
         }
         if (params.delete_view !== undefined) {
             body['delete_view'] = params.delete_view
+        }
+        if (params.mark_deprecated !== undefined) {
+            body['mark_deprecated'] = params.mark_deprecated
         }
         const result = await context.api.request<Schemas.WarehouseSuggestion>({
             method: 'POST',

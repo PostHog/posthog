@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQueryModifiers,
     HogQLVariable,
+    PersonsOnEventsMode,
     QueryTiming,
     SessionPropertyFilter,
 )
@@ -58,12 +59,15 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError, unknown_type_error
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -77,6 +81,16 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    def test_default_numeric_conversions_preserve_decimal_values(self) -> None:
+        result = execute_hogql_query(
+            "SELECT toIntOrDefault(toDecimal('3.50', 2), 7), toFloatOrDefault(toDecimal('3.50', 2), 7), "
+            "toIntOrZero(3.5), toFloatOrZero(3.5)",
+            team=self.team,
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3, 3.5, 0, 3.5)]
 
     @parameterized.expand(
         [
@@ -1370,6 +1384,79 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
             )
+
+    @parameterized.expand(
+        [
+            (f"{scope}_{mode_name}", scope, mode)
+            for scope in ("person", "group_0")
+            for mode_name, mode in (
+                ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+                ("poe", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+                ("disabled", PersonsOnEventsMode.DISABLED),
+            )
+        ]
+    )
+    def test_cte_property_inequality_excludes_missing_values(
+        self, _name: str, scope: str, mode: PersonsOnEventsMode
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="score", property_type="Numeric"
+        )
+        if scope == "group_0":
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=0
+            )
+            _create_event(team=self.team, distinct_id="no-group", event="example")
+
+        for distinct_id, properties in (
+            ("matching", {"name": "match"}),
+            ("other", {"name": "other"}),
+            ("missing", {}),
+        ):
+            event_properties = {"score": "3.5"}
+            if scope == "person":
+                _create_person(team=self.team, distinct_ids=[distinct_id], properties=properties, is_identified=True)
+            else:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=distinct_id, properties=properties)
+                event_properties["$group_0"] = distinct_id
+            _create_event(team=self.team, distinct_id=distinct_id, event="example", properties=event_properties)
+
+        for projection, output, expected in (
+            ("", "", [("other",)]),
+            (", properties.score AS score", ", score", [("other", 3.5)]),
+        ):
+            result = execute_hogql_query(
+                f"WITH names AS (SELECT distinct_id, {scope}.properties.name AS value{projection} FROM events) "
+                f"SELECT distinct_id{output} FROM names WHERE value != 'match'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                workload=Workload.ONLINE,
+            )
+
+            assert result.results == expected
+
+    def test_cte_exposes_converted_joined_person_properties(self) -> None:
+        for name, property_type in (("score", "Numeric"), ("started_at", "DateTime")):
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.PERSON, name=name, property_type=property_type
+            )
+        _create_person(
+            team=self.team,
+            distinct_ids=["example"],
+            properties={"score": "3.5", "started_at": "2026-01-01 00:00:00"},
+            is_identified=True,
+        )
+        _create_event(team=self.team, distinct_id="example", event="example")
+
+        result = execute_hogql_query(
+            "WITH typed AS (SELECT person.properties.score AS score, person.properties.started_at AS started_at "
+            "FROM events) SELECT toFloatOrZero(score), toString(toDateTime(started_at)) FROM typed",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3.5, "2026-01-01 00:00:00")]
 
     def test_window_functions_simple(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"

@@ -34,7 +34,7 @@ class TestAttioResume:
     def _driver() -> SourceDriver:
         return SourceDriver(AttioSource(), AttioSourceConfig(api_key="key"))
 
-    @pytest.mark.parametrize("endpoint", ["companies", "people", "deals", "notes", "tasks"])
+    @pytest.mark.parametrize("endpoint", ["companies", "people", "deals", "notes", "tasks", "threads"])
     def test_fresh_run_stages_next_offset_after_each_page(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size
         responses = [_page(endpoint, 0, limit), _page(endpoint, limit, limit), _page(endpoint, 2 * limit, 3)]
@@ -84,9 +84,9 @@ class TestAttioResume:
         ]
 
 
-def _cursor_page(start: int, count: int, next_cursor: str | None) -> ScriptedResponse:
+def _cursor_page(start: int, count: int, next_cursor: str | None, id_field: str = "activity_id") -> ScriptedResponse:
     rows = [
-        {"id": {"workspace_id": "ws", "activity_id": f"row-{i}"}, "created_at": "2024-01-01"}
+        {"id": {"workspace_id": "ws", id_field: f"row-{i}"}, "created_at": "2024-01-01"}
         for i in range(start, start + count)
     ]
     return ScriptedResponse(json={"data": rows, "pagination": {"next_cursor": next_cursor}})
@@ -97,41 +97,46 @@ class TestAttioCursorPagination:
     def _driver() -> SourceDriver:
         return SourceDriver(AttioSource(), AttioSourceConfig(api_key="key"))
 
+    @pytest.mark.parametrize("endpoint, id_field", [("activities", "activity_id"), ("meetings", "meeting_id")])
     @pytest.mark.parametrize(
-        "resume_state, responses, expected_cursors, expected_rows, expected_states",
+        "resume_state, pages, expected_cursors, expected_rows, expected_states",
         [
             (
                 None,
-                [_cursor_page(0, 2, "c1"), _cursor_page(2, 2, "c2"), _cursor_page(4, 1, None)],
+                [(0, 2, "c1"), (2, 2, "c2"), (4, 1, None)],
                 [None, "c1", "c2"],
                 5,
                 [AttioResumeConfig(cursor="c1"), AttioResumeConfig(cursor="c2")],
             ),
             (
                 AttioResumeConfig(cursor="c2"),
-                [_cursor_page(4, 2, "c3"), _cursor_page(6, 1, None)],
+                [(4, 2, "c3"), (6, 1, None)],
                 ["c2", "c3"],
                 3,
                 [AttioResumeConfig(cursor="c3")],
             ),
         ],
     )
-    def test_activities_follow_next_cursor_and_stage_it(
+    def test_follows_next_cursor_and_stages_it(
         self,
+        endpoint: str,
+        id_field: str,
         resume_state: AttioResumeConfig | None,
-        responses: list[ScriptedResponse],
+        pages: list[tuple[int, int, str | None]],
         expected_cursors: list[str | None],
         expected_rows: int,
         expected_states: list[AttioResumeConfig],
     ) -> None:
-        result = self._driver().run("activities", responses, resume_state=resume_state)
+        responses = [_cursor_page(start, count, cursor, id_field) for start, count, cursor in pages]
+
+        result = self._driver().run(endpoint, responses, resume_state=resume_state)
 
         assert result.raised is None
         assert [request.param("cursor") for request in result.requests] == expected_cursors
-        assert all(request.param("limit") == "500" for request in result.requests)
+        assert all(request.param("limit") == str(ATTIO_ENDPOINTS[endpoint].page_size) for request in result.requests)
         assert all(request.param("offset") is None for request in result.requests)
         assert len(result.rows) == expected_rows
-        assert "activity_id" in result.rows[0]
+        assert id_field in result.rows[0]
         assert result.saved_states == expected_states
 
 
@@ -343,3 +348,83 @@ class TestAttioAttributeValues:
             "/v2/objects/o1/attributes/b/options",
         ]
         assert [row["option_id"] for row in result.rows] == ["v2"]
+
+
+def _meetings(next_cursor: str | None, *ids: str) -> ScriptedResponse:
+    rows = [{"id": {"workspace_id": "ws", "meeting_id": i}, "title": i} for i in ids]
+    return ScriptedResponse(json={"data": rows, "pagination": {"next_cursor": next_cursor}})
+
+
+def _recordings(meeting_id: str, next_cursor: str | None, *ids: str) -> ScriptedResponse:
+    rows = [
+        {
+            "id": {"workspace_id": "ws", "meeting_id": meeting_id, "call_recording_id": i},
+            "status": "completed",
+            "created_at": "2024-01-01T00:00:00.000000000Z",
+        }
+        for i in ids
+    ]
+    return ScriptedResponse(json={"data": rows, "pagination": {"next_cursor": next_cursor}})
+
+
+class TestAttioCallRecordings:
+    @staticmethod
+    def _script(resume_state: AttioResumeConfig | None) -> dict[str, list[ScriptedResponse]]:
+        m1_pages = [_recordings("m1", "r-c1", "r1", "r2"), _recordings("m1", None, "r3")]
+        if resume_state is not None and resume_state.cursor == "r-c1":
+            m1_pages = m1_pages[1:]
+        # The API pages meetings by start time; the walk sorts them by id so a resume key compares.
+        return {
+            "/v2/meetings/m1/call_recordings": m1_pages,
+            "/v2/meetings/m2/call_recordings": [ScriptedResponse(status=404, json={"code": "not_found"})],
+            "/v2/meetings/m3/call_recordings": [_recordings("m3", None)],
+            "/v2/meetings/m4/call_recordings": [_recordings("m4", None, "r4")],
+            "/v2/meetings": [_meetings("m-c1", "m3", "m1"), _meetings(None, "m4", "m2")],
+        }
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_requests, expected_rows, expected_states",
+        [
+            (
+                None,
+                [("m1", None), ("m1", "r-c1"), ("m2", None), ("m3", None), ("m4", None)],
+                [("m1", "r1"), ("m1", "r2"), ("m1", "r3"), ("m4", "r4")],
+                [
+                    AttioResumeConfig(fanout_key="meetings/m1", cursor="r-c1"),
+                    AttioResumeConfig(fanout_key="meetings/m1"),
+                    AttioResumeConfig(fanout_key="meetings/m4"),
+                ],
+            ),
+            (
+                AttioResumeConfig(fanout_key="meetings/m1", cursor="r-c1"),
+                [("m1", "r-c1"), ("m2", None), ("m3", None), ("m4", None)],
+                [("m1", "r3"), ("m4", "r4")],
+                [AttioResumeConfig(fanout_key="meetings/m1"), AttioResumeConfig(fanout_key="meetings/m4")],
+            ),
+            (
+                AttioResumeConfig(fanout_key="meetings/m3"),
+                [("m4", None)],
+                [("m4", "r4")],
+                [AttioResumeConfig(fanout_key="meetings/m4")],
+            ),
+        ],
+    )
+    def test_walks_every_meeting_page_and_resumes_by_key_and_cursor(
+        self,
+        resume_state: AttioResumeConfig | None,
+        expected_requests: list[tuple[str, str | None]],
+        expected_rows: list[tuple[str, str]],
+        expected_states: list[AttioResumeConfig],
+    ) -> None:
+        result = _driver().run("call_recordings", route(self._script(resume_state)), resume_state=resume_state)
+
+        assert result.raised is None
+        meeting_requests = [r for r in result.requests if r.path == "/v2/meetings"]
+        assert [r.param("cursor") for r in meeting_requests] == [None, "m-c1"]
+        assert all(r.param("limit") == "200" for r in meeting_requests)
+        recording_requests = [r for r in result.requests if r.path.endswith("/call_recordings")]
+        assert [(r.path.split("/")[3], r.param("cursor")) for r in recording_requests] == expected_requests
+        assert all(r.param("limit") == "200" for r in recording_requests)
+        assert [(row["meeting_id"], row["call_recording_id"]) for row in result.rows] == expected_rows
+        assert "target" not in result.rows[0]
+        assert result.saved_states == expected_states
