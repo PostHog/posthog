@@ -108,8 +108,7 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
 
 
 def _properties_document() -> ast.Expr:
-    # `toString` runs the JSON function on the whole rebuilt document. A bare `properties` with a runtime key compiles
-    # to a read that chooses between two documents by the key of each row.
+    # A bare `properties` with a runtime key compiles to a read routed by the key. `toString` reads the whole document.
     return ast.Call(name="toString", args=[ast.Field(chain=["properties"])])
 
 
