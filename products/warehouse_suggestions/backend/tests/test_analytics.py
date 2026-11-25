@@ -59,3 +59,43 @@ class TestEstimatedSavingsOnEvents(SimpleTestCase):
             properties["estimated_seconds_saved_per_month"],
             properties["estimated_bytes_saved_per_month"],
         ) == expected
+
+
+class TestDeprecateChoiceOnEvents(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "marked_deprecated",
+                WarehouseSuggestionKind.DEPRECATE,
+                {"certification_id": "c", "stopped_materialization": True},
+                "mark_deprecated",
+            ),
+            (
+                "only_stopped_refreshes",
+                WarehouseSuggestionKind.DEPRECATE,
+                {"saved_query_id": "v"},
+                "only_stop_refreshes",
+            ),
+            (
+                "deleted",
+                WarehouseSuggestionKind.DEPRECATE,
+                {"saved_query_id": "v", "stopped_materialization": False},
+                "delete",
+            ),
+            ("not_accepted_yet", WarehouseSuggestionKind.DEPRECATE, None, None),
+            ("certified", WarehouseSuggestionKind.CERTIFY, {"certification_id": "c"}, None),
+        ]
+    )
+    def test_reports_what_accepting_a_deprecate_suggestion_did(
+        self,
+        _name: str,
+        kind: WarehouseSuggestionKind,
+        created_asset: dict[str, Any] | None,
+        expected: str | None,
+    ) -> None:
+        suggestion = WarehouseSuggestion(kind=kind, payload={}, score=1.0, created_asset=created_asset)
+
+        with patch(REPORT) as report:
+            report_outcomes(SuggestionOutcome.REPROPOSED, [suggestion], team=MagicMock())
+
+        assert report.call_args.args[1]["deprecate_choice"] == expected

@@ -148,6 +148,7 @@ from .credential_refresh import CredentialRefreshExitReason, run_credential_refr
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+RESUME_SNAPSHOT_INVALID_ERROR_TYPES = (*DEAD_SANDBOX_ERROR_TYPES, "ResumeSnapshotCredentialScrubError")
 RUN_ENDING_FOLLOWUP_ERROR_TYPES = ("ActiveSessionCapError",)
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
@@ -161,7 +162,9 @@ class _TaskCompletedDuringSandboxCreation(Exception):
 
 def _is_dead_sandbox_failure(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
-    return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in RESUME_SNAPSHOT_INVALID_ERROR_TYPES
+    )
 
 
 def _failure_error_type(cause: BaseException | None, exc: Exception) -> str:
@@ -229,6 +232,7 @@ class ResumedSandboxState:
     # may be steering the run, which would switch persistence off for the creator's later turns.
     agent_memory_persist_enabled: bool | None = None
     agent_memory_last_actor_user_id: int | None = None
+    agent_egress_maintain_for_run: bool = False
 
 
 @frozen
@@ -1294,6 +1298,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url = input.resumed_sandbox.sandbox_url
                 sandbox_connect_token = input.resumed_sandbox.connect_token
                 self._sandbox_jwt_kid = input.resumed_sandbox.jwt_kid
+                if self.context.agent_egress_maintain_for_run and workflow.patched("agent-egress-enrollment-handoff"):
+                    self._agent_egress_observation_task = asyncio.create_task(self._observe_egress(sandbox_id))
                 workflow.logger.info(
                     "process_task_resumed_after_continue_as_new",
                     extra={"run_id": run_id, "sandbox_id": sandbox_id},
@@ -2030,6 +2036,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_backend=self.context.sandbox_backend,
                 agent_memory_persist_enabled=self._agent_memory_persist_enabled,
                 agent_memory_last_actor_user_id=self._agent_memory_last_actor_user_id,
+                agent_egress_maintain_for_run=self.context.agent_egress_maintain_for_run,
             ),
         )
 
@@ -2093,6 +2100,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
                 stream_generation=self._stream_generation,
                 launches_agent=True,
+                resume_agent_egress_enrollment=bool(
+                    input.resumed_sandbox
+                    and input.resumed_sandbox.agent_egress_maintain_for_run
+                    and workflow.patched("agent-egress-enrollment-handoff")
+                ),
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -2140,14 +2152,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         repository=prepared.repository,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
-                    # A dead sandbox won't come back; fail fast into the fallback below.
+                    # A dead sandbox or unsafe restored filesystem needs a fresh sandbox.
                     retry_policy=RetryPolicy(
                         maximum_attempts=3,
-                        non_retryable_error_types=list(DEAD_SANDBOX_ERROR_TYPES),
+                        non_retryable_error_types=list(RESUME_SNAPSHOT_INVALID_ERROR_TYPES),
                     ),
                 )
             except Exception as e:
-                # Only a dead restored sandbox falls back: drop the poison snapshot, discard the
+                # A dead sandbox or unsafe restored filesystem falls back: drop the poison snapshot, discard the
                 # sandbox, and provision fresh (the agent resumes from run-log history, not the
                 # filesystem). Anything else — e.g. credential failures — would hit a fresh
                 # sandbox too, so let it fail the run without trashing a valid snapshot.
@@ -3024,6 +3036,27 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         relay_task: asyncio.Task[None] | None,
         credential_refresh_task: asyncio.Task[None] | None,
     ) -> SandboxRotation:
+        await self._stop_egress_observation()
+        maintain_egress = self.context.agent_egress_maintain_for_run and workflow.patched(
+            "agent-egress-enrollment-handoff"
+        )
+        if not maintain_egress:
+            self.context.agent_egress_observation_config = None
+            self.context.agent_egress_enrollment_enabled = False
+            self.context.agent_egress_maintain_for_run = False
+        result = await self._rotate_sandbox(old_sandbox_id, relay_task, credential_refresh_task)
+        if maintain_egress and result.routing_restored and not self._task_completed:
+            self._agent_egress_observation_task = asyncio.create_task(
+                self._observe_egress(result.sandbox_id or old_sandbox_id)
+            )
+        return result
+
+    async def _rotate_sandbox(
+        self,
+        old_sandbox_id: str,
+        relay_task: asyncio.Task[None] | None,
+        credential_refresh_task: asyncio.Task[None] | None,
+    ) -> SandboxRotation:
         """Move the run onto a replacement sandbox built from a snapshot of the current one.
 
         Every failure leaves the run on the sandbox it already had, which still has the lead
@@ -3037,10 +3070,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         send commands the same way — so the swap needs no client involvement beyond keeping that
         stream fed.
         """
-        await self._stop_egress_observation()
         self._resume_snapshot_invalidated = False
-        self.context.agent_egress_observation_config = None
-        self.context.agent_egress_enrollment_enabled = False
         activity_count = self._sandbox_activity_count
         # A replacement built from a snapshot without a baseline (its restore failed) restores from
         # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
@@ -3366,6 +3396,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         config_path = self.context.agent_egress_observation_config
         if config_path is None:
             return
+        sandbox_expires_at = None
+        execution_timeout = timedelta(minutes=15)
+        if (
+            self.context.agent_egress_enrollment_enabled
+            and workflow.patched("agent-egress-run-lifetime")
+            and self._sandbox_ttl_expires_at is not None
+        ):
+            sandbox_expires_at = self._sandbox_ttl_expires_at.timestamp()
+            execution_timeout = max(self._sandbox_ttl_expires_at - workflow.now(), timedelta()) + timedelta(minutes=1)
         try:
             statuses = await workflow.execute_child_workflow(
                 AgentEgressProbeWorkflow.run,
@@ -3375,10 +3414,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     run_id=self.context.run_id,
                     sandbox_id=sandbox_id,
                     enrollment=self.context.agent_egress_enrollment_enabled,
+                    sandbox_expires_at=sandbox_expires_at,
                 ),
                 id=f"agent-egress-observation-{self.context.run_id}-{workflow.uuid4()}",
                 task_queue=workflow.info().task_queue,
-                execution_timeout=timedelta(minutes=15),
+                execution_timeout=execution_timeout,
                 parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                 cancellation_type=ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
             )

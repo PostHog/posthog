@@ -2,6 +2,7 @@ import math
 from functools import partial
 from typing import Any
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
 import posthoganalytics
@@ -13,7 +14,9 @@ from posthog.models import Team, User
 from posthog.utils import flag_identity, get_safe_cache, safe_cache_set
 
 
-def notebook_app_builder_enabled(user: User, team: Team) -> bool:
+def notebook_app_builder_enabled(user: User | AnonymousUser, team: Team) -> bool:
+    if not isinstance(user, User):
+        return False
     identity = flag_identity(user, team, team.organization)
     if identity is None:
         return False

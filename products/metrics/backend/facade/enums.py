@@ -177,6 +177,21 @@ class PanelProgressState(LabeledStrEnum):
     SKIPPED = "skipped"
 
 
+class AgentActivityKind(LabeledStrEnum):
+    """What the import agent does now, read from its latest tool call. THINKING is the time between tool calls."""
+
+    SEARCHING_METRICS = "searching_metrics"
+    READING_LABELS = "reading_labels"
+    READING_LABEL_VALUES = "reading_label_values"
+    RUNNING_QUERY = "running_query"
+    CHECKING_PANELS = "checking_panels"
+    EXPLORING_LOGS = "exploring_logs"
+    EXPLORING_TRACES = "exploring_traces"
+    READING_DASHBOARD = "reading_dashboard"
+    THINKING = "thinking"
+    WORKING = "working"
+
+
 class PanelBuilderAggregation(LabeledStrEnum):
     """The aggregations of a builder clause that the dashboard import checks. They match the metrics query API."""
 

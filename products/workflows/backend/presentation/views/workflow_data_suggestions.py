@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.models import User
@@ -208,6 +209,8 @@ class EventWorkflowsBuildResponseSerializer(serializers.Serializer):
 
 class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Workflow ideas written by AI from the project's own events. Both calls are free for the customer."""
+
+    permission_classes = [CDPPropertyAccessPermission]
 
     scope_object = "hog_flow"
     # These actions read the whole project and create drafts, so access to a single workflow is not enough.

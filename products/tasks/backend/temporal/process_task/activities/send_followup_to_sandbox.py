@@ -56,6 +56,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_for_task,
+    posthog_code_keeps_bundled_skills,
     record_delivered_message,
     sandbox_identity_scope,
     unmounted_mcp_installations_log_fields,
@@ -355,6 +356,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 TaskRun.update_state_atomic(task_run.id, updates=updates)
             except Exception:
                 logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+                raise
             # The store skills in run state are the previous actor's; the MCP refresh below makes
             # the sandbox re-read the run, so the new actor's list must be there first.
             if actor_user is not None and current.get("slack_actor_user_id") != actor_user.id:
@@ -644,6 +646,7 @@ def _refresh_sandbox_mcp(
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_for_task(task_run.task, state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
@@ -908,6 +911,26 @@ def _refresh_sandbox_github(
                 sandbox_id=sandbox.id,
             )
             return SandboxRebindFailure.CREDENTIAL_LOCK_UNAVAILABLE
+
+        try:
+            scrubbed = clear_github_env_from_gitlab_sandbox(sandbox)
+        except Exception:
+            logger.warning(
+                "refresh_github_stale_credential_scrub_errored",
+                run_id=run_id,
+                user_id=actor_user.id,
+                sandbox_id=sandbox.id,
+                exc_info=True,
+            )
+            return SandboxRebindFailure.LOGOUT_ERRORED
+        if not scrubbed:
+            logger.warning(
+                "refresh_github_stale_credential_scrub_unconfirmed",
+                run_id=run_id,
+                user_id=actor_user.id,
+                sandbox_id=sandbox.id,
+            )
+            return SandboxRebindFailure.LOGOUT_UNCONFIRMED
 
         if token:
             applied = False

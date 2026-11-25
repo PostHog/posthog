@@ -40,10 +40,18 @@ dependency_cache = caches["cohort_dependencies"]
 
 # A save that persists none of these fields cannot change a dependency edge.
 DEPENDENCY_FIELDS = frozenset({"filters", "groups", "deleted"})
-COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
-# The lock expiring exactly as the task fires is what closes the lost-dispatch window: a TTL longer
-# than the countdown would swallow a save that lands after the task already read its state.
-COHORT_BACKFILL_REDIS_TTL_SECONDS = COHORT_BACKFILL_DEBOUNCE_SECONDS
+# The run-creation countdown per kind, and the expiry of that kind's debounce key (see _trigger_cohort_backfill).
+COHORT_BACKFILL_DEBOUNCE_SECONDS: dict[CohortBackfillKind, int] = {
+    # The processor holds a tile behind its apply fence until COHORT_SEED_FENCE_MARGIN_MS after the chunk's
+    # scan, which is longer than a catalog refresh, so a behavioral run needs no wait for the refresh.
+    CohortBackfillKind.BEHAVIORAL: 300,
+    # A processor pod loads a cohort that was just turned on, or a criterion that just changed, at its next catalog
+    # refresh. That is FILTER_CATALOG_REFRESH_SECS plus FILTER_CATALOG_REFRESH_JITTER_SECS after the previous one
+    # ended, 360 s by default, plus a poll tick and the load itself. The pod drops a person seed for a condition its
+    # catalog lacks, so a run must not start before the refresh after the save that queued it. Keep this above the
+    # refresh interval plus jitter, a poll tick, and the load.
+    CohortBackfillKind.PERSON_PROPERTY: 420,
+}
 
 
 def cohort_backfill_pending_key(cohort_id: int, kind: str) -> str:
@@ -538,9 +546,10 @@ def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBack
             trigger_cohort_backfill_run_task,  # noqa: PLC0415 — avoids a task import during model loading
         )
 
+        debounce_seconds = COHORT_BACKFILL_DEBOUNCE_SECONDS[kind]
         redis_client = get_redis_client()
         lock_key = cohort_backfill_pending_key(cohort.pk, kind)
-        if not redis_client.set(lock_key, trigger_kind, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+        if not redis_client.set(lock_key, trigger_kind, nx=True, ex=debounce_seconds):
             COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="debounced").inc()
             logger.info(
                 "cohort_backfill_already_pending",
@@ -556,12 +565,12 @@ def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBack
             team_id=cohort.team_id,
             backfill_kind=kind,
             trigger_kind=trigger_kind,
-            debounce_seconds=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            debounce_seconds=debounce_seconds,
         )
         try:
             trigger_cohort_backfill_run_task.apply_async(
                 args=[cohort.team_id, cohort.pk, trigger_kind, kind],
-                countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+                countdown=debounce_seconds,
             )
         except Exception:
             # Release the lock so the next save can retry scheduling.

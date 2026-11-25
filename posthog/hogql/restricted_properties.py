@@ -65,6 +65,7 @@ _AI_EVENTS_MIRRORED_COLUMNS |= {
 # SDK derives `$pathname` from the same URL. A guard test fails when a dimension column is missing here.
 WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "host": ("$host",),
+    "session_hosts": ("$host",),
     "device_type": ("$device_type",),
     "pathname": ("$pathname",),
     "entry_pathname": ("$current_url", "$pathname"),

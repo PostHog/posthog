@@ -22,7 +22,9 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team import Team
@@ -30,6 +32,8 @@ from posthog.models.team import Team
 from products.data_modeling.backend.facade.contracts import DescribedColumn, DescribeProbe
 
 if TYPE_CHECKING:
+    from posthog.hogql.transforms.prompt_jev import PromptJevTable
+
     from posthog.models.user import User
 
 THERE_IS_NO_COLUMN_ERROR_CODE = 8
@@ -182,26 +186,63 @@ def describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
     }
 
 
+@frozen
+class ZeroRowJevPlan:
+    """A view query with its jev calls planned on zero rows, and the empty result tables it reads."""
+
+    query: ast.SelectQuery | ast.SelectSetQuery
+    tables: list["PromptJevTable"]
+
+
 def _plan_prompt_jev(
     select_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, team: Team
-) -> tuple[ast.SelectQuery | ast.SelectSetQuery, list[ClickHouseExternalTable]]:
+) -> ZeroRowJevPlan:
     zero_row_query = clone_expr(select_query)
     _ZeroRowJevPlanning().visit(zero_row_query)
+    # The executor resolves types and runs each jev source against a database. Without one on its
+    # context it builds one per step, and each build selects every view in the team.
+    if context.database is None:
+        context.database = Database.create_for(
+            team=team,
+            user=context.user,
+            bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+        )
     planned_query, jev_tables = HogQLQueryExecutor(
         query=zero_row_query,
         team=team,
         user=context.user,
-        bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+        context=HogQLContext(
+            team_id=team.pk,
+            user=context.user,
+            bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+            database=context.database,
+        ),
         refresh_stale_view_columns=False,
     ).plan_prompt_jev()
-    context.database = Database.create_for(
-        team=team,
-        user=context.user,
-        bypass_warehouse_access_control=context.bypass_warehouse_access_control,
-    )
-    for table in jev_tables:
+    return ZeroRowJevPlan(query=planned_query, tables=jev_tables)
+
+
+def _register_jev_tables(plan: ZeroRowJevPlan, context: HogQLContext) -> list[ClickHouseExternalTable]:
+    for table in plan.tables:
         table.register(context)
-    return planned_query, list(context.external_tables.values())
+    return list(context.external_tables.values())
+
+
+def plan_prompt_jev_on_zero_rows(
+    select_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, team: Team
+) -> ZeroRowJevPlan | None:
+    """Plans a view query's jev calls on zero rows, so the query prints without a model call. None without a jev call."""
+    if not PromptJevFinder.contains(select_query):
+        return None
+    from posthog.hogql.transforms.prompt_jev import (  # noqa: PLC0415 -- keep the optional model clients off ordinary query imports
+        PromptJevBudget,
+    )
+
+    PromptJevBudget().visit(select_query)
+    with app_org_concurrency_slot(team):
+        plan = _plan_prompt_jev(select_query, context, team)
+    _register_jev_tables(plan, context)
+    return plan
 
 
 def _run_describe(
@@ -246,8 +287,12 @@ def describe_query_columns(
     user: Optional["User"],
     bypass_warehouse_access_control: bool,
     database: Database | None = None,
+    jev_plan: ZeroRowJevPlan | None = None,
 ) -> list[DescribedColumn]:
-    """The query's output columns, read without running the query."""
+    """The query's output columns, read without running the query.
+
+    ``jev_plan`` is the plan a caller already made for this query, so its jev calls are not planned twice.
+    """
     context = HogQLContext(
         team_id=team.pk,
         user=user,
@@ -255,8 +300,11 @@ def describe_query_columns(
         database=database,
     )
     jev_external_tables: list[ClickHouseExternalTable] = []
-    if PromptJevFinder.contains(select_query):
-        select_query, jev_external_tables = _plan_prompt_jev(select_query, context, team)
+    if jev_plan is None and PromptJevFinder.contains(select_query):
+        jev_plan = _plan_prompt_jev(select_query, context, team)
+    if jev_plan is not None:
+        select_query = jev_plan.query
+        jev_external_tables = _register_jev_tables(jev_plan, context)
 
     executor = HogQLQueryExecutor(query=select_query, team=team, user=user, query_type="HogQLQuery", context=context)
     untouched_sql, printed_context = executor.generate_clickhouse_sql()

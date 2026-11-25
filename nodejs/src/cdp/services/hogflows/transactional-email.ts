@@ -22,6 +22,11 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
+const MessageIdSchema = z
+    .string()
+    .max(255)
+    .regex(/^<[!-;=?A-~]+@[!-;=?-~]+>$/)
+
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
     '.adp',
@@ -200,12 +205,17 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        thread: z
+            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).max(100).readonly() })
+            .strict()
+            .readonly()
+            .optional(),
     })
     .strict()
     .readonly()
 
 export const BatchSendSchema = AcceptedSendSchema.unwrap()
-    .omit({ cc: true, bcc: true, attachments: true })
+    .omit({ cc: true, bcc: true, attachments: true, thread: true })
     .strict()
     .readonly()
 
@@ -227,6 +237,7 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.thread && { thread: { inReplyTo: send.thread.inReplyTo, references: [...send.thread.references] } }),
 })
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })
@@ -296,12 +307,11 @@ export type TransactionalEmailOutcome =
     | 'utm_value_too_long'
     | 'email_body_too_many_tags'
     | 'delivery_unavailable'
-    | 'not_sealing'
     | 'error'
 
 export const transactionalEmailRequestsTotal = new Counter({
     name: 'cdp_transactional_email_requests_total',
-    help: 'Answers to Django for a transactional email, by outcome and route: `single` counts a request, `batch` counts each recipient of a batch. It records the answer, not the delivery: after `intake_unavailable` or `error`, the email may still go out. `not_sealing` counts a single send refused because the pod does not seal transactional email state while the team is on async intake.',
+    help: 'Answers to Django for a transactional email, by outcome and route: `single` counts a request, `batch` counts each recipient of a batch. It records the answer, not the delivery: after `intake_unavailable` or `error`, the email may still go out.',
     labelNames: ['outcome', 'route'],
 })
 

@@ -164,7 +164,6 @@ SubscriptionDelivery
 Survey
 SurveyResponseArchive
 Tag
-Tagger
 Task
 TaskRun
 TeamConversationsTeamsConfig

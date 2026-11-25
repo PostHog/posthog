@@ -1,9 +1,10 @@
 # Adding an interview to MCP recruitment
 
-> [!CAUTION]
-> Unsolicited elicitation interrupts users and can become advertising spam.
-> Get explicit approval from a human MCP owner for the study, audience, copy, and frequency before enabling it.
-> Read [AGENTS.md](AGENTS.md#unsolicited-elicitation-high-risk). Adding a variant does not bypass that policy.
+> [!NOTE]
+> An invitation interrupts someone in the middle of their work, so keep audiences targeted and frequency low.
+> Recruitment that feels like spam costs us trust in the MCP.
+> If you are unsure about your audience, copy, or timing, check in with the MCP team.
+> Talk to us before you change anything that loosens the guardrails below.
 
 ## Use the existing flag
 
@@ -16,7 +17,7 @@ and reads that variant's JSON payload from the same flag evaluation.
 3. Add release conditions using existing person/group properties or cohorts. Assign the desired variant to each condition explicitly.
 4. Add an AND condition excluding the [shared recruitment exclusion cohort](https://us.posthog.com/project/2/cohorts/641799) (`type: "cohort"`, `key: "id"`, `operator: "not_in"`, `value: 641799`) to every release condition for every variant, including test audiences. Maintain excluded users and organizations in this cohort instead of adding individual entries to the flag.
 5. Put higher-priority, more specific conditions first. Check people who match only your study, only another study, both, and neither. Also check that excluded people receive no variant, even when they match a campaign's audience. One evaluation selects one interview; overlapping audiences do not produce multiple dialogs.
-6. Agree on rollout with the MCP owner before changing percentages or enabling the flag. Preserve the other studies' variants, payloads, release conditions, and cohort exclusions when editing it.
+6. Start with a small rollout and widen it once responses look healthy. Preserve the other studies' variants, payloads, release conditions, and cohort exclusions when editing it.
 
 The shared flag is [in US project 2](https://us.posthog.com/project/2/feature_flags/962543).
 Its release conditions are alternatives (OR), so each one must include the cohort exclusion.
@@ -34,7 +35,7 @@ Example payload:
 }
 ```
 
-Replace the example URL and copy with the approved study details. Missing or invalid copy/URL skips
+Replace the example URL and copy with your study's details. Missing or invalid copy/URL skips
 that campaign; a new variant never inherits another study's booking URL. Omitted timing fields default
 to three completed product calls and 120 seconds. Do not put targeting rules or a `campaign_id` in
 the payload. Targeting belongs in release conditions; campaign identity comes from the variant key.
@@ -51,8 +52,9 @@ invitation stops further recruitment across campaigns. Canceling or abandoning a
 a shared seven-day cooldown. Adding or renaming a campaign must not reset these records.
 
 The code also enforces URL elicitation capability, direct MCP surface eligibility, task exclusions,
-conversation warmup, and atomic reservation against simultaneous invitations. Reuse this flow;
-do not add another tool, dispatcher hook, independent recruitment flag, or suppression namespace.
+conversation warmup, and atomic reservation against simultaneous invitations. Reuse this flow
+rather than adding another tool, dispatcher hook, recruitment flag, or suppression namespace, because a
+parallel path would bypass these protections. If the flow does not fit your study, check in with the MCP team.
 
 The existing events carry `campaign_id` and `invitation_id`:
 

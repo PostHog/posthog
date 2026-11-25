@@ -194,6 +194,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
+    // The toolbar sign-in error page, where the app shows why the server refused to open the toolbar.
+    '/toolbar_oauth',
     // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
     // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
     // /onboarding swallows the click and the email is never updated.
