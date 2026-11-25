@@ -76842,6 +76842,42 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface MonitorPRRequest {
+      /**
+         * GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.
+         * @maxLength 500
+         */
+      pr_url: string;
+      /**
+         * Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.
+         * @maxLength 4000
+         */
+      note?: string;
+    }
+
+    export interface MonitorPRResponse {
+      /** The report assigned to the person who requested monitoring. */
+      report_id: string;
+      /** Open the report to follow research and monitoring. */
+      report_url: string;
+      /** Current report status. Research runs asynchronously; monitoring starts after research and PR merge.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** True when this person already requested monitoring for this PR in this project. */
+      idempotent_replay: boolean;
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -80870,6 +80906,69 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface PRBrowserReport {
+      /** Monitoring report assigned to the caller. */
+      id: string;
+      /** Current report status, including research and waiting for merge.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+    }
+
+    export interface PRBrowserItem {
+      /** GitHub URL. */
+      url: string;
+      /** Repository registered with this project, in owner/name format. */
+      repository: string;
+      /** GitHub pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Current GitHub pull request state.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
+      /** Whether this is a draft pull request. */
+      draft: boolean;
+      /** GitHub login of the author. */
+      author: string;
+      /** When the PR was opened. */
+      created_at: string;
+      /** When GitHub last updated the PR. */
+      updated_at: string;
+      /** The caller’s monitoring report, or null when not requested. */
+      report: PRBrowserReport | null;
+      /**
+         * Why monitoring or retrying is unavailable for this pull request, or null when eligible.
+         * @nullable
+         */
+      monitoring_disabled_reason?: string | null;
+    }
+
+    export interface PRBrowserPage {
+      /** Recent authored pull requests ordered by creation time, newest first. */
+      results: PRBrowserItem[];
+      /**
+         * The caller’s connected GitHub identity, or null if not connected.
+         * @nullable
+         */
+      github_login: string | null;
+      /** Whether the project has a GitHub installation. */
+      has_integration: boolean;
+    }
 
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
