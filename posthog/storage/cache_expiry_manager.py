@@ -482,8 +482,15 @@ def delete_entry_keeping_failed_delete_tracked(hypercache: HyperCache, identifie
     retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
     member = str(identifier)
     redis_client = get_client(hypercache.redis_url)
-    redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
+    tracking_error: Exception | None = None
+    try:
+        redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
+    except Exception as e:
+        # The object-storage copy has no TTL, so a failed tracking write must not skip the deletes.
+        tracking_error = e
     hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
+    if tracking_error is not None:
+        raise tracking_error
     return redis_client.zscore(sorted_set_key, member) is not None or _retrack_if_still_stored(
         hypercache, identifier, redis_client, sorted_set_key, retry_score
     )

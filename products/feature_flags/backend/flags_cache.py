@@ -1671,8 +1671,15 @@ def team_deleted_flags_cache(sender, instance: "Team", **kwargs):
     from products.feature_flags.backend.tasks import clear_team_evaluation_cache
 
     team_id = instance.id
-    # robust=True keeps a broker failure from failing the delete. The daily cleanup then deletes the entry.
-    transaction.on_commit(lambda: clear_team_evaluation_cache.delay(team_id), robust=True)
+
+    def enqueue_clear() -> None:
+        try:
+            clear_team_evaluation_cache.delay(team_id)
+        except Exception:
+            # A broker failure must not fail the delete. The daily cleanup then deletes the entry.
+            logger.exception("Failed to enqueue flags cache clear for deleted team", team_id=team_id)
+
+    transaction.on_commit(enqueue_clear)
 
 
 @receiver(post_save, sender=FeatureFlagEvaluationContext)
