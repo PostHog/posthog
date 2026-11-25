@@ -8,25 +8,29 @@ from django.core.mail import EmailMultiAlternatives
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
+from posthog.constants import AvailableFeature
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.workflow_email_senders import SENDER_UNUSABLE_NOTICE_FLAG
 from products.workflows.backend.tasks.workflow_email_health import notify_unusable_workflow_email_senders
 from products.workflows.backend.test.email_domain_api_test_case import DOMAIN, EmailDomainApiTestCase
 
 
-def email_step(step_id: str, name: str, sender_id: int) -> dict[str, Any]:
+def email_step(step_id: str, name: str, sender_id: int, *rotation: int) -> dict[str, Any]:
+    sender: dict[str, Any] = {
+        "integrationId": sender_id,
+        **({"integrationIds": [sender_id, *rotation]} if rotation else {}),
+    }
     return {
         "id": step_id,
         "name": name,
         "type": "function_email",
-        "config": {
-            "template_id": "template-email",
-            "inputs": {"email": {"value": {"from": {"integrationId": sender_id}}}},
-        },
+        "config": {"template_id": "template-email", "inputs": {"email": {"value": {"from": sender}}}},
     }
 
 
@@ -58,8 +62,7 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
     def test_emails_the_admins_once_about_live_workflow_steps_whose_sender_cannot_send(self) -> None:
         broken = self.workflow(
             "Onboarding",
-            email_step("welcome", "Welcome email", self.deleted),
-            email_step("tips", "Tips email", self.unverified),
+            email_step("welcome", "Welcome email", self.verified, self.deleted, self.unverified),
             email_step("hello", "Hello email", self.verified),
         )
         self.workflow("Healthy", email_step("hello", "Hello email", self.verified))
@@ -74,8 +77,8 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         assert "Onboarding" in message.subject
         assert isinstance(message, EmailMultiAlternatives)
         body = str(message.alternatives[0][0])
-        assert "Welcome email" in body and "Tips email" in body
-        assert "Hello email" not in body
+        assert "Welcome email" in body and "Hello email" not in body
+        assert "can't be found" in body and "isn't verified yet" in body
         assert f"/project/{self.team.id}/workflows/{broken.id}/workflow" in body
 
     def test_emails_again_when_the_steps_senders_break_differently(self) -> None:
@@ -105,9 +108,13 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
 
         assert mail.outbox == []
         [summary] = [log for log in logs if log["event"] == "workflow_email_sender_unusable_shadow"]
-        assert summary["undecided"] == undecided
-        expected = [{"team_id": self.team.id, "workflow_id": str(flow.id), "sender_ids": [str(self.deleted)]}]
-        assert summary["held_back"] == expected[:held_back]
+        assert (summary["held_back"], summary["undecided"]) == (held_back, undecided)
+        listed = [log for log in logs if log["event"] == "workflow_email_sender_unusable_held_back"]
+        expected = {
+            "team_id": self.team.id,
+            "workflows": [{"workflow_id": str(flow.id), "sender_ids": [str(self.deleted)]}],
+        }
+        assert [{key: log[key] for key in expected} for log in listed] == [expected][:held_back]
 
     @parameterized.expand([("still_a_member", True), ("left_the_organization", False)])
     def test_includes_the_workflow_creator_while_they_can_open_the_project(self, _name: str, member: bool) -> None:
@@ -120,3 +127,44 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
 
         recipients = sorted(address for message in mail.outbox for address in message.to)
         assert recipients == sorted([self.user.email, *(["creator@example.com"] if member else [])])
+
+    def test_leaves_out_a_project_admin_the_workflow_is_hidden_from(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        admin = User.objects.create_and_join(self.organization, "project-admin@example.com", None)
+        membership = OrganizationMembership.objects.get(user=admin, organization=self.organization)
+        flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
+        for resource, resource_id, level in (("project", self.team.id, "admin"), ("hog_flow", flow.id, "none")):
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(resource_id),
+                access_level=level,
+                organization_member=membership,
+            )
+
+        notify_unusable_workflow_email_senders()
+
+        assert [address for message in mail.outbox for address in message.to] == [self.user.email]
+
+    def test_a_project_that_fails_does_not_stop_the_others(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other project")
+        self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted))
+        HogFlow.objects.create(
+            team=other,
+            name="Renewals",
+            status=HogFlow.State.ACTIVE,
+            actions=[email_step("renew", "Renewal email", self.deleted)],
+        )
+
+        def flag(key: str, *args: Any, groups: dict[str, str], **kwargs: Any) -> bool:
+            if key == SENDER_UNUSABLE_NOTICE_FLAG and groups["project"] == str(self.team.id):
+                raise ConnectionError("flag service unreachable")
+            return True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=flag):
+            notify_unusable_workflow_email_senders()
+
+        assert ["Renewals" in message.subject for message in mail.outbox] == [True]

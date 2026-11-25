@@ -1015,7 +1015,7 @@ def send_workflow_email_sender_unusable(
     team_id: int,
     hog_flow_id: str,
     hog_flow_name: str,
-    steps: list[dict[str, str]],
+    steps: list[dict[str, Any]],
     sender_ids: list[str | None],
     created_by_id: int | None = None,
 ) -> None:
@@ -1030,10 +1030,19 @@ def send_workflow_email_sender_unusable(
     creator = User.objects.filter(id=created_by_id, is_active=True).first() if created_by_id else None
     if creator and creator not in recipients and _can_open_project(creator, team):
         recipients.add(creator)
+    # Loaded here so that every importer of this module does not also load the workflows product.
+    from products.workflows.backend.facade.api import get_viewable_workflow_ids  # noqa: PLC0415
+
+    recipients = {
+        user
+        for user in recipients
+        if hog_flow_id
+        in get_viewable_workflow_ids(
+            team_id=team.id, user_access_control=UserAccessControl(user, team), workflow_ids=[hog_flow_id]
+        )
+    }
     if not recipients:
         return
-    # Keyed on the broken senders, so a workflow emails again only when the set of senders that
-    # cannot send changes.
     senders_digest = hashlib.sha256("|".join(sorted(str(sender_id) for sender_id in sender_ids)).encode()).hexdigest()
     workflow_label = single_line(hog_flow_name or "an unnamed workflow")
     message = EmailMessage(

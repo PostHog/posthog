@@ -91,24 +91,45 @@ def live_workflows_with_unusable_senders(team_id: int) -> list[WorkflowWithUnusa
 def notify_unusable_email_senders() -> None:
     """Email each project in the rollout about its live workflows with an email sender that cannot send.
 
-    Projects outside the rollout get one log line per run instead.
+    Projects outside the rollout get a log line listing those workflows instead.
     """
-    held_back: list[dict[str, Any]] = []
-    undecided = 0
+    held_back = undecided = failed = 0
     for team_id in _teams_with_live_email_workflows():
-        workflows = live_workflows_with_unusable_senders(team_id)
-        if not workflows:
+        try:
+            outcome = _notify_team(team_id)
+        except Exception as error:
+            failed += 1
+            logger.exception("workflow_email_sender_unusable_team_failed", team_id=team_id)
+            capture_exception(error, {"team_id": team_id})
             continue
-        rolled_out = _rolled_out(team_id)
-        if rolled_out is None:
-            undecided += len(workflows)
-            continue
-        for workflow in workflows:
-            if rolled_out:
-                _queue_sender_unusable_email(team_id, workflow)
-            else:
-                held_back.append({"team_id": team_id, "workflow_id": workflow.id, "sender_ids": workflow.sender_ids})
-    logger.info("workflow_email_sender_unusable_shadow", held_back=held_back, undecided=undecided)
+        held_back += outcome.held_back
+        undecided += outcome.undecided
+    logger.info("workflow_email_sender_unusable_shadow", held_back=held_back, undecided=undecided, failed=failed)
+
+
+@frozen
+class _TeamOutcome:
+    held_back: int = 0
+    undecided: int = 0
+
+
+def _notify_team(team_id: int) -> _TeamOutcome:
+    workflows = live_workflows_with_unusable_senders(team_id)
+    if not workflows:
+        return _TeamOutcome()
+    rolled_out = _rolled_out(team_id)
+    if rolled_out is None:
+        return _TeamOutcome(undecided=len(workflows))
+    if not rolled_out:
+        logger.info(
+            "workflow_email_sender_unusable_held_back",
+            team_id=team_id,
+            workflows=[{"workflow_id": workflow.id, "sender_ids": workflow.sender_ids} for workflow in workflows],
+        )
+        return _TeamOutcome(held_back=len(workflows))
+    for workflow in workflows:
+        _queue_sender_unusable_email(team_id, workflow)
+    return _TeamOutcome()
 
 
 def _unusable_steps(actions: list[dict[str, Any]], verification: Mapping[str, bool]) -> list[UnusableEmailStep]:
@@ -156,7 +177,11 @@ def _queue_sender_unusable_email(team_id: int, workflow: WorkflowWithUnusableSen
             hog_flow_name=workflow.name,
             created_by_id=workflow.created_by_id,
             steps=[
-                {"name": step.name, "reason": "unverified" if step.senders[0].unverified else "missing"}
+                {
+                    "name": step.name,
+                    "missing": any(not sender.unverified for sender in step.senders),
+                    "unverified": any(sender.unverified for sender in step.senders),
+                }
                 for step in workflow.steps
             ],
             sender_ids=workflow.sender_ids,
