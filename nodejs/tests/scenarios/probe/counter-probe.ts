@@ -34,12 +34,18 @@ const COUNTED = `
     FORMAT JSONEachRow`
 
 const CONSUMERS = `
+    WITH (
+        SELECT groupArray(name) FROM system.tables WHERE database = {database:String} AND engine = 'Kafka'
+    ) AS kafka_tables
     SELECT count() AS consumers
     FROM system.tables
     WHERE database = {database:String}
       AND engine = 'MaterializedView'
-      AND position(create_table_query, concat(' FROM ', {database:String}, '.kafka_app_metrics2')) > 0
-      AND position(create_table_query, concat(' TO ', {database:String}, '.writable_app_metrics2 ')) > 0
+      AND arrayExists(
+          (source) -> match(create_table_query, concat(' FROM ', {database:String}, '[.]', source, '([[:space:]]|$)')),
+          kafka_tables
+      )
+      AND match(create_table_query, concat(' TO ', {database:String}, '[.](writable|sharded)_app_metrics2[[:space:]]'))
     FORMAT JSONEachRow`
 
 export function createCounterProbe({ url, database }: ClickHouseAddress): CounterProbe {

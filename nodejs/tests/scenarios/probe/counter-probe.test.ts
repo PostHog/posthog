@@ -69,27 +69,72 @@ describe('counter probe', () => {
         expect(counted).toEqual({ email_sent: 6, email_delivered: 0, email_failed: 4 })
     })
 
-    it.each<[string, string[], number]>([
-        ['one view writes Kafka rows into app_metrics2', ['writable_app_metrics2'], 1],
-        ['two views write Kafka rows into app_metrics2', ['writable_app_metrics2', 'writable_app_metrics2'], 2],
-        ['a second view writes Kafka rows elsewhere', ['writable_app_metrics2', 'elsewhere'], 1],
-    ])('counts the materialized views that feed app_metrics2 from Kafka when %s', async (_story, targets, expected) => {
-        const database = `counter_probe_${randomInt(1e9, 2e9)}`
-        try {
-            await run(`CREATE DATABASE ${database}`)
-            for (const table of ['kafka_app_metrics2', 'writable_app_metrics2', 'elsewhere']) {
-                await run(`CREATE TABLE ${table} (count Int64) ENGINE = Null`, database)
-            }
-            for (const [i, target] of targets.entries()) {
-                await run(
-                    `CREATE MATERIALIZED VIEW view_${i} TO ${target} AS SELECT count FROM kafka_app_metrics2`,
-                    database
-                )
-            }
+    it.each<[string, [string, string][], number]>([
+        ['one Kafka view writes into app_metrics2', [['kafka_app_metrics2', 'writable_app_metrics2']], 1],
+        [
+            'two Kafka views write into app_metrics2',
+            [
+                ['kafka_app_metrics2', 'writable_app_metrics2'],
+                ['kafka_app_metrics2_ws', 'writable_app_metrics2'],
+            ],
+            2,
+        ],
+        [
+            'a second Kafka view writes straight into the sharded table',
+            [
+                ['kafka_app_metrics2', 'writable_app_metrics2'],
+                ['kafka_app_metrics2', 'sharded_app_metrics2'],
+            ],
+            2,
+        ],
+        [
+            'a second Kafka view writes elsewhere',
+            [
+                ['kafka_app_metrics2', 'writable_app_metrics2'],
+                ['kafka_app_metrics2_ws', 'elsewhere'],
+            ],
+            1,
+        ],
+        [
+            'a second view reads a table that is not Kafka',
+            [
+                ['kafka_app_metrics2', 'writable_app_metrics2'],
+                ['kafka_app_metrics2_copy', 'writable_app_metrics2'],
+            ],
+            1,
+        ],
+    ])(
+        'counts the Kafka views that feed app_metrics2 when %s',
+        async (_story, views, expected) => {
+            const database = `counter_probe_${randomInt(1e9, 2e9)}`
+            try {
+                await run(`CREATE DATABASE ${database}`)
+                for (const source of ['kafka_app_metrics2', 'kafka_app_metrics2_ws']) {
+                    await run(
+                        `CREATE TABLE ${source} (count Int64) ENGINE = Kafka SETTINGS kafka_broker_list = '127.0.0.1:1', kafka_topic_list = '${database}', kafka_group_name = '${database}_${source}', kafka_format = 'JSONEachRow'`,
+                        database
+                    )
+                }
+                for (const table of [
+                    'kafka_app_metrics2_copy',
+                    'writable_app_metrics2',
+                    'sharded_app_metrics2',
+                    'elsewhere',
+                ]) {
+                    await run(`CREATE TABLE ${table} (count Int64) ENGINE = Null`, database)
+                }
+                for (const [i, [source, target]] of views.entries()) {
+                    await run(
+                        `CREATE MATERIALIZED VIEW view_${i} TO ${target} AS SELECT count FROM ${source}`,
+                        database
+                    )
+                }
 
-            expect(await createCounterProbe({ ...CLICKHOUSE, database }).consumers()).toBe(expected)
-        } finally {
-            await run(`DROP DATABASE IF EXISTS ${database}`)
-        }
-    })
+                expect(await createCounterProbe({ ...CLICKHOUSE, database }).consumers()).toBe(expected)
+            } finally {
+                await run(`DROP DATABASE IF EXISTS ${database} SYNC`)
+            }
+        },
+        30_000
+    )
 })
