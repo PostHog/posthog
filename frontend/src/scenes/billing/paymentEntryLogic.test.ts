@@ -157,6 +157,52 @@ describe('paymentEntryLogic', () => {
             expect(toastInfoSpy).not.toHaveBeenCalled()
         })
 
+        it.each([
+            ['startPaymentEntryFlow', 'the activate answer', 0],
+            ['upgradeProducts', 'the activate answer', 0],
+            ['startPaymentEntryFlow', 'the billing read that follows the answer', 1],
+        ] as const)('refuses %s again before %s and still completes the first', async (action, _, readsBefore) => {
+            const activateAnswer = deferred<[number, unknown]>()
+            const billingRead = deferred<[number, unknown]>()
+            const activateRequests: string[] = []
+            const billingReadRequests: string[] = []
+            useMocks({
+                post: {
+                    '/api/billing/activate': ({ request }) => {
+                        activateRequests.push(request.url)
+                        return activateAnswer.promise
+                    },
+                },
+                get: {
+                    '/api/billing': ({ request }) => {
+                        billingReadRequests.push(request.url)
+                        return billingRead.promise
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const start = (): void =>
+                action === 'upgradeProducts'
+                    ? logic.actions.upgradeProducts('scale:scale', '/replay/home')
+                    : logic.actions.startPaymentEntryFlow(null, '/replay/home')
+
+            start()
+            await waitFor(() => expect(activateRequests).toHaveLength(1))
+            if (readsBefore) {
+                activateAnswer.resolve([200, { success: true }])
+            }
+            await waitFor(() => expect(billingReadRequests).toHaveLength(readsBefore))
+            start()
+            activateAnswer.resolve([200, { success: true }])
+            billingRead.resolve([200, { customer_id: 'cus_test', subscription_level: 'paid' }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(activateRequests).toHaveLength(1)
+            expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
+            expect(router.values.searchParams).toMatchObject({ upgraded: 'true' })
+        })
+
         it('surfaces a toast when activate throws', async () => {
             // 500 body is unused — api.create rejects on non-2xx before reading JSON.
             setupActivate([500])
