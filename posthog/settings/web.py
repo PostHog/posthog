@@ -1398,9 +1398,12 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
 
 # Callback URLs of services/oauth-proxy. See OAuthApplication.redirect_uri_allowed for the paths under them.
-OAUTH_PROXY_CALLBACK_URLS: list[str] = get_list(
-    get_from_env("OAUTH_PROXY_CALLBACK_URLS", "https://oauth.posthog.com/oauth/callback/")
-)
+# Each ends in "/" because a client's own path is the callback followed by "<client_id>/".
+OAUTH_PROXY_CALLBACK_URLS: list[str] = [
+    url if url.endswith("/") else f"{url}/"
+    for url in get_list(get_from_env("OAUTH_PROXY_CALLBACK_URLS", "https://oauth.posthog.com/oauth/callback/"))
+    if url
+]
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

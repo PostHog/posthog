@@ -6298,6 +6298,18 @@ class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
                 False,
             ),
             (
+                "other_client_route_registered_with_encoded_host",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_ideographic_dot",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                False,
+            ),
+            (
                 "shared_route_with_userinfo_and_query",
                 "https://proxy.example/oauth/callback/",
                 "https://x@proxy.example/oauth/callback/?client=app_b",
@@ -6335,7 +6347,6 @@ class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
             ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
             ("client_route_with_default_port", "https://proxy.example:443/oauth/callback/app_b/", False),
             ("client_route_with_dot_segment", "https://proxy.example/oauth/x/../callback/app_b/", False),
-            ("client_route_with_ideographic_dot", "https://proxy\u3002example/oauth/callback/app_b/", False),
             ("other_path_on_proxy_host", "https://proxy.example/somewhere/", False),
         ]
     )
@@ -6350,11 +6361,11 @@ class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
 
         try:
             app.clean()
-            registered = True
-        except ValidationError:
-            registered = False
+            error = None
+        except ValidationError as e:
+            error = str(e)
 
-        assert registered is valid
+        assert error is None if valid else "reserved for the PostHog OAuth proxy" in str(error)
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):

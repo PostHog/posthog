@@ -658,8 +658,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if not proxy_callbacks:
             return super().redirect_uri_allowed(uri)
         # Exact strings only: django-oauth-toolkit's parsed comparison lets other spellings through.
-        # services/oauth-proxy keys each pending login by "<callback><client_id>/", so a code issued
-        # to one client is never forwarded for another.
+        # Each client reaches only its own "<callback><client_id>/", so the proxy can route a code by
+        # path to the client it was issued to.
         registered = [callback for callback in proxy_callbacks if callback in self.redirect_uris.split()]
         if uri in registered:
             return True
