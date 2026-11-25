@@ -9099,10 +9099,10 @@ Today (5): `keys`, `models`, `spend_logs`, `teams`, `users`
 
 Diffed against: <https://github.com/BerriAI/litellm/tree/main/litellm/proxy/management_endpoints>
 
-- [ ] `Organizations (GET /organization/list)` — organizations that own teams, resolves organization_id on teams (high)
-- [ ] `Budgets (GET /budget/list)` — budget definitions linked to keys, users and teams (high)
-- [ ] `Customers / end users (GET /customer/list)` — end users billed through the proxy, with spend and budget fields (medium)
-- [ ] `Tags (GET /tag/list)` — spend tags and their budgets, for cost attribution (medium)
+- [x] `Organizations (GET /organization/list)` — organizations that own teams, resolves organization_id on teams (high)
+- [x] `Budgets (GET /budget/list)` — budget definitions linked to keys, users and teams (high)
+- [x] `Customers / end users (GET /customer/list)` — end users billed through the proxy, with spend and budget fields (medium)
+- [x] `Tags (GET /tag/list)` — spend tags and their budgets, for cost attribution (medium)
 - [ ] `Daily user activity (GET /user/daily/activity)` — pre-aggregated daily spend and tokens per user, model and key (medium)
 - [ ] `Daily team activity (GET /team/daily/activity)` — pre-aggregated daily spend per team (medium)
 - [ ] `Daily tag activity (GET /tag/daily/activity)` — pre-aggregated daily spend per tag (low)
