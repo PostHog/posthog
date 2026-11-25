@@ -5900,9 +5900,8 @@ describe('CDP API', () => {
                         return acked.then(() => produce.apply(outputs, args))
                     }) as typeof outputs.produce)
 
-                    const first = sendBatchTo(two, TEMPLATE, batchOf(recipient('ada@example.com'))).then(
-                        (answer) => answer
-                    )
+                    const ada = recipient('ada@example.com')
+                    const first = sendBatchTo(two, TEMPLATE, batchOf(ada)).then((answer) => answer)
                     await Promise.race([
                         reached,
                         first.then(() => Promise.reject(new Error('the first batch answered before its broker ack'))),
@@ -5918,7 +5917,14 @@ describe('CDP API', () => {
                     const held = await first
 
                     expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([otherTeam.status, held.status]).toEqual([200, 200])
+                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
+                    ])
+                    expect([held.status, held.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
+                    ])
                     expect(
                         intakeRunsOf(intakeRecords())
                             .map(({ distinctId }) => distinctId)
