@@ -116,7 +116,7 @@ describe('counter drift', () => {
             { email_delivered: 3, email_delivered_sink: 0 },
         ],
     ])('%s', (_name, read, expected) => {
-        expect(driftOf(journal, truth, { counters: { counted: read } })).toMatchObject({
+        expect(driftOf(journal, truth, { counters: { counted: read, consumers: 1 } })).toMatchObject({
             ...sink,
             email_sent_events: null,
             ...expected,
@@ -131,17 +131,22 @@ describe('counter drift', () => {
         ],
         [
             'keeps what the counters showed when the truth could not be read',
-            { counters: { counted: counted({ email_sent: 3 }) }, unread: 'the edge answered 503' },
+            { counters: { counted: counted({ email_sent: 3 }), consumers: 1 }, unread: 'the edge answered 503' },
             { owed: 7, email_sent: null, email_sent_counted: 3, email_sent_sink: null },
         ],
         [
             'leaves the drift unknown when the run did not converge',
-            { counters: { counted: counted({ email_sent: 4 }) }, converged: false },
+            { counters: { counted: counted({ email_sent: 4 }), consumers: 1 }, converged: false },
             { email_sent: null, email_sent_counted: 4, email_sent_sink: 3 },
         ],
         [
+            'leaves the drift unknown when two Kafka tables feed the counters',
+            { counters: { counted: counted({ email_sent: 6 }), consumers: 2 } },
+            { email_sent: null, email_sent_counted: 6, email_sent_sink: 3 },
+        ],
+        [
             'leaves owed unknown when the run reached no recovery horizon',
-            { counters: { counted: counted() }, horizonAt: undefined },
+            { counters: { counted: counted(), consumers: 1 }, horizonAt: undefined },
             { owed: null, email_sent_sink: 3 },
         ],
     ])('%s', (_name, judged, expected) => {
@@ -151,13 +156,13 @@ describe('counter drift', () => {
     it.each<[string, Judged, string, RegExp]>([
         [
             'names the event count unmeasured on every read',
-            { counters: { counted: counted() } },
+            { counters: { counted: counted(), consumers: 1 } },
             'email_sent_events',
             /ingestion/,
         ],
         [
             'names the bounce count unmeasured, since the edge records a bounce only after the webhook answers',
-            { counters: { counted: counted() } },
+            { counters: { counted: counted(), consumers: 1 } },
             'email_bounced',
             /after the SES webhook answers/,
         ],
@@ -169,19 +174,31 @@ describe('counter drift', () => {
         ],
         [
             'records why the drift is unknown when the run did not converge',
-            { counters: { counted: counted() }, converged: false },
+            { counters: { counted: counted(), consumers: 1 }, converged: false },
             'email_sent',
             /did not converge/,
         ],
         [
             'records why the drift is unknown when sends kept arriving through the final truth reads',
-            { counters: { counted: counted() }, unsettled: 'the edge kept accepting sends' },
+            { counters: { counted: counted(), consumers: 1 }, unsettled: 'the edge kept accepting sends' },
             'email_sent',
             /kept accepting sends/,
         ],
         [
+            'records why the drift is unknown when two Kafka tables feed the counters',
+            { counters: { counted: counted(), consumers: 2 } },
+            'email_sent',
+            /from 2 Kafka tables/,
+        ],
+        [
+            'records why the drift is unknown when ClickHouse could not say what feeds the counters',
+            { counters: { counted: counted() } },
+            'email_sent',
+            /could not say how many Kafka tables/,
+        ],
+        [
             'records why the truth could not be read',
-            { counters: { counted: counted() }, unread: 'the edge answered 503' },
+            { counters: { counted: counted(), consumers: 1 }, unread: 'the edge answered 503' },
             'email_sent_sink',
             /the edge answered 503/,
         ],
@@ -201,26 +218,41 @@ describe('reading the counters', () => {
     const READ = { withinMs: 10_000, quietMs: 3000, pollMs: 1000 }
     const query = { teams: [7], from: FROM }
 
-    const replay = (reads: (Counted | Error)[]): CounterProbe => {
+    const replay = (reads: (Counted | Error)[], consumers: number | Error): CounterProbe => {
         let next = 0
         return {
             counted: () => {
                 const read = reads[Math.min(next++, reads.length - 1)]
                 return read instanceof Error ? Promise.reject(read) : Promise.resolve(read)
             },
+            consumers: () => (consumers instanceof Error ? Promise.reject(consumers) : Promise.resolve(consumers)),
         }
     }
 
-    it.each<[string, (Counted | Error)[], CounterReading]>([
+    it.each<[string, (Counted | Error)[], CounterReading, number | Error]>([
         [
             'settles on the count once it stops changing',
             [counted(), counted({ email_sent: 1 })],
-            { counted: counted({ email_sent: 1 }) },
+            { counted: counted({ email_sent: 1 }), consumers: 1 },
+            1,
         ],
         [
             'keeps reading until late increments stop arriving',
             [2, 2, 3, 3, 4].map((sent) => counted({ email_sent: sent })),
-            { counted: counted({ email_sent: 4 }) },
+            { counted: counted({ email_sent: 4 }), consumers: 1 },
+            1,
+        ],
+        [
+            'records how many Kafka tables feed the counters',
+            [counted({ email_sent: 2 })],
+            { counted: counted({ email_sent: 2 }), consumers: 2 },
+            2,
+        ],
+        [
+            'leaves the feeding Kafka tables out when ClickHouse cannot say',
+            [counted({ email_sent: 2 })],
+            { counted: counted({ email_sent: 2 }) },
+            new Error('ClickHouse answered the consumer read with 503'),
         ],
         [
             'waits a full quiet window from the first read that succeeds after reads fail',
@@ -230,21 +262,24 @@ describe('reading the counters', () => {
                 ...Array.from({ length: 3 }, () => counted({ email_sent: 1 })),
                 counted({ email_sent: 2 }),
             ],
-            { counted: counted({ email_sent: 2 }) },
+            { counted: counted({ email_sent: 2 }), consumers: 1 },
+            1,
         ],
         [
             'marks the count incomplete when it still changes at the bound',
             Array.from({ length: 20 }, (_, i) => counted({ email_failed: i })),
-            { counted: counted({ email_failed: 10 }), incomplete: true },
+            { counted: counted({ email_failed: 10 }), consumers: 1, incomplete: true },
+            1,
         ],
         [
             'reports the last failure when no read ever succeeded',
             [new Error('ClickHouse answered the counter read with 404')],
             { unread: 'ClickHouse answered the counter read with 404' },
+            1,
         ],
-    ])('%s', async (_name, reads, expected) => {
+    ])('%s', async (_name, reads, expected, consumers) => {
         let clock = FROM
-        const reading = await readCounters(replay(reads), query, READ, undefined, {
+        const reading = await readCounters(replay(reads, consumers), query, READ, undefined, {
             now: () => clock,
             pause: (ms) => Promise.resolve((clock += ms)),
         })

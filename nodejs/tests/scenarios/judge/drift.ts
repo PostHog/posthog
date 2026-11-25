@@ -8,7 +8,7 @@ import { deliveryKey, isAccepted, isThrottled, owedOf } from './invariants'
 import type { JournalEntry } from './judge'
 import type { MeasurementDefinition } from './measurements'
 
-export type CounterReading = { counted: Counted; incomplete?: true } | { unread: string }
+export type CounterReading = { counted: Counted; consumers?: number; incomplete?: true } | { unread: string }
 
 export type CounterRead = { withinMs: number; quietMs: number; pollMs: number }
 
@@ -60,7 +60,7 @@ export async function readCounters(
                 last = counted
                 changedAt = now()
             } else if (now() - changedAt >= quietMs) {
-                return { counted }
+                return fedBy(probe, counted)
             }
         } catch (error) {
             failure = messageOf(error)
@@ -73,7 +73,12 @@ export async function readCounters(
     if (last === undefined) {
         return { unread: failure ?? 'the run stopped before the counters were read' }
     }
-    return { counted: last, incomplete: true }
+    return { ...(await fedBy(probe, last)), incomplete: true }
+}
+
+const fedBy = async (probe: CounterProbe, counted: Counted): Promise<{ counted: Counted; consumers?: number }> => {
+    const consumers = await probe.consumers().catch(() => undefined)
+    return { counted, ...(consumers !== undefined && { consumers }) }
 }
 
 const unknown = (reason: string): { value: null; censored: true; unmeasured: string } => ({
@@ -108,6 +113,11 @@ export const counterDrift: MeasurementDefinition = {
         const unsettled = unknown(
             stillSending ?? 'the run did not converge, so sends could still land while the counters were read'
         )
+        const fedTwice = unknown(
+            read?.consumers === undefined
+                ? 'ClickHouse could not say how many Kafka tables feed app_metrics2, so a count could land more than once'
+                : `ClickHouse feeds app_metrics2 from ${read.consumers} Kafka tables, not one, so the counts do not match the sends one to one`
+        )
         const incomplete = read?.incomplete ? { incomplete: true as const } : {}
         return [
             {
@@ -125,7 +135,9 @@ export const counterDrift: MeasurementDefinition = {
                           ? noSink
                           : converged === false || stillSending !== undefined
                             ? unsettled
-                            : { value: read.counted[counter] - sink[counter], ...incomplete }),
+                            : read.consumers !== 1
+                              ? fedTwice
+                              : { value: read.counted[counter] - sink[counter], ...incomplete }),
                 },
                 { key: `${counter}_counted`, ...(read ? { value: read.counted[counter], ...incomplete } : noCount) },
                 { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },

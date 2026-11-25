@@ -61,4 +61,8 @@ describe('counter probe', () => {
 
         expect(counted).toEqual({ email_sent: 6, email_delivered: 0, email_failed: 4 })
     })
+
+    it('counts the materialized views that feed app_metrics2 from Kafka', async () => {
+        expect(await createCounterProbe(CLICKHOUSE).consumers()).toBe(1)
+    })
 })

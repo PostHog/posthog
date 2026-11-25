@@ -1477,6 +1477,7 @@ describe('runner through seed, drive and judge', () => {
             })
             expect(evidenceOf(result, 'counters.json')).toEqual({
                 counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
+                consumers: 1,
             })
         },
         30_000

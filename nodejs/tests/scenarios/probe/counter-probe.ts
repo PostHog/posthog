@@ -11,6 +11,7 @@ export type CounterQuery = { teams: number[]; from: number }
 
 export interface CounterProbe {
     counted(query: CounterQuery): Promise<Counted>
+    consumers(): Promise<number>
 }
 
 export type ClickHouseAddress = { url: string; database: string }
@@ -32,24 +33,39 @@ const COUNTED = `
     GROUP BY metric_name
     FORMAT JSONEachRow`
 
+const CONSUMERS = `
+    SELECT count() AS consumers
+    FROM system.tables
+    WHERE database = {database:String}
+      AND engine = 'MaterializedView'
+      AND position(create_table_query, concat(' FROM ', {database:String}, '.kafka_app_metrics2')) > 0
+    FORMAT JSONEachRow`
+
 export function createCounterProbe({ url, database }: ClickHouseAddress): CounterProbe {
+    const read = async (query: string, params: Record<string, string>, what: string): Promise<string> => {
+        const response = await internalFetch(`${url}/?${new URLSearchParams({ database, ...params })}`, {
+            method: 'POST',
+            body: query,
+            timeoutMs: READ_TIMEOUT_MS,
+        })
+        const text = await response.text()
+        if (response.status !== 200) {
+            throw new Error(`ClickHouse answered the ${what} read with ${response.status}: ${text.trim()}`)
+        }
+        return text
+    }
     return {
+        async consumers() {
+            const text = await read(CONSUMERS, { param_database: database }, 'consumer')
+            return Number((parseJSON(text) as { consumers: string | number }).consumers)
+        },
         async counted({ teams, from }) {
-            const params = new URLSearchParams({
-                database,
+            const params = {
                 param_teams: JSON.stringify(teams),
                 param_counters: `[${COUNTERS.map((counter) => `'${counter}'`).join(',')}]`,
                 param_from: String(from),
-            })
-            const response = await internalFetch(`${url}/?${params}`, {
-                method: 'POST',
-                body: COUNTED,
-                timeoutMs: READ_TIMEOUT_MS,
-            })
-            const text = await response.text()
-            if (response.status !== 200) {
-                throw new Error(`ClickHouse answered the counter read with ${response.status}: ${text.trim()}`)
             }
+            const text = await read(COUNTED, params, 'counter')
             const counted = Object.fromEntries(COUNTERS.map((counter) => [counter, 0])) as Counted
             for (const line of text.split('\n').filter(Boolean)) {
                 const { metric_name, total } = parseJSON(line) as { metric_name: Counter; total: string }
