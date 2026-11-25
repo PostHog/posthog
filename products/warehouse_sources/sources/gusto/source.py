@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.gusto._config import GustoSourceConfig
 from products.warehouse_sources.sources.gusto.gusto import (
     GUSTO_API_VERSION_2024_04_01,
     GUSTO_API_VERSION_2026_06_15,
+    SYSTEM_ACCESS_REFUSED,
     GustoResumeConfig,
     gusto_source,
     validate_credentials as validate_gusto_credentials,
@@ -126,6 +127,7 @@ Gusto rotates refresh tokens, so the token you paste here is exchanged on every 
             "403 Client Error: Forbidden for url: https://api.gusto": "Your Gusto app is not authorized to read this data. Reconnect with a payroll admin authorization for the company.",
             # Gusto returns 406 once a pinned API version reaches end of life; retrying can't recover it.
             "406 Client Error: Not Acceptable for url: https://api.gusto": "This Gusto API version is no longer supported. Reconnect the source to move to the current version.",
+            SYSTEM_ACCESS_REFUSED: "The events table needs system-level access and the `events:read` scope for your Gusto app, and Gusto refused them. Ask Gusto to enable both for the app, or turn off the events table.",
         }
 
     def get_schemas(
@@ -141,7 +143,14 @@ Gusto rotates refresh tokens, so the token you paste here is exchanged on every 
         # configuration tables have no updated-since parameter, so they stay full refresh. Those
         # three are merge-only: a payroll is restated as it moves from calculated to processed, so
         # appending would leave duplicate rows behind.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
+        # `events` needs system-level access, which Gusto does not grant to every app, so it starts off.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=tuple(INCREMENTAL_FIELDS),
+            should_sync_default={"events": False},
+        )
 
     def validate_credentials(
         self,

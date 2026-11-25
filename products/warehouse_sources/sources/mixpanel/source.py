@@ -235,7 +235,9 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
         # activity without surfacing it as tracked exception noise. An export Mixpanel aborts
         # mid-body reaches us on the same contract, after `_stream_export_day` re-fetches the day.
-        return {"Mixpanel API error (retryable)", EXPORT_TRUNCATED_ERROR}
+        # A dropped connection or read timeout that outlives the in-process retries reaches us as
+        # urllib3's "Max retries exceeded with url" error, which is transient in the same way.
+        return {"Mixpanel API error (retryable)", EXPORT_TRUNCATED_ERROR, "Max retries exceeded with url"}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)

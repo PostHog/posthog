@@ -30,6 +30,10 @@ FREE_FORM = {
     "build:openapi CI gate",
 }
 
+# `[lint: hoglint <rule-id>]` names a rule of the PostHog preset, which `hoglint compare` runs in CI.
+HOGLINT_RULE = re.compile(r"^hoglint ([a-z][a-z0-9-]*)$")
+HOGLINT_PRESET = "tools/hoglint/presets/posthog.toml"
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -92,9 +96,16 @@ def _products_ruff(repo_root: Path) -> dict:
     return config.get("lint", config)
 
 
+def _hoglint_rules(repo_root: Path) -> set[str]:
+    return set(tomllib.loads((repo_root / HOGLINT_PRESET).read_text()).get("rules", {}))
+
+
 def _resolves(tag: str, repo_root: Path, semgrep_ids: set[str]) -> bool:
     if tag in FREE_FORM:
         return True
+    hoglint = HOGLINT_RULE.match(tag)
+    if hoglint:
+        return hoglint.group(1) in _hoglint_rules(repo_root)
     ruff = RUFF_CODE.match(tag)
     if ruff:
         return _ruff_enforces(repo_root, ruff.group(1))

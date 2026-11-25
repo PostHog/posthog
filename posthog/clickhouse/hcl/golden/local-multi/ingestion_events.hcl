@@ -1,8 +1,8 @@
-node "events" {
+node "ingestion_events" {
   macros = {
-    hostClusterRole = "events"
+    hostClusterRole = "ingestion_events"
     hostClusterType = "online"
-    replica         = "events"
+    replica         = "ingestion_events"
     shard           = "01"
   }
 }
@@ -1661,10 +1661,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

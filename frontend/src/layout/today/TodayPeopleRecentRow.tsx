@@ -2,22 +2,14 @@ import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icon
 
 import { TodayPeopleRecent, TodayPeopleRecentType } from './todayPeople'
 import { TodayRecentRow } from './TodayRecentRow'
-import { recentRowKey } from './todayRecents'
+import { todayRecordType } from './todayRecordTypes'
 
-const RECENT_ICONS: Record<TodayPeopleRecentType, JSX.Element> = {
+const RECENT_TYPE_ICONS: Record<TodayPeopleRecentType, JSX.Element> = {
     person: <IconPerson />,
     group: <IconBuilding />,
     cohort: <IconPeople />,
     account: <IconBuilding />,
     ticket: <IconSupport />,
-}
-
-const RECENT_DESCRIPTIONS: Record<TodayPeopleRecentType, string> = {
-    person: 'A person in your project. Open their page to see their properties, events, and recordings.',
-    group: 'A group in your project. Open it to see its properties and activity.',
-    cohort: 'A cohort in your project. Open it to see who belongs to it and how it is defined.',
-    account: 'A customer account. Open it to see its activity, notes, and related users.',
-    ticket: 'A support ticket. Open it to read the conversation and reply.',
 }
 
 export function TodayPeopleRecentRow({
@@ -31,11 +23,9 @@ export function TodayPeopleRecentRow({
 }): JSX.Element {
     return (
         <TodayRecentRow
-            value={recentRowKey(recent.href)}
-            name={recent.name}
-            href={recent.href}
-            icon={RECENT_ICONS[recent.type]}
-            description={RECENT_DESCRIPTIONS[recent.type]}
+            recent={recent}
+            icon={RECENT_TYPE_ICONS[recent.type]}
+            typeCopy={todayRecordType(recent.type)}
             active={active}
             dataAttr={dataAttr}
         />

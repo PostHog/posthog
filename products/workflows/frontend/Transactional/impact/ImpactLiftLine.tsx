@@ -7,7 +7,7 @@ import { percentage } from 'lib/utils/numbers'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { emailImpactLogic } from './emailImpactLogic'
-import { noClickReason } from './impactSteps'
+import { everySendClicksOff, noClickReason } from './impactSteps'
 
 interface LiftSentence {
     event: string
@@ -26,6 +26,14 @@ export function ImpactLiftLine(): JSX.Element | null {
     }
     if (lift.notClicked !== null) {
         return <NotClickedLift {...sentence} notClicked={lift.notClicked} impact={impact} />
+    }
+    if (everySendClicksOff(impact)) {
+        return (
+            <p className="text-sm m-0">
+                {noClickReason(impact)}
+                <FollowedNote note={followedNote} />
+            </p>
+        )
     }
     return (
         <p className="text-sm m-0">

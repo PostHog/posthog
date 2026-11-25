@@ -1,11 +1,11 @@
-"""Resolves which provider, model and key an eval or tagger run should use.
+"""Resolves which provider, model and key an eval run should use.
 
-`model_configuration` is optional on both `Evaluation` and `Tagger`. A null value is not
+`model_configuration` is optional on `Evaluation`. A null value is not
 "unconfigured" — it means "defer to the team's active key". `model_spec()` turns the (possibly
 null) serialized config into a `ModelSpec` whose `resolve()` produces a concrete `ResolvedModel`,
-so judge and tagger share one definition of what null means instead of each re-deriving it.
+so every judge shares one definition of what null means instead of each re-deriving it.
 
-Evaluations and taggers require the team's own provider key: a keyless resolution (no pinned key
+Evaluations require the team's own provider key: a keyless resolution (no pinned key
 and no team active key) raises `provider_key_required`.
 
 Lives in the temporal layer because `resolve()` raises Temporal `ApplicationError`s whose
@@ -43,7 +43,7 @@ class ModelSpec(Protocol):
 
 @dataclass(frozen=True)
 class ExplicitModelSpec:
-    """The eval/tagger pinned its own provider and model. Trust the stored pairing."""
+    """The eval pinned its own provider and model. Trust the stored pairing."""
 
     provider: str
     model: str

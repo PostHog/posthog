@@ -9,6 +9,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -275,7 +276,7 @@ _TEMPLATE_ID_PARAMETER = OpenApiParameter(
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = HogFlowTemplateSerializer
-    permission_classes = [PreventGlobalTemplateDatabaseOperations]
+    permission_classes = [PreventGlobalTemplateDatabaseOperations, CDPPropertyAccessPermission]
     log_source = "hog_flow_template"
     app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]

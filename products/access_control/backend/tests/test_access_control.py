@@ -123,11 +123,14 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
             ("deleted", None),
         ]
         assert {log.user for log in logs} == {self.user}
+        assert details[0]["name"] == f'access rule for a member on project "{self.team.name}"'
         assert details[0]["context"] == {
             "resource": "project",
             "resource_id": str(self.team.id),
+            "resource_name": self.team.name,
             "access_level": "member",
             "role_id": None,
+            "role_name": None,
             "organization_member_id": str(self.organization_membership.id),
         }
 

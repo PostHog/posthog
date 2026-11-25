@@ -336,4 +336,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "_company_uuid": "The company the request belongs to.",
         },
     },
+    "time_off_activities": {
+        "description": "An activity that changed an employee's vacation or sick time off balance, such as an accrual, time off used, or a manual adjustment.",
+        "docs_url": "https://docs.gusto.com/embedded-payroll/reference/get-version-employees-time_off_activities",
+        "columns": {
+            "policy_uuid": "The time off policy the activity belongs to.",
+            "policy_name": "The name of the time off policy for this activity.",
+            "time_off_type": "The type of time off: vacation or sick.",
+            "event_type": "The type of the activity (e.g. TimeOffEvent::Accrual, TimeOffEvent::AddToPolicy).",
+            "event_description": "A description of the activity.",
+            "effective_time": "The date and time of the activity.",
+            "balance": "The time off balance after the activity.",
+            "balance_change": "The amount the activity changed the time off balance by.",
+            "_employee_uuid": "The employee whose balance the activity changed.",
+            "_company_uuid": "The company the employee belongs to.",
+        },
+    },
+    "events": {
+        "description": "A change to a company's data in Gusto, such as an employee created or a payroll submitted. Gusto keeps events for 30 days, so this table holds the trailing 30 days.",
+        "docs_url": "https://docs.gusto.com/embedded-payroll/reference/get-events",
+        "columns": {
+            "uuid": "The unique identifier of the event.",
+            "event_type": "The name of the event (e.g. payroll.submitted, employee.created).",
+            "resource_type": "The type of the parent resource of the changed entity. Always Company.",
+            "resource_uuid": "The company the event belongs to.",
+            "entity_type": "The type of the entity that changed (e.g. Employee, Payroll).",
+            "entity_uuid": "The unique identifier of the entity that changed.",
+            "timestamp": "When the event was created, in seconds since the Unix epoch.",
+        },
+    },
 }

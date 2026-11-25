@@ -27,12 +27,16 @@ export const FIXTURE_STATS: TraceNodeStatsApi = {
     latencyMs: 2310,
 }
 
-export const FIXTURE_SUMMARY_TRACE: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial'> = {
+export const FIXTURE_SUMMARY_TRACE: Pick<
+    TraceApi,
+    'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial' | 'costAndLatencyPartial'
+> = {
     id: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
     createdAt: '2026-09-01T10:15:00Z',
     person: { distinctId: 'ana', label: 'ana@example.com' },
     totals: FIXTURE_STATS,
     totalsPartial: false,
+    costAndLatencyPartial: false,
 }
 
 const noStats: TraceNodeStatsApi = {
@@ -284,6 +288,7 @@ export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-ans
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
+    waitMs: null,
     ...messagesSides(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
     error: null,
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 import {
   fallbackModelConfigs,
   gatewayBaseUrlForApi,
@@ -11,14 +11,14 @@ describe("gatewayBaseUrlForApi", () => {
     "routes %s through the gateway's /v1 surface",
     (api) => {
       expect(gatewayBaseUrlForApi(api, "us")).toBe(
-        `${getLlmGatewayUrl("us")}/v1`,
+        `${getGatewayBaseUrl("us")}/v1`,
       );
     },
   );
 
   it("routes anthropic messages through the gateway's product root", () => {
     expect(gatewayBaseUrlForApi("anthropic-messages", "eu")).toBe(
-      getLlmGatewayUrl("eu"),
+      getGatewayBaseUrl("eu"),
     );
   });
 
@@ -152,7 +152,7 @@ describe("resolveModelConfigs", () => {
     const configs = await resolveModelConfigs("dev");
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      `${getLlmGatewayUrl("dev")}/v1/models`,
+      `${getGatewayBaseUrl("dev")}/v1/models`,
       expect.objectContaining({ signal: expect.anything() }),
     );
     expect(configs).toHaveLength(2);
@@ -174,7 +174,7 @@ describe("resolveModelConfigs", () => {
       xhigh: "xhigh",
     });
     expect(gpt?.input).toEqual(["text"]);
-    expect(gpt?.baseUrl).toBe(`${getLlmGatewayUrl("dev")}/v1`);
+    expect(gpt?.baseUrl).toBe(`${getGatewayBaseUrl("dev")}/v1`);
   });
 
   it("fetches models through an authenticated gateway override", async () => {
@@ -222,7 +222,7 @@ describe("resolveModelConfigs", () => {
     const configs = await resolveModelConfigs("us");
 
     expect(configs[0]?.api).toBe("openai-completions");
-    expect(configs[0]?.baseUrl).toBe(`${getLlmGatewayUrl("us")}/v1`);
+    expect(configs[0]?.baseUrl).toBe(`${getGatewayBaseUrl("us")}/v1`);
     expect(configs[0]?.maxTokens).toBe(32000);
   });
 

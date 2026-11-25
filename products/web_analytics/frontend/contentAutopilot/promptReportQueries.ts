@@ -1,7 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 
-import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    HogQLQuery,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
@@ -160,7 +166,7 @@ const setWhere = (window: PromptSetWindow): string =>
     [
         segmentWhere(window),
         ...(window.engine !== null ? ['engine = {engine}'] : []),
-        ...(window.topic !== null ? ['prompt_topic = {topic}'] : []),
+        ...(window.topic !== null ? ['lowerUTF8(prompt_topic) = lowerUTF8({topic})'] : []),
     ].join(' AND ')
 
 /** The same daily metric per engine across every prompt in the set. */
@@ -184,6 +190,26 @@ const table = (source: HogQLQuery, columns: readonly string[]): DataTableNode =>
     showActions: false,
     showOpenEditorButton: false,
 })
+
+/** The query to open as an insight. A data table has no column formatting, so a table with a share column opens as a
+ *  SQL table that shows the share as a percentage rather than a fraction. */
+export const insightQuery = (
+    query: DataVisualizationNode | DataTableNode | InsightVizNode
+): DataVisualizationNode | DataTableNode | InsightVizNode =>
+    query.kind === NodeKind.DataTableNode &&
+    query.source.kind === NodeKind.HogQLQuery &&
+    query.columns?.includes('share_of_answers')
+        ? {
+              kind: NodeKind.DataVisualizationNode,
+              source: query.source,
+              display: ChartDisplayType.ActionsTable,
+              tableSettings: {
+                  columns: [
+                      { column: 'share_of_answers', settings: { formatting: { style: 'percent', decimalPlaces: 1 } } },
+                  ],
+              },
+          }
+        : query
 
 const sourcesSql = (where: string, limit: number): string =>
     `SELECT domain(url) AS domain,

@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -164,7 +164,12 @@ class TrialPolicy:
         return grant if decision.enabled else None
 
     def claim(
-        self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS, api_scopes: list[str] | None = None
+        self,
+        *,
+        user_id: int,
+        limits: TrialLimits = STANDARD_TRIAL_LIMITS,
+        api_scopes: list[str] | None = None,
+        on_create: Callable[[SignalTrialGrant], None] | None = None,
     ) -> SignalTrialGrant:
         self.check_enabled()
         existing = self.grant()
@@ -184,6 +189,8 @@ class TrialPolicy:
                 allowance_microusd=limits.allowance_microusd,
                 report_limit=limits.report_limit,
             )
+            if on_create is not None:
+                on_create(grant)
             transaction.on_commit(
                 lambda: logger.info(
                     "signals_trial_claimed",

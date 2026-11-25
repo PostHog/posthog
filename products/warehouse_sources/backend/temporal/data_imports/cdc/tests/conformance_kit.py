@@ -25,6 +25,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
+from fsspec.asyn import get_loop
 
 from posthog.dataclasses import frozen
 
@@ -257,6 +258,7 @@ class MemoryObjectStore:
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.modified: dict[str, dt.datetime] = {}
         self._writes = 0
         self._failing_writes: set[int] = set()
 
@@ -280,6 +282,7 @@ class MemoryObjectStore:
             self.objects[key] = written[: len(written) // 2]
             raise SimulatedCrash("the buffer file could not be written")
         self.objects[key] = written
+        self.modified[key] = dt.datetime.now(tz=dt.UTC)
 
     def rm(self, key: str, recursive: bool = False) -> None:
         doomed = [k for k in self.objects if k == key or (recursive and k.startswith(f"{key}/"))]
@@ -293,6 +296,13 @@ class MemoryObjectStore:
         if not keys:
             raise FileNotFoundError(prefix)
         return keys
+
+    loop = get_loop()
+
+    async def _iterdir(self, bucket: str, delimiter: str = "/", prefix: str = "") -> AsyncIterator[dict[str, Any]]:
+        for key, data in sorted(self.objects.items()):
+            if key.startswith(f"{bucket}/{prefix}"):
+                yield {"name": key, "type": "file", "size": len(data), "LastModified": self.modified.get(key)}
 
     def _etag(self, key: str) -> str:
         return hashlib.md5(self.objects[key]).hexdigest()

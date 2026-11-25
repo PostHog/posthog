@@ -1,6 +1,7 @@
 import copy
 import enum
 import uuid
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
@@ -10,7 +11,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import connection, models, router, transaction
 from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
@@ -29,6 +30,7 @@ from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.utils import (
     UUIDT,
@@ -223,6 +225,11 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
 
     @property
+    def is_self_registered(self) -> bool:
+        """Registered by the client itself through DCR or CIMD, not created by a person or by staff."""
+        return self.is_dcr_client or self.is_cimd_client
+
+    @property
     def required_scopes(self) -> list[str]:
         # Everything in the explicit ceiling is required and locked at consent; optional_scopes
         # are additive declinable extras. An empty `scopes` is a broad/deferred request
@@ -404,10 +411,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def provisioning_signing(self) -> ProvisioningSigning:
-        provisioning = self.provisioning
-        if not self.is_provisioning_partner or not (
-            provisioning.can_create_accounts or provisioning.pays_for_customers
-        ):
+        """Every provisioning partner signs its requests with a private key, because its client_id alone is public."""
+        if not self.is_provisioning_partner:
             return ProvisioningSigning.NOT_REQUIRED
         return ProvisioningSigning.REQUIRED
 
@@ -593,7 +598,30 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        super().save(*args, **kwargs)
+
+        if not self._writes_partner_flag_off(kwargs.get("update_fields")):
+            super().save(*args, **kwargs)
+            return
+
+        # Every write of the flag goes through save. The stored flag is read under the app row lock, so
+        # a request that turns the flag on cannot commit between the read and the write. The revoke
+        # shares the transaction, so a failed revoke also undoes the flag change. The app row is locked
+        # before any token row, the order revoke_application_sessions and every token mint use.
+        with transaction.atomic():
+            stored_as_partner = (
+                OAuthApplication.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("is_provisioning_partner", flat=True)
+                .first()
+            )
+            super().save(*args, **kwargs)
+            if stored_as_partner:
+                revoke_application_sessions(self)
+
+    def _writes_partner_flag_off(self, update_fields: Iterable[str] | None) -> bool:
+        if self._state.adding or self.is_provisioning_partner:
+            return False
+        return update_fields is None or "is_provisioning_partner" in update_fields
 
     def allows_grant_type(self, *grant_types: str) -> bool:
         # The device grant's approval page can only show a client's self-declared name, so a device
@@ -932,7 +960,8 @@ def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
     """Revoke all OAuth artifacts for the token's (user, application) pair - every access
-    token, every refresh token, and every grant, not just the given one.
+    token, every refresh token, every grant, and every personal API key the application
+    provisioned for the user, not just the given one.
 
     Use this where the user or client explicitly asked to disconnect the whole app
     (connected_apps.py, RFC 7009 revoke_token) - there, sweeping every session for that
@@ -986,6 +1015,12 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+            # Key by key, so the activity log records each deletion.
+            for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(
+                provisioned_by=application, user=user
+            ):
+                key.delete()
 
 
 def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
@@ -1114,7 +1149,8 @@ def revoke_oauth_token_session(
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
-    """Force-invalidate every outstanding token and grant for an application, across all users.
+    """Force-invalidate every outstanding token, grant, and provisioned personal API key for an
+    application, across all users.
 
     Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
     re-authorize under the new ceiling, instead of waiting for each token to hit its next
@@ -1141,6 +1177,10 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthDeviceGrant.objects.filter(client_id=application.client_id).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
+
+        # Key by key, so the activity log records each deletion.
+        for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(provisioned_by=application):
+            key.delete()
 
 
 def generate_random_token_cimd_verification() -> str:

@@ -76,13 +76,21 @@ describe('teamLogic', () => {
                             require_tags: true,
                             blocked_hosts: ['example.com', 'example.org'],
                             blocked_ips: ['203.0.113.7'],
+                            allowed_hosts: ['app.example.com'],
+                            allowed_ips: ['198.51.100.0/24', '192.0.2.1'],
                         },
                     })
                 }).toDispatchActions(['updateCurrentTeamSuccess'])
 
                 expect(capture).toHaveBeenCalledWith('feature_flag_policy_config team setting updated', {
                     setting: 'feature_flag_policy_config',
-                    value: { require_tags: true, blocked_hosts_count: 2, blocked_ips_count: 1 },
+                    value: {
+                        require_tags: true,
+                        blocked_hosts_count: 2,
+                        blocked_ips_count: 1,
+                        allowed_hosts_count: 1,
+                        allowed_ips_count: 2,
+                    },
                 })
             } finally {
                 capture.mockRestore()

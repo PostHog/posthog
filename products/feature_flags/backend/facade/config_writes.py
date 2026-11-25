@@ -32,6 +32,8 @@ from django.conf import settings
 
 import structlog
 
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
+
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
@@ -45,7 +47,11 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
-from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.reserved_variant_keys import (
+    RESERVED_NEW_VARIANT_KEYS,
+    is_reserved_variant_key,
+    reserved_variant_key_message,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -53,7 +59,14 @@ logger = structlog.get_logger(__name__)
 V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
 V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
 
-_RESERVED_STRING_VALUES_TEXT = '$false, $true or "null"'
+_RESERVED_STRING_VALUES = [
+    *(f'"{key}"' for key in sorted(RESERVED_NEW_VARIANT_KEYS) if key),
+    *sorted(FEATURE_FLAG_VARIANT_SENTINELS),
+]
+_RESERVED_STRING_VALUES_TEXT = f"{', '.join(_RESERVED_STRING_VALUES[:-1])} or {_RESERVED_STRING_VALUES[-1]}"
+
+
+_UNBOUNDED_LIMITS = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
 
 
 def _flag_enabled(key: str, team_id: int) -> bool:
@@ -233,8 +246,7 @@ def review_update(
     """
     # Stored rows may predate lower byte caps; validate their semantics without
     # preventing a replacement that brings them back within the write limits.
-    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
-    current = _validated_stored(stored, limits=unbounded, operation="updated") if stored else None
+    current = _validated_stored(stored, limits=_UNBOUNDED_LIMITS, operation="updated") if stored else None
     # Checked first, so a changed type is not reported as values that do not match it.
     if (
         current is not None
@@ -275,6 +287,16 @@ def _validated_stored(
     except ConfigValidationError as exc:
         detail = f"This flag's stored configuration cannot be {operation} through this API."
         raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc
+
+
+def check_copy(document: Mapping[str, Any]) -> None:
+    """Reject a stored document that a new flag in another project may not store.
+
+    The document must validate, then pass the writer rules with nothing stored. The byte limits are not checked, so a
+    flag over a cap still copies. Its copy is then over the same cap as its source.
+    """
+    validate_config(document, limits=_UNBOUNDED_LIMITS)
+    check_writer_rules(document, stored={})
 
 
 def check_writer_rules(document: Mapping[str, Any], *, stored: Mapping[str, Any]) -> None:
@@ -320,7 +342,7 @@ def _reserved_variant_keys(document: Mapping[str, Any], stored: Mapping[str, Any
             if is_reserved_variant_key(variant["key"], held=held):
                 yield ConfigError(
                     code="invalid",
-                    detail=f'The variant key "{variant["key"]}" is reserved. Choose another key.',
+                    detail=reserved_variant_key_message(variant["key"]),
                     attr=f"filters.rules[{index}].variants[{variant_index}].key",
                 )
 
