@@ -3,23 +3,22 @@ from django.conf import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.person_group_membership.sql import (
-    GROUP_KEY_EXPR,
     KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY,
     PERSON_GROUP_MEMBERSHIP_MV,
 )
 
+DICTIONARY = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}"
+
 # The SELECT is a copy of the one sql.py held for this migration, not an import.
 # A node with this migration pending has the Kafka table of that time.
 # A column that a later migration adds to the sql.py SELECT does not exist there yet.
-DICTIONARY = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}"
-
 operations = [
     run_sql_with_exceptions(
         f"""ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_MV} MODIFY QUERY SELECT
     team_id,
     group_type_index,
-    {GROUP_KEY_EXPR} AS group_key,
+    replaceRegexpAll(JSONExtractRaw(properties, concat('$group_', toString(group_type_index))), '^"|"$', '') AS group_key,
     distinct_id,
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen
