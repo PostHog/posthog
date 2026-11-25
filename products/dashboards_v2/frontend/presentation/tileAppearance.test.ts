@@ -2,8 +2,9 @@ import type { Dashboard, Tile } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
 import { findTile } from '../dashboard/tileTree'
 import { everyTile } from '../dashboard/tileTree'
+import { DEFAULT_WIDGETS } from '../widgets/defaultWidgets'
 import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
-import { showAction } from './tileAppearance'
+import { colorAction, showAction } from './tileAppearance'
 
 const text = (id: string): Tile => ({
     id,
@@ -48,5 +49,25 @@ describe('showAction', () => {
         expect(findTile(board, 's')?.widget).toMatchObject({ appearance: { border: false } })
         expect(findTile(board, 's')?.widget).not.toHaveProperty('parts')
         expect(findTile(board, 'other')?.widget).not.toHaveProperty('appearance')
+    })
+
+    it('tints a tile and clears the tint again, ticking the current color', () => {
+        let board: Dashboard = { version: 2, title: 'Test', tabs: [{ id: 'tab', title: 'Tab', tiles: [text('a')] }] }
+        const pick = (color: string): MenuAction => {
+            const tile = findTile(board, 'a')!
+            const menu = { key: 'color', label: 'Color', dataAttr: 'color' }
+            const action = colorAction(menu, [tile], DEFAULT_WIDGETS, null, (edit: PresentationEdit) => {
+                board = applyPresentationEdit(board, edit)
+            })
+            return action!.submenu!.find((item) => item.key === color)!
+        }
+
+        pick('blue').onSelect!()
+        expect(pick('blue').checked).toBe(true)
+        expect(findTile(board, 'a')?.widget).toMatchObject({ appearance: { color: 'var(--color-blue-500)' } })
+
+        pick('none').onSelect!()
+        expect(pick('none').checked).toBe(true)
+        expect(findTile(board, 'a')?.widget.appearance).not.toHaveProperty('color')
     })
 })

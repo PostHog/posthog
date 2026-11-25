@@ -23,7 +23,7 @@ import { type DashboardV2State, useDashboardV2 } from '../dashboard/dashboardV2C
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
-import { showAction } from '../presentation/tileAppearance'
+import { colorAction, showAction } from '../presentation/tileAppearance'
 import { findWidget } from '../widgets/widgetSpec'
 import { applyTileActionFilters } from './applyTileActions'
 
@@ -116,9 +116,13 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
         })
     }
     actions.push(tileImageAction(id, downloadingImage, downloadImage))
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
     if (show) {
         actions.push(show)
+    }
+    const color = colorAction(TILE_COLOR, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+    if (color) {
+        actions.push(color)
     }
     if (definition?.menuActions) {
         actions.push(
@@ -147,6 +151,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border and background joined this menu.
 const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
+const TILE_COLOR = { key: 'color', label: 'Color', dataAttr: 'dashboard-v2-tile-color' }
 
 function tileImageAction(
     id: string,
@@ -184,7 +189,7 @@ function autoLayoutAction(
 
 export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
     const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
     const actions: MenuAction[] = [
         {
             key: 'rename',

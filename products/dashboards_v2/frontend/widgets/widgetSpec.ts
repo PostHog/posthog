@@ -9,8 +9,10 @@ export interface AddMenuItem<Config = unknown> {
     create: () => ContentWidget<Config>
 }
 
+/** The appearance settings a widget type offers on its tiles. Each one left out is not offered. */
 export interface WidgetAppearanceOptions {
     background?: boolean
+    color?: boolean
 }
 
 /**
