@@ -71,8 +71,15 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
+function isOlderThanLoaded(
+    incomingUpdatedAt: string | null | undefined,
+    loadedUpdatedAt: string | null | undefined
+): boolean {
+    return !!loadedUpdatedAt && !!incomingUpdatedAt && dayjs(incomingUpdatedAt).isBefore(dayjs(loadedUpdatedAt))
+}
+
 function preserveNewerSettings(incoming: MessageTemplate, loaded: MessageTemplate): MessageTemplate {
-    if (loaded.updated_at && incoming.updated_at && dayjs(incoming.updated_at).isBefore(dayjs(loaded.updated_at))) {
+    if (isOlderThanLoaded(incoming.updated_at, loaded.updated_at)) {
         return {
             ...incoming,
             sensitive: loaded.sensitive,
@@ -1067,6 +1074,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     draft_content: null,
                 })
                 const published = updated.content as TemplateContent
+                const discardIsOlder = isOlderThanLoaded(updated.updated_at, values.originalTemplate.updated_at)
                 const nextOriginal = preserveNewerSettings(
                     {
                         ...values.originalTemplate,
@@ -1086,6 +1094,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setDraftState(null, published)
                 actions.setOriginalTemplate(nextOriginal)
                 actions.resetTemplate({ ...values.template, ...discardChanges })
+                if (discardIsOlder) {
+                    actions.syncExternalEdit()
+                }
             } catch {
                 lemonToast.error("Couldn't discard your draft. Try again.")
             }
@@ -1226,10 +1237,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             )
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
+            const publishIsOlder = isOlderThanLoaded(template.updated_at, values.originalTemplate.updated_at)
             const reconciled = preserveNewerSettings(template, values.originalTemplate)
             actions.setExternallyEdited(false)
             actions.resetTemplate(reconciled)
             actions.setOriginalTemplate(reconciled)
+            if (publishIsOlder) {
+                actions.syncExternalEdit()
+            }
             if (values.transactionalHogFlowId) {
                 // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
                 workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()

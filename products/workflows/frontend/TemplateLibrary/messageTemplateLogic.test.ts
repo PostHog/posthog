@@ -764,9 +764,13 @@ describe('messageTemplateLogic', () => {
             expect(bodies.at(-1)).toEqual({ draft_content: postPublishEdit })
         })
 
-        it('keeps a newer click tracking setting when an older publish response arrives after it', async () => {
+        it('keeps a newer click tracking setting and reloads newer server content when an older publish response arrives after it', async () => {
             logic.unmount()
-            const baseTemplate = {
+            const publishedByOtherTab = {
+                templating: 'liquid' as const,
+                email: { subject: 'Published by other tab', html: '<p>Newer publish</p>' },
+            }
+            let currentServer: Record<string, unknown> = {
                 ...serverTemplate,
                 sensitive: true,
                 click_tracking_enabled: null as boolean | null,
@@ -784,24 +788,23 @@ describe('messageTemplateLogic', () => {
                 const body = (await request.json()) as Record<string, unknown>
                 bodies.push(body)
                 if ('click_tracking_enabled' in body) {
-                    return [
-                        200,
-                        {
-                            ...baseTemplate,
-                            content: draft,
-                            draft_content: null,
-                            click_tracking_enabled: true,
-                            updated_at: '2026-01-01T00:02:00Z',
-                        },
-                    ]
+                    currentServer = {
+                        ...currentServer,
+                        content: publishedByOtherTab,
+                        draft_content: null,
+                        click_tracking_enabled: true,
+                        updated_at: '2026-01-01T00:02:00Z',
+                    }
+                    return [200, currentServer]
                 }
                 publishStarted()
                 await publishGate
                 return [
                     200,
                     {
-                        ...baseTemplate,
+                        ...serverTemplate,
                         ...body,
+                        sensitive: true,
                         draft_content: null,
                         click_tracking_enabled: null,
                         updated_at: '2026-01-01T00:01:00Z',
@@ -809,7 +812,7 @@ describe('messageTemplateLogic', () => {
                 ]
             }
             useMocks({
-                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, baseTemplate] },
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, currentServer] },
                 patch: {
                     '/api/projects/:team_id/messaging_templates/:id/': patch,
                     '/api/environments/:team_id/messaging_templates/:id/': patch,
@@ -832,6 +835,7 @@ describe('messageTemplateLogic', () => {
 
             expect(logic.values.hasDraft).toBe(false)
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+            expect(logic.values.template.content).toEqual(publishedByOtherTab)
         })
     })
 
