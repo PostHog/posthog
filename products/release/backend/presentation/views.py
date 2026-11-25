@@ -263,6 +263,12 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.UnknownLinkedObjectsError as error:
             raise ValidationError({error.field: f"These {error.noun} do not exist in this project: {error.ids}"})
+        report_user_action(
+            request.user,
+            "release created",
+            {"release_id": str(dto.id), "feature_flag_count": len(dto.feature_flag_ids)},
+            request=request,
+        )
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
 
     @validated_request(

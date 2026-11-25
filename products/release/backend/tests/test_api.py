@@ -43,6 +43,16 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand([("created", [], 1), ("rejected", [999999], 0)])
+    def test_creating_a_release_reports_it_once(self, _name: str, flag_ids: list[int], reported: int) -> None:
+        with patch("products.release.backend.presentation.views.report_user_action") as report:
+            response = self.client.post(self._url(), {"name": "Dark mode", "feature_flag_ids": flag_ids}, format="json")
+
+        created = [call for call in report.call_args_list if call.args[1] == "release created"]
+        assert len(created) == reported, response.json()
+        if reported:
+            assert created[0].args[2] == {"release_id": response.json()["id"], "feature_flag_count": 0}
+
     @parameterized.expand(
         [
             ("existing", "existing", status.HTTP_201_CREATED),
