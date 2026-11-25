@@ -241,7 +241,7 @@ A `daily` cohort carries the first check of the [realtime decision](definitions-
 The reason is read at request time from what the save stored, with no query and no second compile:
 
 - `unsupported_criteria`: a leaf has a `bytecode_error` and no bytecode, or a leaf is `person_metadata`.
-- `action_criteria`: such a leaf is behavioral and its `key` is an action id. It wins over another leaf with a `bytecode_error`, but not over a `person_metadata` leaf.
+- `action_criteria`: such a leaf is behavioral, and its `event_type` is `actions` or its `key` is a number. It wins over another leaf with a `bytecode_error`, but not over a `person_metadata` leaf.
 - `includes_non_realtime_cohort`: every other leaf compiled, and a cohort reference has no bytecode, because the cohort it names was not realtime at that save.
 - `history_over_limit`: its criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS`.
 - `members_over_limit`: its current `count` is above `REALTIME_COHORT_MAX_PERSON_COUNT`.
