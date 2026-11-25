@@ -235,7 +235,7 @@ export async function pollDeviceLogin(
         pending.host,
         'oauth/token/',
         { grant_type: DEVICE_CODE_GRANT, device_code: pending.deviceCode, client_id: HOG_CLIENT_ID },
-        { timeoutMs }
+        timeoutMs
     )
     // A rate limit asks for slower polling, the same as RFC 8628's slow_down.
     if (response.status === 429) {

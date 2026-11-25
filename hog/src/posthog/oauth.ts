@@ -11,7 +11,7 @@ import { itemName, type LoginTarget } from '@/posthog/credential-store/item-name
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
-import { sendRequest, type HttpRequest, type HttpResponse } from './api'
+import { sendRequest, type HttpResponse } from './api'
 import { hostUrl, type Host } from './host'
 import { ProjectIdSchema, type ProjectId } from './ids'
 import type { LoginRecord } from './settings'
@@ -56,19 +56,21 @@ export const OAuthErrorBody = z.object({
     error_description: z.string().optional().catch(undefined),
 })
 
+// Every OAuth request carries a credential, such as a refresh token, a device code or an OIDC token. A
+// followed redirect would send it again to an address hog didn't choose, so a 3xx comes back as an answer.
 export function oauthPost(
     runtime: Runtime,
     host: Host,
     path: string,
     form: Record<string, string>,
-    { timeoutMs = REQUEST_TIMEOUT_MS, redirect }: Pick<HttpRequest, 'timeoutMs' | 'redirect'> = {}
+    timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<HttpResponse> {
     return sendRequest(runtime.fetch, hostUrl(host, path), {
         method: 'POST',
         form,
         timeoutMs,
         posthog: true,
-        redirect,
+        redirect: 'manual',
     })
 }
 
@@ -217,15 +219,12 @@ export class OAuthLogin implements AccessKey {
         return this
     }
 
-    // Refresh and revoke send the refresh token, so they never follow a redirect to another address.
     private async refresh(runtime: Runtime): Promise<OAuthLogin> {
-        const response = await oauthPost(
-            runtime,
-            this.host,
-            'oauth/token/',
-            { grant_type: 'refresh_token', refresh_token: this.refreshToken, client_id: HOG_CLIENT_ID },
-            { redirect: 'manual' }
-        )
+        const response = await oauthPost(runtime, this.host, 'oauth/token/', {
+            grant_type: 'refresh_token',
+            refresh_token: this.refreshToken,
+            client_id: HOG_CLIENT_ID,
+        })
         if (response.ok) {
             const body = parseOrThrow(TokenResponse, response.json, {
                 code: 'unexpected_response',
@@ -268,13 +267,11 @@ export class OAuthLogin implements AccessKey {
     async logout(runtime: Runtime): Promise<LogoutOutcome> {
         let revoked = false
         try {
-            const response = await oauthPost(
-                runtime,
-                this.host,
-                'oauth/revoke/',
-                { token: this.refreshToken, token_type_hint: 'refresh_token', client_id: HOG_CLIENT_ID },
-                { redirect: 'manual' }
-            )
+            const response = await oauthPost(runtime, this.host, 'oauth/revoke/', {
+                token: this.refreshToken,
+                token_type_hint: 'refresh_token',
+                client_id: HOG_CLIENT_ID,
+            })
             revoked = response.ok
         } catch {
             revoked = false

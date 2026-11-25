@@ -99,20 +99,13 @@ export async function exchangeWorkloadToken(
     if (subjectToken === undefined) {
         return undefined
     }
-    // A followed redirect would send the job's OIDC token again to an address hog didn't choose.
     const exchange = (): Promise<HttpResponse> =>
-        oauthPost(
-            runtime,
-            host,
-            'oauth/token/',
-            {
-                grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-                subject_token: subjectToken,
-                subject_token_type: ID_TOKEN_TYPE,
-                resource: hostUrl(host, `api/projects/${projectId}`).toString(),
-            },
-            { redirect: 'manual' }
-        )
+        oauthPost(runtime, host, 'oauth/token/', {
+            grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+            subject_token: subjectToken,
+            subject_token_type: ID_TOKEN_TYPE,
+            resource: hostUrl(host, `api/projects/${projectId}`).toString(),
+        })
     let response = await exchange()
     // A large job matrix can use up the repository's exchanges for a moment, so a few short waits save
     // the job. Each wait adds a random part, so the jobs don't all come back in the same second.
