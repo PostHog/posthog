@@ -6,6 +6,9 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.provider_imports.base import (
@@ -46,6 +49,7 @@ CONTACT_COUNT_LABELS = (
     ("new_people", "New people"),
     ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
+    ("unsendable", "Skipped because PostHog can't send to a character like é before the @"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
     ("repeats_merged", "Repeated addresses merged"),
     ("invalid_skipped", "Invalid addresses skipped"),
@@ -216,6 +220,12 @@ def _save_lists(
         )
     if invalid := everyone.invalid_skipped:
         notes.append(f"{_contacts(invalid)} had no valid email, so {_they(invalid)} skipped.")
+    unsendable = sum(1 for row in everyone.rows if _is_unsendable(row["email"]))
+    if unsendable:
+        notes.append(
+            f"{_contacts(unsendable)} had a character like é before the @, which PostHog can't send to, so "
+            f"{_they(unsendable)} skipped."
+        )
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
@@ -244,13 +254,27 @@ def _save_lists(
         counts={
             "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
-            "dropped": result.dropped,
+            "unsendable": unsendable,
+            "dropped": max(0, result.dropped - unsendable),
             "repeats_merged": everyone.repeats_merged,
             "invalid_skipped": everyone.invalid_skipped,
         },
         items=tuple(items),
         people_imports=tuple(plan for plan in plans if plan is not None),
     )
+
+
+def _is_unsendable(email: str) -> bool:
+    local, _, domain = email.rpartition("@")
+    return not local.isascii() and not _is_valid(email) and _is_valid(f"a@{domain}")
+
+
+def _is_valid(email: str) -> bool:
+    try:
+        validate_email(email)
+    except ValidationError:
+        return False
+    return True
 
 
 def _import(
