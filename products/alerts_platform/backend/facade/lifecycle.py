@@ -172,6 +172,9 @@ class AlertSnapshot:
     firing_started_at: datetime | None = None
     # An ERRORED state hides whether the alert was firing, and a firing may have no recorded start.
     failed_while_firing: bool = False
+    # An ERRORED state also hides that the group had no data, which a move back into NO_DATA must
+    # not announce a second time.
+    failed_without_data: bool = False
 
 
 class StatefulSnapshot(Protocol):
@@ -493,7 +496,7 @@ def _no_data(snapshot: AlertSnapshot, check: CheckInput, *, muted: bool) -> Aler
     whether a move into NO_DATA was announced, so a mute holds the move itself, and the first check
     after the mute ends moves the group and announces it.
     """
-    entering = snapshot.state != AlertState.NO_DATA
+    entering = snapshot.state != AlertState.NO_DATA and not snapshot.failed_without_data
     if entering and check.notify_no_data and muted:
         return replace(_stay(snapshot), consecutive_failures=0, muted_notification=NotificationAction.NO_DATA)
     outcome = AlertCheckOutcome(

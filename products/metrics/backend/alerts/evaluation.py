@@ -327,6 +327,7 @@ def _evaluate(
             before=verdict.snapshot.state,
             after=verdict.outcome.new_state,
             firing_started_at=verdict.snapshot.firing_started_at,
+            failed_while_firing=verdict.snapshot.failed_while_firing,
         )
         for verdict in decision.verdicts
     }
@@ -553,6 +554,8 @@ def _snapshot(
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior,
         firing_started_at=instance.firing_started_at,
+        failed_while_firing=instance.failed_while_firing,
+        failed_without_data=instance.failed_without_data,
     )
 
 
@@ -582,7 +585,14 @@ def _failed(check: PlatformAlertCheckInput, message: str, *, transient: bool, no
     return recorded, _request(
         check,
         recorded,
-        {"": _Move(before=snapshot.state, after=outcome.new_state, firing_started_at=snapshot.firing_started_at)},
+        {
+            "": _Move(
+                before=snapshot.state,
+                after=outcome.new_state,
+                firing_started_at=snapshot.firing_started_at,
+                failed_while_firing=snapshot.failed_while_firing,
+            )
+        },
         sends_messages=outcome.notification != NotificationAction.NONE,
     )
 
@@ -592,6 +602,7 @@ class _Move:
     before: AlertState
     after: AlertState
     firing_started_at: datetime | None
+    failed_while_firing: bool = False
 
 
 def _request(
@@ -611,7 +622,11 @@ def _request(
         for key, move in moves.items()
         if (
             action := decide_incident_action(
-                move.before, move.after, policy=POLICY, firing_started_at=move.firing_started_at
+                move.before,
+                move.after,
+                policy=POLICY,
+                firing_started_at=move.firing_started_at,
+                failed_while_firing=move.failed_while_firing,
             )
         )
         is not None

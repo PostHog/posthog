@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.facade.contracts import IncidentAction
+from products.alerts_platform.backend.facade.contracts import IncidentAction, InstanceCheckState
 from products.alerts_platform.backend.facade.lifecycle import (
     LOGS_ALERT_POLICY,
     PLATFORM_LOGS_ALERT_POLICY,
@@ -641,6 +641,54 @@ class TestNoData:
             == incident
         )
         assert (None if episode is None else episode.ended) == episode_ended
+
+    @parameterized.expand(
+        [
+            ("still_missing", NOTIFY_NO_DATA, AlertState.NO_DATA, NotificationAction.NONE, None, False),
+            ("back_clear", CLEAR, AlertState.NOT_FIRING, NotificationAction.NONE, IncidentAction.RESOLVE, True),
+        ]
+    )  # fmt: skip
+    def test_a_firing_group_with_no_data_keeps_its_firing_through_a_failed_check(
+        self,
+        _name: str,
+        check: CheckInput,
+        new_state: AlertState,
+        notification: NotificationAction,
+        incident: IncidentAction | None,
+        episode_ended: bool,
+    ) -> None:
+        instance = InstanceCheckState.composed(
+            grouping_key="",
+            state="no_data",
+            check_status="errored",
+            configuration_snooze_until=None,
+            last_notified_at=STARTED,
+            firing_started_at=STARTED,
+        )
+        before = snapshot(
+            state=AlertState(instance.state),
+            last_notified_at=instance.last_notified_at,
+            firing_started_at=instance.firing_started_at,
+            failed_while_firing=instance.failed_while_firing,
+            failed_without_data=instance.failed_without_data,
+            cooldown=timedelta(0),
+        )
+
+        result = evaluate_alert_check(before, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        episode = decide_firing_episode(before, result, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+
+        assert (result.new_state, result.notification) == (new_state, notification)
+        assert (
+            decide_incident_action(
+                before.state,
+                result.new_state,
+                policy=PLATFORM_LOGS_ALERT_POLICY,
+                firing_started_at=STARTED,
+                failed_while_firing=instance.failed_while_firing,
+            )
+            == incident
+        )
+        assert episode is not None and (episode.started_at, episode.ended) == (STARTED, episode_ended)
 
     def test_a_mute_holds_the_move_into_no_data_until_it_ends_so_it_is_announced(self) -> None:
         muted = evaluate_alert_check(

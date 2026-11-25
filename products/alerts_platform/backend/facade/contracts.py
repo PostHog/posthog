@@ -212,8 +212,10 @@ class InstanceCheckState:
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
     last_seen_at: datetime | None = None
-    # A failing check status replaces the state, so this keeps whether the row still holds a firing.
+    # A failing check status replaces the state, so these keep whether the row still holds a firing,
+    # and whether it had no data before the check failed.
     failed_while_firing: bool = False
+    failed_without_data: bool = False
 
     def at_rest(self, now: datetime) -> bool:
         """Holds a slot and nothing else: not firing, failing or muted. A group with no data that was
@@ -244,6 +246,8 @@ class InstanceCheckState:
         records and what a reader sees cannot drift apart.
         """
         snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        failing = check_status != PlatformAlertCheckStatus.OK
+        no_data = state == PlatformAlertState.NO_DATA.value
         return cls(
             grouping_key=grouping_key,
             state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
@@ -251,8 +255,10 @@ class InstanceCheckState:
             snooze_until=max(snoozes, default=None),
             firing_started_at=firing_started_at,
             last_seen_at=last_seen_at,
-            failed_while_firing=check_status != PlatformAlertCheckStatus.OK
-            and state == PlatformAlertState.FIRING.value,
+            # A group with no data that was firing still holds that firing while the check fails.
+            failed_while_firing=failing
+            and (state == PlatformAlertState.FIRING.value or (no_data and firing_started_at is not None)),
+            failed_without_data=failing and no_data,
         )
 
 
