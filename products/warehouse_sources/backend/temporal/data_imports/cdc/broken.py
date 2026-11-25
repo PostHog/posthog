@@ -165,9 +165,11 @@ def _capture_is_stale(syncing_tables: typing.Sequence[ExternalDataSchema], now: 
     last_runs = []
     for table in syncing_tables:
         try:
-            last_runs.append(dt.datetime.fromisoformat((table.sync_type_config or {})["cdc_last_run_at"]))
+            last_run = dt.datetime.fromisoformat((table.sync_type_config or {})["cdc_last_run_at"])
         except (KeyError, TypeError, ValueError):
             continue
+        if last_run.tzinfo is not None:
+            last_runs.append(last_run)
     if not last_runs:
         return True
     interval = data_warehouse_api.cdc_min_interval(t.sync_frequency_interval for t in syncing_tables)

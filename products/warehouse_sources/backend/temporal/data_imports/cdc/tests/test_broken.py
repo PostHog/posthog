@@ -195,14 +195,19 @@ _NOW = dt.datetime(2026, 11, 25, 12, 0, tzinfo=dt.UTC)
         pytest.param([(6 * 60, 19 * 60), (6 * 60, 60)], False, id="the_newest_run_counts"),
         pytest.param([(10, 150), (6 * 60, 3 * 60)], True, id="the_shortest_interval_counts"),
         pytest.param([(6 * 60, None)], True, id="never_ran"),
+        pytest.param([(6 * 60, "naive")], True, id="a_stamp_without_a_timezone_is_ignored"),
     ],
 )
 def test_capture_is_stale(tables, stale):
+    def config(ago):
+        if ago is None:
+            return {}
+        if ago == "naive":
+            return {"cdc_last_run_at": _NOW.replace(tzinfo=None).isoformat()}
+        return {"cdc_last_run_at": (_NOW - dt.timedelta(minutes=ago)).isoformat()}
+
     schemas = [
-        ExternalDataSchema(
-            sync_frequency_interval=dt.timedelta(minutes=interval),
-            sync_type_config={} if ago is None else {"cdc_last_run_at": (_NOW - dt.timedelta(minutes=ago)).isoformat()},
-        )
+        ExternalDataSchema(sync_frequency_interval=dt.timedelta(minutes=interval), sync_type_config=config(ago))
         for interval, ago in tables
     ]
 

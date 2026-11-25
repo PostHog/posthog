@@ -1884,8 +1884,7 @@ def cleanup_orphan_slots_activity() -> None:
                 and cdc_config.auto_drop_slot
                 and retention_cap_mb is None
             )
-            # A slot this sweep drops gets no schedule, because its first run would race the drop. Repair
-            # recreates it.
+            # A slot this sweep drops gets no schedule, because its first run would race the drop.
             schedule_restored = False
             if not will_auto_drop:
                 try:
