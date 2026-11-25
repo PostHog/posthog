@@ -30,6 +30,7 @@ None documented, so the domain declares no gauges.
 Vercel reports a rate limit in the error body of the response instead.
 The counter is `vercel_api_requests_total`, labeled `installation, method, endpoint, status_code, source`.
 The endpoint label replaces the segment after `installations`, `resources`, `items` and `invoices` with `{id}`, because an item id is a feature flag key.
+The billing proxy passes its own label, because the billing service chooses the path after `/billing/invoices/`.
 
 ## Auth
 
