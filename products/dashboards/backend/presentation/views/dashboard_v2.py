@@ -32,8 +32,8 @@ from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryB
 from products.dashboards.backend.facade.enums import (
     QueryBatchEngine,
     QueryBatchLanguage,
-    QueryBatchResultFormat,
     QueryBatchTargetFormat,
+    ResultFormat,
 )
 
 # W3C trace context, version 00: https://www.w3.org/TR/trace-context/#traceparent-header
@@ -144,9 +144,9 @@ class QueryBatchRequestSerializer(serializers.Serializer):
         help_text=f"The panels' queries, at most {MAX_QUERIES_PER_BATCH}.",
     )
     format = serializers.ChoiceField(
-        choices=QueryBatchResultFormat.choices,
+        choices=ResultFormat.choices,
         required=False,
-        default=QueryBatchResultFormat.RESULT,
+        default=ResultFormat.RESULT,
         help_text=(
             "`result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, "
             "PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels."
@@ -258,7 +258,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 client_query_id=f"dashboard-v2-batch-{dashboard_id if dashboard_id is not None else 'none'}",
                 asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
                 traceparent=_traceparent(request.headers.get("traceparent")),
-                result_format=QueryBatchResultFormat(request.validated_data["format"]),
+                result_format=ResultFormat(request.validated_data["format"]),
             )
         except QueryBatchBusy:
             raise exceptions.Throttled(wait=5, detail="Too many dashboards are loading at once. Try again shortly.")

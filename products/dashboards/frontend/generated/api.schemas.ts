@@ -439,14 +439,14 @@ export interface QueryBatchQueryApi {
 }
 
 /**
- * * `frames` - Frames
  * * `result` - Result
+ * * `frames` - Frames
  */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
 
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
+export const ResultFormatEnumApi = {
     Result: 'result',
+    Frames: 'frames',
 } as const
 
 export interface QueryBatchRequestApi {
@@ -459,7 +459,7 @@ export interface QueryBatchRequestApi {
      *
      * * `result` - Result
      * * `frames` - Frames */
-    format?: CachedTileFormatEnumApi
+    format?: ResultFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -10519,9 +10519,9 @@ export interface CachedTileResultApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
 }
@@ -11137,9 +11137,9 @@ export interface DashboardStreamCachedTileApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */

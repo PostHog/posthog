@@ -63,7 +63,7 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateScope,
     DashboardUsageCount,
-    QueryBatchResultFormat,
+    ResultFormat,
 )
 from products.dashboards.backend.logic import (
     frames as frames_logic,
@@ -1359,7 +1359,7 @@ def query_batch_stream(
     client_query_id: str,
     asynchronous: bool,
     traceparent: str | None = None,
-    result_format: QueryBatchResultFormat = QueryBatchResultFormat.RESULT,
+    result_format: ResultFormat = ResultFormat.RESULT,
 ) -> Iterator[bytes] | AsyncIterator[bytes]:
     """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
     then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's

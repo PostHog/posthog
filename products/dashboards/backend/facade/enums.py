@@ -74,8 +74,8 @@ class QueryBatchTargetFormat(LabeledStrEnum):
     TABLE = "table", "Table"
 
 
-class QueryBatchResultFormat(LabeledStrEnum):
-    """What a query batch line carries: each runner's own result, or frames any chart can draw."""
+class ResultFormat(LabeledStrEnum):
+    """What a cached tile or a query batch line carries: the runner's own result, or frames any chart can draw."""
 
     RESULT = "result", "Result"
     FRAMES = "frames", "Frames"

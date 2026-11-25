@@ -59,8 +59,8 @@ from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBa
 from products.dashboards.backend.facade.enums import (
     QueryBatchEngine,
     QueryBatchLanguage,
-    QueryBatchResultFormat,
     QueryBatchTargetFormat,
+    ResultFormat,
 )
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.frames import frames_for
@@ -429,16 +429,14 @@ def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) ->
     return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _line_shape(
-    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: QueryBatchResultFormat
-) -> _LineShape:
+def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
     return _LineShape(
         language=item.target.language,
         query=resolved.query if resolved is not None else {},
         canonical=canonical_query(item, resolved),
         legend=item.target.legend,
         target_format=item.target.format,
-        frames=result_format == QueryBatchResultFormat.FRAMES,
+        frames=result_format == ResultFormat.FRAMES,
     )
 
 
@@ -486,7 +484,7 @@ def _result_line(
             # A result the converter cannot read is still an answer, so it goes back as the runner returned it.
             logger.warning("dashboard_v2_query_batch_frames_failed", exc_info=True)
             capture_exception(e)
-        body["format"] = (QueryBatchResultFormat.FRAMES if frames is not None else QueryBatchResultFormat.RESULT).value
+        body["format"] = (ResultFormat.FRAMES if frames is not None else ResultFormat.RESULT).value
     if frames is not None:
         body["frames"] = frames
         # Freshness and access-control warnings qualify the frames as they do the runner's result.
@@ -673,7 +671,7 @@ class QueryBatch:
         dashboard_id: Optional[int],
         client_query_id: str,
         traceparent: Optional[str] = None,
-        result_format: QueryBatchResultFormat = QueryBatchResultFormat.RESULT,
+        result_format: ResultFormat = ResultFormat.RESULT,
     ) -> None:
         self._team = team
         self._result_format = result_format
