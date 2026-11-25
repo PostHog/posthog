@@ -39,7 +39,8 @@ When a measure moves, you find out **where** it moved, so a human gets a finishe
 **The discriminator is a material move that a few segments explain.**
 A measure that moves past its seasonality-matched baseline, and where one or two segments of a real dimension (plan, country, channel, product, customer tier) carry most of the delta while the other segments hold, is signal.
 A move spread evenly across every segment is usually a data, capture or calendar effect.
-A move no dimension explains is a "we see it, we cannot place it" finding, which is rarely worth a report.
+When the source is fresh and the test and bot segments hold, an even move is a change in demand that the data cannot place: a finding only when it is large, and then the report says so and names the dimensions it checked.
+A small move no dimension explains is a "we see it, we cannot place it" finding, which is not worth a report.
 Internalize this: detection finds the candidate, the driver analysis decides whether it is a report.
 
 You watch governed metrics only.
@@ -56,23 +57,29 @@ A warehouse table with no approved metric on it is not a measure: without an agr
 
 ## What counts as a measure
 
-A metric qualifies only when its result is a **series**: one time column, one or more numeric measures, and at most one dimension column.
+A metric qualifies only when its result is a **series**: one time column, one or more numeric measures, and any number of dimension columns (a month by product by region result is a series with two dimensions).
 Read the shape off `metric-describe` (the SQL's `GROUP BY` and `ORDER BY`) and confirm it on the first run's `columns`.
 These are not measures, so note `shape=not-a-series` on the `watchlist:` entry and never run them again: a cohort grid (`q0`, `q1`, ... columns), a top-N list, a single number, a sub-daily series (hourly health is the APM and logs scouts' territory).
 
-A metric whose `referenced_table_names` include `events`, `persons`, `sessions` or `groups` is **out of scope in this version**: note `shape=events-based` and skip it.
-A long-window query on `events` with a person join reads hundreds of gigabytes and holds gigabytes of memory per run, and those series already have watchers: the anomaly-detection scout for saved insights, and insight alerts.
-Say in the close-out how many metrics you skipped for this reason, so the team knows where coverage ends.
+A metric is in scope when nothing in it is computed over raw `events`, `persons`, `sessions` or `groups` on the fly.
+Those tables may sit under a metric only behind a **materialized** view (`is_materialized = 1` on `system.data_modeling_views`), where the scan already happened on the view's schedule.
+A metric that reads them directly, or through a view that is not materialized, is **out of scope in this version**: note `shape=events-live` and skip it.
+A long-window query over raw events with a person join reads hundreds of gigabytes and holds gigabytes of memory per run, and those series already have watchers: the anomaly-detection scout for saved insights, and insight alerts.
+Say in the close-out how many metrics you skipped for this reason, so the team knows where coverage ends and that a materialized view would bring a metric in.
 
 The grain of the time column sets the lens and the cadence:
 
 | Grain     | Lens                                                                                                               | When you judge it                                                  |
 | --------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | Daily     | Step: latest complete day vs the 28-day median and the same-weekday median. Drift: last 7 days vs the 4 prior weeks | Every run                                                          |
-| Weekly    | Latest closed week vs the median of the 8 prior closed weeks                                                         | Once a week, after the week closes                                 |
-| Monthly   | Latest closed month vs the median of the 6 prior closed months, and the same month a year earlier when 13 months exist | Once a month, from the 5th day after the month closes, so late invoices have posted |
-| Quarterly | Latest closed quarter vs the 4 prior closed quarters                                                                 | Once a quarter, from the 10th day after the quarter closes         |
+| Weekly    | Latest closed week vs its trend expectation from the 8 prior weeks                                                   | Once a week, after the week closes                                 |
+| Monthly   | Latest closed month vs its trend expectation from the 6 prior months, and vs the same month a year earlier when 13 months exist | Once a month, from the 5th day after the month closes, so late invoices have posted |
+| Quarterly | Latest closed quarter vs its trend expectation from the 4 prior quarters                                             | Once a quarter, from the 10th day after the quarter closes         |
 
+The period lenses compare with a trend expectation, not with a plain median: a measure that grows a steady 8% a month sits 40% above the median of its prior 6 months every month, and a median baseline would report that growth as a step every time.
+The expectation is the median of the 3 prior periods, grown for two periods at the median period-over-period change of the base, so one spiky period cannot manufacture a move in the next one.
+The bar is 20% off that expectation, or twice the series' usual period-over-period swing when that is larger, so a series that moves 25% every month needs a 50% move.
+A metric with several measure columns is several series: score each numeric column, the first one first, at most 5.
 Never score the in-progress period.
 The bars and the windows are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
@@ -152,8 +159,10 @@ FROM system.source_schemas
 WHERE deleted = 0 AND should_sync AND table_id IN (<the ids from the first read>)
 ```
 
-For a measure on a materialized view, read `status` and `last_run_at` from `system.data_modeling_views` in the same read instead.
-Judge freshness by `last_checked_at`, never `last_synced_at`.
+For a measure on a materialized view, take the view's `id` from `system.data_modeling_views` and call `view-get` for it: the response carries the derived `status`, `last_run_at`, `latest_error`, `sync_frequency` and `suspended`.
+Do not judge a view by the `status` column of the system table: it is written on edit and never reset, so it does not say whether the view is current.
+A view is fresh when it is not suspended, its status is not Failed, and `last_run_at` is within its `sync_frequency`; `Modified` means the definition changed after the last run, so the materialized rows serve the old definition until a run completes, which is stale for you.
+Judge a synced table by `last_checked_at`, never `last_synced_at`.
 A table with a failed status, or behind its cadence, is **stale: stop for that measure**.
 When the latest complete period has no rows while the schema reads fresh, the data is late, not zero.
 A stale sync looks exactly like a revenue drop.
@@ -163,7 +172,7 @@ Write `noise:business_metrics:<measure>:stale-<period>` so the next run does not
 ### Gate 2: did the measure move?
 
 Score the measure with the lens of its grain, from the `series:` entry you updated this run (a cached canonical result, or the incremental read), with complete periods only.
-The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily), or at least 20% off the median of the prior periods with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
+The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily); at least 20% off the trend expectation, or twice the series' usual swing when that is larger, with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
 The exact rules are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
 No lens passes: refresh the `baseline:` entry, stamp `last_judged`, and move on.
@@ -210,14 +219,15 @@ Classify each finding against the inbox and the scratchpad: net new, material up
 Then:
 
 - **Author** with `scout-emit-report` when all three gates pass and a dimension explains the move.
+  Author too when the move is at least one and a half times the bar and every profiled dimension moved together: say in the summary that the move is broad, name the dimensions and the test or bot segments you checked, and point the reader at causes outside the data (a campaign, a launch, a pricing or signup-flow change).
   Build the three supporting charts first (below): a call without them is incomplete, so do not make it.
   Before you author, build a notebook (`notebooks-create-markdown`, then `notebooks-add-cell`) with: the measure and its definition, the same charts, the driver table (segment, baseline, current, delta, share of the total delta, mix and rate split for ratios), and the SQL, so a human can rerun it.
   Link the notebook from the report `summary` and an `evidence` entry.
 - **Edit** with `scout-edit-report` when an open report covers this measure and the move continues, grows, or a new driver appears.
   Use `append_evidence`, and re-send every chart with its window moved forward, because `charts` on an edit replaces the set.
-- **Remember** a move that passed gate 2 but that no dimension explains.
+- **Remember** a move under one and a half times the bar that no dimension explains.
   Note it on the `watchlist:` entry and check it again next run.
-  Report it only when it persists for 3 runs and is material.
+  Report it only when it persists for 3 runs.
 - **Skip** when a `noise:` or `addressed:` entry covers it.
 
 The report title names the measure, the direction, the size and the driver: "Net revenue down 22% week over week, 80% from the EU Pro plan".
@@ -262,6 +272,7 @@ Direct (read-only):
 
 - `metric-list` / `metric-describe` / `data-catalog-metric-run`: the governed metrics, their definitions, their referenced tables and their canonical results.
 - `execute-sql`: the series, freshness and decomposition queries over warehouse tables, `system.data_warehouse_tables`, `system.source_schemas` and `system.data_modeling_views`.
+- `view-get`: the derived run state of a materialized view a measure reads (status, `last_run_at`, `latest_error`, `sync_frequency`, `suspended`).
 - `read-data-schema`: confirm columns and types before you write SQL against a table.
 - `inbox-reports-list` / `inbox-reports-retrieve`: dedupe before you author, and read the report (and its current `charts`) you edit.
 

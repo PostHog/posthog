@@ -100,10 +100,24 @@ Remember it, do not report it.
 
 ### Period lens (weekly, monthly, quarterly)
 
-Compare the latest closed period with the median of the prior periods in the base.
-Pass at 20% or more off that median, with the same 20-unit floor.
+Compare the latest closed period `p` with its **trend expectation**:
+
+- `g`: the median of the period-over-period changes across the base periods (`value[i] / value[i-1] - 1` for each consecutive pair).
+- `level`: the median of the 3 prior periods, `value[p-3]`, `value[p-2]`, `value[p-1]`, so one spiky period cannot set the anchor on its own.
+- `expected = level * (1 + g) ^ 2`, the level grown from the middle of those 3 periods to `p`.
+- `swing`: the median of the absolute period-over-period changes across the base, the series' usual noise.
+- `bar = max(0.2, 2 * swing)`.
+
+Pass when `abs(value[p] - expected) >= bar * expected`, with the same 20-unit floor on the count basis.
+A plain median baseline fails here: a series that grows 8% a month reads 40% above the median of its prior 6 months every month, so it would report its own growth as a step.
+A flat 20% bar fails on a volatile series: a stage count that swings 25% every month clears it by noise, which is what the `swing` term stops.
+
+Invented example, a monthly count: the 6 prior months are 980, 1,050, 1,120, 1,210, 1,280 and 1,370, so the changes are +7%, +7%, +8%, +6% and +7%, `g` = 7%, `swing` = 7%, `bar` = 20%, `level` = 1,280, and `expected` = 1,280 × 1.07² = 1,465.
+A latest month of 1,520 is 4% above expected: no move.
+A latest month of 1,880 is 28% above expected: a candidate.
+
 For a monthly measure with 13 closed months, also compare with the same month a year earlier: a move that the year-earlier month shows too is seasonal, so remember it and do not report it.
-A measure that moved by 20% or more in the same direction in each of the 3 prior periods is a long trend, not a new move.
+A measure whose changes already ran at 20% or more in the same direction in each of the 3 prior periods is a long trend, not a new move.
 
 ## Decomposition
 
@@ -111,7 +125,7 @@ Use the `cur` and `base` windows of the lens that passed.
 
 ### From the metric's own rows
 
-When the series carries a dimension column, group its rows: `cur` per segment, the average of the base periods per segment, and the delta.
+When the series carries one or more dimension columns, group its rows per dimension: for each dimension column, sum the measure over the other dimension columns, then take `cur` per segment, the average of the base periods per segment, and the delta.
 No query runs.
 Segments past the 20th by `abs(delta)` go into one "other" row.
 
