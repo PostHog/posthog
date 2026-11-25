@@ -461,6 +461,25 @@ describe('stepReadingsOf', () => {
             ],
         ],
         [
+            'keeps the live break of a step the final evidence passes',
+            { settled: new Map([[1, [broke(0, 10, 60, 90)]]]) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(90, false), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
+            'takes the final break of a step the live judge passed',
+            {
+                writerCpu: cpu({ 0: 40, 1: 80 }),
+                settled: new Map([[1, [{ ...HELD[0], reading: { value: 50, part: 'db:cyclotron' } }]]]),
+            },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(80, false), pickup(1, 'hogflow')],
+            ],
+        ],
+        [
             'takes the live judge readings where the final writer CPU read failed',
             {
                 writerCpu: { unread: 'the writer CPU read failed: throttled' },

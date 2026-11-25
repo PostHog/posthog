@@ -482,6 +482,42 @@ describe('scorecard', () => {
             },
         ],
         [
+            'no on-time answer for a step with a bar unjudged or no bar judged',
+            {
+                end: 'ceiling',
+                sustainedScale: 10,
+                reason: 'every step held up to the 10x ceiling',
+                readings: [
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: null,
+                            passed: null,
+                            unjudged: 'the local stack has no Aurora writer to read CPU from',
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 1,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: true,
+                        },
+                    ],
+                    [],
+                ],
+            },
+            {
+                ramp_steps: [
+                    expect.objectContaining({ scale: 5, on_time: null }),
+                    expect.objectContaining({ scale: 10, on_time: null, bars: [] }),
+                ],
+            },
+        ],
+        [
             'the ceiling it held, with empty breaking fields',
             { end: 'ceiling', sustainedScale: 20, reason: 'every step held up to the 20x ceiling' },
             {
