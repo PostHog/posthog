@@ -33,6 +33,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats
+from products.experiments.backend.metric_calculation.results import SignificanceHistory
 
 # pinned: sent as `finding_subcode` on the health finding events.
 STAYED_SIGNIFICANT = "stayed_significant"
@@ -47,17 +48,14 @@ class _Readout:
     metric: PrimaryMetric
     result: MetricResultStats
     samples: int
-    # When the data of the current result ends.
-    current_until: datetime
-    # By variant key, for the variants that the current result shows as significant.
-    significant_since: dict[str, datetime]
+    significance: SignificanceHistory
 
 
 def result_ready_values(ctx: HealthContext) -> CheckValues:
     readout = _readout(ctx)
     if isinstance(readout, CheckSkip):
         return {}
-    earliest = min(readout.significant_since.values(), default=None)
+    earliest = min(readout.significance.significant_since.values(), default=None)
     return {
         ExperimentHealthValueKey.METRIC_NAME: readout.metric.name,
         ExperimentHealthValueKey.SAMPLE_COUNT: readout.samples,
@@ -76,7 +74,6 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(NOT_ON_ARCHIVED)
     if not ctx.is_launched:
         return not_applicable(RUNS_AFTER_LAUNCH)
-    # After the end the decision is made.
     if ctx.has_ended:
         return not_applicable(NOT_AFTER_END)
     if ctx.primary_metric_count == 0:
@@ -92,13 +89,7 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         samples = metric.result.baseline.number_of_samples + sum(
             variant.number_of_samples for variant in metric.result.variants
         )
-    return _Readout(
-        metric=metric,
-        result=metric.result,
-        samples=samples,
-        current_until=metric.significance.current_until,
-        significant_since=dict(metric.significance.significant_since),
-    )
+    return _Readout(metric=metric, result=metric.result, samples=samples, significance=metric.significance)
 
 
 def result_ready(ctx: HealthContext) -> CheckOutcome:
@@ -107,14 +98,14 @@ def result_ready(ctx: HealthContext) -> CheckOutcome:
         return readout
     if isinstance(early_significance(ctx), ExperimentHealthFinding):
         return not_applicable(REPORTED_BY_EARLY_SIGNIFICANCE)
-    if readout.significant_since:
+    if readout.significance.significant_since:
         return _stayed_significant(ctx, readout)
     return _target_reached_not_significant(readout)
 
 
 def _stayed_significant(ctx: HealthContext, readout: _Readout) -> ExperimentHealthFinding | None:
-    variant, since = min(readout.significant_since.items(), key=lambda item: (item[1], item[0]))
-    duration = readout.current_until - since
+    variant, since = min(readout.significance.significant_since.items(), key=lambda item: (item[1], item[0]))
+    duration = readout.significance.current_until - since
     if duration < timedelta(days=SIGNIFICANT_DAYS):
         return None
     days = duration // timedelta(days=1)
