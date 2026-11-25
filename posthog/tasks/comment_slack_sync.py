@@ -503,11 +503,13 @@ def _history_message_skip_reason(message: dict[str, Any]) -> str | None:
 
 
 def _stamp_import_state(mirror: CommentSlackThread, state: str) -> None:
-    root = Comment.objects.filter(id=mirror.source_comment_id).only("item_context").first()
-    if root is None:
-        return
-    context = dict(root.item_context) if isinstance(root.item_context, dict) else {}
-    Comment.objects.filter(id=root.id).update(item_context={**context, SLACK_IMPORT_STATE_KEY: state})
+    # Under the lock an edit of the comment takes, so neither write drops the other's item_context change.
+    with transaction.atomic():
+        root = Comment.objects.select_for_update().filter(id=mirror.source_comment_id).only("item_context").first()
+        if root is None:
+            return
+        context = dict(root.item_context) if isinstance(root.item_context, dict) else {}
+        Comment.objects.filter(id=root.id).update(item_context={**context, SLACK_IMPORT_STATE_KEY: state})
 
 
 def _post_link_notice(mirror: CommentSlackThread) -> None:

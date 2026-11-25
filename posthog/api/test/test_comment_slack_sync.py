@@ -5,7 +5,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -28,6 +30,7 @@ from posthog.tasks.comment_slack_sync import (
     LINKED_THREAD_IMPORT_MESSAGE_LIMIT,
     SLACK_SYNCED_TS_KEY,
     _save_slack_reply_once,
+    _stamp_import_state,
     backfill_comment_slack_thread,
     import_linked_slack_thread,
     ingest_slack_discussion_reply,
@@ -939,6 +942,19 @@ class TestLinkSlackThread(APIBaseTest):
         client.conversations_replies.assert_not_called()
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
+    # Slack still lets the bot read an archived channel's history, but refuses every reply posted to it.
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_an_archived_channel(self, mock_slack, _flag):
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        client.conversations_info.return_value["channel"]["is_archived"] = True
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "That Slack channel is archived" in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
     # Linking it would post internal discussion replies to the customer. A ticket in another project of
     # the org and a deleted one still own their thread.
     @parameterized.expand([("this_project",), ("another_project_in_the_org",), ("deleted_ticket",)])
@@ -1404,6 +1420,21 @@ class TestImportLinkedSlackThread(APIBaseTest):
 
         assert first is not None and second is None
         assert Comment.objects.filter(source_comment=self.root).count() == 1
+
+    def test_the_import_state_is_written_under_the_lock_an_edit_takes(self):
+        # An edit of the opening comment (a Replay discussion's timestamp, say) locks it while it merges
+        # item_context. Taking the same lock means neither write can drop the other's change.
+        Comment.objects.filter(id=self.root.id).update(
+            item_context={"from_slack": True, "slack_import_state": "pending", "time": "00:42"}
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            _stamp_import_state(self.mirror, "done")
+
+        assert any(
+            '"posthog_comment"' in query["sql"] and "FOR UPDATE" in query["sql"] for query in queries.captured_queries
+        )
+        assert self._root_context() == {"from_slack": True, "slack_import_state": "done", "time": "00:42"}
 
 
 class TestIngestSlackDiscussionReply(APIBaseTest):

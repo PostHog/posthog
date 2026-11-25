@@ -1689,6 +1689,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                     "Only threads in internal Slack channels can be linked, because replies on the discussion "
                     "are posted back into the thread."
                 )
+            if channel.get("is_archived"):
+                raise exceptions.ValidationError(
+                    "That Slack channel is archived, so replies on the discussion couldn't be posted to it."
+                )
             if not channel.get("is_private"):
                 return channel.get("name") or ""
             if slack.integration.created_by_id != user.id:
