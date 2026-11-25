@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.permissions import user_can_access_resource
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -563,7 +564,9 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
         event = query.get("event") or None
-        can_query_events = self.user_access_control.check_access_level_for_resource("query", "viewer")
+        can_query_events = user_can_access_resource(
+            self.team, cast(User, request.user), "query", "viewer", user_access_control=self.user_access_control
+        )
         if event and not can_query_events:
             raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):

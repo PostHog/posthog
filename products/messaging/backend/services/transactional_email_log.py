@@ -14,7 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -746,6 +746,8 @@ def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], pe
         },
         query_type="transactional_email_impact_sessions",
         workload=Workload.ONLINE,
+        # A timed-out scan must fail rather than return a partial count that reads as complete.
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
     )
     return {session_id for (session_id,) in response.results or []}
 
