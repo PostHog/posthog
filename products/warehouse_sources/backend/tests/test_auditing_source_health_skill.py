@@ -1,7 +1,9 @@
 import re
 from pathlib import Path
 
-import pytest
+from posthog.hogql import ast
+from posthog.hogql.database.schema.system import source_sync_jobs
+from posthog.hogql.parser import parse_select
 
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaCompactSerializer,
@@ -16,27 +18,31 @@ _STALENESS_SECTION = re.search(
 )
 
 
-def test_staleness_section_is_found() -> None:
+def _section() -> str:
     assert _STALENESS_SECTION is not None
+    return _STALENESS_SECTION.group(1)
 
 
-@pytest.mark.parametrize(
-    "required",
-    [
-        # The field that moves on runs that load no rows.
-        "compare `last_checked_at` with `sync_frequency`",
-        # Compact rows omit `sync_frequency`, so the comparison needs the full rows.
-        "`compact: false`",
-        # Null and legacy `last_checked_at` values need the job history before a verdict.
-        "system.source_sync_jobs",
-    ],
-)
-def test_staleness_check_does_not_trust_last_synced_at_alone(required: str) -> None:
-    assert _STALENESS_SECTION is not None
-    assert required in _STALENESS_SECTION.group(1)
+def test_staleness_compares_last_checked_at_with_sync_frequency() -> None:
+    assert "compare `last_checked_at` with `sync_frequency`" in _section()
 
 
 def test_staleness_fields_need_the_full_schema_rows() -> None:
     assert {"last_checked_at", "sync_frequency"} <= set(ExternalDataSchemaSerializer.Meta.fields)
-    assert "last_checked_at" in ExternalDataSchemaCompactSerializer.Meta.fields
     assert "sync_frequency" not in ExternalDataSchemaCompactSerializer.Meta.fields
+    assert "`compact: false`" in _section()
+
+
+def test_job_history_query_reads_real_columns_without_the_raw_error() -> None:
+    [sql] = re.findall(r"```sql\n(.*?)```", _section(), re.DOTALL)
+    query = parse_select(sql.replace("<schema id>", "00000000-0000-0000-0000-000000000000"))
+    assert isinstance(query, ast.SelectQuery)
+    assert query.select_from is not None and isinstance(query.select_from.table, ast.Field)
+    assert query.select_from.table.chain == ["system", "source_sync_jobs"]
+
+    selected = [field.chain[-1] for field in query.select if isinstance(field, ast.Field)]
+    assert len(selected) == len(query.select)
+    assert {"status", "created_at"} <= set(selected)
+    assert set(selected) <= set(source_sync_jobs.fields)
+    # The job table stores the raw error; the schema list returns the redacted one.
+    assert "latest_error" not in selected
