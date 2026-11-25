@@ -308,8 +308,12 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise PermissionDenied(
                     "You need permission to add integrations in this project to add sending domains."
                 )
-        if data["provider"] not in {provider.key for provider in self._providers()}:
+        provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
+        if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
+        if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
+            raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
         try:
             run = start_provider_import(
                 self.team_id,
@@ -333,13 +337,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ProviderImportUnavailable as e:
             raise ProviderUnavailable(str(e)) from e
 
-        report_user_action(
-            request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
         report_user_action(
             request.user,
             "workflows import run",

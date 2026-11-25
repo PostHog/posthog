@@ -53,7 +53,10 @@ class PersonPropertyRunLog:
     def finding_latest_rows(self) -> None:
         self._logger.info(f"Finding the latest row for each {self._entities.singular}")
 
-    def progress(self, *, rows_read: int, changed: int, existing: int, produced: int) -> None:
+    def missing_row_removal_skipped(self) -> None:
+        self._logger.warning("Skipped removal checks because this run did not read the complete table")
+
+    def progress(self, *, rows_read: int, changed: int, existing: int, produced: int, removed: int = 0) -> None:
         """Cumulative counts for the run so far. Logged at most once per ``PROGRESS_INTERVAL_SECONDS``."""
         now = monotonic()
         if self._last_progress_at is not None and now - self._last_progress_at < PROGRESS_INTERVAL_SECONDS:
@@ -68,6 +71,8 @@ class PersonPropertyRunLog:
             )
         if produced:
             self._logger.info(f"Sent {produced:,} {_count(produced, 'update', 'updates')}")
+        if removed:
+            self._logger.info(f"Removed mapped properties from {removed:,} {_count(removed, 'person', 'people')}")
 
     def saving_progress(self) -> None:
         """Logged once per run, however many sources it closes."""
@@ -75,9 +80,12 @@ class PersonPropertyRunLog:
             self._saving_logged = True
             self._logger.info("Saving progress")
 
-    def finished(self, produced: int) -> None:
+    def finished(self, produced: int, removed: int = 0) -> None:
         entity = _count(produced, self._entities.singular, self._entities.plural)
-        self._logger.info(f"Finished. Updated {produced:,} {entity}.")
+        removal_summary = (
+            f" Removed mapped properties from {removed:,} {_count(removed, 'person', 'people')}." if removed else ""
+        )
+        self._logger.info(f"Finished. Updated {produced:,} {entity}.{removal_summary}")
 
     def failed(self, error: str) -> None:
         self._logger.error(error)

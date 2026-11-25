@@ -261,3 +261,22 @@ class TestProviderImportFlag(APIBaseTest):
         assert any("names on the email preferences page" in step for step in mailgun["next_steps"])
         assert response.status_code == 400
         assert "Mailgun region" in response.json()["detail"]
+
+    def test_mailgun_contacts_need_their_own_flag(self, flag: MagicMock) -> None:
+        flag.side_effect = lambda key, *_args, **_kwargs: key == "workflows-mailgun-import"
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+
+        [mailgun] = [row for row in self.client.get(f"{url}providers/").json() if row["key"] == "mailgun"]
+        response = self.client.post(
+            url,
+            {
+                "provider": "mailgun",
+                "steps": ["bounces", "complaints", "unsubscribes", "mailing_lists", "contacts"],
+                "settings": {"region": "us"},
+                "api_key": "key",
+            },
+        )
+
+        assert not {"contacts", "new_people"} & {step["key"] for step in mailgun["steps"]}
+        assert response.status_code == 400
+        assert "no step named contacts" in response.json()["detail"]

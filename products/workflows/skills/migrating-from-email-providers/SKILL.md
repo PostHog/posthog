@@ -109,9 +109,12 @@ Follow the same steps, with these differences.
 | Unsubscribes for all mail | Opted out of all marketing email              | Nothing                                          |
 | Unsubscribes for a tag    | Opted out of a new category named after it    | Puts the matching templates in that category     |
 | Allowlists                | A list only                                   | Removes test addresses meant to bounce           |
-| Mailing lists             | A category, and opt-outs for who left         | Builds the audience from its own data            |
+| Mailing lists             | A category, and opt-outs for who left         | Puts the matching templates in that category     |
+| List members              | People, matched by email, and cohorts         | Checks the people and cohorts                    |
 | Templates                 | Library templates in Liquid                   | Fixes the notes, passes variables, sends a test  |
 | Domains and DNS records   | A list only                                   | Adds each domain and publishes new records       |
+
+**Contacts.** `contacts` and `new_people` appear only where they're turned on. Without them, list members don't become people. `contacts` needs `bounces`, `complaints`, `unsubscribes` and `mailing_lists` in the same run. Each list gets a cohort of the members subscribed to it, and one cohort per account and region, named after the account's oldest Mailgun domain, holds everyone subscribed to at least one list. A member who left every list becomes a person but joins no cohort. Importing again takes people who unsubscribed or left a list out of its cohort. A list deleted in Mailgun keeps its cohort as it was, and so does a region that has no lists left. More than 500 lists or 250,000 memberships don't fit one import.
 
 Mailgun's API documents no automations, so nothing becomes a workflow. Routes, webhooks, tracking settings, send history and stats stay behind, and Mailjet is a separate product.
 

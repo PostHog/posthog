@@ -1,12 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { NativeEmailIntegrationChoice } from './EmailTemplater'
+import { EmailTemplater, NativeEmailIntegrationChoice } from './EmailTemplater'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
 
 let mockSenderRotationEnabled = false
@@ -43,7 +43,11 @@ function renderChoice(senders: Record<string, unknown>[]): void {
     )
 }
 
-describe('NativeEmailIntegrationChoice', () => {
+const blankEmail = { design: null, html: '', text: '', subject: '', from: '', to: '' }
+
+describe('email templater', () => {
+    let unmountLogic: (() => void) | undefined
+
     beforeEach(() => {
         useMocks({
             get: {
@@ -55,7 +59,11 @@ describe('NativeEmailIntegrationChoice', () => {
         })
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        unmountLogic?.()
+        unmountLogic = undefined
+    })
 
     it.each([
         [false, 'single-email-sender-select'],
@@ -81,4 +89,29 @@ describe('NativeEmailIntegrationChoice', () => {
             expect(screen.queryByText(/example\.org/)).not.toBeInTheDocument()
         }
     )
+
+    it.each([
+        { name: 'the host opens another email', first: { emailKey: 'a' }, second: { emailKey: 'b' }, kept: false },
+        { name: 'another editor takes its place', first: { key: 'a' }, second: { key: 'b' }, kept: false },
+        {
+            name: 'the same email remounts',
+            first: { key: 'a', emailKey: 'same' },
+            second: { key: 'b', emailKey: 'same' },
+            kept: true,
+        },
+    ])('a converted document is kept ($kept) when $name', ({ first, second, kept }) => {
+        initKeaTests()
+        const logic = emailTemplaterLogic({ value: blankEmail, onChange: jest.fn(), type: 'native_email' })
+        unmountLogic = logic.mount()
+        const editor = ({ key, ...props }: { key?: string; emailKey?: string }): JSX.Element => (
+            <EmailTemplater key={key} value={blankEmail} onChange={jest.fn()} type="native_email" {...props} />
+        )
+        const { rerender } = render(editor(first))
+        const document = { version: 1, doc: { type: 'doc', content: [] } }
+        act(() => logic.actions.setEmailConversion({ document, unsupported: [], notKept: [] }))
+
+        rerender(editor(second))
+
+        expect(logic.values.convertedEmailDocument).toEqual(kept ? document : null)
+    })
 })

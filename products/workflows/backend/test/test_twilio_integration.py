@@ -19,7 +19,7 @@ from posthog.models.user import User
 
 TWILIO_SID = "AC" + "0" * 32
 TWILIO_401 = {"code": 20003, "message": "Authenticate", "status": 401}
-CAPTURE_HOST = "https://capture.example.com"
+CAPTURE_HOST = "https://capture.posthog.invalid"
 
 
 def exceptions_reported(http: responses.RequestsMock) -> int:

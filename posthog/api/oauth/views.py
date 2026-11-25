@@ -111,7 +111,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import TimeSensitiveActionPermission, request_allows_sensitive_action
 from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.ceilings import (
     clamp_scopes_to_ceiling,
@@ -859,7 +859,9 @@ class OAuthValidator(OAuth2Validator):
           the ceiling rather than staying a wildcard.
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
-        Desktop CLI) but never on the provisioning paths — see the flag.
+        Desktop CLI) but never for a self-registered (DCR or CIMD) client, where it
+        resolves to the `UNPRIVILEGED_SCOPES` default, and never on the provisioning
+        paths. See the flag.
 
         An EMA setup request (`ema_issuer:manage` alone or with identity scopes, see
         `requests_ema_issuer`) is the one exception to clamping, and the only case that
@@ -881,10 +883,12 @@ class OAuthValidator(OAuth2Validator):
                 return False
             request.scopes = [EMA_ISSUER_MANAGE_SCOPE]
             return True
+        application = client or getattr(request, "client", None)
+        grandfathers_wildcard = isinstance(application, OAuthApplication) and not application.is_self_registered
         request.scopes = resolve_requested_scopes(
             list(scopes or []),
-            getattr(client, "ceiling_scopes", None) or [],
-            allow_wildcard_under_empty_ceiling=True,
+            getattr(application, "ceiling_scopes", None) or [],
+            allow_wildcard_under_empty_ceiling=grandfathers_wildcard,
         )
         return True
 
@@ -901,6 +905,9 @@ class OAuthValidator(OAuth2Validator):
         - a `*` token is left untouched: narrowing it would strip all resource access
           on refresh, and `*` is still issued to legacy clients. Its retirement is
           handled separately in #60330 (coupled to #60342).
+        - except for a self-registered (DCR or CIMD) client, whose `*` resolves on
+          refresh as `validate_scopes` resolves it at issue time. Otherwise a `*` minted
+          before that rule would keep the privileged and hidden scopes on every refresh.
         - a token whose scopes have no overlap with the ceiling can't be narrowed
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
@@ -930,6 +937,9 @@ class OAuthValidator(OAuth2Validator):
         if application is None:
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
+
+        if isinstance(application, OAuthApplication) and application.is_self_registered and "*" in original_list:
+            original_list = clamp_scopes_to_ceiling(original_list, application.ceiling_scopes)
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed == [] and getattr(application, "is_first_party", False):
@@ -1643,7 +1653,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         dropped_scopes = [
             scope
             for scope in scopes_outside_ceiling(
-                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+                submitted,
+                application.ceiling_scopes,
+                allow_wildcard_under_empty_ceiling=not application.is_self_registered,
             )
             if scope != "*"
         ]
@@ -1651,7 +1663,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return
 
         granted = clamp_scopes_to_ceiling(
-            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            submitted,
+            application.ceiling_scopes,
+            allow_wildcard_under_empty_ceiling=not application.is_self_registered,
         )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1741,8 +1755,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
-        # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
-        if "*" in requested_scope_tokens and resolve_ceiling(application.ceiling_scopes) is not None:
+        # (see `wildcard_is_narrowed`); track that volume so `*` can be retired once it drains.
+        wildcard_is_narrowed = resolve_ceiling(application.ceiling_scopes) is not None or application.is_self_registered
+        if "*" in requested_scope_tokens and wildcard_is_narrowed:
             posthoganalytics.capture(
                 distinct_id=str(request.user.distinct_id),
                 event="oauth_wildcard_scopes_narrowed",
@@ -1794,6 +1809,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     request, credentials["scoped_organizations"], credentials["scoped_teams"]
                 )
                 enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
+                if not request_allows_sensitive_action(request):
+                    return self._reauthentication_required(request, application, "first_party")
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1843,6 +1860,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                             return block
                         if block := _gateway_blocklist_block(request, scope_str.split()):
                             return block
+                        if not request_allows_sensitive_action(request):
+                            return self._reauthentication_required(request, application, "auto_approval")
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
@@ -1858,22 +1877,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
 
         template_context: dict[str, object] = {
-            "oauth_application": {
-                "name": application.name,
-                "client_id": application.client_id,
-                "is_verified": application.is_verified,
-                "logo_uri": application.logo_uri,
-                "required_scopes": application.required_scopes,
-                # The read-only form of a `*` grant, computed from the same ceiling
-                # resolution `validate_scopes` enforces — the frontend's scope list
-                # drifts from the server's (both over- and under-granting otherwise).
-                "wildcard_read_scopes": sorted(
-                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                ),
-                # The same resolution `validate_scopes` clamps against, so the consent screen
-                # can drop requested scopes the grant will not include instead of promising them.
-                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
-            },
+            "oauth_application": self._application_page_context(application),
             # What `validate_scopes` resolved this request to, which is the set the grant
             # will carry. The consent screen renders this rather than re-parsing `scope`
             # from the URL, so a request the server defaulted or repaired cannot show the
@@ -1910,6 +1914,49 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
         return render_template("index.html", request, context=template_context)
+
+    @staticmethod
+    def _application_page_context(application: OAuthApplication) -> dict[str, object]:
+        return {
+            "name": application.name,
+            "client_id": application.client_id,
+            "is_verified": application.is_verified,
+            "logo_uri": application.logo_uri,
+            "required_scopes": application.required_scopes,
+            # The read-only form of a `*` grant, computed from the same ceiling
+            # resolution `validate_scopes` enforces — the frontend's scope list
+            # drifts from the server's (both over- and under-granting otherwise).
+            "wildcard_read_scopes": sorted(
+                scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+            ),
+            # The same resolution `validate_scopes` clamps against, so the consent screen
+            # can drop requested scopes the grant will not include instead of promising them.
+            "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
+        }
+
+    def _reauthentication_required(self, request, application: OAuthApplication, grant_path: str) -> HttpResponse:
+        """Render the authorize page in its sign-in-again state instead of issuing a code without consent.
+
+        The page reloads this same URL after the re-auth, so the request needs no server-side state to survive it.
+        """
+        # pinned: analytics event name
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_reauthentication_required",
+            properties={
+                **_oauth_app_event_properties(application),
+                "grant_path": grant_path,
+                **(get_region_info() or {}),
+            },
+        )
+        return render_template(
+            "index.html",
+            request,
+            context={
+                "oauth_application": self._application_page_context(application),
+                "oauth_reauthentication_required": True,
+            },
+        )
 
     def _ema_issuer_consent(
         self, request, application: OAuthApplication, impersonator_id: int | None
@@ -1979,11 +2026,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
+        # The grant outlives this session, so it needs a recent sign-in. Declining stays open.
+        if serializer.validated_data["allow"] and not request_allows_sensitive_action(request):
+            raise PermissionDenied(
+                detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
+            )
+
         if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
-            if not TimeSensitiveActionPermission().has_permission(request, self):
-                raise PermissionDenied(
-                    detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
-                )
             try:
                 ema_organization = validate_ema_grant(
                     request.user,
