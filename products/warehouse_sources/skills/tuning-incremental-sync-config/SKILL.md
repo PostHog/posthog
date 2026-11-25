@@ -140,7 +140,7 @@ This is the step that's easy to get wrong. Some config changes invalidate the sy
   [Changing the incremental field](#changing-the-incremental-field) for what the update does to the cursor and when
   a resync is needed.
 - Changing `primary_key_columns` — existing rows were merged on the old key, so they may be deduplicated incorrectly
-  against the new one. On an `incremental` table that already has a key and synced data, `partial-update` refuses
+  against the new one. On an `incremental` table that already has a key and synced data, `external-data-schemas-partial-update` refuses
   the change, so the order is different — see
   [Changing primary keys on an incremental table](#changing-primary-keys-on-an-incremental-table).
 - Switching from `full_refresh` to `append` — the existing rows don't have the version-history shape that append
@@ -153,9 +153,9 @@ Then use one of these flows:
 
 - Update, then resync: `external-data-schemas-partial-update` with the new config, then
   `external-data-schemas-resync` to wipe and re-import under the new config. This does not work for a primary key
-  change on an incremental table, because `partial-update` refuses that change while the synced data exists.
+  change on an incremental table, because `external-data-schemas-partial-update` refuses that change while the synced data exists.
 - Delete, update, reload: `external-data-schemas-delete-data` → `external-data-schemas-partial-update` with the new
-  config and `should_sync: true` → `external-data-schemas-reload`. `delete-data` turns syncing off, so the update
+  config and `should_sync: true` → `external-data-schemas-reload`. `external-data-schemas-delete-data` turns syncing off, so the update
   must turn it on again, or the schedule stays paused after the reload. This flow works for every change, including
   an incremental primary key.
 
@@ -171,28 +171,28 @@ Wait a moment, then `external-data-schemas-retrieve({id})` to confirm `status = 
 
 ### Switching full_refresh → incremental
 
-1. `incremental-fields-create` to confirm the desired field exists and `incremental_available: true`.
-2. `partial-update`: `{sync_type: "incremental", incremental_field, incremental_field_type}`.
+1. `external-data-schemas-incremental-fields-create` to confirm the desired field exists and `incremental_available: true`.
+2. `external-data-schemas-partial-update`: `{sync_type: "incremental", incremental_field, incremental_field_type}`.
 3. No data wipe needed — next sync just switches strategy. If the source is growing fast, the next incremental sync
    is the cheap one.
 
 ### Switching incremental → cdc (Postgres only)
 
 1. Run `external-data-sources-check-cdc-prerequisites-create` on the parent source. Only proceed if `valid: true`.
-2. `incremental-fields-create` to confirm `cdc_available: true` and see `detected_primary_keys`.
-3. `partial-update`: `{sync_type: "cdc", primary_key_columns: [...], cdc_table_mode: "consolidated"}`.
+2. `external-data-schemas-incremental-fields-create` to confirm `cdc_available: true` and see `detected_primary_keys`.
+3. `external-data-schemas-partial-update`: `{sync_type: "cdc", primary_key_columns: [...], cdc_table_mode: "consolidated"}`.
 4. **Resync required** — CDC tables have a different shape. Trigger `external-data-schemas-resync` after the update.
    Warn the user this wipes existing data.
 
 ### Changing the incremental field
 
-When `partial-update` sets a different `incremental_field` on an incremental or append table that has synced data,
+When `external-data-schemas-partial-update` sets a different `incremental_field` on an incremental or append table that has synced data,
 the API sets the cursor from the synced table. It does not keep the old field's high-water mark:
 
 - **The synced table has values in the new column.** The cursor becomes the largest value of the new column in the
-  synced table. The next sync reads only rows above that value. Use `reload` (or wait for the schedule).
+  synced table. The next sync reads only rows above that value. Use `external-data-schemas-reload` (or wait for the schedule).
 - **The synced table has no values in the new column** (the column is new, or it is empty). The API clears the
-  cursor and starts a full re-import itself. Do not call `reload` or `resync` after it — a sync is already starting.
+  cursor and starts a full re-import itself. Do not call `external-data-schemas-reload` or `external-data-schemas-resync` after it — a sync is already starting.
 - **The table has no synced data yet.** The first sync reads all rows, so no extra step is needed.
 
 The first case can miss rows. A source row whose new-column value is below the cursor does not sync again, even if
@@ -205,19 +205,19 @@ the synced data, so warn the user first.
 
 Source dropped the `updated_at` column. Sync has been failing with "column does not exist".
 
-1. `incremental-fields-create` to see what fields remain.
+1. `external-data-schemas-incremental-fields-create` to see what fields remain.
 2. Pick a replacement (or switch to `full_refresh` if none are suitable).
-3. `partial-update` with the new field + type (or new sync_type).
+3. `external-data-schemas-partial-update` with the new field + type (or new sync_type).
 4. Read [Changing the incremental field](#changing-the-incremental-field) to choose the next step. If the replacement
-   column already has values in the synced table, the cursor comes from it: `reload` to retry, and offer a resync
+   column already has values in the synced table, the cursor comes from it: `external-data-schemas-reload` to retry, and offer a resync
    if rows can be missing. If the column has no synced values, the update already started a full re-import, so do
-   not reload. If you switched to `full_refresh`, `reload` to retry.
+   not reload. If you switched to `full_refresh`, `external-data-schemas-reload` to retry.
 
 ### Changing primary keys on an incremental table
 
-When the table already has a primary key and synced data, `partial-update` refuses a new key with "Primary key
+When the table already has a primary key and synced data, `external-data-schemas-partial-update` refuses a new key with "Primary key
 cannot be changed after data has been synced". The synced data must go first. Setting the first key on a table that
-has none is allowed with a plain `partial-update`.
+has none is allowed with a plain `external-data-schemas-partial-update`.
 
 Before you call any tool, warn the user: this deletes the synced table, and the next sync imports every row again.
 Get their confirmation. Then:
@@ -232,25 +232,25 @@ Get their confirmation. Then:
 This flow is for `sync_type: "cdc"` only. For an incremental table, see
 [Changing primary keys on an incremental table](#changing-primary-keys-on-an-incremental-table).
 
-1. `partial-update`: `{primary_key_columns: [...]}`.
+1. `external-data-schemas-partial-update`: `{primary_key_columns: [...]}`.
 2. **Resync required** — existing CDC tombstones and upsert keys won't match the new PK definition, leading to row
    duplication or missed updates.
-3. `resync`, warn the user.
+3. `external-data-schemas-resync`, warn the user.
 
 ### Changing sync_frequency
 
-1. `partial-update`: `{sync_frequency: "1hour"}`.
+1. `external-data-schemas-partial-update`: `{sync_frequency: "1hour"}`.
 2. No reload needed — the next scheduled sync picks up the new cadence. Or reload manually if the user wants to
    confirm nothing broke.
 
 ### Switching a schema to `sync_type: "webhook"`
 
 Only works for sources that implement `WebhookSource` (today: Stripe) and tables where `supports_webhooks: true`
-from `incremental-fields-create`.
+from `external-data-schemas-incremental-fields-create`.
 
-1. `incremental-fields-create` to confirm `supports_webhooks: true` for the table.
-2. `partial-update`: `{sync_type: "webhook"}`.
-3. If the source doesn't already have a webhook registered (check with `webhook-info-retrieve`), call
+1. `external-data-schemas-incremental-fields-create` to confirm `supports_webhooks: true` for the table.
+2. `external-data-schemas-partial-update`: `{sync_type: "webhook"}`.
+3. If the source doesn't already have a webhook registered (check with `external-data-sources-webhook-info-retrieve`), call
    `external-data-sources-create-webhook-create({id})` to register it.
 4. No resync required — the schema's existing bulk-synced data stays, and the webhook becomes the primary ingestion
    path once the next reconciliation finishes.
@@ -259,7 +259,7 @@ from `incremental-fields-create`.
 
 ### Switching off `sync_type: "webhook"`
 
-1. `partial-update`: `{sync_type: "incremental"}` (or whatever bulk type is appropriate) with the required
+1. `external-data-schemas-partial-update`: `{sync_type: "incremental"}` (or whatever bulk type is appropriate) with the required
    `incremental_field` + `incremental_field_type`.
 2. If **no other schemas** on the source are still using `sync_type: "webhook"`, call
    `external-data-sources-delete-webhook-create({id})` to unregister. Leaving an orphaned webhook
@@ -278,19 +278,19 @@ verification.
 
 ### Pausing a schema
 
-1. `partial-update`: `{should_sync: false}`. Schema stops syncing but stays configured.
-2. To resume later: `partial-update`: `{should_sync: true}`, then `reload` for an immediate run.
+1. `external-data-schemas-partial-update`: `{should_sync: false}`. Schema stops syncing but stays configured.
+2. To resume later: `external-data-schemas-partial-update`: `{should_sync: true}`, then `external-data-schemas-reload` for an immediate run.
 
 ## Important notes
 
-- **Read before you write.** Always retrieve the current config first. `partial-update` doesn't complain if you set a
+- **Read before you write.** Always retrieve the current config first. `external-data-schemas-partial-update` doesn't complain if you set a
   field to the value it already had, but you might be about to change something you didn't realize was already set.
-- **Not every sync_type is available on every schema.** The `incremental-fields-create` response tells you what's
+- **Not every sync_type is available on every schema.** The `external-data-schemas-incremental-fields-create` response tells you what's
   available _right now_, which can be different from what was available at creation (e.g. CDC may have been
   enabled for the team since).
 - **Wipe when the shape changes.** Switching sync strategy often changes the physical table. If you don't resync,
   you'll be mixing row shapes and queries will return garbage.
-- **CDC needs prerequisites.** Never switch to `sync_type: "cdc"` without running `check-cdc-prerequisites-create`
+- **CDC needs prerequisites.** Never switch to `sync_type: "cdc"` without running `external-data-sources-check-cdc-prerequisites-create`
   first. The sync will just fail immediately.
 - **Don't touch a Running schema.** If the schema is currently running, either wait for it to finish or
   `external-data-schemas-cancel` before applying the change. Updating config mid-sync can leave the incremental

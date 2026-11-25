@@ -251,6 +251,13 @@ export interface PatchedSlackAppPersonalSettingsUpdateApi {
     feature_tips_enabled?: boolean
 }
 
+export interface SlackAppRepositoryOptionsApi {
+    /** Repositories as owner/name from this person's own GitHub installs, sorted by name. */
+    repositories: string[]
+    /** Whether this person connected a personal GitHub account. False means repositories is empty. */
+    github_connected: boolean
+}
+
 export interface PatchedSlackAppWorkspaceSettingsUpdateApi {
     /** Replaces the workspace's reaction choices. A reaction left out inherits PostHog's default. */
     reactions?: SlackAppReactionChoicesApi
