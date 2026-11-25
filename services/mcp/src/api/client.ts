@@ -1148,13 +1148,15 @@ export class ApiClient {
 
             getHealth: async ({
                 experimentId,
+                atLaunch = false,
                 signal,
             }: {
                 experimentId: number
+                atLaunch?: boolean
                 signal?: AbortSignal
             }): Promise<Result<Schemas.ExperimentHealth>> => {
                 return this.fetchJson<Schemas.ExperimentHealth>(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/${atLaunch ? '?at_launch=true' : ''}`,
                     { signal }
                 )
             },
