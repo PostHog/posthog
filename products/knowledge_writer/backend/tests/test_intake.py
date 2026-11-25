@@ -1571,6 +1571,8 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 CREDENTIALED_ORIGIN_URL = "https://x-access-token:ghs_example@github.com/acme/docs.git"
 FAKE_UVX = """#!/bin/sh
 [ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ -z "$AWS_ACCESS_KEY_ID" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
+[ "$NODE_USE_ENV_PROXY" = 1 ] && [ "$COREPACK_ON_UNVERIFIED_DOWNLOAD" = strict-error ] || exit 3
+[ -d "$COREPACK_HOME" ] && [ -z "$(ls -A "$COREPACK_HOME")" ] && touch "$COREPACK_HOME/planted" || exit 3
 git remote get-url origin | grep -q ghs_ && exit 3
 case "$*" in *install-hooks*) exit 0 ;; esac
 [ -f .git/fake-uvx-ran ] && exit 0
