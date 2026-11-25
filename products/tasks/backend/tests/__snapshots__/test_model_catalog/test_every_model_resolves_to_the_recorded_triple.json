@@ -332,6 +332,13 @@
         },
         "deepseek-ai/deepseek-v4-flash-0731": {
           "cost_multiplier": "≈0.05×",
+          "offered": false,
+          "reasoning_efforts": [],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "deepseek-ai/deepseek-v4.1-flash-1017": {
+          "cost_multiplier": "≈0.14×",
           "offered": true,
           "reasoning_efforts": [],
           "supports_1m_context": false,

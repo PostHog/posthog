@@ -11,7 +11,7 @@ export function EmailAlignField({
     onChange: (value: EmailTextAlign) => void
 }): JSX.Element {
     return (
-        <EmailFieldRow label="Align">
+        <EmailFieldRow label="Align" group>
             <LemonSegmentedButton
                 size="xsmall"
                 fullWidth

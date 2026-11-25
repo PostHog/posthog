@@ -68,7 +68,7 @@ import {
     conversationsTicketsPartialUpdate,
     conversationsMacrosUsedCreate,
 } from 'products/conversations/frontend/generated/api'
-import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+import type { AiFeedbackReasonEnumApi, TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -574,11 +574,13 @@ export interface supportTicketSceneLogicActions {
     submitAiReplyFeedback: (
         messageId: string,
         rating: AiReplyFeedbackRating,
-        feedbackText?: string
+        feedbackText?: string,
+        reasons?: AiFeedbackReasonEnumApi[]
     ) => {
         feedbackText: string | undefined
         messageId: string
         rating: AiReplyFeedbackRating
+        reasons: AiFeedbackReasonEnumApi[] | undefined
     }
     updateTicket: () => {
         value: true
@@ -738,10 +740,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         deleteTicket: true,
         setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
-        submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
+        submitAiReplyFeedback: (
+            messageId: string,
+            rating: AiReplyFeedbackRating,
+            feedbackText?: string,
+            reasons?: AiFeedbackReasonEnumApi[]
+        ) => ({
             messageId,
             rating,
             feedbackText,
+            reasons,
         }),
         recordAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating) => ({
             messageId,
@@ -1709,6 +1717,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setDraftIsPrivate(false)
                 actions.setDraftContent(aiDraftComposerHtml(message))
                 actions.bumpComposerPrefill()
+                // pinned: analytics event name. Dashboards break when it is renamed.
+                posthog.capture('support ai draft applied', {
+                    draft_kind: aiDraftAction(message),
+                    ai_triage_result: values.ticket?.ai_triage?.result ?? null,
+                    ticket_type: values.ticket?.ai_triage?.ticket_type ?? null,
+                })
                 if (!values.ticket?.id) {
                     return
                 }
@@ -1847,20 +1861,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 secondaryButton: { children: 'Cancel' },
             })
         },
-        submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
+        submitAiReplyFeedback: async ({ messageId, rating, feedbackText, reasons }) => {
             const ticket = values.ticket
             if (!ticket) {
                 return
             }
             try {
-                if (feedbackText) {
+                if (feedbackText || reasons?.length) {
                     if (rating !== 'bad') {
                         return
                     }
                     await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                         message_id: messageId,
                         rating,
-                        feedback_text: feedbackText,
+                        ...(feedbackText ? { feedback_text: feedbackText } : {}),
+                        ...(reasons?.length ? { reasons } : {}),
                     })
                     return
                 }

@@ -76,12 +76,23 @@ def _format_created_at(value: Any) -> str:
 
 
 def _build_query(config: BraintreeEndpointConfig) -> str:
+    opening = " ".join(f"{wrapper} {{" for wrapper in config.query_path)
+    closing = " ".join("}" for _ in config.query_path)
+    if not config.paginated:
+        return f"""
+query {{
+  {opening}
+    {config.connection_field} {{
+{config.node_fields}
+    }}
+  {closing}
+}}
+"""
+
     # Braintree's search fields declare `input` as non-null, even though every
     # field within the input type is optional (an empty object matches everything).
     input_variable = f"$input: {config.input_type}!, " if config.input_type else ""
     input_argument = "input: $input, " if config.input_type else ""
-    opening = " ".join(f"{wrapper} {{" for wrapper in config.query_path)
-    closing = " ".join("}" for _ in config.query_path)
     return f"""
 query ({input_variable}$first: Int!, $after: String) {{
   {opening}
@@ -206,13 +217,23 @@ def get_rows(
     def execute(variables: dict[str, Any]) -> dict[str, Any]:
         return _execute(session, url, query, variables, logger)
 
+    if not config.paginated:
+        container: Any = execute({})
+        for wrapper in config.query_path:
+            container = (container or {}).get(wrapper) or {}
+        nodes = container.get(config.connection_field) or []
+        rows = [_normalize_node(node, config) for node in nodes if node]
+        if rows:
+            yield rows
+        return
+
     while True:
         variables: dict[str, Any] = {"first": PAGE_SIZE, "after": after}
         if config.input_type:
             variables["input"] = search_input
         data = execute(variables)
 
-        container: Any = data
+        container = data
         for wrapper in config.query_path:
             container = (container or {}).get(wrapper) or {}
         connection = container.get(config.connection_field) or {}

@@ -185,8 +185,6 @@ class ClickHouseUser(StrEnum):
     # takes from another source's budget.
     ALERTS_PLATFORM = "alerts_platform"
 
-    # Backups - used by Dagster backup jobs
-    BACKUPS = "backups"
     # Part breaker - used by Dagster part breaking jobs
     PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use

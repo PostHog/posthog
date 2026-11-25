@@ -5,7 +5,7 @@ import math
 import hashlib
 from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 from django.conf import settings
@@ -352,7 +352,7 @@ def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHe
     project so its members can judge the shared infrastructure, not just their own sending. One key
     serves every project, and a cold key admits one SES call rather than one per request.
     """
-    cache_key = f"workflows_ses_infrastructure_health_v1_{window_days}"
+    cache_key = f"workflows_ses_infrastructure_health_v2_{window_days}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached["value"]
@@ -378,13 +378,12 @@ def _rounded_infrastructure_health(metrics: IspSendingMetrics) -> EmailInfrastru
     The exact send volume stays private, so it is cut to a lower bound. Each rate rounds towards
     the worse reading, so rounding never flatters the infrastructure.
     """
-    if metrics.delivery_rate is None or metrics.bounce_rate is None or metrics.complaint_rate is None:
+    if metrics.bounce_rate is None or metrics.complaint_rate is None:
         return None
     return EmailInfrastructureHealth(
         emails_sent_at_least=_floor_to_one_significant_figure(metrics.emails_sent),
-        delivery_rate=_round_rate(metrics.delivery_rate, "0.001", ROUND_FLOOR),
-        bounce_rate=_round_rate(metrics.bounce_rate, "0.0001", ROUND_CEILING),
-        complaint_rate=_round_rate(metrics.complaint_rate, "0.0001", ROUND_CEILING),
+        bounce_rate=_round_rate_up(metrics.bounce_rate),
+        complaint_rate=_round_rate_up(metrics.complaint_rate),
     )
 
 
@@ -393,8 +392,8 @@ def _floor_to_one_significant_figure(count: int) -> int:
     return count // magnitude * magnitude
 
 
-def _round_rate(rate: float, step: str, rounding: str) -> float:
-    return float(Decimal(str(rate)).quantize(Decimal(step), rounding=rounding))
+def _round_rate_up(rate: float) -> float:
+    return float(Decimal(str(rate)).quantize(Decimal("0.0001"), rounding=ROUND_CEILING))
 
 
 def verified_email_domains(*, team_id: int) -> list[str]:

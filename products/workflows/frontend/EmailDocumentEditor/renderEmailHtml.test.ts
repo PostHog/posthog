@@ -119,6 +119,17 @@ describe('renderEmailHtml', () => {
         ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
     })
 
+    it('draws the divider on the canvas with the style the email uses', () => {
+        const style = { lineWidth: 10, borderColor: '#ff0000', width: 50, textAlign: 'right' as const }
+        const html = renderEmailHtml(doc({ type: 'horizontalRule', attrs: { emailStyle: style } }, paragraph('x')))
+
+        expect(html).toContain('width="50%" align="right"')
+        expect(html).toContain('border-top:10px solid #ff0000')
+        expect(blockStyleToCanvasCss(style, 'horizontalRule')).toMatch(
+            /padding:8px 0;height:10px;background:linear-gradient\(#ff0000,#ff0000\) right top\/50% 100%/
+        )
+    })
+
     it('cleans every style a saved document carries before the canvas shows it', () => {
         const saved = doc(
             {
@@ -199,6 +210,24 @@ describe('renderEmailHtml', () => {
 
         expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
             imported
+        )
+    })
+
+    it.each([
+        ['a filter', '<a href="/{{ x | join: "," }}">Go</a>', '<a href="/{{ x | join: &quot;,&quot; }}">Go</a>'],
+        [
+            'a tag',
+            '<a href="{% if x == "<" %}a{% endif %}">Go</a>',
+            '<a href="{% if x == &quot;<&quot; %}a{% endif %}">Go</a>',
+        ],
+        ['text', '<p>"{{ x | join: "," }}"</p>', '<p>"{{ x | join: "," }}"</p>'],
+        ['single quotes', `<a href='{{ x | join: "," }}'>Go</a>`, '<a href="{{ x | join: &quot;,&quot; }}">Go</a>'],
+        ['a brace that opens no tag', '<a title="{{" href="/a">Go</a>', '<a title="{{" href="/a">Go</a>'],
+    ])('keeps the quotes of %s in a whole document next to other blocks', (_, stored, expected) => {
+        const own = `<html><head></head><body><!-- it's --><style>p{}</style>${stored}</body></html>`
+
+        expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
+            expected
         )
     })
 

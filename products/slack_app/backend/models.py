@@ -189,7 +189,8 @@ class SlackSettings(UUIDModel):
     # mode) while inheriting the workspace routing default.
     default_integration = models.ForeignKey(
         "posthog.Integration",
-        on_delete=models.CASCADE,
+        # SET_NULL, not CASCADE: the row also holds the person's or the workspace's other settings.
+        on_delete=models.SET_NULL,
         related_name="slack_settings_as_default",
         null=True,
         blank=True,
@@ -253,6 +254,20 @@ class SlackSettings(UUIDModel):
         null=True,
         blank=True,
         help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
+    )
+    # Read on both row shapes: a personal choice wins over the workspace choice, which wins over the
+    # built-in default. The shape is ``ReactionSettings`` in ``services/reaction_settings.py``.
+    reactions = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Which emoji PostHog reacts with, and which reactions are off.",
+    )
+    # Only read on the workspace-wide row. NULL means no admin picked, which resolves to on when
+    # someone already approved an externally shared channel in this workspace, and off otherwise.
+    external_channels_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether PostHog may work in Slack channels shared with other organizations.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -384,3 +399,63 @@ class SlackChannel(UUIDModel):
             slack_channel_id=slack_channel_id,
             approved_at__isnull=False,
         ).exists()
+
+
+class SlackChannelSettings(UUIDModel):
+    """Settings that one PostHog organization sets for one Slack channel: the default project, repository and
+    untagged question mode.
+
+    A Slack workspace can connect to projects in several organizations, so each organization keeps its own row
+    and reads and writes only that row. Routing uses a row only for a project the author can open, and the
+    question mode only for messages routed to a project of the row's organization. A NULL setting falls back
+    to the personal or workspace setting.
+    """
+
+    slack_workspace_id = models.CharField(max_length=64)
+    slack_channel_id = models.CharField(max_length=64)
+    # db_constraint=False: a foreign key constraint to posthog_organization locks that hot table when the table is created.
+    organization = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
+    )
+    # A stored reference, not a relation, because integration rows are read through the integrations SDK.
+    # Read and write it with ``services/integration_references.py``.
+    default_integration_id = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Reference to the Slack install of the project that mentions in this channel route to.",
+    )
+    default_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="The repository, as owner/name, that tasks started in this channel use.",
+    )
+    # Only ``ask`` or ``never``: a channel makes untagged pickups stricter and never opts a person in.
+    untagged_question_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with top-level questions in this channel that do not tag the app.",
+    )
+    # db_constraint=False: a foreign key constraint to posthog_user locks that hot table when the table is created.
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="The PostHog user who last changed this channel's settings.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "slack_channel_id", "organization"],
+                name="uniq_slack_channel_settings_per_org",
+            )
+        ]
