@@ -1,4 +1,5 @@
 import os
+import re
 import atexit
 import typing
 import logging
@@ -24,8 +25,9 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import Decision, Sampler, SamplingResult, _get_from_env_or_default
 from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
-from opentelemetry.trace import Link, Span, SpanKind, StatusCode
+from opentelemetry.trace import Link, Span, SpanKind, StatusCode, TraceState
 from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.http import sanitize_method
 from opentelemetry.util.types import Attributes
@@ -35,6 +37,41 @@ from requests import PreparedRequest
 logger = structlog.get_logger(__name__)
 
 _OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
+
+_ALWAYS_SAMPLED_ROOT_PATHS = re.compile(r"^/?api/(environments|projects)/\d+/dashboard_v2/query_batch/?$")
+
+
+class _AlwaysSampleRoutesSampler(Sampler):
+    """Samples every root server span for a few low-volume routes and leaves all other decisions to `delegate`."""
+
+    def __init__(self, delegate: Sampler) -> None:
+        self._delegate = delegate
+
+    def should_sample(
+        self,
+        parent_context: Context | None,
+        trace_id: int,
+        name: str,
+        kind: SpanKind | None = None,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        trace_state: TraceState | None = None,
+    ) -> SamplingResult:
+        # Old HTTP semconv sends `http.target` (path and query), OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`.
+        # A valid parent (e.g. a `traceparent` with sampled=0) already decided, so the delegate keeps it.
+        if attributes and not trace.get_current_span(parent_context).get_span_context().is_valid:
+            path = attributes.get("url.path") or attributes.get("http.target")
+            if isinstance(path, str) and _ALWAYS_SAMPLED_ROOT_PATHS.match(path.partition("?")[0]):
+                return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes)
+        return self._delegate.should_sample(parent_context, trace_id, name, kind, attributes, links, trace_state)
+
+    def get_description(self) -> str:
+        return f"AlwaysSampleRoutes{{{_ALWAYS_SAMPLED_ROOT_PATHS.pattern}}}+{self._delegate.get_description()}"
+
+
+def build_sampler() -> Sampler:
+    # Same factory TracerProvider uses when no sampler is passed, so the OTEL_TRACES_SAMPLER* env vars still rule other routes.
+    return _AlwaysSampleRoutesSampler(_get_from_env_or_default())
 
 
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
@@ -258,7 +295,7 @@ def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
         # The SDK's atexit shutdown joins the exporter thread without a timeout.
         # A bounded flush keeps an unreachable collector from delaying worker exit.
         # The exporter thread is a daemon, so it can exit with the process.
-        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
+        provider = TracerProvider(resource=resource, sampler=build_sampler(), shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
