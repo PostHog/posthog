@@ -94,7 +94,13 @@ const STACK_UNITS = {
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
-const RECREATING_COMPOSE_UP = ' up --pull always -d '
+const COMPOSE_BASE = String.raw`docker compose -p [\w.-]+ -f docker-compose\.dev\.yml -f docker-compose\.profiles\.yml(?: --profile [\w-]+)*`
+const ECHO = String.raw`echo "[^"$\x60\\]*"`
+const GENERATED_COMPOSE_SHELL = new RegExp(
+    String.raw`^((?:echo '[^']*' && )?if \[ "\$\{POSTHOG_SANDBOX:-\}" = "1" \]; then ${ECHO} && echo "docker-compose ready" && sleep infinity; else ${COMPOSE_BASE})` +
+        String.raw` up --pull always -d ` +
+        String.raw`(\|\| \{ ${ECHO}; exit 1; \} && echo "docker-compose ready" && ${COMPOSE_BASE} logs --tail=100 -f; fi)$`
+)
 const KEEPING_COMPOSE_UP = ' up --pull always --no-recreate -d '
 
 export class StackNotReadyError extends Error {
@@ -104,45 +110,17 @@ export class StackNotReadyError extends Error {
     }
 }
 
-const COMPOSE_OPTIONS_WITH_VALUE = new Set(['-p', '--project-name', '-f', '--file', '--profile', '--env-file'])
-
-type ComposeCall = { subcommand: string; args: string[] }
-
-function composeCalls(shell: string): ComposeCall[] {
-    const raw = shell.match(/(?:[^\s"';&|{}()]+|"[^"]*"|'[^']*')+|[;&|{}()]+/g) ?? []
-    const words = raw.map((word) => (/^[;&|{}()]+$/.test(word) ? null : word.replace(/"([^"]*)"|'([^']*)'/g, '$1$2')))
-    const calls: ComposeCall[] = []
-    words.forEach((word, at) => {
-        const binary = word === 'docker-compose' ? 1 : word === 'docker' && words[at + 1] === 'compose' ? 2 : 0
-        if (binary === 0) {
-            return
-        }
-        let next = at + binary
-        while (words[next]?.startsWith('-')) {
-            next += COMPOSE_OPTIONS_WITH_VALUE.has(words[next]!) ? 2 : 1
-        }
-        const end = words.indexOf(null, next)
-        const args = words.slice(next + 1, end === -1 ? undefined : end) as string[]
-        calls.push({ subcommand: words[next] ?? '', args })
-    })
-    return calls
-}
-
 export function keepRunningContainers(mprocsYaml: string): string {
     const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
     const compose = config.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    const ups = composeCalls(shell).filter((call) => call.subcommand === 'up')
-    if (
-        ups.length !== 1 ||
-        ` up ${ups[0].args.join(' ')} ` !== RECREATING_COMPOSE_UP ||
-        shell.split(RECREATING_COMPOSE_UP).length !== 2
-    ) {
+    const generated = GENERATED_COMPOSE_SHELL.exec(shell)
+    if (!generated) {
         throw new StackNotReadyError(
-            `The dev config hogli generated has no docker-compose proc that runs \`docker compose${RECREATING_COMPOSE_UP.trimEnd()}\` as its only \`up\`, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
+            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
         )
     }
-    compose!.shell = shell.replace(RECREATING_COMPOSE_UP, KEEPING_COMPOSE_UP)
+    compose!.shell = generated[1] + KEEPING_COMPOSE_UP + generated[2]
     return stringify(config, { lineWidth: 0 })
 }
 

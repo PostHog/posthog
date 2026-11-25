@@ -8,8 +8,14 @@ const URL = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
 
 const COMPOSE = 'docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal'
 
-const generatedConfig = (composeShell: string): string =>
-    `procs:\n  docker-compose:\n    shell: ${JSON.stringify(composeShell)}\n    ready_pattern: docker-compose ready\n  backend:\n    shell: bin/start-backend\n_posthog:\n  intents: [workflows]\n`
+const SANDBOX =
+    'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox" && echo "docker-compose ready" && sleep infinity; else '
+
+const composeShell = (compose: string, up: string, between = ''): string =>
+    `${SANDBOX}${compose} ${up} || { echo "docker compose up failed"; exit 1; } && echo "docker-compose ready" && ${between}${compose} logs --tail=100 -f; fi`
+
+const generatedConfig = (shell: string): string =>
+    `procs:\n  docker-compose:\n    shell: ${JSON.stringify(shell)}\n    ready_pattern: docker-compose ready\n  backend:\n    shell: bin/start-backend\n_posthog:\n  intents: [workflows]\n`
 
 describe('withPostgres', () => {
     it('survives the server ending its connection between queries, as a failover does', async () => {
@@ -26,17 +32,21 @@ describe('withPostgres', () => {
 
 describe('keepRunningContainers', () => {
     it.each([
-        ['the posthog project', COMPOSE],
-        ['a project whose name holds up', 'docker compose -p bring-up -f docker-compose.dev.yml'],
+        ['the posthog project', '', COMPOSE],
+        [
+            'a project named docker-compose, after the profile banner',
+            "echo '▶ docker-compose: profiles: temporal' && ",
+            'docker compose -p docker-compose -f docker-compose.dev.yml -f docker-compose.profiles.yml',
+        ],
     ])(
         'starts the compose services of %s without recreating the running ones and leaves the rest of the config alone',
-        (_case, compose) => {
-            const shell = `${compose} up --pull always -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${compose} logs --tail=100 -f`
+        (_case, banner, compose) => {
+            const config = generatedConfig(banner + composeShell(compose, 'up --pull always -d'))
 
-            expect(parse(keepRunningContainers(generatedConfig(shell)))).toEqual({
+            expect(parse(keepRunningContainers(config))).toEqual({
                 procs: {
                     'docker-compose': {
-                        shell: `${compose} up --pull always --no-recreate -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${compose} logs --tail=100 -f`,
+                        shell: banner + composeShell(compose, 'up --pull always --no-recreate -d'),
                         ready_pattern: 'docker-compose ready',
                     },
                     backend: { shell: 'bin/start-backend' },
@@ -47,8 +57,12 @@ describe('keepRunningContainers', () => {
     )
 
     it.each([
-        ['an up call it does not know', `${COMPOSE} up --pull missing -d && echo "docker-compose ready"`],
-        ['a second up call', `${COMPOSE} up --pull always -d && ${COMPOSE} "up" -d db && echo "docker-compose ready"`],
+        ['an up call it does not know', composeShell(COMPOSE, 'up --pull missing -d')],
+        ['a second up call', composeShell(COMPOSE, 'up --pull always -d', `${COMPOSE} "up" -d db && `)],
+        [
+            'its up call quoted and the known call only in a message',
+            composeShell(COMPOSE, 'up --pull "always" -d').replace('up failed', 'up --pull always -d failed'),
+        ],
         ['no docker-compose proc', ''],
     ])('refuses a config with %s, which would recreate the shared containers', (_case, shell) => {
         const config = shell ? generatedConfig(shell) : 'procs:\n  backend:\n    shell: bin/start-backend\n'

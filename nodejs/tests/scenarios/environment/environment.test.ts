@@ -1147,7 +1147,10 @@ describe('scenario environment', () => {
                     (unit) => !excluded.includes(unit)
                 )
                 const compose = 'docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml'
-                const composeShell = compose + ' up --pull always -d && echo "docker-compose ready" && ' + compose + ' logs --tail=100 -f'
+                const composeShell =
+                    'if [ "\${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox" && echo "docker-compose ready" && sleep infinity; else ' +
+                    compose + ' up --pull always -d || { echo "docker compose up failed"; exit 1; } && echo "docker-compose ready" && ' +
+                    compose + ' logs --tail=100 -f; fi'
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n  docker-compose:\\n    shell: ' + JSON.stringify(composeShell) + '\\n' +
