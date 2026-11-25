@@ -50,7 +50,7 @@ def _candidates(session_ids: Sequence[str], since: datetime, include_support_tra
         """
         SELECT trace_id
         FROM posthog.ai_events
-        WHERE {where}
+        WHERE {where} AND trace_id != ''
         GROUP BY session_id, trace_id
         ORDER BY min(timestamp), trace_id
         LIMIT {candidates} BY session_id

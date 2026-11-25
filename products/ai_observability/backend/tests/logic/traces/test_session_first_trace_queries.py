@@ -60,6 +60,18 @@ class TestSessionFirstTraceQueries(ClickhouseTestMixin, BaseTest):
         with patch.object(session_first_trace_queries, "FIRST_TRACE_CANDIDATES", 1):
             assert self._first(include_support_traces=include_support_traces) == expected
 
+    def test_an_event_without_a_trace_id_never_makes_untraced_events_the_first_trace(self) -> None:
+        seed(
+            self.team,
+            [
+                event("$ai_generation", "", -5),
+                event("$ai_generation", "", 1, "session-a"),
+                event("$ai_generation", "traced", 2, "session-a"),
+            ],
+        )
+
+        assert self._first() == "traced"
+
     def test_a_trace_before_the_cutoff_is_not_read(self) -> None:
         seed(
             self.team,

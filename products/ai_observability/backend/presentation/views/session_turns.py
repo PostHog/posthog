@@ -27,6 +27,7 @@ class SessionTurnsQuerySerializer(SessionQuerySerializer):
     around = serializers.CharField(
         required=False,
         max_length=1000,
+        trim_whitespace=False,
         help_text="A trace id, to read the page that holds that turn with the turns before it. A trace outside the "
         "session reads the first page. Send only one of cursor, before_cursor and around.",
     )

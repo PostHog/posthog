@@ -187,6 +187,11 @@ class TestSessionRequestParsing(SimpleTestCase):
     def test_turns_refuse_unreadable_params(self, _name: str, params: dict[str, str | int]) -> None:
         assert not SessionTurnsQuerySerializer(data=params).is_valid()
 
+    def test_turns_keep_the_spaces_of_an_anchor_trace_id(self) -> None:
+        serializer = SessionTurnsQuerySerializer(data={"around": " t1 "})
+
+        assert serializer.is_valid() and serializer.validated_data["around"] == " t1 "
+
     @parameterized.expand(
         [
             ("too many session ids", [f"s-{index}" for index in range(api.SESSION_LIST_MAX_LIMIT + 1)]),
