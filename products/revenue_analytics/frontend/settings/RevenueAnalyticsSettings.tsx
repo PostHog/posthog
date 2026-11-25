@@ -4,9 +4,10 @@ import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { BASE_CURRENCY_DESCRIPTION, BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -21,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -71,6 +73,15 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         router.actions.push(urls.dataWarehouseSourceNew('stripe'))
     }
 
+    const baseCurrency = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.RevenueAnalytics}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <BaseCurrency hideTitle={todayRailNav} />
+        </AccessControlAction>
+    )
+
     return (
         <QuillSurfaceContext.Provider value={todayRailNav}>
             <SceneContent>
@@ -91,12 +102,18 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
                 {shouldBlockSettings ? null : (
                     <>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.RevenueAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <BaseCurrency />
-                        </AccessControlAction>
+                        {todayRailNav ? (
+                            // BaseCurrency keeps the description size that Settings shows, so this page sets the
+                            // xs description that its other sections use.
+                            <SceneSection title="Base currency">
+                                <Text size="xs" render={<p className="m-0 max-w-160" />}>
+                                    {BASE_CURRENCY_DESCRIPTION}
+                                </Text>
+                                {baseCurrency}
+                            </SceneSection>
+                        ) : (
+                            baseCurrency
+                        )}
                         <SceneDivider />
 
                         <FilterTestAccountsConfiguration />

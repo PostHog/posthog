@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { Text } from '@posthog/quill'
-
 import { TeamMembershipLevel } from 'lib/constants'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +11,7 @@ import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'
 import { QuillCurrencyDropdown } from './QuillCurrencyDropdown'
 
-const BASE_CURRENCY_DESCRIPTION =
+export const BASE_CURRENCY_DESCRIPTION =
     "PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
 
 interface BaseCurrencyProps {
@@ -47,10 +45,7 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
         return hideTitle ? (
             dropdown
         ) : (
-            <SceneSection title="Base currency">
-                <Text size="xs" render={<p className="m-0 max-w-160" />}>
-                    {BASE_CURRENCY_DESCRIPTION}
-                </Text>
+            <SceneSection title="Base currency" description={BASE_CURRENCY_DESCRIPTION}>
                 {dropdown}
             </SceneSection>
         )
