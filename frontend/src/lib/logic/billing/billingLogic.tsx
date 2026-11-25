@@ -794,16 +794,7 @@ export interface billingLogicMeta {
             billingManagedByVercelDisabledReason: string | null
         ) => string | null
         showCreditCTAHero: (
-            creditOverview: {
-                cc_last_four: null
-                collection_method: null
-                credit_brackets: never[]
-                eligible: false
-                email: null
-                estimated_monthly_credit_amount_usd: null
-                invoice_url: null
-                status: string
-            },
+            creditOverview: BillingCreditsOverviewResponseApi,
             isBillingManagedByPartner: boolean
         ) => boolean
         showBillingHero: (
@@ -823,16 +814,7 @@ export interface billingLogicMeta {
             email?: string
             name?: string
         } | null
-        estimatedMonthlyCreditAmountUsd: (creditOverview: {
-            cc_last_four: null
-            collection_method: null
-            credit_brackets: never[]
-            eligible: false
-            email: null
-            estimated_monthly_credit_amount_usd: null
-            invoice_url: null
-            status: string
-        }) => number | null
+        estimatedMonthlyCreditAmountUsd: (creditOverview: BillingCreditsOverviewResponseApi) => number | null
     }
 }
 
