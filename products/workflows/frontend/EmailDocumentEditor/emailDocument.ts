@@ -165,12 +165,34 @@ export const EMAIL_FONTS: { label: string; value: string; url?: string }[] = [
         url: `${GOOGLE_FONTS}Playfair+Display:wght@400;700`,
     },
     { label: 'Roboto', value: 'Roboto, Helvetica, Arial, sans-serif', url: `${GOOGLE_FONTS}Roboto:wght@400;500;700` },
+    {
+        label: 'Ubuntu',
+        // The value and url the old editor stores, so a converted email and a new pick share one option and one stylesheet.
+        value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+    },
 ]
 
-/** The font list, plus the font this email already uses when it came from somewhere else. */
+function sameFont(a: string, b: string): boolean {
+    const normalize = (value: string): string => value.replace(/['"\s]/g, '').toLowerCase()
+    return normalize(a) === normalize(b)
+}
+
+/** The stylesheet the font loads from, if it is a web font from the list. */
+export function fontUrlFor(value: string | null): string | undefined {
+    return value ? EMAIL_FONTS.find((font) => sameFont(font.value, value))?.url : undefined
+}
+
+/**
+ * The font list, plus the font this email already uses when it came from somewhere else.
+ * A listed font the email writes differently keeps the email's own value, so it stays selected and isn't listed twice.
+ */
 export function fontOptions(current: string | undefined): { label: string; value: string }[] {
-    return !current || EMAIL_FONTS.some((font) => font.value === current)
-        ? EMAIL_FONTS
+    if (!current) {
+        return EMAIL_FONTS
+    }
+    return EMAIL_FONTS.some((font) => sameFont(font.value, current))
+        ? EMAIL_FONTS.map((font) => (sameFont(font.value, current) ? { ...font, value: current } : font))
         : [{ label: current.split(',')[0].replace(/['"]/g, ''), value: current }, ...EMAIL_FONTS]
 }
 
@@ -367,6 +389,11 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
         return { document: null, stale: true }
     }
     return { document: candidate as EmailDocument, stale: false }
+}
+
+/** Whether the document in a saved or exported design leaves the email's plain text as it is. */
+export function keepsOwnPlainText(design: DesignLike): boolean {
+    return design?.[EMAIL_DOCUMENT_DESIGN_KEY]?.doc?.attrs?.ownPlainText === true
 }
 
 /** A brand new email has nothing the new editor could lose. */

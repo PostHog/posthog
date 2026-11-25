@@ -9,7 +9,7 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 # Inputs
 
 - `dateRange` — pass `{ "date_from": "-30d" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.
-- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.
+- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. It has no effect when the project marks conversion goals with `use_in_recommendations`, because those PostHog conversions replace the Google Ads ones. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.
 - Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.
 
 # Output
@@ -26,7 +26,9 @@ Each result has:
 - `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
 - `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA benchmark the rule compares the subject with (only rules that judge a CPA carry `cpa`), `benchmarkSource` says where that benchmark comes from (`target_cpa`: the campaign's target CPA in Google Ads, compared with the campaign's total CPA; `campaign`: the campaign's own non-brand CPA, used for its search terms once it has enough non-brand conversions; `account`: the account's non-brand CPA), and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.
 
-`dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.
+When the project marks conversion goals with `use_in_recommendations` (set them with `marketing-analytics-update-conversion-goal`), campaign CPAs count those goals' PostHog conversions, attributed the same way as the Marketing analytics dashboard. Marked goals add up, and a goal that sums a value is counted by conversions. Rules that judge a search term by its conversions do not run then, because PostHog does not see search terms.
+
+`dataGaps` lists data the rules could not read or replaced. Mention each gap's `message`: it says when CPAs count the primary conversion actions instead of the selected ones, when they fall back to Google Ads conversions because PostHog conversions are not ready or cannot be counted, and when some PostHog conversions match no campaign. For those, call `marketing-analytics-utm-audit` to list the unmatched `utm_campaign` values.
 
 Totals in different currencies come from different ad accounts. Never add them together.
 

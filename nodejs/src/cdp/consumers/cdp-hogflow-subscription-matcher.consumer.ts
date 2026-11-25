@@ -20,6 +20,8 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { sanitizeJsonbValue } from '~/common/utils/db/utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -36,8 +38,9 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { decodeJobState } from '../services/cyclotron-v2/job-codec'
 import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
-import { pinConversionGoal } from '../services/hogflows/conversion-watcher'
+import { MAX_CONVERSION_WINDOW_MINUTES, pinConversionGoal } from '../services/hogflows/conversion-watcher'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -79,6 +82,17 @@ const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const WATCHER_TEAMS_REFRESH_RETRY_MS = 30_000
 // Covers how long a worker can keep running a flow version after it was replaced.
 const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
+// When the last successful goals read is older than this, every event of a team with goals is looked up.
+const PINNED_GOALS_MAX_READ_AGE_MS = 5 * 60 * 1000
+// A worker can start a run on a flow version for a while after the save that replaced it.
+const PINNED_GOALS_WINDOW_MARGIN_MS = 24 * 60 * 60 * 1000
+// After a flow change, its team looks up every event until a goals read that started this long after the change,
+// so the replica the goals are read from has caught up with the save.
+const PINNED_GOALS_CHANGE_WINDOW_MS = 2 * 60 * 1000
+// The pool sets no query timeout, so without this one a read on a dead connection would block every later read.
+const PINNED_GOALS_READ_TIMEOUT_MS = 20_000
+// Past this many goals, a team looks up every event rather than running each goal against it.
+const PINNED_GOALS_MAX_PER_TEAM = 500
 
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
@@ -99,6 +113,11 @@ const counterHogflowMatcherConversionsCounted = new Counter({
 // that distinct_id belonged to the old person still references the old person_id, so the survivor's
 // person/event updates (keyed on the new id) can't wake it. We re-key such waits onto the survivor;
 // this counts the re-keyed jobs.
+const counterHogflowMatcherPendingWakesRecorded = new Counter({
+    name: 'cdp_hogflow_matcher_pending_wakes_recorded_total',
+    help: 'Wait wakes recorded on jobs a worker held, so the worker wakes the job when it parks.',
+})
+
 const counterHogflowMatcherJobsRekeyedOnMove = new Counter({
     name: 'cdp_hogflow_matcher_jobs_rekeyed_on_distinct_id_move',
     help: 'Parked wait_until_condition jobs re-keyed to the surviving person after a distinct_id was repointed by a merge.',
@@ -140,6 +159,11 @@ const gaugeHogflowMatcherTeamsWithWatchers = new Gauge({
     help: 'Teams admitted through the parse gate purely because they still have unexpired conversion watchers.',
 })
 
+const gaugeHogflowMatcherPinnedGoalsInUse = new Gauge({
+    name: 'cdp_hogflow_matcher_pinned_goals_in_use',
+    help: '1 while the goal lookups are gated on fresh conversion goals, 0 otherwise.',
+})
+
 const counterHogflowMatcherWatcherEventsSkipped = new Counter({
     name: 'cdp_hogflow_matcher_watcher_events_skipped',
     help: 'Events left out of the conversion_watchers lookup because no conversion goal of their team can match their name.',
@@ -178,6 +202,9 @@ type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
 type FilterFirstMode = 'off' | 'shadow' | 'on'
 
+// eventNames: every event name the goal can match, or null when it can match any.
+type PinnedGoalEntry = { functionId: string; goal: PinnedConversionGoal; key: string; eventNames: Set<string> | null }
+
 // Past this, the rest of a batch is looked up without the check, so slow or numerous filters cannot hold the batch.
 const FILTER_FIRST_BUDGET_MS = 50
 
@@ -187,11 +214,14 @@ function callsRandom(bytecode: unknown): boolean {
     return Array.isArray(bytecode) && (bytecode.includes('randomFloat') || bytecode.includes('generateUUIDv4'))
 }
 
-function parseFilterFirstMode(value: string): FilterFirstMode {
+function parseFilterFirstMode(
+    value: string,
+    setting = 'CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST'
+): FilterFirstMode {
     if (value === 'off' || value === 'shadow' || value === 'on') {
         return value
     }
-    throw new Error(`CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST must be off, shadow or on, got "${value}"`)
+    throw new Error(`${setting} must be off, shadow or on, got "${value}"`)
 }
 
 export const counterHogflowMatcherEventSkipped = new Counter({
@@ -209,6 +239,15 @@ type ParkedCandidate = {
     distinctId: string | null
     personId: string | null
     scheduledAt: number
+    status: 'available' | 'running'
+}
+
+type PendingWakeWrite = {
+    id: string
+    wakes: Record<
+        string,
+        { kind: 'match' | 'recheck'; eventName?: string; eventUuid?: string; eventTimestamp?: string }
+    >
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -254,6 +293,7 @@ function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_u
 
 type MatchedJob = {
     id: string
+    actionId: string | null
     teamId: number
     functionId: string
     parentRunId: string | null
@@ -313,6 +353,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private teamsWithChangedFlows: Map<number, { refreshNumber: number; at: number }> = new Map()
     private watcherRefreshNumber = 0
     private watcherRefreshedAt = 0
+    private pinnedGoalsMode: FilterFirstMode
+    private postgres: PostgresRouter
+    // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by team.
+    private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
+    private pinnedGoalsRead: Promise<void> | null = null
+    private watcherScan: Promise<void> | null = null
+    private teamsOverGoalCap: Set<number> = new Set()
+    private pinnedGoalsReadAt = 0
+    // Team -> when one of its flows changed, until a goals read that started PINNED_GOALS_CHANGE_WINDOW_MS later.
+    private pinnedGoalChanges: Map<number, number> = new Map()
+    // "on" and the goals have been read once. From then on the full watcher scan no longer runs.
+    private usingPinnedGoals = false
     // An events batch carries few events a flow can act on, so most lookups cost a query for little.
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
@@ -321,13 +373,23 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.filterFirst = parseFilterFirstMode(config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST)
+        this.postgres = deps.postgres
+        this.pinnedGoalsMode = parseFilterFirstMode(
+            config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS,
+            'CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS'
+        )
         this.eventWakes = new BatchCoalescer(
             (globals) => this.processBatch(globals, 'events', (g) => this.eventArrivals.get(g)),
             config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
             config.CONSUMER_MAX_BACKGROUND_TASKS
         )
         deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
-            this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
+            if (!this.usingPinnedGoals) {
+                this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
+            }
+            if (this.pinnedGoalsMode !== 'off') {
+                this.pinnedGoalChanges.set(teamId, Date.now())
+            }
         })
         this.kafkaConsumer = createKafkaConsumer(
             {
@@ -457,29 +519,77 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
+        const usePinnedGoals = this.usingPinnedGoals
+        const shadowPinnedGoals = !usePinnedGoals && this.pinnedGoalsMode !== 'off' && this.pinnedGoalsFresh()
         const goalFlowsByTeam = new Map<number, HogFlow[] | 'any'>()
+        const pinnedGoalsByTeam = new Map<number, PinnedGoalEntry[] | 'any'>()
         for (const teamId of teamIds) {
             const flows = hogFlowsByTeam[teamId] ?? []
-            if (this.mayHaveLiveWatchers(teamId) || flows.some(hasConversionGoal)) {
+            if (!(this.mayHaveLiveWatchers(teamId) || flows.some(hasConversionGoal))) {
+                continue
+            }
+            if (!usePinnedGoals) {
                 goalFlowsByTeam.set(teamId, this.goalFlowsForWatchers(teamId, flows))
             }
+            if (usePinnedGoals || shadowPinnedGoals) {
+                pinnedGoalsByTeam.set(teamId, this.pinnedGoalsForTeam(teamId, flows))
+            }
         }
-        const watcherGlobals = invocationGlobals.filter((globals) => {
-            const goalFlows = goalFlowsByTeam.get(globals.project.id)
-            return goalFlows === 'any' || goalFlows?.some((flow) => goalAdmitsEventName(flow, globals.event.event))
-        })
+        // Every event of a team with goals goes on to the check, which compares event names and runs the goals.
+        const watcherGlobals = usePinnedGoals
+            ? invocationGlobals.filter((globals) => pinnedGoalsByTeam.has(globals.project.id))
+            : invocationGlobals.filter((globals) => {
+                  const goalFlows = goalFlowsByTeam.get(globals.project.id)
+                  return (
+                      goalFlows === 'any' || goalFlows?.some((flow) => goalAdmitsEventName(flow, globals.event.event))
+                  )
+              })
         counterHogflowMatcherWatcherEventsSkipped.inc(
-            invocationGlobals.filter((globals) => goalFlowsByTeam.has(globals.project.id)).length -
-                watcherGlobals.length
+            invocationGlobals.filter((globals) =>
+                (usePinnedGoals ? pinnedGoalsByTeam : goalFlowsByTeam).has(globals.project.id)
+            ).length - watcherGlobals.length
         )
-        // Only the events stream is checked: a person change or a cohort change is judged against
-        // state the event does not carry, and internal events are too few to matter.
+        // Mirrors the claim below, which judges a watcher by its own pinned goal against the same globals: no
+        // pinned goal matching means no watcher can convert on this event.
+        const couldMeetPinnedGoal = (
+            globals: HogFunctionInvocationGlobals,
+            spent: () => boolean
+        ): boolean | Promise<boolean> => {
+            const entries = pinnedGoalsByTeam.get(globals.project.id)
+            return (
+                entries === 'any' ||
+                couldMatchPinnedGoals(entries ?? [], globals.event.event, filterGlobalsFor(globals), eventsOnly, spent)
+            )
+        }
+        // Only the events stream is checked against the flows: a person change or a cohort change is judged
+        // against state the event does not carry, and internal events are too few to matter.
         const filterFirst = source === 'events' ? this.filterFirst : 'off'
-        const watcherCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
-            const goalFlows = goalFlowsByTeam.get(globals.project.id)
-            // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
-            return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
-        })
+        let watcherCheck
+        if (usePinnedGoals) {
+            watcherCheck = await this.checkFilters('on', 'watcher_goals', watcherGlobals, couldMeetPinnedGoal)
+        } else {
+            const flowCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
+                const goalFlows = goalFlowsByTeam.get(globals.project.id)
+                // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
+                return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
+            })
+            watcherCheck = flowCheck
+            if (shadowPinnedGoals) {
+                const shadowCheck = await this.checkFilters(
+                    'shadow',
+                    'watcher_goals',
+                    flowCheck.lookup,
+                    couldMeetPinnedGoal
+                )
+                watcherCheck = {
+                    lookup: flowCheck.lookup,
+                    noteMatch: (globals: HogFunctionInvocationGlobals) => {
+                        flowCheck.noteMatch(globals)
+                        shadowCheck.noteMatch(globals)
+                    },
+                }
+            }
+        }
         if (watcherCheck.lookup.length > 0) {
             const conversionsCounted = await this.claimConversionWatchers(
                 indexBatch(watcherCheck.lookup),
@@ -542,35 +652,58 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         counterHogflowMatcherCandidatesEvaluated.inc(candidates.length)
 
         const matchedJobs: MatchedJob[] = []
+        const pendingWakes: PendingWakeWrite[] = []
+        // Runs of one flow for one person see the same events, so each wait is judged once per person.
+        const waitWakes = new Map<string, Promise<PendingWakeWrite['wakes'][string] | null>>()
         for (const candidate of candidates) {
             const hogflow = hogflows[candidate.functionId]
             if (!hogflow) {
                 continue
             }
 
+            // A held job's scheduled time is already past, and an event that arrives during the hold still counts.
             const candidateGlobals = collectCandidateGlobals(candidate, byDistinctId, byPersonId).filter(
-                (globals) => arrivedAt(globals).getTime() < candidate.scheduledAt
+                (globals) => candidate.status === 'running' || arrivedAt(globals).getTime() < candidate.scheduledAt
             )
             if (candidateGlobals.length === 0) {
+                continue
+            }
+
+            // A worker holds this job, so it may be about to park on any of the flow's waits.
+            if (candidate.status === 'running') {
+                // Step ids are user-chosen strings, so these maps have no prototype for an id such as `__proto__` to hit.
+                const wakes: PendingWakeWrite['wakes'] = Object.create(null)
+                for (const wait of hogflow.actions) {
+                    if (wait.type !== 'wait_until_condition') {
+                        continue
+                    }
+                    const key = `${hogflow.id}:${wait.id}:${candidate.teamId}:${candidate.distinctId ?? ''}:${candidate.personId ?? ''}`
+                    let pending = waitWakes.get(key)
+                    if (!pending) {
+                        pending = evaluateWaitWake(
+                            eventsOnly ? eventsOnlyWait(wait) : wait,
+                            candidateGlobals,
+                            filterGlobalsFor,
+                            source,
+                            hogflow.id
+                        )
+                        waitWakes.set(key, pending)
+                    }
+                    const wake = await pending
+                    if (wake) {
+                        wakes[wait.id] = wake
+                    }
+                }
+                if (Object.keys(wakes).length > 0) {
+                    pendingWakes.push({ id: candidate.id, wakes })
+                }
                 continue
             }
 
             const parkedOn = candidate.actionId
                 ? hogflow.actions.find((a: HogFlowAction) => a.id === candidate.actionId)
                 : undefined
-            const action =
-                eventsOnly && parkedOn?.type === 'wait_until_condition'
-                    ? {
-                          ...parkedOn,
-                          config: {
-                              ...parkedOn.config,
-                              condition: { filters: null },
-                              events: parkedOn.config.events?.filter(
-                                  (eventConfig) => !readsPerson(eventConfig.filters?.bytecode)
-                              ),
-                          },
-                      }
-                    : parkedOn
+            const action = eventsOnly && parkedOn?.type === 'wait_until_condition' ? eventsOnlyWait(parkedOn) : parkedOn
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
@@ -620,6 +753,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (stepMatched || recheckMatched || conversionMatched) {
                 matchedJobs.push({
                     id: candidate.id,
+                    actionId: candidate.actionId,
                     teamId: candidate.teamId,
                     functionId: candidate.functionId,
                     parentRunId: candidate.parentRunId,
@@ -637,24 +771,117 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
         }
 
-        if (matchedJobs.length === 0) {
-            return
+        if (matchedJobs.length > 0) {
+            const { woken, inFlight } = await this.processMatchedJobs(matchedJobs)
+            counterHogflowMatcherJobsWoken.inc(woken)
+            logger.info('⚡', 'Processed waiting workflows from event match', {
+                evaluated: candidates.length,
+                matched: matchedJobs.length,
+                woken,
+            })
+            // A worker took these jobs between the candidate read and the wake.
+            for (const m of inFlight) {
+                if (!m.actionId || !(m.stepMatched || m.recheckMatched)) {
+                    continue
+                }
+                pendingWakes.push({
+                    id: m.id,
+                    wakes: {
+                        [m.actionId]: m.stepMatched
+                            ? {
+                                  kind: 'match',
+                                  eventName: m.eventName,
+                                  eventUuid: m.eventUuid,
+                                  eventTimestamp: m.eventTimestamp,
+                              }
+                            : { kind: 'recheck' },
+                    },
+                })
+            }
         }
 
-        const woken = await this.processMatchedJobs(matchedJobs)
-        counterHogflowMatcherJobsWoken.inc(woken)
-        logger.info('⚡', 'Processed waiting workflows from event match', {
-            evaluated: candidates.length,
-            matched: matchedJobs.length,
-            woken,
-        })
+        if (pendingWakes.length > 0) {
+            await this.recordPendingWakes(pendingWakes)
+        }
+    }
+
+    // The worker's park write acts on these. A job released before this write is woken here instead.
+    private async recordPendingWakes(writes: PendingWakeWrite[]): Promise<void> {
+        const wakesById = new Map<string, PendingWakeWrite['wakes']>()
+        for (const w of writes) {
+            const merged: PendingWakeWrite['wakes'] = Object.assign(Object.create(null), wakesById.get(w.id))
+            for (const [actionId, wake] of Object.entries(w.wakes)) {
+                if (merged[actionId]?.kind !== 'match') {
+                    merged[actionId] = wake
+                }
+            }
+            wakesById.set(w.id, merged)
+        }
+        const ids = [...wakesById.keys()].sort()
+        const client = await this.cyclotronPool.connect()
+        try {
+            await client.query('BEGIN')
+            const locked = await client.query(
+                `SELECT id, status, action_id, CASE WHEN status = 'available' THEN state END AS state, pending_wake, last_transition
+                 FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) AND status IN ('available', 'running')
+                 ORDER BY id FOR UPDATE`,
+                [ids]
+            )
+            const updateIds: string[] = []
+            const updateWakes: string[] = []
+            const updateWakeNow: boolean[] = []
+            for (const row of locked.rows) {
+                const existing = (row.pending_wake ?? {}) as Record<string, { kind: string; at: string }>
+                const dequeuedAt = new Date(row.last_transition).getTime()
+                const changed: PendingWakeWrite['wakes'] = Object.create(null)
+                for (const [actionId, wake] of Object.entries(wakesById.get(row.id) ?? {})) {
+                    const current = Object.hasOwn(existing, actionId) ? existing[actionId] : undefined
+                    // A parked row keeps only entries its next dequeue has yet to apply.
+                    const fresh =
+                        current && (row.status === 'available' || new Date(current.at).getTime() >= dequeuedAt)
+                    // A fresh match carries the event, which a later re-check of the same step would lose.
+                    if (fresh && (current.kind === 'match' || wake.kind === 'recheck')) {
+                        continue
+                    }
+                    changed[actionId] = wake
+                }
+                if (Object.keys(changed).length === 0) {
+                    continue
+                }
+                updateIds.push(row.id)
+                updateWakes.push(sanitizeJsonbValue(changed))
+                updateWakeNow.push(
+                    row.status === 'available' &&
+                        Object.hasOwn(changed, row.action_id) &&
+                        !decodeJobState(row).state?.currentAction?.cohortLookupAttempts
+                )
+            }
+            const result = await client.query(
+                `UPDATE cyclotron_jobs cj
+                 SET pending_wake = COALESCE(cj.pending_wake, '{}'::jsonb) || (
+                         SELECT jsonb_object_agg(w.key, w.value || jsonb_build_object('at', clock_timestamp()))
+                         FROM jsonb_each(u.wakes) w
+                     ),
+                     scheduled = CASE WHEN u.wake_now THEN LEAST(cj.scheduled, NOW()) ELSE cj.scheduled END
+                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS wakes, unnest($3::boolean[]) AS wake_now) u
+                 WHERE cj.id = u.id`,
+                [updateIds, updateWakes, updateWakeNow]
+            )
+            await client.query('COMMIT')
+            counterHogflowMatcherPendingWakesRecorded.inc(result.rowCount ?? 0)
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {})
+            throw err
+        } finally {
+            client.release()
+        }
     }
 
     // Splits the events into those to look up and those no filter of their team passes. In shadow mode it
     // looks up all of them anyway, and noteMatch counts a match on an event that "on" would have skipped.
     private async checkFilters(
         mode: FilterFirstMode,
-        lookup: 'parked' | 'watchers',
+        lookup: 'parked' | 'watchers' | 'watcher_goals',
         invocationGlobals: HogFunctionInvocationGlobals[],
         // `spent` turns true once the batch is over budget; `passes` then answers true without evaluating.
         passes: (globals: HogFunctionInvocationGlobals, spent: () => boolean) => boolean | Promise<boolean>
@@ -768,17 +995,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
              FROM cyclotron_jobs
-             WHERE status = 'available'
-               AND scheduled > $6
+             WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled, status
              FROM cyclotron_jobs
-             WHERE status = 'available'
-               AND scheduled > $6
+             WHERE ((status = 'available' AND scheduled > $6) OR status = 'running')
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
                 [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, earliestArrival]
@@ -797,14 +1022,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             personId: row.person_id,
             // The hub's type parsers return timestamps as ISO strings, not dates.
             scheduledAt: new Date(row.scheduled).getTime(),
+            status: row.status,
         }))
     }
 
     // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
     // a conversion countable after the run it belongs to has finished.
-    private async processMatchedJobs(matched: MatchedJob[]): Promise<number> {
+    private async processMatchedJobs(matched: MatchedJob[]): Promise<{ woken: number; inFlight: MatchedJob[] }> {
         if (matched.length === 0) {
-            return 0
+            return { woken: 0, inFlight: [] }
         }
 
         const ids = matched.map((m) => m.id)
@@ -874,7 +1100,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
             await client.query('COMMIT')
 
-            return woken
+            const parked = new Set(stateRows.rows.map((row) => row.id))
+            return { woken, inFlight: matched.filter((m) => !parked.has(m.id)) }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
             throw err
@@ -1049,7 +1276,148 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private mayHaveLiveWatchers(teamId: number): boolean {
+        if (this.usingPinnedGoals) {
+            return (
+                this.pinnedGoalsByTeam.has(teamId) ||
+                this.teamsOverGoalCap.has(teamId) ||
+                this.pinnedGoalChanges.has(teamId)
+            )
+        }
         return this.liveWatcherFlowsByTeam.has(teamId) || this.teamsWithChangedFlows.has(teamId)
+    }
+
+    // Every goal a watcher of the team can hold: each goal its workflows have had live, plus the current goals of
+    // its cached flows. 'any' while the goals may be missing one: shortly after a flow change, or when the last
+    // read is too old.
+    private pinnedGoalsForTeam(teamId: number, flows: HogFlow[]): PinnedGoalEntry[] | 'any' {
+        if (!this.pinnedGoalsFresh() || this.pinnedGoalChanges.has(teamId)) {
+            return 'any'
+        }
+        if (this.teamsOverGoalCap.has(teamId)) {
+            return 'any'
+        }
+        const stored = this.pinnedGoalsByTeam.get(teamId)
+        const entries = [...(stored?.values() ?? [])]
+        for (const flow of flows.filter(hasConversionGoal)) {
+            const entry = currentGoalEntry(flow)
+            if (entry && !stored?.has(entry.key)) {
+                entries.push(entry)
+            }
+        }
+        return entries
+    }
+
+    private pinnedGoalsFresh(): boolean {
+        return Date.now() - this.pinnedGoalsReadAt < PINNED_GOALS_MAX_READ_AGE_MS
+    }
+
+    // Reads every goal live within the longest conversion window, so older goals and deleted workflows drop out.
+    private async refreshPinnedGoals(): Promise<void> {
+        const startedAt = Date.now()
+        const windowStart = startedAt - MAX_CONVERSION_WINDOW_MINUTES * 60_000 - PINNED_GOALS_WINDOW_MARGIN_MS
+        const goalsRead = {
+            // One row past the cap is enough to know a team is over it, so one team cannot add more rows than that.
+            text: `/* nodejs:hogflowMatcherPinnedGoals */ SELECT team_id, hog_flow_id, goal, event_names FROM (
+                 SELECT team_id, hog_flow_id, goal, event_names,
+                        row_number() OVER (PARTITION BY team_id ORDER BY last_live_at DESC) AS team_row
+                 FROM workflows_hogflowconversiongoal
+                 WHERE last_live_at > $1
+             ) goals
+             WHERE team_row <= $2`,
+            query_timeout: PINNED_GOALS_READ_TIMEOUT_MS,
+        }
+        const result = await this.postgres.query<{
+            team_id: number
+            hog_flow_id: string
+            goal: PinnedConversionGoal
+            event_names: string[] | null
+        }>(
+            PostgresUse.COMMON_READ,
+            goalsRead,
+            [new Date(windowStart), PINNED_GOALS_MAX_PER_TEAM + 1],
+            'hogflowMatcherPinnedGoals'
+        )
+        const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
+        const rowsPerTeam = new Map<number, number>()
+        for (const row of result.rows) {
+            rowsPerTeam.set(row.team_id, (rowsPerTeam.get(row.team_id) ?? 0) + 1)
+            if (!row.goal || typeof row.goal !== 'object') {
+                continue
+            }
+            const entry: PinnedGoalEntry = {
+                functionId: row.hog_flow_id,
+                goal: row.goal,
+                key: stableStringify(row.goal),
+                eventNames: Array.isArray(row.event_names) ? new Set(row.event_names) : null,
+            }
+            let entries = pinnedGoalsByTeam.get(row.team_id)
+            if (!entries) {
+                entries = new Map()
+                pinnedGoalsByTeam.set(row.team_id, entries)
+            }
+            const existing = entries.get(entry.key)
+            // Equal goals keep the version that matches any event name.
+            if (!existing || (existing.eventNames && entry.eventNames === null)) {
+                entries.set(entry.key, entry)
+            }
+        }
+        // A team over the cap looks up every event, so its goals are not kept.
+        const teamsOverGoalCap = new Set<number>()
+        for (const [teamId, count] of rowsPerTeam) {
+            if (count > PINNED_GOALS_MAX_PER_TEAM) {
+                teamsOverGoalCap.add(teamId)
+                pinnedGoalsByTeam.delete(teamId)
+            }
+        }
+        this.pinnedGoalsByTeam = pinnedGoalsByTeam
+        this.teamsOverGoalCap = teamsOverGoalCap
+        this.pinnedGoalsReadAt = startedAt
+        for (const [teamId, changedAt] of this.pinnedGoalChanges) {
+            if (startedAt - changedAt > PINNED_GOALS_CHANGE_WINDOW_MS) {
+                this.pinnedGoalChanges.delete(teamId)
+            }
+        }
+    }
+
+    // One tick of the watcher state. The goals are read every tick while they are on or in shadow. The full watcher
+    // scan stops once "on" has read the goals, and otherwise runs at most every WATCHER_TEAMS_REFRESH_INTERVAL_MS.
+    private async refreshWatcherState(): Promise<void> {
+        if (this.pinnedGoalsMode !== 'off') {
+            if (!this.pinnedGoalsRead) {
+                this.pinnedGoalsRead = this.refreshPinnedGoals()
+                    .catch((err) => {
+                        logger.error('⚠️', 'Failed to read conversion goals', { err })
+                        captureException(err)
+                    })
+                    .finally(() => {
+                        this.pinnedGoalsRead = null
+                    })
+            }
+            // The query timeout does not cover the wait for a connection, which must not hold up start().
+            let timer: NodeJS.Timeout | undefined
+            await Promise.race([
+                this.pinnedGoalsRead,
+                new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, PINNED_GOALS_READ_TIMEOUT_MS)
+                    timer.unref?.()
+                }),
+            ])
+            clearTimeout(timer)
+        }
+        this.usingPinnedGoals = this.pinnedGoalsMode === 'on' && this.pinnedGoalsReadAt > 0
+        gaugeHogflowMatcherPinnedGoalsInUse.set(this.usingPinnedGoals && this.pinnedGoalsFresh() ? 1 : 0)
+        if (this.usingPinnedGoals) {
+            this.teamsWithChangedFlows.clear()
+            gaugeHogflowMatcherTeamsWithWatchers.set(0)
+        } else if (Date.now() - this.watcherRefreshedAt >= WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
+            // The cyclotron pool has no query timeout either, so a slow scan must not start another every tick.
+            if (!this.watcherScan) {
+                this.watcherScan = this.refreshTeamsWithLiveWatchers().finally(() => {
+                    this.watcherScan = null
+                })
+            }
+            await this.watcherScan
+        }
     }
 
     // The flows whose current goals cover every goal the team's live watchers pinned, or 'any' when a
@@ -1433,19 +1801,23 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
 
         let updatedCount = 0
+        const pendingWakes: PendingWakeWrite[] = []
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
             // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
             // with processMatchedJobs so concurrent move/match batches can't deadlock.
+            // A running job's state is rewritten on release, so it gets a re-check instead of a re-key.
             const rows = await client.query(
-                `SELECT id, team_id, distinct_id, function_id, action_id, state
+                `SELECT id, team_id, distinct_id, function_id, action_id, state, status
                  FROM cyclotron_jobs
-                 WHERE status = 'available'
-                   AND function_id = ANY($3::uuid[])
-                   AND action_id = ANY($4::text[])
-                   ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
+                 WHERE function_id = ANY($3::uuid[])
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+                   AND (status = 'running' OR (
+                       status = 'available'
+                       AND action_id = ANY($4::text[])
+                       ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
+                   ))
                  ORDER BY id
                  FOR UPDATE`,
                 [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
@@ -1453,6 +1825,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
             const updates: { id: string; personId: string; state: Buffer }[] = []
             for (const row of rows.rows) {
+                if (row.status === 'running') {
+                    const waits = hogflows[row.function_id].actions.filter(
+                        (a: HogFlowAction) => a.type === 'wait_until_condition'
+                    )
+                    pendingWakes.push({
+                        id: row.id,
+                        wakes: Object.fromEntries(waits.map((a) => [a.id, { kind: 'recheck' as const }])),
+                    })
+                    continue
+                }
                 // Only re-key jobs currently parked ON a wait_until_condition step. A job of the same flow
                 // could be parked in a delay; rewriting its person_id off a repoint would be wrong, and it
                 // must never be pulled forward.
@@ -1511,6 +1893,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         } finally {
             client.release()
         }
+        if (pendingWakes.length > 0) {
+            await this.recordPendingWakes(pendingWakes)
+        }
     }
 
     public override async start(): Promise<void> {
@@ -1519,15 +1904,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // which would drop messages for teams whose only goal flow is paused. A failure here must not
         // stop the matcher starting: an empty set degrades the gate to its previous flow-only
         // behavior until a retry succeeds, which is milder than refusing to consume at all.
-        await this.refreshTeamsWithLiveWatchers().catch((err) => {
+        await this.refreshWatcherState().catch((err) => {
             logger.error('⚠️', 'Initial conversion-watcher team refresh failed; gating on flows alone', { err })
             captureException(err)
         })
         this.watcherTeamsRefreshTimer = setInterval(() => {
-            if (Date.now() - this.watcherRefreshedAt < WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
-                return
-            }
-            void this.refreshTeamsWithLiveWatchers().catch((err) => {
+            void this.refreshWatcherState().catch((err) => {
                 logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
                 captureException(err)
             })
@@ -1787,6 +2169,90 @@ async function couldConvert(flows: HogFlow[], filterGlobals: FilterGlobals, spen
     return false
 }
 
+// Whether the event meets any of the goals. Over budget, or for a goal that draws a random number, it answers
+// true so the watchers are looked up and judged the usual way.
+async function couldMatchPinnedGoals(
+    entries: PinnedGoalEntry[],
+    eventName: string,
+    filterGlobals: FilterGlobals,
+    eventsOnly: boolean,
+    spent: () => boolean
+): Promise<boolean> {
+    for (const entry of entries) {
+        if (spent()) {
+            return true
+        }
+        if (entry.eventNames && !entry.eventNames.has(eventName)) {
+            continue
+        }
+        if ([entry.goal.properties, ...(entry.goal.events ?? [])].some(callsRandom)) {
+            return true
+        }
+        const goal: PinnedConversionGoal = eventsOnly
+            ? { events: entry.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
+            : entry.goal
+        if (await matchesPinnedGoal(goal, filterGlobals, entry.functionId)) {
+            return true
+        }
+    }
+    return false
+}
+
+const currentGoalEntries = new WeakMap<HogFlow, PinnedGoalEntry | null>()
+
+function currentGoalEntry(flow: HogFlow): PinnedGoalEntry | null {
+    let entry = currentGoalEntries.get(flow)
+    if (entry === undefined) {
+        const goal = pinConversionGoal(flow)
+        entry = goal
+            ? { functionId: flow.id, goal, key: stableStringify(goal), eventNames: goalEventNames(flow) }
+            : null
+        currentGoalEntries.set(flow, entry)
+    }
+    return entry
+}
+
+// The names `rejectsEventName` lets through for the flow's goal, or null when any name passes. Mirrors
+// goal_event_names in products/workflows/backend/services/conversion_goals.py.
+function goalEventNames(flow: HogFlow): Set<string> | null {
+    if (flow.conversion?.filters?.length) {
+        return null
+    }
+    const names = new Set<string>()
+    for (const eventConfig of (flow.conversion?.events ?? []).filter(hasEventOrActionTarget)) {
+        // A run drops entries without bytecode when it saves its goal, so they cannot match any event.
+        const bytecode = eventConfig.filters?.bytecode
+        if (!Array.isArray(bytecode) || bytecode.length === 0) {
+            continue
+        }
+        if (eventConfig.filters?.actions?.length || !Array.isArray(eventConfig.filters?.events)) {
+            return null
+        }
+        for (const eventFilter of eventConfig.filters.events) {
+            if (eventFilter.type !== 'events' || eventFilter.id == null) {
+                return null
+            }
+            names.add(String(eventFilter.id))
+        }
+    }
+    return names
+}
+
+// Postgres returns jsonb with its keys reordered, so goals are compared by a key-sorted encoding.
+function stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(',')}]`
+    }
+    if (value && typeof value === 'object') {
+        const object = value as Record<string, unknown>
+        return `{${Object.keys(object)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+            .join(',')}}`
+    }
+    return JSON.stringify(value) ?? 'null'
+}
+
 // A pinned goal converts when the property branch matches, or any event branch does. The two are
 // independent detectors of the same goal, so they are OR'd — matching the UI, where a person who
 // does either is converted.
@@ -1925,6 +2391,42 @@ function rewriteStatePersonId(
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
         return null
     }
+}
+
+type WaitUntilConditionAction = Extract<HogFlowAction, { type: 'wait_until_condition' }>
+
+function eventsOnlyWait(wait: WaitUntilConditionAction): WaitUntilConditionAction {
+    return {
+        ...wait,
+        config: {
+            ...wait.config,
+            condition: { filters: null },
+            events: wait.config.events?.filter((eventConfig) => !readsPerson(eventConfig.filters?.bytecode)),
+        },
+    }
+}
+
+async function evaluateWaitWake(
+    wait: WaitUntilConditionAction,
+    candidateGlobals: HogFunctionInvocationGlobals[],
+    filterGlobalsFor: (g: HogFunctionInvocationGlobals) => FilterGlobals,
+    source: WakeSource,
+    hogFlowId: string
+): Promise<PendingWakeWrite['wakes'][string] | null> {
+    if (source === 'person' && conditionNeedsRunGlobals(wait)) {
+        return { kind: 'recheck' }
+    }
+    for (const globals of candidateGlobals) {
+        if (await matchesWaitUntilCondition(wait, filterGlobalsFor(globals), { hogFlowId, actionId: wait.id })) {
+            return {
+                kind: 'match',
+                eventName: globals.event.event,
+                eventUuid: globals.event.uuid,
+                eventTimestamp: globals.event.timestamp,
+            }
+        }
+    }
+    return null
 }
 
 type MatchOutcome = { state: Buffer; wake: boolean }

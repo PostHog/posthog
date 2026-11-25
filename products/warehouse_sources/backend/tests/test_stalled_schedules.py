@@ -98,11 +98,17 @@ class TestStalledSchedules(BaseTest):
 
         assert str(schema.id) not in found
 
-    def test_a_schema_whose_runs_found_nothing_to_import_is_not_stalled(self) -> None:
-        self._schema(
-            synced_ago=timedelta(days=5),
-            sync_type_config={"last_full_run_at": (timezone.now() - timedelta(hours=1)).isoformat()},
-        )
+    @parameterized.expand(
+        [
+            (
+                "legacy run stamp",
+                lambda: {"sync_type_config": {"last_full_run_at": (timezone.now() - timedelta(hours=1)).isoformat()}},
+            ),
+            ("check stamp", lambda: {"last_checked_at": timezone.now() - timedelta(hours=1)}),
+        ]
+    )
+    def test_a_schema_whose_runs_found_nothing_to_import_is_not_stalled(self, _name: str, recent_run) -> None:
+        self._schema(synced_ago=timedelta(days=5), **recent_run())
         stalled = self._schema(synced_ago=timedelta(days=4))
 
         assert [s.schema_id for s in find_stalled_schemas(limit=1)] == [str(stalled.id)]

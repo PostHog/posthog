@@ -22,18 +22,19 @@ describe("finish tool", () => {
 
   it.each([
     {
-      name: "caller-managed assessment run",
+      name: "background cloud run that may end itself",
       ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "signal_report",
-        callerEndsRun: true,
-      },
+      meta: { environment: "cloud", background: true, finishTool: true },
+      expected: true,
+    },
+    {
+      name: "background cloud run whose launch withholds the tool",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: { environment: "cloud", background: true, finishTool: false },
       expected: false,
     },
     {
-      name: "background cloud run with an unknown origin (fetch failed)",
+      name: "background cloud run with no launch decision",
       ctx: { cwd: "/repo", requestFinish },
       meta: { environment: "cloud", background: true },
       expected: false,
@@ -41,122 +42,37 @@ describe("finish tool", () => {
     {
       name: "background cloud run without requestFinish or run ids",
       ctx: { cwd: "/repo" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
+      meta: { environment: "cloud", background: true, finishTool: true },
       expected: false,
     },
     {
       name: "background cloud run with run ids only (out-of-process adapter)",
       ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
+      meta: { environment: "cloud", background: true, finishTool: true },
       expected: true,
+    },
+    {
+      name: "withheld run with run ids only (out-of-process adapter)",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: { environment: "cloud", background: true, finishTool: false },
+      expected: false,
     },
     {
       name: "interactive cloud run (background unset)",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "cloud" },
+      meta: { environment: "cloud", finishTool: true },
       expected: false,
     },
     {
       name: "interactive cloud run (background false)",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "cloud", background: false },
+      meta: { environment: "cloud", background: false, finishTool: true },
       expected: false,
     },
     {
       name: "background local run",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "local", background: true },
-      expected: false,
-    },
-    {
-      name: "workflow-origin background cloud run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "workflow",
-      },
-      expected: false,
-    },
-    {
-      name: "workflow-origin run with the end-run opt-in",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "workflow",
-        endRunWhenDone: true,
-      },
-      expected: true,
-    },
-    {
-      name: "non-workflow-origin background cloud run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
-      expected: true,
-    },
-    {
-      name: "caller-managed ReviewHog run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-      },
-      expected: false,
-    },
-    {
-      name: "ReviewHog run with run ids only (out-of-process adapter)",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-      },
-      expected: false,
-    },
-    {
-      name: "ReviewHog run with an end-run opt-in and run ids",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-        endRunWhenDone: true,
-      },
-      expected: false,
-    },
-    {
-      name: "caller-managed scout suggestions run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "scout_suggestions",
-      },
-      expected: false,
-    },
-    {
-      name: "scout suggestions run with an end-run opt-in and run ids",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "scout_suggestions",
-        endRunWhenDone: true,
-      },
+      meta: { environment: "local", background: true, finishTool: true },
       expected: false,
     },
     {

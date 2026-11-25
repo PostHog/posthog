@@ -60,7 +60,6 @@ rules:
           - '/tests/cleanup_property_definitions/test_*.py'
       owners: team-analytics
     - match:
-          - '/tests/session_replay/copy_recording/test_*.py'
           - '/tests/session_replay/count_playlist_items/test_*.py'
           - '/tests/session_replay/delete_recordings/test_*.py'
           - '/tests/session_replay/enforce_max_replay_retention/test_*.py'

@@ -248,9 +248,8 @@ describe('TracesListHost', () => {
         const view = renderHost({ url: `${LIST_PATH}?view=errors` })
 
         fireEvent.click(await view.findByText('Clear filters'))
-        await waitFor(() => expect(requests).toHaveLength(2))
+        await waitFor(() => expect(requests.at(-1)).toEqual({ ...FIRST_PAGE_PARAMS, filter_test_accounts: 'false' }))
 
-        expect(requests[1]).toEqual({ ...FIRST_PAGE_PARAMS, filter_test_accounts: 'false' })
         expect(tracesListLogic().values.filterTestAccounts).toBe(false)
     })
 

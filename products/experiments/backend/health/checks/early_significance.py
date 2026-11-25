@@ -59,8 +59,8 @@ class _Readout:
 
 
 def early_significance_values(ctx: HealthContext) -> CheckValues:
-    readout = _significant_readout(ctx)
-    if readout is None:
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip):
         return {}
     return {
         ExperimentHealthValueKey.METRIC_NAME: readout.metric.name,
@@ -70,8 +70,8 @@ def early_significance_values(ctx: HealthContext) -> CheckValues:
 
 
 def early_significance_rows(ctx: HealthContext) -> CheckRows:
-    readout = _significant_readout(ctx)
-    if readout is None:
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip):
         return ()
     return tuple(
         {
@@ -82,15 +82,6 @@ def early_significance_rows(ctx: HealthContext) -> CheckRows:
         }
         for comparison in readout.comparisons
     )
-
-
-def _significant_readout(ctx: HealthContext) -> _Readout | None:
-    """The comparisons that the check reads, when a variant is significant. Without a significant variant the running
-    time estimate already shows the progress, so the check shows nothing."""
-    readout = _readout(ctx)
-    if isinstance(readout, CheckSkip) or not any(comparison.significant for comparison in readout.comparisons):
-        return None
-    return readout
 
 
 def _readout(ctx: HealthContext) -> _Readout | CheckSkip:

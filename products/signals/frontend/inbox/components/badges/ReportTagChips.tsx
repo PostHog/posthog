@@ -1,68 +1,68 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { InboxReportTagSurface } from '../../inboxAnalytics'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { captureInboxReportTagClicked } from '../../inboxAnalytics'
+import { inboxFiltersLogic, inboxReportsUrlForTag } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
-import { useReportTagToggle } from './useReportTagToggle'
+import { reportTagChipClassName } from './reportTagChipClassName'
 
 const VISIBLE_TAG_LIMIT = 3
 
 /**
- * A report's tags as chips. Each chip adds its tag to the Tags filter or removes it. Tags in the
- * filter are highlighted and lead the row, so the tag a report matched on is never in the overflow.
+ * A report's tags on the report page, styled like the tags on an inbox card. Each chip opens the
+ * Reports list filtered to its tag alone. Tags in the Tags filter are highlighted and lead the row.
  * The `+n` chip shows the rest on hover and expands the row on a tap. List cards use the one-line
- * `ReportCardTagChips` instead.
+ * `ReportCardTagChips` instead, where a chip toggles its tag in the filter.
  */
-export function ReportTagChips({
-    report,
-    surface,
-}: {
-    report: SignalReport
-    surface: InboxReportTagSurface
-}): JSX.Element | null {
-    const { orderedTags, isSelected, isDisabled, title, toggle } = useReportTagToggle(report, surface)
+export function ReportTagChips({ report }: { report: SignalReport }): JSX.Element | null {
+    const { filterState } = useValues(inboxFiltersLogic)
+    const { setTagFilter } = useActions(inboxFiltersLogic)
     const [expanded, setExpanded] = useState(false)
-    if (orderedTags.length === 0) {
+    const tags = report.tags ?? []
+    if (tags.length === 0) {
         return null
     }
 
+    const isSelected = (tag: string): boolean => filterState.tagFilter.includes(tag)
+    const orderedTags = [...tags.filter(isSelected), ...tags.filter((tag) => !isSelected(tag))]
     const visible = expanded ? orderedTags : orderedTags.slice(0, VISIBLE_TAG_LIMIT)
     const hidden = orderedTags.slice(visible.length)
 
     return (
-        <div className="flex min-w-0 flex-wrap items-center gap-1" role="group" aria-label="Report tags">
-            {visible.map((tag) => {
-                const selected = isSelected(tag)
-                return (
-                    <button
-                        key={tag}
-                        type="button"
-                        aria-pressed={selected}
-                        disabled={isDisabled(tag)}
-                        title={title(tag)}
-                        onClick={() => toggle(tag)}
-                        className="min-w-0 max-w-full rounded disabled:cursor-not-allowed enabled:cursor-pointer"
-                        data-attr="inbox-report-tag"
-                    >
-                        <LemonTag size="small" type={selected ? 'highlight' : 'muted'} className="max-w-full">
-                            <span className="truncate">{tag}</span>
-                        </LemonTag>
-                    </button>
-                )
-            })}
+        // The negative margin lines the first tag's text up with the title above it.
+        <div className="-mx-1 flex min-w-0 flex-wrap items-center gap-1" role="group" aria-label="Report tags">
+            {visible.map((tag) => (
+                <LinkPrimitive
+                    key={tag}
+                    to={inboxReportsUrlForTag(filterState, tag)}
+                    title={`Show reports tagged ${tag}`}
+                    onClick={() => {
+                        // Set the filter before the link navigates. The Reports URL then matches the stored
+                        // filters, so hydrating from it does not mark the scope and sort as chosen by the user.
+                        setTagFilter([tag])
+                        captureInboxReportTagClicked({ report, surface: 'detail', added: true, tagFilterCount: 1 })
+                    }}
+                    className={reportTagChipClassName(isSelected(tag))}
+                    data-attr="inbox-report-tag"
+                >
+                    <span className="truncate">{`#${tag}`}</span>
+                </LinkPrimitive>
+            ))}
             {hidden.length > 0 && (
                 <Tooltip title={hidden.join(', ')}>
                     <button
                         type="button"
                         aria-label={`Show ${hidden.length} more tags`}
                         onClick={() => setExpanded(true)}
-                        className="rounded cursor-pointer"
+                        className={clsx(reportTagChipClassName(false), 'shrink-0 cursor-pointer')}
                         data-attr="inbox-report-tag-overflow"
                     >
-                        <LemonTag size="small" type="muted">
-                            +{hidden.length}
-                        </LemonTag>
+                        {`+${hidden.length}`}
                     </button>
                 </Tooltip>
             )}

@@ -40,7 +40,7 @@ import {
     ruleMetadataEntriesError,
     ruleMetadataRecord,
 } from './platformAlertFormat'
-import { PLATFORM_ALERTS_BREADCRUMB } from './platformAlertsLogic'
+import { PLATFORM_ALERTS_BREADCRUMB, reloadWhenSnoozeEnds } from './platformAlertsLogic'
 
 const EMPTY_RULE_METADATA_FORM: RuleMetadataForm = { labels: [], annotations: [] }
 const RULE_METADATA_FIELD_BY_ATTR: Record<string, keyof RuleMetadataForm> = {
@@ -53,9 +53,6 @@ export interface PlatformAlertLogicProps {
 }
 
 export type GroupSnoozeDuration = '1h' | '4h' | '1d' | '1w'
-
-// The longest delay setTimeout accepts. A longer one fires at once.
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 
 export const GROUP_SNOOZE_DURATIONS: { duration: GroupSnoozeDuration; label: string; hours: number }[] = [
     { duration: '1h', label: '1 hour', hours: 1 },
@@ -360,12 +357,10 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 return
             }
             // `alertSnoozeUntil` reads the clock only when the configuration changes, so reload at expiry.
-            // A wait past the timer limit fires early, and the reload arms the next one.
-            cache.disposables.add(() => {
-                const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
-                const timer = setTimeout(() => actions.loadConfiguration(), delay)
-                return () => clearTimeout(timer)
-            }, 'alertSnoozeExpiry')
+            cache.disposables.add(
+                reloadWhenSnoozeEnds(snoozeUntil, () => actions.loadConfiguration()),
+                'alertSnoozeExpiry'
+            )
         },
         openRuleMetadataModal: () => {
             actions.resetRuleMetadataForm({
