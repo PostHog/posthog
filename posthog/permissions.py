@@ -37,6 +37,7 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
+from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
@@ -422,22 +423,10 @@ def organization_deactivated_error(reason: Optional[str]) -> str:
 
 
 class ActiveOrganizationPermission(BasePermission):
-    """
-    Deny token-authenticated requests that target a deactivated organization.
+    """Deny requests that target an explicitly deactivated organization.
 
-    `ActiveOrganizationMiddleware` redirects the browser away from a deactivated organization, but
-    it skips every `/api` path, so API keys kept full read and write access. Appended to every
-    `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds regardless of a view's own
-    `authentication_classes`.
-
-    Session auth passes through. The middleware already covers the browser, and a member of a
-    deactivated organization still has to reach the app to see why and to pay an unpaid balance.
-
-    A null `is_active` counts as deactivated. The column is nullable because the field was added
-    with `null=True`, and treating an unknown state as deactivated fails closed.
-
-    Checked against the URL-resolved organization, never `user.current_organization`, because the
-    current organization is a UI preference the API doesn't validate.
+    Billing and organization discovery stay reachable so members can pay or switch organizations.
+    Check the URL-resolved organization because the current organization is only a UI preference.
     """
 
     # Billing stays reachable, so an integration can still read the state that explains the refusal.
@@ -481,9 +470,7 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
     def _applies(self, request: Request, view) -> bool:
-        if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
-            return False
-        return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+        return getattr(view, "scope_object", None) not in self.EXEMPT_SCOPE_OBJECTS
 
     def _admits(self, organization: Organization) -> bool:
         if organization.is_pending_deletion:
@@ -491,7 +478,7 @@ class ActiveOrganizationPermission(BasePermission):
                 detail=ORGANIZATION_PENDING_DELETION_ERROR,
                 code="organization_pending_deletion",
             )
-        if not organization.is_active:
+        if organization.is_active is False:
             raise PermissionDenied(
                 detail=organization_deactivated_error(organization.is_not_active_reason),
                 code="organization_deactivated",
@@ -1662,7 +1649,7 @@ class UserCanCreateProjectPermission(BasePermission):
     behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
     """
 
-    message = "You need to be an organization admin or above to create new projects."
+    message = PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE
 
     def has_permission(self, request: Request, view) -> bool:
         try:
@@ -1671,15 +1658,7 @@ class UserCanCreateProjectPermission(BasePermission):
             return True
 
         membership = get_required_organization_membership(request, organization)
-
-        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-            return True
-
-        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
-            return False
-
-        return bool(organization.members_can_create_projects)
+        return member_can_create_projects(cast(User, membership.user), organization)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:
