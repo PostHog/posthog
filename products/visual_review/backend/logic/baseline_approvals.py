@@ -271,8 +271,23 @@ def _rests_on_lower_layer(approval: BaselineApproval, ledger_hashes: dict[str, s
     )
 
 
-def _successor_key(approval: BaselineApproval) -> tuple[int, str, str, str]:
-    return (approval.pr_number, approval.run_type, approval.identifier, approval.content_hash)
+@frozen
+class SuccessorKey:
+    """One picture of one story in one pull request, which a later approval of that pull request can carry."""
+
+    pr_number: int
+    run_type: str
+    identifier: str
+    content_hash: str
+
+    @classmethod
+    def of(cls, approval: BaselineApproval) -> SuccessorKey:
+        return cls(
+            pr_number=approval.pr_number,
+            run_type=approval.run_type,
+            identifier=approval.identifier,
+            content_hash=approval.content_hash,
+        )
 
 
 class LowerLayerWalk:
@@ -291,7 +306,7 @@ class LowerLayerWalk:
         # The frozen records of source runs by run id, so that each run is read once per walk.
         self.records = dict(records or {})
 
-    def successors(self, closed: list[BaselineApproval]) -> dict[tuple[int, str, str, str], BaselineApproval]:
+    def successors(self, closed: list[BaselineApproval]) -> dict[SuccessorKey, BaselineApproval]:
         """The open or promoted approval of the same pull request and picture, per closed approval.
 
         A pull request that approved the same picture again lands it through the newer row. An open
@@ -299,7 +314,7 @@ class LowerLayerWalk:
         """
         if not closed:
             return {}
-        wanted = {_successor_key(approval) for approval in closed}
+        wanted = {SuccessorKey.of(approval) for approval in closed}
         rows = BaselineApproval.objects.using(WRITER_DB).filter(
             repo_id=closed[0].repo_id,
             state__in=(BaselineApprovalState.OPEN, BaselineApprovalState.PROMOTED),
@@ -307,9 +322,9 @@ class LowerLayerWalk:
             identifier__in={approval.identifier for approval in closed},
             content_hash__in={approval.content_hash for approval in closed},
         )
-        found: dict[tuple[int, str, str, str], BaselineApproval] = {}
+        found: dict[SuccessorKey, BaselineApproval] = {}
         for row in rows:
-            key = _successor_key(row)
+            key = SuccessorKey.of(row)
             if key not in wanted:
                 continue
             if row.state == BaselineApprovalState.PROMOTED:
@@ -385,7 +400,7 @@ class LowerLayerWalk:
                     closed[top.id] = None
                     continue
                 if _closed_without_entry(lower) and lower.pr_number != node.pr_number:
-                    successor = successors.get(_successor_key(lower))
+                    successor = successors.get(SuccessorKey.of(lower))
                     if successor is None:
                         closed[top.id] = lower
                         continue
@@ -750,7 +765,7 @@ def _closed_approvals_the_run_rests_on(
         ]
         successors = walk.successors(closed)
         for approval in closed:
-            successor = successors.get(_successor_key(approval))
+            successor = successors.get(SuccessorKey.of(approval))
             if successor is None:
                 uncovered.append(approval)
             elif successor.state == BaselineApprovalState.OPEN:
