@@ -35,6 +35,11 @@ env:
     # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # Shared by the integration-tests build and warm-feature-flags-binary, and part of the binary's cache key.
+    FEATURE_FLAGS_RUST_TOOLCHAIN: '1.91.1'
+    # Debug assertions off: debug_assert! checks intentionally panic on data invariant
+    # violations, which would crash the service mid-test-run.
+    FEATURE_FLAGS_RUSTFLAGS: '-C debug-assertions=no'
 
 jobs:
     changes:
@@ -132,6 +137,7 @@ jobs:
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
                         - '.github/actions/setup-protoc/**'
+                        - '.github/actions/feature-flags-binary-key/**'
                         # hogli db setup (db:restore-test-db). Scoped to the
                         # modules that command actually imports — framework,
                         # manifest, boot modules, db_schema — so unrelated hogli
@@ -366,6 +372,73 @@ jobs:
                   retention-days: 1
                   if-no-files-found: ignore
 
+    # Depot runners read Depot Cache, which the hourly lane (GitHub-hosted) never writes,
+    # so pull request and merge-queue runs get the feature-flags binary from here.
+    # Runs on master pushes only: Depot Cache has no branch isolation. A hit is a lookup.
+    warm-feature-flags-binary:
+        name: Warm feature-flags binary cache
+        if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      rust
+                      proto
+                      .github/actions/feature-flags-binary-key
+                      .github/actions/setup-protoc
+                  sparse-checkout-cone-mode: false
+
+            - name: Compute feature-flags binary key
+              id: flags-binary-key
+              uses: ./.github/actions/feature-flags-binary-key
+              with:
+                  toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
+                  rustflags: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
+
+            - name: Look up feature-flags binary
+              id: flags-binary
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: rust/target/debug/feature-flags
+                  key: ${{ steps.flags-binary-key.outputs.key }}
+                  lookup-only: true
+
+            - name: Install Rust
+              if: steps.flags-binary.outputs.cache-hit != 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
+                  components: cargo
+
+            - name: Install protoc
+              if: steps.flags-binary.outputs.cache-hit != 'true'
+              uses: ./.github/actions/setup-protoc
+
+            # Same shared key as integration-tests, so its cache misses start warm too.
+            - name: Cache Rust dependencies
+              if: steps.flags-binary.outputs.cache-hit != 'true'
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v2-rust-mcp'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Build feature-flags
+              if: steps.flags-binary.outputs.cache-hit != 'true'
+              working-directory: rust
+              env:
+                  RUSTFLAGS: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
+              run: cargo build -p feature-flags
+
+            - name: Save feature-flags binary
+              if: steps.flags-binary.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: rust/target/debug/feature-flags
+                  key: ${{ steps.flags-binary-key.outputs.key }}
+
     integration-tests:
         name: Integration Tests
         # GitHub's ref-isolated cache keeps the hourly lane on master-produced dumps.
@@ -378,9 +451,12 @@ jobs:
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
         # treats skipped as success, and the merge queue's trunk-merge/** run is the gate.
         # Not on master push either — see the hourly `schedule` trigger.
+        # TEMPORARY (remove before review): the `head_ref` clause runs this job on the
+        # draft superfan PR so its cache miss and hit can be measured.
         if: >-
             needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
-            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
+            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/')
+            || github.head_ref == 'claude/ci-superfan-mcp-integration-setup')
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -478,18 +554,37 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
+            - name: Compute feature-flags binary key
+              id: flags-binary-key
+              uses: ./.github/actions/feature-flags-binary-key
+              with:
+                  toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
+                  rustflags: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
+
+            # A hit skips the Rust toolchain, protoc, the dependency cache and the build.
+            # Saved by the hourly lane and by warm-feature-flags-binary on master pushes.
+            - name: Restore feature-flags binary
+              id: flags-binary
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: rust/target/debug/feature-flags
+                  key: ${{ steps.flags-binary-key.outputs.key }}
+
             - name: Install Rust
+              if: steps.flags-binary.outputs.cache-hit != 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
-                  toolchain: 1.91.1
+                  toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
                   components: cargo
 
             # feature-flags depends on usage-ingestion-proto, whose build script
             # compiles .proto files and needs protoc on PATH.
             - name: Install protoc
+              if: steps.flags-binary.outputs.cache-hit != 'true'
               uses: ./.github/actions/setup-protoc
 
             - name: Cache Rust dependencies
+              if: steps.flags-binary.outputs.cache-hit != 'true'
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-mcp'
@@ -675,12 +770,14 @@ jobs:
                   - name: Build Rust flags service
                     working-directory: rust
                     env:
-                        # Debug builds compile much faster than release.
-                        # We disable debug assertions because the codebase contains
-                        # debug_assert! checks that intentionally panic on data invariant
-                        # violations, which would crash the service mid-test-run.
-                        RUSTFLAGS: '-C debug-assertions=no'
-                    run: cargo build -p feature-flags
+                        RUSTFLAGS: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
+                        BINARY_CACHE_HIT: ${{ steps.flags-binary.outputs.cache-hit }}
+                    run: |
+                        if [ "$BINARY_CACHE_HIT" = "true" ]; then
+                            echo "feature-flags binary restored from cache, skipping the build"
+                        else
+                            cargo build -p feature-flags
+                        fi
 
                   # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
                   # never reads Postgres (see the note in ci-clickhouse-multinode-migrations.yml),
@@ -692,6 +789,15 @@ jobs:
 
                   - name: Run ClickHouse migrations
                     run: python manage.py migrate_clickhouse --skip-checks
+
+            # TEMPORARY (remove before review): the `head_ref` clause lets this PR save
+            # the binary so a re-run can measure the hit. It trips WF006 until removed.
+            - name: Save feature-flags binary
+              if: steps.flags-binary.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/master' || github.head_ref == 'claude/ci-superfan-mcp-integration-setup')
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: rust/target/debug/feature-flags
+                  key: ${{ steps.flags-binary-key.outputs.key }}
 
             - name: Start Rust flags service
               working-directory: rust
@@ -736,7 +842,7 @@ jobs:
               run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
-              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync
+              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-checks
 
             - name: Create API key and extract test IDs
               run: |

@@ -1,0 +1,77 @@
+name: Feature-flags binary cache key
+description: |
+    Computes the cache key for the debug `feature-flags` binary that MCP CI runs.
+    The key hashes every tracked file of the crate and of each crate it reaches through
+    path dependencies, plus the workspace manifests, cargo config, the protos its build
+    script compiles, the protoc pin, the toolchain and RUSTFLAGS. Reads only the index
+    and the Cargo.toml files, so a sparse checkout of rust/ and proto/ is enough.
+
+inputs:
+    toolchain:
+        description: 'Rust toolchain the binary is built with'
+        required: true
+    rustflags:
+        description: 'RUSTFLAGS the binary is built with'
+        required: true
+
+outputs:
+    key:
+        description: 'Cache key for rust/target/debug/feature-flags'
+        value: ${{ steps.key.outputs.key }}
+
+runs:
+    using: composite
+    steps:
+        - name: Compute feature-flags binary key
+          id: key
+          shell: bash
+          env:
+              TOOLCHAIN: ${{ inputs.toolchain }}
+              FLAGS: ${{ inputs.rustflags }}
+          run: |
+              set -euo pipefail
+              # Path-dependency closure of rust/feature-flags, all dependency kinds and
+              # targets, resolving `workspace = true` through [workspace.dependencies].
+              CRATES=$(python3 - <<'PY'
+              import os, tomllib
+
+              def load(path):
+                  with open(path, "rb") as f:
+                      return tomllib.load(f)
+
+              ws_deps = load("rust/Cargo.toml").get("workspace", {}).get("dependencies", {})
+
+              def dep_tables(manifest):
+                  sections = [manifest] + list(manifest.get("target", {}).values())
+                  for section in sections:
+                      for kind in ("dependencies", "build-dependencies", "dev-dependencies"):
+                          yield section.get(kind, {})
+
+              seen, todo = set(), ["rust/feature-flags"]
+              while todo:
+                  crate = os.path.normpath(todo.pop())
+                  if crate in seen:
+                      continue
+                  seen.add(crate)
+                  for table in dep_tables(load(f"{crate}/Cargo.toml")):
+                      for name, spec in table.items():
+                          if not isinstance(spec, dict):
+                              continue
+                          if spec.get("workspace"):
+                              ws = ws_deps.get(spec.get("package", name), ws_deps.get(name))
+                              if isinstance(ws, dict) and "path" in ws:
+                                  todo.append(os.path.join("rust", ws["path"]))
+                          elif "path" in spec:
+                              todo.append(os.path.join(crate, spec["path"]))
+              print("\n".join(sorted(seen)))
+              PY
+              )
+              echo "Crates in the key:"
+              echo "$CRATES"
+              # usage-ingestion-proto's build.rs compiles protos from the repo-root proto/ tree.
+              # shellcheck disable=SC2086
+              SOURCE_HASH=$(git ls-files -s -- $CRATES rust/Cargo.toml rust/Cargo.lock rust/.cargo proto \
+                  .github/actions/setup-protoc .github/actions/feature-flags-binary-key \
+                  | sha256sum | cut -c1-40)
+              FLAGS_HASH=$(printf '%s' "$FLAGS" | sha256sum | cut -c1-8)
+              echo "key=feature-flags-debug-v1-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-unknown}-rust${TOOLCHAIN}-${FLAGS_HASH}-${SOURCE_HASH}" >> "$GITHUB_OUTPUT"
