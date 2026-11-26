@@ -11,6 +11,7 @@ from posthog.models import Organization
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.spend import finalized_signal_ids
+from products.signals.backend.system_one_decision import SignalsDecisionError
 from products.signals.backend.temporal.safety_filter import (
     BLOCKED_SIGNAL_SPAN_NAME,
     SafetyFilterInput,
@@ -146,11 +147,24 @@ async def test_admission_refusal_drops_signal_instead_of_failing(ateam, refusal)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_deactivated_organization_drops_signal_before_the_judge(ateam):
+@pytest.mark.parametrize("deactivated_during_call", [False, True])
+async def test_deactivated_organization_drops_signal(ateam, deactivated_during_call):
     signal_id = str(uuid.uuid4())
-    await Organization.objects.filter(id=ateam.organization_id).aupdate(is_active=False)
 
-    with patch(f"{PIPELINE_MODULE_PATH}.safety_filter", return_value=SafetyFilterJudgeResponse(safe=True)):
+    async def deactivate() -> None:
+        await Organization.objects.filter(id=ateam.organization_id).aupdate(is_active=False)
+
+    async def judge(*_args, **_kwargs) -> SafetyFilterJudgeResponse:
+        if deactivated_during_call:
+            await deactivate()
+            # The System One path carries no response headers, only this wrapped message.
+            raise SignalsDecisionError("Signals decision failed: DecisionGatewayError (status 402)")
+        return SafetyFilterJudgeResponse(safe=True)
+
+    if not deactivated_during_call:
+        await deactivate()
+
+    with patch(f"{PIPELINE_MODULE_PATH}.safety_filter", side_effect=judge):
         result = await safety_filter_activity(
             SafetyFilterInput(team_id=ateam.id, signal_id=signal_id, description="a finding"),
         )

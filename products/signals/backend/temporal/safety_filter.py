@@ -361,6 +361,12 @@ def _is_gateway_payment_refusal(error: Exception) -> bool:
     )
 
 
+async def _organization_deactivated(team_id: int | None) -> bool:
+    if team_id is None:
+        return False
+    return await Team.objects.filter(pk=team_id, organization__is_active=False).aexists()
+
+
 async def _drop_refused_signal(input: SafetyFilterInput, reason: str) -> SafetyFilterOutput:
     # Refused work is dropped, not retried: the buffer requeues failed signals without limit.
     if input.signal_id and input.team_id is not None:
@@ -383,10 +389,7 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         if await database_sync_to_async(finalized_signal_ids)(team_id=input.team_id, signal_ids=[input.signal_id]):
             return SafetyFilterOutput(safe=False, threat_type="", explanation="Signal already processed")
     # The gateway refuses every call for a deactivated organization, so skip the call it would refuse.
-    if (
-        input.team_id is not None
-        and await Team.objects.filter(pk=input.team_id, organization__is_active=False).aexists()
-    ):
+    if await _organization_deactivated(input.team_id):
         return await _drop_refused_signal(input, "organization_deactivated")
     try:
         result = await safety_filter(
@@ -402,6 +405,11 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
     except Exception as error:
         if _is_gateway_payment_refusal(error):
             return await _drop_refused_signal(input, "gateway_payment_required")
+        # An organization deactivated during the call gets a refusal whose shape depends on the deciding
+        # model: the System One path drops the gateway's headers and can wrap the error. Check the
+        # organization itself so every path drops the signal.
+        if await _organization_deactivated(input.team_id):
+            return await _drop_refused_signal(input, "organization_deactivated")
         if isinstance(error, BadRequestError) and "specified api usage limits" in str(error).lower():
             logger.warning("signals_safety_filter.provider_usage_limited", team_id=input.team_id)
             raise ApplicationError(
