@@ -1,16 +1,24 @@
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
-import * as errorHoggie from '@posthog/brand/hoggies/png/error'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as stampDenied from '@posthog/brand/hoggies/png/stamp-denied'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
+import { IconWarning } from '@posthog/icons'
+import {
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
+} from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
 const HedgehogSearching = pngHoggie(magnifyingGlass)
 const HedgehogDenied = pngHoggie(stampDenied)
-const HedgehogError = pngHoggie(errorHoggie)
 
 export type UnavailableReason = 'notFound' | 'noAccess' | 'error'
 
@@ -32,7 +40,13 @@ const DEFAULT_VIEWS: Record<UnavailableReason, ProblemView> = {
         description: 'Ask the dashboard owner or a project admin to give you access.',
     },
     error: {
-        illustration: <HedgehogError />,
+        illustration: (
+            <IconStack>
+                <IconStackItem color="var(--destructive-foreground)">
+                    <IconWarning />
+                </IconStackItem>
+            </IconStack>
+        ),
         title: "This dashboard couldn't be shown",
         description: 'Refresh the page, and if it keeps happening contact support.',
     },
