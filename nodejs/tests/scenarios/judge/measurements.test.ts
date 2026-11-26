@@ -815,6 +815,68 @@ describe('measurements', () => {
         ])
     })
 
+    it('rates the baseline from the end of the warm-up, not from the scrape before it, nor across a restart there, counting each lifetime once', () => {
+        const every5s = Array.from({ length: 40 }, (_, i) => i * 5)
+        const sinceWarmUp = (second: number, perSecond: number): number => Math.max(0, second - 160) * perSecond
+        const restartedAt = 162.5
+        const recorded = evidence({
+            samples: [
+                ...every5s.map((second) => ({
+                    ...sample(second, -60, 1),
+                    processed: { email: sinceWarmUp(second, 100) },
+                })),
+                ...every5s
+                    .map((second) => second + 2.5)
+                    .map((second) =>
+                        second < restartedAt
+                            ? { ...sample(second, -60, 1, 100, 1), processed: { email: 500 } }
+                            : {
+                                  ...sample(second, restartedAt, 1, 100, 1),
+                                  processed: { email: 20 + (second - restartedAt) * 100 },
+                              }
+                    ),
+                ...every5s
+                    .map((second) => second + 158)
+                    .filter((second) => second < 200)
+                    .map((second) => ({
+                        ...sample(second, 158, 1, 100, 2),
+                        processed: { email: 50 + (second - 158) * 100 },
+                    })),
+                ...[
+                    { ...sample(156, -60, 1, 100, 3), processed: { email: 500 } },
+                    { ...sample(161, 158, 1, 100, 3), processed: { email: 20 } },
+                    ...every5s
+                        .map((second) => second + 166)
+                        .filter((second) => second < 200)
+                        .map((second) => ({
+                            ...sample(second, 161, 1, 100, 3),
+                            processed: { email: (second - 161) * 100 },
+                        })),
+                ],
+            ],
+            host: every5s.map((second) => ({
+                at: atS(second),
+                busyTicks: sinceWarmUp(second, 50),
+                totalTicks: second * 100,
+            })),
+            queue: every5s.map((second) => ({
+                at: atS(second),
+                ...QUIET,
+                running: 1,
+                inserted: sinceWarmUp(second, 10),
+            })),
+            drive: { startedAt: atS(0), warmedAt: atS(160), endedAt: atS(200) },
+        })
+
+        expect(baselineOf(recorded)).toEqual({
+            seconds: 40,
+            scrapedSeconds: 35,
+            claimsPerSecond: { email: 400 },
+            newJobsPerSecond: 10,
+            hostBusyShare: 0.5,
+        })
+    })
+
     it('rates no claims when the role metrics stop early in the baseline', () => {
         const samples: MetricSample[] = [
             { ...sample(0, -60, 1, 100), processed: {} },
