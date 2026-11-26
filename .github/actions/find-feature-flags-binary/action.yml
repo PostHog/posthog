@@ -46,11 +46,6 @@ runs:
                   done
                   return 1
               }
-              if ! run_ids=$(api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$KEY&per_page=20" \
-                  --jq '.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id) | .workflow_run.id'); then
-                  echo "::warning::Could not list feature-flags binary artifacts, building from source"
-                  exit 0
-              fi
               # head_branch is the short ref name, so a pushed tag named master matches it too.
               # The run's commit must also be on the master branch, which only merged code reaches.
               # The branch tip comes from refs/heads/master, because a bare "master" in the
@@ -60,28 +55,41 @@ runs:
                   echo "::warning::Could not read the master branch tip, building from source"
                   exit 0
               fi
-              for run_id in $run_ids; do
-                  [[ "$run_id" =~ ^[0-9]+$ ]] || continue
-                  run=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
-                      --jq '[.head_sha, .event, .head_branch, .path, .head_repository.full_name] | join(" ")') || continue
-                  sha=${run%% *}
-                  origin=${run#* }
-                  if [ "$origin" != "push master $workflow_path $GITHUB_REPOSITORY" ]; then
-                      echo "Ignoring artifact from run $run_id ($origin)"
-                      continue
+              # Fork runs store artifacts here too, so each page is filtered after it is fetched.
+              # Paging on the raw page size, not the filtered ids, keeps a page of fork uploads
+              # from hiding master's artifact.
+              for page in 1 2 3 4 5; do
+                  if ! listing=$(api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$KEY&per_page=100&page=$page" \
+                      --jq '(.artifacts | length), (.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id and .workflow_run.head_branch == "master") | .workflow_run.id)'); then
+                      echo "::warning::Could not list feature-flags binary artifacts, building from source"
+                      break
                   fi
-                  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
-                  # "identical" or "ahead" means the master tip is the run's commit or descends from it.
-                  status=$(api "repos/$GITHUB_REPOSITORY/compare/$sha...$master_sha" --jq .status) || continue
-                  case "$status" in
-                      identical | ahead) ;;
-                      *)
-                          echo "Ignoring artifact from run $run_id: $sha is not on master ($status)"
+                  page_size=$(head -n1 <<<"$listing")
+                  run_ids=$(tail -n +2 <<<"$listing")
+                  for run_id in $run_ids; do
+                      [[ "$run_id" =~ ^[0-9]+$ ]] || continue
+                      run=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+                          --jq '[.head_sha, .event, .head_branch, .path, .head_repository.full_name] | join(" ")') || continue
+                      sha=${run%% *}
+                      origin=${run#* }
+                      if [ "$origin" != "push master $workflow_path $GITHUB_REPOSITORY" ]; then
+                          echo "Ignoring artifact from run $run_id ($origin)"
                           continue
-                          ;;
-                  esac
-                  echo "Using the feature-flags binary from master run $run_id"
-                  echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
-                  exit 0
+                      fi
+                      [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+                      # "identical" or "ahead" means the master tip is the run's commit or descends from it.
+                      status=$(api "repos/$GITHUB_REPOSITORY/compare/$sha...$master_sha" --jq .status) || continue
+                      case "$status" in
+                          identical | ahead) ;;
+                          *)
+                              echo "Ignoring artifact from run $run_id: $sha is not on master ($status)"
+                              continue
+                              ;;
+                      esac
+                      echo "Using the feature-flags binary from master run $run_id"
+                      echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  done
+                  [[ "$page_size" =~ ^[0-9]+$ ]] && [ "$page_size" -ge 100 ] || break
               done
               echo "No master-built feature-flags binary for $KEY, building from source"
