@@ -16,7 +16,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, S
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import replace
-from datetime import UTC, datetime, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from functools import partial
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Condition, Event, Lock, Semaphore, Thread, Timer
@@ -25,15 +25,17 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from django.db import connections
+from django.db.models import Max
 from django.utils.timezone import now
 
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse, IntervalType
+from posthog.schema import CacheMissResponse, DateRange, HogQLFilters, IntervalType
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, get_default_limit_for_context, get_max_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.filters import resolve_date_range
 
 from posthog.api.services.query import (
     ExecutionMode,
@@ -53,7 +55,9 @@ from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, Cli
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
+from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.team import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.models.user import User
 from posthog.query_cache.results import decoded_size, prefetched_size
 from posthog.renderers import SafeJSONRenderer
@@ -67,6 +71,22 @@ from products.dashboards.backend.facade.enums import (
     ResultFormat,
 )
 from products.dashboards.backend.v2 import observability
+from products.dashboards.backend.v2.buckets import (
+    BUCKETED_RUNS,
+    MAX_STORE_AGE,
+    UNBOUNDED_RANGE_END,
+    BucketContractError,
+    BucketedQuery,
+    BucketStore,
+    NotBucketable,
+    SpanRows,
+    assemble,
+    check_bucketed,
+    maybe_shadow_check,
+    provenance,
+    raw_provenance,
+    store_key,
+)
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.frames import frames_for, shape_kind
 from products.dashboards.backend.v2.telemetry import (
@@ -203,6 +223,9 @@ def _release_batch(keys: tuple[Any, ...]) -> None:
 MAX_RUN_QUERIES = 400
 MAX_RUN_QUERIES_PER_ORG = 150
 MAX_RUN_QUERIES_PER_USER = 100
+# A bucketed panel's first span run takes its query's share; each further one, a split or a fill, takes one of these.
+# Past them a bucketed panel runs whole, so one batch does at most this many runs more than it has queries.
+MAX_BATCH_EXTRA_SPAN_RUNS = 64
 _PROCESS_QUERIES = ("process",)
 _org_queries: dict[Any, int] = {}
 
@@ -315,6 +338,8 @@ def to_posthog_date(expression: str) -> Optional[str]:
 def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
+    if target.bucketed and target.language != QueryBatchLanguage.HOGQL:
+        raise InvalidTarget("Only HogQL targets can be bucketed.")
     if target.language == QueryBatchLanguage.PROMQL:
         try:
             interval = promql_interval(
@@ -573,6 +598,8 @@ class _ServedKey:
     cache_key: str
     swr: bool
     cache_only: bool
+    # A bucketed panel reruns a stale entry that a non-bucketed one serves, so the two never share a hit.
+    bucketed: bool
     query: str
     # The body carries the query text the panel sent, which differs between a PromQL target and its resolved node.
     canonical: str
@@ -587,6 +614,7 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape)
         cache_key=planned.cache_key,
         swr=item.swr,
         cache_only=item.cache_only,
+        bucketed=item.target.bucketed,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
         canonical=shape.canonical,
         legend=shape.legend if shape.frames else None,
@@ -604,6 +632,46 @@ def _shared_body(served: dict[_ServedKey, bytes], key: _ServedKey) -> Optional[b
     if body is None and served.get(_entry_key(key)) == _RUN_FRESH:
         return _RUN_FRESH
     return body
+
+
+def _fetch_span(
+    team: Team,
+    user: User,
+    user_access_control: Optional[UserAccessControl],
+    dashboard_id: Optional[int],
+    query: ResolvedQuery,
+    query_id: Optional[str],
+    start: datetime,
+    end: datetime,
+) -> SpanRows:
+    span = {
+        **query.query,
+        "filters": {
+            **query.query.get("filters", {}),
+            "dateRange": {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
+        },
+    }
+    response = process_query_dict(
+        team,
+        span,
+        variables_override_json=query.variables,
+        limit_context=_limit_context(query.query),
+        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        user=user,
+        # The snapshot the store key was planned under, so a span never runs with broader access than its key says.
+        user_access_control=user_access_control,
+        query_id=query_id,
+        dashboard_id=dashboard_id,
+    )
+    data = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
+    if data.get("error"):
+        raise BucketContractError(str(data["error"]))
+    return SpanRows(
+        columns=list(data.get("columns") or []),
+        types=list(data.get("types") or []),
+        rows=list(data.get("results") or []),
+        has_more=bool(data.get("hasMore")),
+    )
 
 
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
@@ -745,6 +813,11 @@ class QueryBatch:
         self._result_format = result_format
         self._shapes: dict[int, _LineShape] = {}
         self._user = user
+        # Set by `_read_cache`, which runs before any job: a bucketed run plans with the same access as the read.
+        self._access_control: Optional[UserAccessControl] = None
+        self._bucket_lock = Lock()
+        self._extra_span_runs = MAX_BATCH_EXTRA_SPAN_RUNS
+        self._deleted_through: Optional[tuple[Optional[datetime]]] = None
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
@@ -760,6 +833,7 @@ class QueryBatch:
             self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
         self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
+        self._bucketed: set[int] = set()
         self._logql_budget: Optional[BudgetSpec] = None
         self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -818,6 +892,7 @@ class QueryBatch:
                 continue
             self._shapes[index] = _line_shape(item, resolved[index], self._result_format, self._team.timezone)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
+        self._access_control = user_access_control
         if logql:
             try:
                 assert_can_read_logs(self._team, self._user, user_access_control)
@@ -870,6 +945,8 @@ class QueryBatch:
         self._to_refresh = list(refreshes.values())
         for index in to_run:
             query_id = query_id_for(self._client_query_id, inputs[index])
+            if inputs[index].target.bucketed:
+                self._bucketed.add(index)
             self._jobs.append((index, query_id, resolved[index]))
         self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
@@ -984,12 +1061,15 @@ class QueryBatch:
                         to_run.append(index)
                     continue
                 stale = _is_stale(response, planned)
-                if stale and not (item.swr or item.cache_only):
+                # A bucketed run reruns only the newest buckets, so it is cheaper to run than to serve stale.
+                serve_stale = item.cache_only or (item.swr and not item.target.bucketed)
+                if stale and not serve_stale:
                     # Read and parsed already, so it counts against the read budget. Repeats run without a refetch.
                     self._read_bytes += stored_bytes or len(
                         _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
                     )
                     served[same_entry] = served[_entry_key(same_entry)] = _RUN_FRESH
+                    del response
                     to_run.append(index)
                     continue
                 line = _result_line(
@@ -1184,6 +1264,149 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
+    def _run_bucketed(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
+        """A bucketed HogQL target: finished buckets from the store, the rest from ClickHouse. A query that breaks
+        the contract runs whole, with the reason in its provenance."""
+        if self._cancelled:
+            self._shapes.pop(index, None)
+            return {"i": index, "error": _FAILED}
+        try:
+            checked = check_bucketed(query.query["query"])
+            return self._assemble_buckets(index, checked, query, query_id)
+        except (NotBucketable, BucketContractError) as e:
+            BUCKETED_RUNS.labels(outcome="not_bucketable" if isinstance(e, NotBucketable) else "fallback").inc()
+            reason = str(e) if isinstance(e, NotBucketable) else f"bucketed HogQL: {e}"
+            line = self._run(index, query, query_id)
+        except Exception as e:
+            return _error_line(index, e, team=self._team)
+        if "result" in line:
+            line["result"]["provenance"] = {**line["result"]["provenance"], **raw_provenance(reason)}
+        return line
+
+    def _assemble_buckets(
+        self, index: int, checked: BucketedQuery, query: ResolvedQuery, query_id: str
+    ) -> dict[str, Any]:
+        # Read, not popped: a query that turns out not bucketable runs whole through `_run`, which pops it.
+        shape = self._shapes.get(index)
+        if shape is None:
+            return {"i": index, "error": _FAILED}
+        timer = monotonic()
+        team = self._team
+        if events_retention_months_for_team(team, team.pk) is not None:
+            raise NotBucketable("the project's events retention moves which rows a stored bucket may hold")
+        grid = checked.grid(team.timezone_info)
+        started = now()
+        date_range = query.query["filters"]["dateRange"]
+        resolved = resolve_date_range(HogQLFilters(dateRange=DateRange(**date_range)), team, now=started)
+        if resolved.date_from is None:
+            raise NotBucketable("a bucketed range needs a start")
+        date_to = UNBOUNDED_RANGE_END if resolved.date_to is None else resolved.date_to
+        if resolved.date_to_inclusive:
+            date_to += timedelta(microseconds=1)
+        # Planned without a range, so the key is the same whatever range a panel shows, and still carries the
+        # timezone, modifiers, variables and this user's access restrictions.
+        planned = plan_query_dict(
+            team,
+            {**query.query, "filters": {}},
+            dashboard_filters_json=None,
+            variables_override_json=query.variables,
+            limit_context=_limit_context(query.query),
+            user=self._user,
+            user_access_control=self._access_control,
+            allow_raw_results=False,
+        )
+        if planned is None:
+            raise NotBucketable("the query does not plan")
+        key = store_key(team.pk, planned.cache_key, grid)
+        limit_context = planned.query_runner.limit_context or LimitContext.QUERY
+        # As HogQL prints it: its own LIMIT, held to the context's maximum.
+        row_cap = None if checked.limit is None else min(checked.limit, get_max_limit_for_context(limit_context))
+        limit = get_default_limit_for_context(limit_context) if row_cap is None else row_cap
+        fetch_span = partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, query_id)
+        first_run = True
+
+        def fetch(start: datetime, end: datetime) -> SpanRows:
+            nonlocal first_run
+            if first_run:
+                first_run = False
+                return fetch_span(start, end)
+            if not self._take_extra_span_run():
+                raise NotBucketable("the batch has used its budget of extra bucket runs")
+            return self._charged(fetch_span, start, end)
+
+        answer = assemble(
+            query=checked,
+            grid=grid,
+            date_from=resolved.date_from,
+            date_to=date_to,
+            now=started,
+            store=BucketStore(key, team_id=team.pk),
+            fetch=fetch,
+            limit=limit,
+            row_cap=row_cap,
+            deleted_through=self._latest_deletion(),
+        )
+        BUCKETED_RUNS.labels(outcome="far" if answer.far else "served").inc()
+        maybe_shadow_check(
+            answer=answer,
+            grid=grid,
+            query=checked,
+            date_from=resolved.date_from,
+            date_to=date_to,
+            now=started,
+            fetch=partial(
+                self._charged,
+                partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, None),
+            ),
+            store_key=key,
+            on_done=connections.close_all,
+        )
+        result = {
+            "results": answer.rows,
+            "columns": answer.columns,
+            "types": answer.types,
+            "hasMore": answer.has_more,
+            "limit": limit,
+            "is_cached": False,
+            "cache_key": key,
+            "last_refresh": started,
+        }
+        self._shapes.pop(index, None)
+        line = _result_line(index, result, hit=False, stale=False, shape=shape, ms=(monotonic() - timer) * 1000)
+        if "result" in line:
+            line["result"]["provenance"] = {**line["result"]["provenance"], **provenance(answer, grid)}
+        return line
+
+    def _charged(self, fetch: Callable[[datetime, datetime], SpanRows], start: datetime, end: datetime) -> SpanRows:
+        """A run beyond the one each query was admitted with holds its own share of the user's and organization's
+        query budget while it runs, and is refused when they have no room."""
+        if not _reserve_queries(self._shares, 1):
+            raise NotBucketable("the query budget has no room for another bucket run")
+        try:
+            return fetch(start, end)
+        finally:
+            _release_queries(self._shares, 1)
+
+    def _take_extra_span_run(self) -> bool:
+        with self._bucket_lock:
+            if self._extra_span_runs <= 0:
+                return False
+            self._extra_span_runs -= 1
+            return True
+
+    def _latest_deletion(self) -> Optional[datetime]:
+        """When the team's latest event deletion was verified, read once per batch. Only deletions newer than the
+        oldest store that can still be read matter."""
+        with self._bucket_lock:
+            if self._deleted_through is not None:
+                return self._deleted_through[0]
+        latest = AsyncDeletion.objects.filter(
+            team_id=self._team.pk, delete_verified_at__gt=now() - MAX_STORE_AGE
+        ).aggregate(latest=Max("delete_verified_at"))["latest"]
+        with self._bucket_lock:
+            self._deleted_through = (latest,)
+        return latest
+
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)
         if self._cancelled or shape is None:
@@ -1240,6 +1463,8 @@ class QueryBatch:
             ):
                 if isinstance(query, QueryBatchInput):
                     line = self._run_logql(index, query, self._logql_budget)
+                elif index in self._bucketed:
+                    line = self._run_bucketed(index, query, query_id)
                 else:
                     line = self._run(index, query, query_id)
                 index, data = line["i"], self._encode(line)
