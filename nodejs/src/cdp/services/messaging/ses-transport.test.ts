@@ -1,6 +1,8 @@
 import dns from 'node:dns'
-import { createServer } from 'node:http'
-import { AddressInfo, Server, Socket, createServer as createTcpServer } from 'node:net'
+import { IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
+import { createServer as createTlsServer } from 'node:https'
+import { AddressInfo, Server, Socket } from 'node:net'
+import tls from 'node:tls'
 import { register } from 'prom-client'
 
 import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } from '~/cdp/_tests/email-delivery-fakes'
@@ -8,6 +10,40 @@ import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } fr
 import { SesTransport } from './ses-transport'
 
 const SDK_SOCKETS_PER_HOST = 50
+
+const LOOPBACK_ONLY_TEST_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg42UWsxxJds3SJDeC
+AMRVtNlqcPSxMOchAOwgC897cSehRANCAASvBCS7ojKBc0PRjxZEpA16wbZ45nP4
+3tS4NtsPUVlajkZ84lHSGIQFzg5z72Eok/L5JyKeUf52eQ5umCTS/PKe
+-----END PRIVATE KEY-----`
+
+const LOOPBACK_ONLY_TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIBjzCCATagAwIBAgIUYB/tygavSvNw1GXsN7EIl/nctyYwCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJMTI3LjAuMC4xMCAXDTI2MTEyNjE2NTI1N1oYDzIxMjYxMTAy
+MTY1MjU3WjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAASvBCS7ojKBc0PRjxZEpA16wbZ45nP43tS4NtsPUVlajkZ84lHSGIQF
+zg5z72Eok/L5JyKeUf52eQ5umCTS/PKeo2QwYjAdBgNVHQ4EFgQU8JgOY9YzavZD
+FgNhclc3Wbdzpd0wHwYDVR0jBBgwFoAU8JgOY9YzavZDFgNhclc3Wbdzpd0wDwYD
+VR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMAoGCCqGSM49BAMCA0cAMEQC
+IE7tbd9QvrxwRqXkvGBtmzZQZEAkBCwM3Tx1CgVLU9/DAiBQX6RNJlE7MnGYdv/c
+qBUv5b+0DMLCHJZPCbZrNpcwuQ==
+-----END CERTIFICATE-----`
+
+const peerFor = {
+    http: (listener: RequestListener): Server => createServer(listener),
+    https: (listener: RequestListener): Server =>
+        createTlsServer({ key: LOOPBACK_ONLY_TEST_KEY, cert: LOOPBACK_ONLY_TEST_CERT }, listener),
+}
+
+const trustTheTestCert = (): void => {
+    const connect = tls.connect.bind(tls) as (options: tls.ConnectionOptions) => tls.TLSSocket
+    jest.spyOn(tls, 'connect').mockImplementation(((options: tls.ConnectionOptions) =>
+        connect({ ...options, ca: LOOPBACK_ONLY_TEST_CERT })) as typeof tls.connect)
+}
+
+const answerAccepted = (response: ServerResponse, messageId: string): void => {
+    response.writeHead(200, { 'content-type': 'application/json' }).end(`{"MessageId":"${messageId}"}`)
+}
 
 const email = {
     FromEmailAddress: 'sender@example.com',
@@ -93,63 +129,70 @@ describe('SesTransport', () => {
         peerSockets.forEach((socket) => socket.destroy())
         await new Promise<void>((resolve) => (peer ? peer.close(() => resolve()) : resolve()))
         peer = undefined
-        if (jest.isMockFunction(dns.lookup)) {
-            jest.mocked(dns.lookup).mockRestore()
-        }
+        jest.restoreAllMocks()
     })
 
-    it.each(['http', 'https'])(
+    const sesPeer = async (
+        protocol: keyof typeof peerFor,
+        onRequest: (request: IncomingMessage, response: ServerResponse) => void
+    ): Promise<{ endpoint: string; connections: Set<Socket> }> => {
+        if (protocol === 'https') {
+            trustTheTestCert()
+        }
+        const connections = new Set<Socket>()
+        const port = await listen(
+            peerFor[protocol]((request, response) => {
+                connections.add(request.socket)
+                request.resume()
+                request.on('end', () => onRequest(request, response))
+            })
+        )
+        return { endpoint: `${protocol}://127.0.0.1:${port}`, connections }
+    }
+
+    it.each(['http', 'https'] as const)(
         'over %s, opens a connection for each email with files in flight, also past the sockets the SDK keeps per host',
         async (protocol) => {
             const inFlight = SDK_SOCKETS_PER_HOST + 1
-            let connections = 0
-            let allConnected: () => void = () => {}
-            const connected = new Promise<void>((resolve) => (allConnected = resolve))
-            const port = await listen(
-                createTcpServer(() => {
-                    connections++
-                    if (connections === inFlight) {
-                        allConnected()
-                    }
-                })
-            )
-            transport = sesTransportFor({ endpoint: `${protocol}://127.0.0.1:${port}` })
-            const deadline = AbortSignal.timeout(5000)
+            const held: ServerResponse[] = []
+            const ses = await sesPeer(protocol, (_request, response) => {
+                held.push(response)
+                if (held.length === inFlight) {
+                    held.forEach((answer, index) => answerAccepted(answer, `m-${index}`))
+                }
+            })
+            transport = sesTransportFor({ endpoint: ses.endpoint })
+            const onlyIfAConnectionNeverOpens = AbortSignal.timeout(30000)
 
-            const sends = Promise.all(
-                Array.from({ length: inFlight }, () => transport!.send({ email, files, deadline }))
+            const outcomes = await Promise.all(
+                Array.from({ length: inFlight }, () =>
+                    transport!.send({ email, files, deadline: onlyIfAConnectionNeverOpens })
+                )
             )
-            await Promise.race([connected, new Promise((resolve) => deadline.addEventListener('abort', resolve))])
-            peerSockets.forEach((socket) => socket.destroy())
-            await sends
 
-            expect(connections).toBe(inFlight)
+            expect({
+                accepted: outcomes.filter(({ kind }) => kind === 'accepted').length,
+                connections: ses.connections.size,
+            }).toEqual({ accepted: inFlight, connections: inFlight })
         }
     )
 
-    it('sends each email with files on a new connection, also after the last send closed', async () => {
-        const connections = new Set<Socket>()
-        let answered = 0
-        const port = await listen(
-            createServer((request, response) => {
-                connections.add(request.socket)
-                request.resume()
-                request.on('end', () => {
-                    answered++
-                    response.writeHead(200, { 'content-type': 'application/json' }).end(`{"MessageId":"m-${answered}"}`)
-                })
+    it.each(['http', 'https'] as const)(
+        'over %s, sends each email with files on a new connection, also after the last send closed',
+        async (protocol) => {
+            let answered = 0
+            const ses = await sesPeer(protocol, (_request, response) => answerAccepted(response, `m-${++answered}`))
+            transport = sesTransportFor({ endpoint: ses.endpoint })
+
+            const first = await transport.send(withFiles)
+            const second = await transport.send(withFiles)
+
+            expect({ outcomes: [first.kind, second.kind], connections: ses.connections.size }).toEqual({
+                outcomes: ['accepted', 'accepted'],
+                connections: 2,
             })
-        )
-        transport = sesTransportFor({ endpoint: `http://127.0.0.1:${port}` })
-
-        const first = await transport.send(withFiles)
-        const second = await transport.send(withFiles)
-
-        expect({ outcomes: [first.kind, second.kind], connections: connections.size }).toEqual({
-            outcomes: ['accepted', 'accepted'],
-            connections: 2,
-        })
-    })
+        }
+    )
 
     it('sends an email with files once, also when the caller passes a retry strategy', async () => {
         let requests = 0
