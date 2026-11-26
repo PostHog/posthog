@@ -60,7 +60,13 @@ export function buildAgentHelp(tools: Tool<ZodObjectAny>[]): string {
             } as QueryToolInfo
         })
 
-    const ctx: InstructionsContext = { guidelines: '', tools: toolInfos, queryTools }
+    const ctx: InstructionsContext = {
+        guidelines: '',
+        tools: toolInfos,
+        queryTools,
+        // The MCP server gates this line on a feature flag. This guide is built offline and evaluates none.
+        inboxNudgeEnabled: tools.some((tool) => tool.name === 'inbox-reports-list'),
+    }
     const sections = [AGENT_HELP_HEADER, formatter.buildExecToolDescription(), formatter.buildExecCommandReference(ctx)]
     return toCliSyntax(sections.join('\n\n'))
 }
