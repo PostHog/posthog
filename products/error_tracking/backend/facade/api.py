@@ -68,6 +68,7 @@ InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
 IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
+UNCHANGED = issue_tag_rules.UNCHANGED
 IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 SentryApiError = sentry_client.SentryApiError
@@ -243,7 +244,10 @@ def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None
 def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
     return [
         contracts.ErrorTrackingIssueTagDefinition(
-            key=definition.key, label=definition.label, description=definition.description
+            key=definition.key,
+            label=definition.label,
+            description=definition.description,
+            color=contracts.IssueTagColor(definition.color) if definition.color else None,
         )
         for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
     ]
@@ -589,6 +593,7 @@ def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
         key=rule.key,
         label=rule.label,
         description=rule.description,
+        color=contracts.IssueTagColor(rule.color) if rule.color else None,
         filters=rule.filters,
         version=rule.version,
         order_key=rule.order_key,
@@ -608,10 +613,17 @@ def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> contracts.Erro
 
 
 def create_issue_tag_rule(
-    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
+    team_id: int,
+    user: User,
+    *,
+    label: str,
+    description: str,
+    filters: dict,
+    order_key: int = 0,
+    color: contracts.IssueTagColor | None = None,
 ) -> contracts.ErrorTrackingIssueTagRule:
     rule = issue_tag_rules.create_issue_tag_rule(
-        team_id, user, label=label, description=description, filters=filters, order_key=order_key
+        team_id, user, label=label, description=description, filters=filters, order_key=order_key, color=color
     )
     return _to_issue_tag_rule(rule)
 
@@ -624,9 +636,10 @@ def update_issue_tag_rule(
     label: str | None = None,
     description: str | None = None,
     filters: dict | None = None,
+    color: contracts.IssueTagColor | None | issue_tag_rules.Unchanged = UNCHANGED,
 ) -> contracts.ErrorTrackingIssueTagRule | None:
     rule = issue_tag_rules.update_issue_tag_rule(
-        team_id, rule_id, user, label=label, description=description, filters=filters
+        team_id, rule_id, user, label=label, description=description, filters=filters, color=color
     )
     return _to_issue_tag_rule(rule) if rule is not None else None
 
