@@ -51,6 +51,7 @@ from products.signals.backend.activity_summary.search import (
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.read import AnomalyJudgeKind as AnomalyJudgeKind
 from products.signals.backend.anomaly_scores.search import (
     VIEWED_WITHIN_DAYS as VIEWED_WITHIN_DAYS,
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,

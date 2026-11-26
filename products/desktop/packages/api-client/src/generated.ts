@@ -4293,6 +4293,11 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
+    export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
+        empty_id: number | null;
+        exposed_without_rows: Record<string, number> | null;
+        unknown_variants: Record<string, number> | null;
+    }>;
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
@@ -4300,6 +4305,7 @@ export namespace Schemas {
         hogql: string | null;
         is_precomputed: boolean | null;
         kind: string;
+        rows_left_out: ExperimentWarehouseNativeRowsLeftOut | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
@@ -10468,6 +10474,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10499,6 +10506,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10566,6 +10574,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10595,6 +10604,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10623,6 +10633,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10696,6 +10707,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11068,6 +11080,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11620,7 +11633,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
@@ -11801,6 +11814,9 @@ export namespace Schemas {
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
         kind?: string | undefined;
+        rows_left_out?:
+            | (ExperimentWarehouseNativeRowsLeftOut | null)
+            | undefined;
         sample_ratio_mismatch?: (SampleRatioMismatch | null) | undefined;
         timeseries: Array<ExperimentExposureTimeSeries>;
         total_exposures: Record<string, number>;
@@ -12024,7 +12040,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
