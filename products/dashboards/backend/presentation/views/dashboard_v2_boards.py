@@ -117,6 +117,10 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin,
         # 404, not 403, so a project without the flag cannot tell the endpoint exists.
         if not dashboard_v2_enabled(self.team, request.user):
             raise exceptions.NotFound()
+        # Boards belong to the project's root team. A child environment would check its own rules but
+        # read and write the root team's rows, so it gets a 404 too.
+        if self.team.pk != self.team.project_id:
+            raise exceptions.NotFound()
 
     def read_object(self) -> BoardDetail | None:
         try:
@@ -209,7 +213,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin,
         """Delete a board. Its uid can then be reused."""
         self.get_object()
         try:
-            api.delete_board(self.team_id, uid)
+            api.delete_board(self.team_id, uid, cast(User, request.user).id)
         except BoardNotFound:
             raise exceptions.NotFound()
         except BoardReadOnly:

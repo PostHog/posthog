@@ -143,6 +143,12 @@ class TestDashboardV2Boards(APIBaseTest):
         assert self.client.delete(self._url(uid, other_team.pk)).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
 
+    def test_a_child_environment_of_the_project_is_not_found(self) -> None:
+        child = Team.objects.create(organization=self.organization, project=self.team.project, name="Child")
+
+        assert self.client.get(self._url(team_id=child.pk)).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.post(self._url(team_id=child.pk), {"spec": _board()}, format="json").status_code == 404
+
     def _member(self) -> User:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
