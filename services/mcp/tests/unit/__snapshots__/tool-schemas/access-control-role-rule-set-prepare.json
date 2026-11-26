@@ -34,6 +34,7 @@
                 "customer_task",
                 "dashboard",
                 "dashboard_template",
+                "dashboard_v2_board",
                 "data_catalog",
                 "data_deletion",
                 "dataset",
