@@ -906,6 +906,7 @@ class TestQueueFreshnessProbe:
     async def test_probe_uses_the_partial_indexes_and_probes_each_run_and_group_once(self, conn):
         # An inlined CTE copies each EXISTS into every FILTER that reads it,
         # which ran the failed-run probe up to three times per pending batch in production.
+        # The executing check is a join, so the failed-run probe is the only SubPlan.
         await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
@@ -917,7 +918,7 @@ class TestQueueFreshnessProbe:
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
         assert "sb_schema_busy_idx" in plan
-        assert plan.count("SubPlan") == 2
+        assert plan.count("SubPlan") == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("probe", ["freshness", "depth"])
@@ -2951,7 +2952,8 @@ class TestGetQueueDepth:
         # sb_claimable_idx, and the per-run and per-group gates must stay index
         # probes; a predicate edit that widens either falls back to scanning
         # every retained partition on every pod, every reconcile interval.
-        #
+        # A per-group executing EXISTS adds a second SubPlan, and can plan on the
+        # full sb_team_schema_idx and read every batch of each group.
         await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
@@ -2963,6 +2965,7 @@ class TestGetQueueDepth:
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
         assert "sb_schema_busy_idx" in plan
+        assert plan.count("SubPlan") == 1
 
     @pytest.mark.asyncio
     async def test_headline_count_is_an_index_only_walk_of_the_claimable_index(self, conn):
