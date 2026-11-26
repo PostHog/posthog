@@ -12933,10 +12933,10 @@ Today (4): `Charges`, `Orders`, `Refunds`, `Subscriptions`
 
 Diffed against: <https://developer.samcart.com/specs/openapi-v2.yaml>
 
-- [ ] `Products (GET /v2/products)` — Lookup for product IDs on orders, charges and subscriptions (high)
-- [ ] `Customers (GET /v2/customers)` — Customer records that orders, charges and subscriptions point to (high)
-- [ ] `Failed charges (GET /v2/failed-charges)` — Declined payments, for dunning and revenue-loss analysis (high)
-- [ ] `Coupons (GET /v2/coupons)` — Discount codes, to analyze discount use on orders (medium)
+- [x] `Products (GET /v2/products)` — Lookup for product IDs on orders, charges and subscriptions (high)
+- [x] `Customers (GET /v2/customers)` — Customer records that orders, charges and subscriptions point to (high)
+- [x] `Failed charges (GET /v2/failed-charges)` — Declined payments, for dunning and revenue-loss analysis (high)
+- [x] `Coupons (GET /v2/coupons)` — Discount codes, to analyze discount use on orders (medium)
 - [ ] `Funnels (GET /v2/funnels)` — Funnel definitions, with upsell and order bump structure (medium)
 - [ ] `Upsells (GET /v2/upsells)` — Upsell offers attached to funnels (medium)
 - [ ] `Prospects (GET /v2/prospects)` — Leads captured before purchase, for conversion analysis (medium)
