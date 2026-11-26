@@ -46,10 +46,15 @@ def add_current_alias_deprecation_headers(request: HttpRequest, response: HttpRe
     if segments[2] != CURRENT_ALIAS:
         return
 
-    response["Deprecation"] = CURRENT_ALIAS_DEPRECATION
+    set_deprecation_headers(response, CURRENT_ALIAS_DEPRECATION, _successor(request, response, segments))
+
+
+def set_deprecation_headers(response: HttpResponseBase, deprecation: str, successor: str | None) -> None:
+    """Set the RFC 9745 Deprecation header, the shared Sunset date, and a Link to the docs and, when known, to the
+    request that replaces this one."""
+    response["Deprecation"] = deprecation
     response["Sunset"] = CURRENT_ALIAS_SUNSET
     links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
-    successor = _successor(request, response, segments)
     if successor is not None:
         links.insert(0, f'<{successor}>; rel="successor-version"')
     response["Link"] = ", ".join(links)

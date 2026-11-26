@@ -22,7 +22,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.current_alias_deprecation import CURRENT_ALIAS_SUNSET, STATE_DEPENDENT_REQUESTS_DOCS_URL, successor_url
+from posthog.api.current_alias_deprecation import set_deprecation_headers, successor_url
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -949,13 +949,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _mark_flat_route_deprecated(self, request: Request, response: Response) -> None:
         """/api/billing/ takes the organization from the user's current project, so its responses carry the same
         deprecation headers as @current and link the organization route that replaces it."""
-        response["Deprecation"] = FLAT_BILLING_DEPRECATION
-        response["Sunset"] = CURRENT_ALIAS_SUNSET
-        links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
         organization = self._get_org() if 200 <= response.status_code < 300 else None
-        if organization is not None:
-            links.insert(0, f'<{self._flat_route_successor(request, organization)}>; rel="successor-version"')
-        response["Link"] = ", ".join(links)
+        successor = self._flat_route_successor(request, organization) if organization is not None else None
+        set_deprecation_headers(response, FLAT_BILLING_DEPRECATION, successor)
 
     def _flat_route_successor(self, request: Request, organization: Organization) -> str:
         format_suffix = f".{self.kwargs['format']}" if self.kwargs.get("format") else ""
