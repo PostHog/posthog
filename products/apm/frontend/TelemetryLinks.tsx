@@ -1,8 +1,8 @@
 import posthog from 'posthog-js'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import type { LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { TimeRange, drillDownParams, metricsDrillDownUrl } from './applicationObservabilityLogic'
@@ -24,42 +24,37 @@ function signalUrl(signal: TelemetrySignal, serviceName: string, timeRange: Time
     }
 }
 
+/** The "Open in" links as a menu section, for tables too narrow to show them side by side. */
+export function telemetryMenuSection(
+    serviceName: string,
+    timeRange: TimeRange,
+    source: string,
+    signals: TelemetrySignal[] = ALL_SIGNALS
+): LemonMenuSection {
+    return {
+        title: 'Open in',
+        items: signals.map((signal) => ({
+            label: LABEL[signal],
+            to: signalUrl(signal, serviceName, timeRange),
+            // pinned: analytics event name and properties, renaming breaks dashboards
+            onClick: () => posthog.capture('apm telemetry link clicked', { signal, source }),
+            'data-attr': `apm-open-${signal}`,
+        })),
+    }
+}
+
 export function TelemetryLinks({
     serviceName,
     timeRange,
     source,
     signals = ALL_SIGNALS,
-    compact = false,
 }: {
     serviceName: string
     timeRange: TimeRange
     /** The surface the link sits on, for usage tracking. */
     source: string
     signals?: TelemetrySignal[]
-    /** Folds the links into one menu button, for tables too narrow to show them side by side. */
-    compact?: boolean
 }): JSX.Element {
-    if (compact) {
-        return (
-            <More
-                aria-label="Open in"
-                tooltip="Open in"
-                data-attr="apm-open-in-menu"
-                overlay={signals.map((signal) => (
-                    <LemonButton
-                        key={signal}
-                        fullWidth
-                        to={signalUrl(signal, serviceName, timeRange)}
-                        // pinned: analytics event name and properties, renaming breaks dashboards
-                        onClick={() => posthog.capture('apm telemetry link clicked', { signal, source })}
-                        data-attr={`apm-open-${signal}`}
-                    >
-                        Open in {LABEL[signal].toLowerCase()}
-                    </LemonButton>
-                ))}
-            />
-        )
-    }
     return (
         <>
             {signals.map((signal) => (

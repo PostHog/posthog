@@ -247,16 +247,21 @@ function RunSurfaceThread({
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
+    // Stable identity so the feedback surfaces link to the run they are reviewing.
+    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
     // Memoized so the footer keeps a stable element identity across streamed frames.
     const feedbackPrompt = useMemo(
         () =>
             collectsFeedback ? (
-                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
+                <FeedbackPromptTrailer
+                    sessionId={feedbackSessionId}
+                    sessionKind="task"
+                    streamKey={streamKey}
+                    run={feedbackRun}
+                />
             ) : undefined,
-        [collectsFeedback, feedbackSessionId, streamKey]
+        [collectsFeedback, feedbackRun, feedbackSessionId, streamKey]
     )
-    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
-    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (

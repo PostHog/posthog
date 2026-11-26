@@ -8,6 +8,7 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { template as emailHogTemplate } from '~/cdp/templates/_destinations/email/email.template'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { LiquidRenderer } from '~/cdp/utils/liquid'
@@ -18,6 +19,7 @@ import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { FakeSes } from '~/tests/helpers/fake-ses'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -1166,6 +1168,265 @@ describe('HogFunctionHandler', () => {
         })
 
         expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
+
+    describe('paused email click tracking guards', () => {
+        const fakeSes = new FakeSes({
+            'posthog-messaging': { opens: true, clicks: true },
+            'posthog-messaging-untracked': { opens: false, clicks: false },
+        })
+        const savedCredentials = { id: process.env.AWS_ACCESS_KEY_ID, secret: process.env.AWS_SECRET_ACCESS_KEY }
+        let sesEndpoint: string
+
+        beforeAll(async () => {
+            process.env.AWS_ACCESS_KEY_ID = 'fake-ses-key'
+            process.env.AWS_SECRET_ACCESS_KEY = 'fake-ses-secret'
+            sesEndpoint = await fakeSes.start()
+        })
+
+        afterAll(async () => {
+            await fakeSes.stop()
+            for (const [name, value] of [
+                ['AWS_ACCESS_KEY_ID', savedCredentials.id],
+                ['AWS_SECRET_ACCESS_KEY', savedCredentials.secret],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+        })
+
+        it.each([
+            {
+                case: 'sensitive template turns click tracking on before the queued send delivers',
+                initialConfig: { sensitive: true },
+                updatedConfig: { sensitive: true, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: true,
+            },
+            {
+                case: 'sensitive template with master tracking off and clicks on turns tracking on before dequeue',
+                initialConfig: { sensitive: true, tracking_enabled: false, click_tracking_enabled: true },
+                updatedConfig: { sensitive: true, tracking_enabled: true, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: false,
+            },
+            {
+                case: 'code send with clicks on parked under master tracking off turns tracking on before dequeue',
+                initialConfig: { sensitive: true, tracking_enabled: false },
+                updatedConfig: { sensitive: true, tracking_enabled: true },
+                send: { tracking: { captureEngagement: true, clicks: true } },
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: false,
+            },
+            {
+                case: 'pre-deploy worker parked a sensitive code send on a non-sensitive template that later enables clicks',
+                initialConfig: { sensitive: false },
+                updatedConfig: { sensitive: false, click_tracking_enabled: true },
+                send: { sensitive: true, tracking: { captureEngagement: true } },
+                simulatePreDeployState: true,
+                expectTracked: false,
+                expectOpens: true,
+            },
+            {
+                case: 'opted-in sensitive template becomes non-sensitive while click tracking stays enabled',
+                initialConfig: { sensitive: true, click_tracking_enabled: true },
+                updatedConfig: { sensitive: false, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: true,
+                expectOpens: true,
+            },
+            {
+                case: 'non-sensitive template with master tracking off turns tracking on before dequeue',
+                initialConfig: { sensitive: false, tracking_enabled: false },
+                updatedConfig: { sensitive: false, tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: true,
+                expectOpens: true,
+            },
+        ])(
+            'preserves queued click tracking behavior when $case',
+            async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked, expectOpens }) => {
+                fakeSes.deliveries.length = 0
+                const emailIntegrationId = uniqueTestId()
+                const emailTemplateId = `template-test-email-${team.id}`
+                await insertIntegration(hub.postgres, team.id, {
+                    id: emailIntegrationId,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                await insertHogFunctionTemplate(hub.postgres, {
+                    id: emailTemplateId,
+                    name: emailHogTemplate.name,
+                    code: emailHogTemplate.code,
+                    inputs_schema: emailHogTemplate.inputs_schema,
+                })
+
+                const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                const hogInputsService = new HogInputsService(
+                    hub.integrationManager,
+                    recipientTokensService,
+                    hub.encryptedFields
+                )
+                const emailSuppressionService = new EmailSuppressionService(
+                    hub.postgres,
+                    emailSuppressionConfigFromEnv()
+                )
+                const recipientsManagerService = new RecipientsManagerService(hub.postgres)
+                const emailService = new EmailService(
+                    {
+                        sesAccessKeyId: 'fake-ses-key',
+                        sesSecretAccessKey: 'fake-ses-secret',
+                        sesRegion: 'us-east-1',
+                        sesEndpoint,
+                        sesTrackedConfigurationSet: 'posthog-messaging',
+                        sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    emailSuppressionService,
+                    recipientsManagerService,
+                    null,
+                    { report: jest.fn(), reportEmailSent: jest.fn() }
+                )
+                const executor = new HogExecutorAsyncService(
+                    new HogExecutorService(
+                        { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                        hogInputsService
+                    ),
+                    {
+                        googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                        fetchRetries: hub.CDP_FETCH_RETRIES,
+                        fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                        fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                        siteUrl: hub.SITE_URL,
+                        internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                    },
+                    {
+                        teamManager: hub.teamManager,
+                        conversationsTicketsJwt: new ScopedServiceJwt(
+                            PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                            hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                        ),
+                        customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                            PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                            hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                        ),
+                        hogInputsService,
+                        emailService,
+                        recipientTokensService,
+                        pushNotificationService: undefined as any,
+                    }
+                )
+                const emailHandler = new HogFunctionHandler(
+                    new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
+                    new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
+                    mockEmailValidationService,
+                    'email',
+                    null
+                )
+                const emailAction: Extract<HogFlowAction, { type: 'function_email' }> = {
+                    id: 'email_action',
+                    name: 'Send reset email',
+                    description: '',
+                    type: 'function_email',
+                    config: {
+                        template_id: emailTemplateId as 'template-email',
+                        message_category_type: 'transactional',
+                        template_uuid: 'template-1',
+                        ...initialConfig,
+                        inputs: {
+                            email: {
+                                value: {
+                                    to: { email: 'user@example.com', name: 'User' },
+                                    from: { integrationId: emailIntegrationId, email: 'test@posthog.com', name: 'App' },
+                                    replyTo: '',
+                                    cc: '',
+                                    bcc: '',
+                                    subject: 'Reset your password',
+                                    preheader: '',
+                                    text: 'Reset',
+                                    html: '<body><a href="https://example.com/reset/tok">Reset</a></body>',
+                                },
+                                templating: 'liquid',
+                            },
+                        },
+                    },
+                    created_at: 0,
+                    updated_at: 0,
+                    filters: null,
+                }
+                const emailFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            email_action: emailAction,
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [{ from: 'email_action', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+                const emailInvocation = createExampleHogFlowInvocation(emailFlow)
+                emailInvocation.state = {
+                    ...emailInvocation.state,
+                    event: emailInvocation.state?.event ?? ({} as any),
+                    actionStepCount: 0,
+                    ...(send ? { send } : {}),
+                    currentAction: { id: emailAction.id, startedAtTimestamp: DateTime.now().toMillis() },
+                }
+
+                const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(emailInvocation, {
+                    queue: 'hogflow',
+                    queuePriority: 0,
+                })
+                await emailHandler.execute({ invocation: emailInvocation, action: emailAction, result: firstResult })
+                expect(firstResult.invocation.queue).toBe('email')
+                expect(fakeSes.deliveries).toHaveLength(0)
+
+                if (simulatePreDeployState) {
+                    delete firstResult.invocation.state.currentAction!.hogFunctionState!.clickTrackingEnabled
+                }
+                Object.assign(emailAction.config, updatedConfig)
+
+                const secondResult = createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                    queue: 'email',
+                    queuePriority: 0,
+                })
+                await emailHandler.execute({
+                    invocation: firstResult.invocation,
+                    action: emailAction,
+                    result: secondResult,
+                })
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const deliveredHtml = fakeSes.deliveries[0].html!
+                const deliveredLinks = [...deliveredHtml.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) => href)
+                if (expectTracked) {
+                    expect(deliveredLinks).toEqual([expect.stringMatching(new RegExp(`^${sesEndpoint}/L0/\\d+$`))])
+                } else {
+                    expect(deliveredLinks).toEqual(['https://example.com/reset/tok'])
+                }
+                expect(deliveredHtml.includes(`<img src="${sesEndpoint}/I0/open.gif" />`)).toBe(expectOpens)
+            }
+        )
     })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {

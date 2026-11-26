@@ -69,7 +69,7 @@ function releaseConditionsText(
                   (set, index) =>
                       `Set ${index + 1}${conditions[index].reachable === false ? ' (serves nobody)' : ''}: ${set}`
               )
-              .join(' · ')
+              .join('\n')
 }
 
 function exposureEventText({ event, action, activation }: ExperimentHealthExposureSetupApi): string {
@@ -184,7 +184,7 @@ export function HealthOverviewDetail({
             count: noteCount,
             label: pluralize(noteCount, 'note', undefined, false),
         },
-        { key: 'passed', icon: HEALTH_CHECK_STATUS_DISPLAY.passed.icon, count: passedCount, label: 'found no issue' },
+        { key: 'passed', icon: HEALTH_CHECK_STATUS_DISPLAY.passed.icon, count: passedCount, label: 'without issue' },
         {
             key: 'not_checked',
             icon: HEALTH_CHECK_STATUS_DISPLAY.not_checked.icon,
@@ -202,7 +202,7 @@ export function HealthOverviewDetail({
     return (
         // pinned: `data-attr` value, so renaming it breaks autocapture insights
         <div className="flex flex-col gap-6" data-attr="experiment-health-summary-detail">
-            <div className="flex flex-col gap-3">
+            <div className="mb-2 flex flex-col gap-3">
                 <h3 className="m-0 text-xl font-semibold">Overview</h3>
                 {counts.length > 0 && (
                     <ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-2 p-0">

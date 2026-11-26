@@ -20,6 +20,7 @@ from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINC
 from posthog.models.integration import GitLabIntegrationError, Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import (
     ActiveSessionCapError,
     ComputeBillingLimitError,
@@ -124,6 +125,27 @@ def test_environment_variables_name_the_git_provider(mocker, github_token, gitla
     )
 
     assert {key: environment.get(key) for key in expected} == expected
+
+
+@pytest.mark.parametrize("source", ["context", "state"])
+def test_git_egress_never_resolves_or_injects_a_guest_github_token(mocker, source: str) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.agent_egress_git_reads = source == "context"
+    context.state = {"agent_egress_git_reads": source == "state", "github_read_access": True}
+    mocker.patch.object(provision_sandbox_module, "get_readonly_github_token", side_effect=AssertionError("guest mint"))
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+    task = mocker.Mock(is_scout_experiment=False)
+    token = provision_sandbox_module._resolve_sandbox_github_token(
+        context, task=task, actor_user=None, repository=context.repository, has_repo=True
+    )
+    environment = provision_sandbox_module._build_environment_variables(
+        context, task, "synthetic-upstream", "fake-token"
+    )
+    assert token == ""
+    assert "GITHUB_TOKEN" not in environment
+    assert "GH_TOKEN" not in environment
 
 
 @pytest.mark.parametrize(
@@ -1475,10 +1497,14 @@ def test_create_records_a_per_run_custom_image_boot_fallback(
     assert result.custom_image_fallback_reason == expected_reason
 
 
-@pytest.mark.parametrize("observe", [False, True])
-def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observe: bool):
+@pytest.mark.parametrize(
+    "mode", ["disabled", "observation", "enrollment", "resume", "bounded_resume", "unselected_resume"]
+)
+def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, mode: str):
     # The prepare output carries no template on purpose: a prepare activity claimed by an
     # older worker during a rolling deploy returns the old shape.
+    observe = mode != "disabled"
+    resume = mode.endswith("resume")
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -1491,7 +1517,25 @@ def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observ
         state={"await_user_message": True, "sandbox_template": "default_base" if observe else "autoresearch_base"},
         use_modal_vm_sandbox=observe,
         agent_egress_observation_config="/run/egress/observation.json" if observe else None,
+        agent_egress_enrollment_enabled=mode in ("enrollment", "resume"),
+        agent_egress_maintain_for_run=mode in ("enrollment", "resume", "unselected_resume"),
     )
+    prepared = _prepared_for_create()
+    if resume:
+        context.state = {
+            **(context.state or {}),
+            "same_run_resume": True,
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
+            "snapshot_external_id": "im-example",
+            "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+        }
+        prepared = dataclasses.replace(
+            prepared,
+            snapshot_external_id="im-example",
+            snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
+            snapshot_source="resume",
+            used_snapshot=True,
+        )
     create = mocker.Mock(
         side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
     )
@@ -1503,13 +1547,20 @@ def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observ
     mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
     mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
 
-    with pytest.raises(SandboxRateLimitedError):
+    rejected = mode in ("bounded_resume", "unselected_resume")
+    with pytest.raises(ValueError if rejected else SandboxRateLimitedError):
         async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
-            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+            CreateSandboxForRepositoryInput(context=context, prepared=prepared)
         )
 
+    if rejected:
+        create.assert_not_called()
+        return
     config = create.call_args.args[0]
     assert config.template == (SandboxTemplate.VM_BASE if observe else SandboxTemplate.AUTORESEARCH_BASE)
     assert config.agent_egress_observation is observe
+    assert config.agent_egress_resume is resume
+    assert config.resume_snapshot_external_id == ("im-example" if resume else None)
+    assert config.snapshot_mount_path == (DEFAULT_SANDBOX_WORKING_DIR if resume else None)
     assert config.outbound_domain_allowlist is None
     assert config.block_network is False

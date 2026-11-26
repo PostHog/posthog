@@ -19,6 +19,7 @@ from unittest.mock import patch
 from prometheus_client import REGISTRY
 
 from posthog.models.tag import Tag
+from posthog.models.user import User
 
 from products.dashboards.backend.facade.contracts import (
     DashboardExtras,
@@ -31,6 +32,7 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateScope,
 )
+from products.dashboards.backend.logic.template_instantiation import _create_tile_for_insight
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -39,6 +41,7 @@ from products.dashboards.backend.models.team_home_tab_dashboard_config import Te
 
 __all__ = [
     "UNSET",
+    "add_template_insight_tile",
     "create_button_tile",
     "create_dashboard",
     "create_dashboard_template",
@@ -219,6 +222,24 @@ def create_text_tile(
     )
     tile = DashboardTile.objects.create(dashboard=dashboard, text=text, layouts=layouts or {})
     return tile.id
+
+
+def add_template_insight_tile(
+    *,
+    dashboard_id: int,
+    name: str,
+    description: str,
+    query: dict[str, Any],
+    layouts: dict[str, Any],
+    color: str | None,
+    created_by_id: int | None = None,
+) -> None:
+    """Add a sample insight and the tile that shows it, as a code-defined dashboard template adds them."""
+    dashboard = Dashboard.objects_including_soft_deleted.get(id=dashboard_id)
+    user = User.objects.get(id=created_by_id) if created_by_id is not None else None
+    _create_tile_for_insight(
+        dashboard, name=name, description=description, query=query, layouts=layouts, color=color, user=user
+    )
 
 
 def create_button_tile(

@@ -56,9 +56,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Stores the content of transactional email sends encrypted. Turn on only once every reader is deployed.
-    CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: boolean
-    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first.
+    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first. Whenever a key
+    // is set, transactional sends are sealed, and so is a webhook run with a sensitive step while it is on the intake topic.
     CDP_SEALED_STATE_KEYS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
@@ -229,8 +228,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_DLQ_DRAIN: boolean
     // An intake consumer's dead letters, on the cluster it reads from.
     CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
-    // Teams whose routes answer accepted runs on the intake topic's ack: a list of team ids, or `*`.
-    CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
     // Per pod: batch email requests in flight. A batch over the cap gets 503 over_capacity.
     CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: number
     CDP_INTAKE_MSK_PRODUCER: CdpProducerName
@@ -410,7 +407,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: false,
         CDP_SEALED_STATE_KEYS: isDevEnv() || isTestEnv() ? '00feed0000feed0000feed0000feed00' : '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
@@ -544,7 +540,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_DLQ_DRAIN: false,
         CDP_INTAKE_DLQ_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
-        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 8,
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,

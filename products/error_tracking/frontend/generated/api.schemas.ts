@@ -955,6 +955,29 @@ export interface ErrorTrackingIssueCohortReadApi {
     name: string
 }
 
+/**
+ * * `blue` - Blue
+ * * `teal` - Teal
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ * * `pink` - Pink
+ * * `purple` - Purple
+ */
+export type IssueTagColorEnumApi = (typeof IssueTagColorEnumApi)[keyof typeof IssueTagColorEnumApi]
+
+export const IssueTagColorEnumApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagReadApi {
     /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
@@ -962,6 +985,17 @@ export interface ErrorTrackingIssueTagReadApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
     source: string
 }
@@ -1154,6 +1188,7 @@ export interface ErrorTrackingStoredIssueSummaryApi {
  * * `restricted` - Restricted
  * * `disabled` - Disabled
  * * `ai_not_approved` - Ai Not Approved
+ * * `setting_off` - Setting Off
  */
 export type IssueSummaryUnavailableReasonEnumApi =
     (typeof IssueSummaryUnavailableReasonEnumApi)[keyof typeof IssueSummaryUnavailableReasonEnumApi]
@@ -1162,10 +1197,11 @@ export const IssueSummaryUnavailableReasonEnumApi = {
     Restricted: 'restricted',
     Disabled: 'disabled',
     AiNotApproved: 'ai_not_approved',
+    SettingOff: 'setting_off',
 } as const
 
 export interface ErrorTrackingIssueSummaryResponseApi {
-    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written when an issue is created, and when a person asks for one with the summarize action. unavailable: no summary can be shown. `reason` says why.
      *
      * * `ready` - Ready
      * * `not_generated` - Not Generated
@@ -1173,12 +1209,69 @@ export interface ErrorTrackingIssueSummaryResponseApi {
     status: IssueSummaryStatusEnumApi
     /** The stored summary, or null when the status is not ready. */
     summary: ErrorTrackingStoredIssueSummaryApi | null
-    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing. setting_off: the project has not turned summaries on, and no summary is stored.
      *
      * * `restricted` - Restricted
      * * `disabled` - Disabled
-     * * `ai_not_approved` - Ai Not Approved */
+     * * `ai_not_approved` - Ai Not Approved
+     * * `setting_off` - Setting Off */
     reason: IssueSummaryUnavailableReasonEnumApi | null
+}
+
+/**
+ * * `ready` - Ready
+ * * `disabled` - Disabled
+ * * `restricted` - Restricted
+ * * `setting_off` - Setting Off
+ * * `ai_not_approved` - Ai Not Approved
+ * * `out_of_credits` - Out Of Credits
+ * * `rate_limited` - Rate Limited
+ * * `in_progress` - In Progress
+ * * `issue_missing` - Issue Missing
+ * * `no_exception` - No Exception
+ * * `failed` - Failed
+ */
+export type IssueSummarizeOutcomeEnumApi =
+    (typeof IssueSummarizeOutcomeEnumApi)[keyof typeof IssueSummarizeOutcomeEnumApi]
+
+export const IssueSummarizeOutcomeEnumApi = {
+    Ready: 'ready',
+    Disabled: 'disabled',
+    Restricted: 'restricted',
+    SettingOff: 'setting_off',
+    AiNotApproved: 'ai_not_approved',
+    OutOfCredits: 'out_of_credits',
+    RateLimited: 'rate_limited',
+    InProgress: 'in_progress',
+    IssueMissing: 'issue_missing',
+    NoException: 'no_exception',
+    Failed: 'failed',
+} as const
+
+export interface ErrorTrackingIssueSummarizeErrorApi {
+    /** The error category, such as invalid_request or throttled_error. */
+    type: string
+    /** Why no summary was written. restricted, setting_off and ai_not_approved answer 403. out_of_credits answers 402. rate_limited answers 429. in_progress answers 409. no_exception answers 422. failed answers 503.
+     *
+     * * `ready` - Ready
+     * * `disabled` - Disabled
+     * * `restricted` - Restricted
+     * * `setting_off` - Setting Off
+     * * `ai_not_approved` - Ai Not Approved
+     * * `out_of_credits` - Out Of Credits
+     * * `rate_limited` - Rate Limited
+     * * `in_progress` - In Progress
+     * * `issue_missing` - Issue Missing
+     * * `no_exception` - No Exception
+     * * `failed` - Failed */
+    code: IssueSummarizeOutcomeEnumApi
+    /** What happened and what to do next. */
+    detail: string
+    /**
+     * Always null for this endpoint.
+     * @nullable
+     */
+    attr: string | null
 }
 
 export interface PatchedErrorTrackingIssueTagWriteApi {
@@ -1198,6 +1291,17 @@ export interface ErrorTrackingIssueTagCorrectionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
     source: string
     /** Whether the tag is applied to the issue after the change. */
@@ -1246,6 +1350,17 @@ export interface ErrorTrackingIssueTagDefinitionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
 }
 
 export interface ErrorTrackingIssueTagDefinitionsResponseApi {
@@ -1519,17 +1634,18 @@ export interface ErrorTrackingIssueDetailApi {
     external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
-    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
+    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written when an issue is created, and when a person asks for one in PostHog. 'unavailable' means no summary can be shown, and summary_reason says why.
      *
      * * `ready` - Ready
      * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable */
     summary_status: IssueSummaryStatusEnumApi
-    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing. 'setting_off': the project has not turned summaries on, and no summary is stored.
      *
      * * `restricted` - Restricted
      * * `disabled` - Disabled
-     * * `ai_not_approved` - Ai Not Approved */
+     * * `ai_not_approved` - Ai Not Approved
+     * * `setting_off` - Setting Off */
     summary_reason?: IssueSummaryUnavailableReasonEnumApi
 }
 
@@ -2974,6 +3090,17 @@ export interface ErrorTrackingIssueTagRuleApi {
     label: string
     /** What the tag means. Shown with the tag. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
     /** Starts at 1, and goes up by one each time the filters change. */
@@ -3007,6 +3134,17 @@ export interface ErrorTrackingIssueTagRuleCreateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
     /**
@@ -3028,6 +3166,17 @@ export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
@@ -3043,6 +3192,17 @@ export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }

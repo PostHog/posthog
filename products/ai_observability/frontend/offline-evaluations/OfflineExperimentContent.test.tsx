@@ -69,14 +69,14 @@ describe('OfflineExperimentContent', () => {
 
     it('keeps a scorer summary panel the user opened open after a refresh', async () => {
         render(<OfflineExperimentContent teamId={997} experimentId={detailExperiment.id} />)
-        const title = await screen.findByText('Scorer summaries (25)')
+        const title = await screen.findByText('Item scores (25)')
         const panel = title.closest('details') as HTMLDetailsElement
         expect(panel.open).toBe(false)
         panel.open = true
 
         fireEvent.click(screen.getByText('Refresh'))
         await waitFor(() => expect(readSummaries).toHaveBeenCalledTimes(2))
-        await screen.findByText('Scorer summaries (25)')
+        await screen.findByText('Item scores (25)')
 
         expect(panel.open).toBe(true)
     })

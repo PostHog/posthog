@@ -18,6 +18,10 @@ def collect_posthog_code_thread_messages_activity(
 
     from products.slack_app.backend.services.slack_messages import collect_thread_messages
 
+    # A forked run reads the thread it answers in, which holds the seed message, and never
+    # the forked thread: the agent reads that one through the requester's Slack MCP. Do
+    # not short-circuit a fork to an empty list. The workflow reads an empty thread as a
+    # retracted prompt and stops without a word.
     integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     auth_response = slack.client.auth_test()
@@ -25,8 +29,4 @@ def collect_posthog_code_thread_messages_activity(
     # Uncached: the snapshot feeds the persisted task description (the foundational
     # `<slack_thread_context>` block the agent reads forever); a 10-second-stale read
     # would silently bake missing messages into permanent state.
-    # A fork clips the thread at the message it came from; the mention path passes no
-    # bound and reads the thread as it stands.
-    return collect_thread_messages(
-        slack, integration, channel, thread_ts, our_bot_id, until_ts=inputs.fork_source_message_ts
-    )
+    return collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)

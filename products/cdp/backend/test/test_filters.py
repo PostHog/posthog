@@ -440,15 +440,14 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in called_directly
 
-    def test_filters_can_use_hogql_sha1(self) -> None:
-        compiled = compile_filters_bytecode(
-            {
-                "properties": [
-                    {"type": "hogql", "key": "sha1(properties.value) = 'a9993e364706816aba3e25717850c26c9cd0d89d'"}
-                ]
-            },
-            self.team,
-        )
+    @parameterized.expand(
+        [
+            ("sha1", "sha1(properties.value) = 'a9993e364706816aba3e25717850c26c9cd0d89d'"),
+            ("uppercase_lower", "LOWER(properties.value) = 'abc'"),
+        ]
+    )
+    def test_filters_can_use_hogql_function(self, _name: str, key: str) -> None:
+        compiled = compile_filters_bytecode({"properties": [{"type": "hogql", "key": key}]}, self.team)
         assert "bytecode_error" not in compiled
         assert execute_bytecode(compiled["bytecode"], {"properties": {"value": "abc"}}).result is True
         assert execute_bytecode(compiled["bytecode"], {"properties": {"value": "def"}}).result is False

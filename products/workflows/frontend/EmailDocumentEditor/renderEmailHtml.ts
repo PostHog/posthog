@@ -1,5 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import {
     EmailBackgroundImage,
     EmailBlockStyle,
@@ -8,11 +10,13 @@ import {
     EmailSides,
     EmailTextAlign,
     EmailVisibility,
+    SECTION_PADDING,
     emailFontUrls,
     isEmailDocEmpty,
     resolvePageStyle,
 } from './emailDocument'
 import { changesLiquidValue, htmlToEmailText } from './htmlToEmailText'
+import { encodeLiquidQuotes } from './liquidQuotes'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
@@ -105,6 +109,11 @@ function safeFont(font: string): string {
 function px(value: unknown, fallback = 0): number {
     const number = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
+}
+
+/** A multiple rather than a percentage, which larger text inside the block would inherit as a fixed height and overlap. */
+export function lineHeightCss(percent: unknown, fallback = 0): string {
+    return String(Math.round(px(percent, fallback) * 100) / 10000)
 }
 
 /** Letter spacing is the one length that can tighten text, so it keeps its sign. */
@@ -410,7 +419,7 @@ function textProperties(style: EmailBlockStyle, ctx: RenderContext, fontSize: nu
         'font-family': safeFont(style.fontFamily ?? ctx.page.fontFamily),
         'font-weight': style.fontWeight,
         'font-size': `${px(style.fontSize, fontSize)}px`,
-        'line-height': `${px(style.lineHeight, ctx.page.lineHeight)}%`,
+        'line-height': lineHeightCss(style.lineHeight, ctx.page.lineHeight),
         color: safeColor(style.color, ctx.page.textColor),
         'letter-spacing': style.letterSpacing ? `${signedPx(style.letterSpacing)}px` : undefined,
         'text-transform': style.uppercase ? 'uppercase' : undefined,
@@ -440,7 +449,7 @@ function phoneCss(node: JSONContent, phone: EmailPhoneStyle, className: string):
     }
     const textCss = css({
         'font-size': phone.fontSize ? `${px(phone.fontSize)}px !important` : undefined,
-        'line-height': phone.lineHeight ? `${px(phone.lineHeight)}% !important` : undefined,
+        'line-height': phone.lineHeight ? `${lineHeightCss(phone.lineHeight)} !important` : undefined,
     })
     if (node.type === 'emailImage') {
         const imageCss = [
@@ -532,7 +541,7 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
     return `<${tag}${start > 1 ? ` start="${start}"` : ''} style="${listCss}">${items}</${tag}>`
 }
 
-function headingSize(level: number, page: EmailPageStyle): number {
+export function headingSize(level: number, page: EmailPageStyle): number {
     return level === 1 ? page.h1Size : level === 2 ? page.h2Size : page.h3Size
 }
 
@@ -713,7 +722,7 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 'vertical-align': 'top',
                 // The cell around the columns zeroes these to close the gaps between inline blocks.
                 'font-size': `${ctx.page.fontSize}px`,
-                'line-height': ctx.page.oldEditorStyles ? 'normal' : `${px(ctx.page.lineHeight)}%`,
+                'line-height': ctx.page.oldEditorStyles ? 'normal' : lineHeightCss(ctx.page.lineHeight),
                 'background-color': background,
                 'box-sizing': 'border-box',
                 padding: sides(columnPadding),
@@ -754,12 +763,25 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
     return blockCell({ ...style, padding }, outer, NO_SIDES)
 }
 
+/** One box behind several blocks. Outlook draws a cell's color and padding, so the cell carries them. */
+function renderSection(node: JSONContent, ctx: RenderContext): string {
+    const style = styleOf(node)
+    const padding = style.padding ?? SECTION_PADDING
+    const contentWidth = Math.max(
+        1,
+        ctx.contentWidth - px(padding.left) - px(padding.right) - px(style.borderWidth) * 2
+    )
+    const cell = blockCell(style, renderBlockTable(node.content, { ...ctx, contentWidth }), SECTION_PADDING)
+    // A cell only rounds its corners in a table with separate borders, and the old editor's page styles collapse them.
+    return `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate">${cell}</table></td></tr>`
+}
+
 /** A whole document can't sit inside the email's table, so next to other blocks only its styles and body are used. */
 function htmlBlockFragment(html: string): string {
     if (!FULL_HTML_DOCUMENT.test(html)) {
         return html
     }
-    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const doc = new DOMParser().parseFromString(encodeLiquidQuotes(html), 'text/html')
     const styles = Array.from(doc.querySelectorAll('style'))
         .map((style) => style.outerHTML)
         .join('')
@@ -840,6 +862,8 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
             return renderButton(node, ctx)
         case 'emailColumns':
             return renderColumns(node, ctx)
+        case 'emailSection':
+            return renderSection(node, ctx)
         case 'emailHtml':
             // Its own markup may not set a font, so it starts from the page's rather than from the email app's. The old
             // editor left the size to the email app, which is 16px.
@@ -930,8 +954,15 @@ table, td { color: ${safeColor(page.textColor, '#000000')}; }
 @media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
+const COLUMN_STACK_CSS = `  .ph-col { max-width: 100% !important; }
+  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }`
+
+function columnBreakpoint(page: EmailPageStyle): number {
+    return page.bodyWidth + 20
+}
+
 function responsiveCss(page: EmailPageStyle, extra: string[] = []): string {
-    const breakpoint = page.bodyWidth + 20
+    const breakpoint = columnBreakpoint(page)
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
 body { margin: 0; padding: 0; }
@@ -942,8 +973,7 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
 a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: none !important; }
 @media only screen and (max-width: ${breakpoint}px) {
   .ph-body { width: 100% !important; }
-  .ph-col { max-width: 100% !important; }
-  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
+${COLUMN_STACK_CSS}
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${extra.filter(Boolean).join('\n')}
@@ -970,7 +1000,18 @@ export function oldEditorBlockHtml(
         return { kind: 'html', html: textFromNodes(node.content).trim() }
     }
     const text = textBlockElement(node, ctx)
-    return text !== null ? { kind: 'text', html: text } : { kind: 'html', html: renderBlockTable([node], ctx) }
+    if (text !== null) {
+        return { kind: 'text', html: text }
+    }
+    // The old editor's export has no rules for the classes in this markup that hide a block or stack columns.
+    const rules = [
+        node.type === 'emailColumns'
+            ? `@media only screen and (max-width: ${columnBreakpoint(page)}px) {\n${COLUMN_STACK_CSS}\n}`
+            : '',
+        usesScreenSizes(node.content) ? SCREEN_SIZE_CSS : '',
+    ].filter(Boolean)
+    const css = rules.length ? `<style>${rules.join('\n')}</style>` : ''
+    return { kind: 'html', html: css + renderBlockTable([node], ctx) }
 }
 
 /** A button's label as markup, with its variables written out. */
@@ -1074,6 +1115,17 @@ ${blocks}
 </html>`
 }
 
+/** What a save stores and a send uses. An email nobody has edited keeps its stored html, not a new render. */
+export function sentEmailHtml(
+    doc: JSONContent,
+    saved: { html: string | null | undefined; doc: JSONContent | null | undefined }
+): string {
+    const blocks = (node: JSONContent): JSONContent[] => withoutTrailingEmptyParagraphs(node.content ?? [])
+    const unedited =
+        saved.doc && objectsEqual(doc.attrs, saved.doc.attrs) && objectsEqual(blocks(doc), blocks(saved.doc))
+    return saved.html && unedited ? saved.html : renderEmailHtml(doc)
+}
+
 function inlineNodeText(node: JSONContent): string {
     return node.type === 'variable' ? renderVariable(node) : node.type === 'hardBreak' ? '\n' : (node.text ?? '')
 }
@@ -1153,6 +1205,7 @@ function blockText(node: JSONContent): string {
         case 'emailColumns':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailColumn':
+        case 'emailSection':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailHtml':
             return htmlToEmailText(String(node.attrs?.html ?? ''))

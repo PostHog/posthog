@@ -153,7 +153,7 @@ GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500"""
     ),
     (
         MCPDashboardSection.LAB_USERS,
-        f"SELECT {LAB_SQL} AS lab, uniq(distinct_id) AS users FROM events WHERE {WHERE} GROUP BY lab",
+        f"SELECT {LAB_SQL} AS lab, uniq(distinct_id) AS users FROM events WHERE {WHERE} GROUP BY lab ORDER BY users DESC, lab",
         False,
     ),
     (

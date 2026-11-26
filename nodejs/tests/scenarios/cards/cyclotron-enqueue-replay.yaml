@@ -1,0 +1,39 @@
+id: cyclotron-enqueue-replay
+version: 1
+clock: real
+profile: synthetic
+seed: 9
+setup:
+    teams: 1
+drive:
+    for: 70s
+    traffic:
+        - name: event_email
+        - name: event_webhook
+valves:
+    - valve: pg.enqueue_refused
+      target: cyclotron
+      dose:
+          count: 1
+      at: 37s
+      for: 5s
+    - valve: pg.commit_reply_lost
+      target: cyclotron
+      dose:
+          count: 1
+      at: 50s
+      for: 10s
+convergeWithin: 2m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
+pair: true

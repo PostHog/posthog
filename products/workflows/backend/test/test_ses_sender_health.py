@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from typing import Any
 
 from unittest.mock import patch
@@ -65,6 +65,13 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
     def sending_stopped(self, integration_id: int) -> bool:
         return self.sender_config(integration_id).get("ses_sending_status") == "failed"
 
+    def held_back_by_the_rollout(self, logs: list[MutableMapping[str, Any]]) -> list[tuple[int, str, bool | None]]:
+        return sorted(
+            (log["team_id"], log["domain"], log["rolled_out"])
+            for log in logs
+            if log["event"] == "ses_sender_health_held_back"
+        )
+
     def test_marks_the_verified_senders_of_a_domain_ses_stopped_and_keeps_them_verified(self) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
         sibling = self.verified_sender(f"news@{DOMAIN}")
@@ -109,14 +116,21 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         self, _name: str, rollout: bool | None, still_stopped: bool
     ) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
-        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        self.verified_sender(f"hello@{OTHER_DOMAIN}")
+        for domain in (DOMAIN, OTHER_DOMAIN):
+            self.world.ses.identities[domain].forced_verification_status = "Failed"
         check_ses_sender_health()
         assert self.sending_stopped(sender)
         self.rolled_out = rollout
 
-        check_ses_sender_health()
+        with capture_logs() as logs:
+            check_ses_sender_health()
 
         assert self.sending_stopped(sender) is still_stopped
+        assert self.held_back_by_the_rollout(logs) == [
+            (self.team.id, DOMAIN, rollout),
+            (self.team.id, OTHER_DOMAIN, rollout),
+        ]
 
     def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
         self.deliver_notices()
@@ -126,13 +140,17 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
         mail.outbox.clear()
         self.rolled_out = False
-        check_ses_sender_health()
+        with capture_logs() as held_back_logs:
+            check_ses_sender_health()
         assert mail.outbox == []
         self.rolled_out = True
 
-        check_ses_sender_health()
+        with capture_logs() as rolled_out_logs:
+            check_ses_sender_health()
         check_ses_sender_health()
 
+        assert self.held_back_by_the_rollout(held_back_logs) == [(self.team.id, DOMAIN, False)]
+        assert self.held_back_by_the_rollout(rolled_out_logs) == []
         [message] = mail.outbox
         assert message.to == [self.user.email]
         assert DOMAIN in message.subject

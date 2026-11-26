@@ -743,7 +743,7 @@ const AddAuthorizedUrlForm = (): JSX.Element => {
 }
 
 const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
-    const { urlSuggestions } = useValues(webAnalyticsLogic)
+    const { urlSuggestions, authorizedUrlWriteDisabledReason } = useValues(webAnalyticsLogic)
     const { addAuthorizedUrl, newAuthorizedUrl } = useActions(webAnalyticsLogic)
 
     return (
@@ -756,14 +756,25 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
                             <span className="text-xs truncate flex-1" title={suggestion.url}>
                                 {suggestion.url}
                             </span>
-                            <LemonButton size="xsmall" type="primary" onClick={() => addAuthorizedUrl(suggestion.url)}>
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                onClick={() => addAuthorizedUrl(suggestion.url)}
+                                disabledReason={authorizedUrlWriteDisabledReason}
+                            >
                                 Add
                             </LemonButton>
                         </div>
                     ))}
                 </div>
             )}
-            <LemonButton size="small" icon={<IconPlus />} onClick={newAuthorizedUrl} fullWidth>
+            <LemonButton
+                size="small"
+                icon={<IconPlus />}
+                onClick={newAuthorizedUrl}
+                disabledReason={authorizedUrlWriteDisabledReason}
+                fullWidth
+            >
                 Add authorized URL
             </LemonButton>
         </div>

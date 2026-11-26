@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { urls } from 'scenes/urls'
 
 import { buildAiObservabilityStorageConfig } from '../shared/preferenceStorage'
 import { currentUrlWith, rawSearchParam } from '../trace/rawSearchParam'
@@ -15,7 +16,10 @@ export interface ShellDateRange {
 
 const DEFAULT_DATE_RANGE: ShellDateRange = { dateFrom: '-7d', dateTo: null }
 
-const SHELL_PATHS = [...new Set(SHELL_TABS.flatMap((tab) => [tab.path, ...tab.scopes.map((scope) => scope.path)]))]
+const SHELL_PATHS = [
+    ...new Set(SHELL_TABS.flatMap((tab) => [tab.path, ...tab.scopes.map((scope) => scope.path)])),
+    urls.aiObservabilitySession(':id'),
+]
 
 function dateParam(search: string, name: string): string | null {
     const value = rawSearchParam(search, name)

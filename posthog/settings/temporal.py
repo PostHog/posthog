@@ -139,6 +139,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "background_agents": "50",
+    "autoresearch": "50",
     "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
@@ -189,6 +190,9 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     False,
     type_cast=str_to_bool,
 )
+
+# Task origins whose sandbox compute bills into `ai_credits`, e.g. "posthog_ai,slack". PostHog Desktop's are ignored.
+AI_CREDITS_COMPUTE_BILLED_ORIGINS: list[str] = get_list(os.getenv("AI_CREDITS_COMPUTE_BILLED_ORIGINS", ""))
 
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",

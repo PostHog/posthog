@@ -8,8 +8,11 @@ import math
 import ipaddress
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from enum import StrEnum
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
+
+import tldextract
 
 from posthog.hogql import ast
 from posthog.hogql.parser import CacheOrigin, parse_program, parse_string_template
@@ -18,9 +21,9 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ParserMode
 from posthog.security.oob_domains import matched_oob_domain
-from posthog.security.url_validation import canonicalize_host, internal_host_name
+from posthog.security.url_validation import canonicalize_host, has_authority_bypass_chars, internal_host_name
 
-from products.cdp.backend.abuse.classifier import HogFunctionContent
+from products.cdp.backend.abuse.classifier import HogFunctionContent, SetAsideReason
 from products.ml_inference.backend.facade.contracts import JsonValue
 
 from common.hogvm.python.stl import STL
@@ -150,6 +153,42 @@ _JS_DECIMAL = re.compile(r"[+-]?(?:\d++(?:\.\d*+)?|\.\d++)(?:e[+-]?\d++)?", re.I
 _JS_PREFIXED_INTEGER = re.compile(r"0x[0-9a-f]++|0o[0-7]++|0b[01]++", re.IGNORECASE)
 _JS_INFINITY = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
 
+# The endpoints that post a message to a chat channel, as a host and the whole path. Other endpoints on these hosts,
+# such as file uploads, OAuth or Telegram's `setWebhook`, do more than post text.
+_CHAT_MESSAGE_APIS = (
+    ("slack.com", re.compile(r"/api/chat\.postMessage")),
+    ("hooks.slack.com", re.compile(r"/services/[^/]+/[^/]+/[^/]+")),
+    ("discord.com", re.compile(r"/api/webhooks/[^/]+/[^/]+")),
+    ("api.telegram.org", re.compile(r"/bot[^/]+/sendMessage")),
+    ("chat.googleapis.com", re.compile(r"/v1/spaces/[^/]+/messages")),
+)
+_TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
+_TEAMS_WEBHOOK_PATH = re.compile(r"/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+(?:/[^/]+)?")
+_INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
+# Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
+_ADDRESS_DNS_DOMAINS = frozenset(
+    {
+        "localtest.me",
+        "lvh.me",
+        "vcap.me",
+        "nip.io",
+        "sslip.io",
+        "xip.io",
+        "traefik.me",
+        "local.gd",
+        "localhost.direct",
+        "rbndr.us",
+    }
+)
+_EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])|(?:^|\.)[0-9a-f]{8}(?:\.|$)")
+# A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
+_PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
+# The bundled public suffix list, so no lookup goes out and no cache file is written. A `.localhost` name or a cluster
+# short name such as `redis.posthog` has no public suffix, but one whose namespace is also a top-level domain does.
+_DOMAIN_PARTS = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
+_URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
+_BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
+
 
 def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     url_inputs = _template_url_inputs(content)
@@ -183,6 +222,139 @@ def has_outbound_call(content: HogFunctionContent) -> bool:
     return _calls_out(_parse_code, content.hog) or any(
         _calls_out(_parse_template, template) for template in _hog_templates(content)
     )
+
+
+def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> dict[str, SetAsideReason]:
+    """The questions whose model score alone cannot alert, because the code shows the risk cannot happen. The score
+    is still reported."""
+    requests = _requests_of(content)
+    if requests is None:
+        return {}
+    rules = frozenset(rule_hits)
+    set_aside: dict[str, SetAsideReason] = {}
+    if not requests.calls_out:
+        set_aside["internal_network"] = SetAsideReason.NO_OUTBOUND_CALL
+    elif (
+        requests.only_literal_fetches
+        and all(_is_literal_public_url(url) for url in requests.literal_urls)
+        and not rules & _INTERNAL_HOST_RULES
+    ):
+        set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
+    # A transformation returns its payload to ingestion whatever it posts to chat.
+    if (
+        content.type == "destination"
+        and requests.calls_out
+        and requests.only_literal_fetches
+        and not requests.raw_body
+        and all(map(_is_chat_message_api, requests.literal_urls))
+    ):
+        set_aside["malformed_payload"] = SetAsideReason.CHAT_MESSAGES_ONLY
+    return set_aside
+
+
+@frozen
+class _Requests:
+    calls_out: bool
+    only_literal_fetches: bool
+    literal_urls: tuple[str, ...]
+    # A literal `fetch` may send a body that is not JSON: `fetch` sends a string body as it is.
+    raw_body: bool
+
+
+def _requests_of(content: HogFunctionContent) -> _Requests | None:
+    """How the code and its Hog templates can send requests, or None when that cannot be read from the code."""
+    if (content.template_id or "").startswith(_NON_HOG_TEMPLATE_PREFIXES):
+        return None
+    programs = [(_parse_code, content.hog), *((_parse_template, template) for template in _hog_templates(content))]
+    shapes = []
+    for parse, hog in programs:
+        visitor = _HogCodeVisitor()
+        try:
+            visitor.visit(parse(hog))
+        except Exception:
+            return None
+        shapes.append(visitor.requests())
+    return _Requests(
+        calls_out=any(shape.calls_out for shape in shapes),
+        only_literal_fetches=all(shape.only_literal_fetches for shape in shapes),
+        literal_urls=tuple(url for shape in shapes for url in shape.literal_urls),
+        raw_body=any(shape.raw_body for shape in shapes),
+    )
+
+
+def _is_chat_message_api(url: str) -> bool:
+    parts = _plain_url_parts(url)
+    if parts is None or parts.scheme != "https" or parts.port not in (None, 443):
+        return False
+    # The runtime resolves `.` and `..` segments, also percent-encoded ones, before it sends, so `/api/../oauth`
+    # reaches `/oauth`.
+    if any(unquote(segment) in (".", "..") for segment in parts.path.split("/")):
+        return False
+    host = canonicalize_host(parts.hostname or "")
+    if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
+        return _TEAMS_WEBHOOK_PATH.fullmatch(parts.path) is not None
+    return any(host == api_host and path.fullmatch(parts.path) for api_host, path in _CHAT_MESSAGE_APIS)
+
+
+def _is_literal_public_url(url: str) -> bool:
+    """Whether a URL names a public DNS name, and no address, internal name or internal TLD anywhere in it, such as a
+    redirect target in the query string."""
+    parts = _plain_url_parts(url)
+    if parts is None or parts.scheme not in ("http", "https"):
+        return False
+    host = canonicalize_host(parts.hostname or "")
+    if _PUBLIC_DNS_NAME.fullmatch(host) is None or not _DOMAIN_PARTS(host).suffix:
+        return False
+    if _is_internal(host) or _resolves_to_its_address(host):
+        return False
+    return not any(_names_an_address(layer) for layer in _decoded_layers(url))
+
+
+def _resolves_to_its_address(host: str) -> bool:
+    in_address_domain = any(host == domain or host.endswith(f".{domain}") for domain in _ADDRESS_DNS_DOMAINS)
+    return in_address_domain or _EMBEDDED_IPV4.search(host) is not None
+
+
+def _plain_url_parts(url: str) -> SplitResult | None:
+    """The parts of a URL that every parser reads the same way: no userinfo, whitespace, control character or
+    backslash, and a valid port."""
+    if has_authority_bypass_chars(url) or any(char.isspace() or not char.isprintable() for char in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        parts.port  # noqa: B018 -- raises for a port that is out of range or not a number
+    except ValueError:
+        return None
+    if parts.username is not None or parts.password is not None or not parts.hostname:
+        return None
+    return parts._replace(scheme=parts.scheme.lower())
+
+
+def _names_an_address(text: str) -> bool:
+    if any(_is_ip(address) for address in _BRACKETED_ADDRESS.findall(text)):
+        return True
+    for part in _URL_PART_SEPARATOR.split(text):
+        part = part.strip("[]")
+        if _is_ip(part):
+            return True
+        for name in filter(None, part.split(":")):
+            if internal_host_name(name) is not None or _is_address_shorthand(name):
+                return True
+    return False
+
+
+def _is_address_shorthand(name: str) -> bool:
+    """`1.2.3.4`, `127.1` or `0x7f000001`. A bare decimal such as an ID in a path is left out."""
+    looks_like_an_address = "." in name or name.lower().startswith("0x")
+    return looks_like_an_address and _runtime_ipv4(canonicalize_host(name)) is not None
+
+
+def _is_ip(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _calls_out(parse: Callable[[str], ast.AST], hog: str) -> bool:
@@ -240,6 +412,52 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
             yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
+@dataclass(frozen=False, eq=False)
+class _Binding:
+    """One declared name. Calls resolve to the binding in scope, as the compiler resolves them, so two locals that
+    share a name stay apart."""
+
+    name: str
+    # Declared with `fun`, or with `let` as a lambda literal, so a call runs a body this walk checks.
+    declares_function: bool
+    # Assigned, or used other than by a direct call. A value can be aliased and have its upvalues swapped, as in
+    # `let alias := send` and `alias.upvalues[1] := ...`, so a call to it can run anything.
+    rebound: bool = False
+    # Declared with a dict literal and never replaced as a whole, so a write into it cannot reach a closure.
+    holds_dict: bool = False
+    replaced: bool = False
+
+    @property
+    def is_static_function(self) -> bool:
+        return self.declares_function and not self.rebound
+
+
+@dataclass(frozen=False)
+class _CallGraph:
+    """Which calls to locals can run something other than a body this walk checked."""
+
+    calls: list[_Binding] = field(default_factory=list)
+    # The targets of writes into a container. A write into anything but a dict literal can reach a closure's `upvalues`,
+    # which points it at another closure's variables, so after one no local call is known.
+    container_writes: list[_Binding | None] = field(default_factory=list)
+
+    def requests(self, literal_urls: list[str], other_call: bool, raw_body: bool) -> _Requests:
+        """A call to a static function runs its body, which this walk checked. A call to any other local can run
+        anything, because the local can hold a closure from an input or have its upvalues swapped."""
+        rewires = not all(map(_is_dict, self.container_writes))
+        other_call |= any(rewires or not callee.is_static_function for callee in self.calls)
+        return _Requests(
+            calls_out=other_call or bool(literal_urls),
+            only_literal_fetches=not other_call,
+            literal_urls=tuple(literal_urls),
+            raw_body=raw_body,
+        )
+
+
+def _is_dict(target: _Binding | None) -> bool:
+    return target is not None and target.holds_dict and not target.replaced
+
+
 class _HogCodeVisitor(TraversingVisitor):
     """Tracks the names in scope in source order, as the bytecode compiler does, because a call to a declared name
     runs the local and never reaches the standard library or the async function registry."""
@@ -248,14 +466,41 @@ class _HogCodeVisitor(TraversingVisitor):
         super().__init__()
         self.matched: set[Rule] = set()
         self.calls_out = False
-        self._scopes: list[set[str]] = [set()]
+        self._scopes: list[dict[str, _Binding]] = [{}]
+        self._literal_urls: list[str] = []
+        self._raw_body = False
+        # Locals passed as a `fetch` body. They go out as JSON while they still hold the dict literal they were declared
+        # with when the walk ends, because a later replacement can run before the request.
+        self._body_locals: list[_Binding] = []
+        self._other_call = False
+        self._graph = _CallGraph()
 
-    def _is_local(self, name: str) -> bool:
-        return any(name in scope for scope in self._scopes)
+    def requests(self) -> _Requests:
+        raw_body = self._raw_body or not all(map(_is_dict, self._body_locals))
+        return self._graph.requests(self._literal_urls, self._other_call, raw_body)
+
+    def _sends(self, literal_url: str | None = None) -> None:
+        """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
+        self.calls_out = True
+        if literal_url is None:
+            self._other_call = True
+        else:
+            self._literal_urls.append(literal_url)
+
+    def _local(self, name: str) -> _Binding | None:
+        for scope in reversed(self._scopes):
+            if name in scope:
+                return scope[name]
+        return None
+
+    def _declare(self, name: str, *, declares_function: bool = False) -> _Binding:
+        binding = _Binding(name=name, declares_function=declares_function)
+        self._scopes[-1][name] = binding
+        return binding
 
     @contextmanager
     def _scope(self, names: Iterable[str] = ()) -> Iterator[None]:
-        self._scopes.append(set(names))
+        self._scopes.append({name: _Binding(name=name, declares_function=False) for name in names})
         try:
             yield
         finally:
@@ -266,7 +511,7 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_block(node)
 
     def visit_function(self, node: ast.Function) -> None:
-        self._scopes[-1].add(node.name)
+        self._declare(node.name, declares_function=True)
         with self._scope(node.params):
             super().visit_function(node)
 
@@ -285,20 +530,45 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
-        for name, _error_type, handler in node.catches:
-            with self._scope([name] if name else []):
-                self.visit(handler)
+        # The compiler declares `e` and `type` for every catch block.
+        with self._scope(["e", "type"]):
+            for name, _error_type, handler in node.catches:
+                with self._scope([name] if name else []):
+                    self.visit(handler)
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
-        super().visit_variable_declaration(node)
-        self._scopes[-1].add(node.name)
+        # The compiler binds a lambda's name before its body, so the body can call itself.
+        if isinstance(node.expr, ast.Lambda):
+            self._declare(node.name, declares_function=True)
+            self.visit(node.expr)
+        else:
+            super().visit_variable_declaration(node)
+            self._declare(node.name).holds_dict = isinstance(node.expr, ast.Dict)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        super().visit_variable_assignment(node)
+        if (name := _base_name(node.left)) is not None and (binding := self._local(name)) is not None:
+            binding.rebound = True
+            binding.replaced |= isinstance(node.left, ast.Field) and len(node.left.chain) == 1
+        match node.left:
+            case ast.Field(chain=[_]):
+                pass
+            case (
+                ast.ArrayAccess(array=ast.Field(chain=[str(name)]))
+                | ast.TupleAccess(tuple=ast.Field(chain=[str(name)]))
+            ):
+                self._graph.container_writes.append(self._local(name))
+            case ast.Field(chain=[str(name), _]):
+                self._graph.container_writes.append(self._local(name))
+            case _:
+                self._graph.container_writes.append(None)
 
     # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
     # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         super().visit_expr_call(node)
-        self.calls_out = True
+        self._sends()
 
     # The compiler runs every placeholder of an inline query, even in `SAMPLE`, and a function has no use for Hog SQL.
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
@@ -306,28 +576,42 @@ class _HogCodeVisitor(TraversingVisitor):
         self.visit(node.sample)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.calls_out = True
+        self._sends()
         super().visit_select_query(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        self.calls_out = True
+        self._sends()
         super().visit_select_set_query(node)
 
     # A tag calls the local of its name, including compiler temporaries such as `__expr__`, so any tag counts.
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         super().visit_hogqlx_tag(node)
-        self.calls_out = True
+        if (binding := self._local(node.kind)) is not None:
+            binding.rebound = True
+        self._sends()
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
-        if self._is_local(node.name):
-            self.calls_out = True
+        # The compiler declares locals this walk does not track, such as `__H_expr_H__` for the value a `for in` loop
+        # reads, so a call to a name it reserves can run whatever that value holds.
+        if node.name.startswith("__"):
+            self._sends()
             return
-        self.calls_out |= (
-            node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS
-        )
-        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
+        if (callee := self._local(node.name)) is not None:
             self.calls_out = True
+            self._graph.calls.append(callee)
+            if node.params is not None:
+                # `f(params)(args)` calls whatever `f(params)` returns.
+                self._sends()
+            return
+        if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
+            self._sends(url)
+            if len(node.args) > 1:
+                self._check_json_body(node.args[1])
+        elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
+            self._sends()
+        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
+            self._sends()
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
@@ -335,17 +619,43 @@ class _HogCodeVisitor(TraversingVisitor):
         elif node.name == "replaceAll" and _replaces_empty_string(node.args):
             self.matched.add(Rule.REPLACE_AMPLIFICATION)
 
+    def _check_json_body(self, options: ast.Expr) -> None:
+        """`fetch` sends a string body as it is, and a dict as JSON. Options count as JSON when they are a dict literal
+        whose body, if any, is a dict literal or a local declared as one."""
+        if not isinstance(options, ast.Dict):
+            self._raw_body = True
+            return
+        for key, value in options.items:
+            name = _literal_string([key])
+            if name is None:
+                self._raw_body = True
+            elif name == "body" and not isinstance(value, ast.Dict):
+                match value:
+                    case ast.Field(chain=[str(local)]) if (binding := self._local(local)) is not None:
+                        self._body_locals.append(binding)
+                    case _:
+                        self._raw_body = True
+
     def visit_field(self, node: ast.Field) -> None:
         # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
         super().visit_field(node)
+        if (binding := self._local(str(node.chain[0]))) is not None:
+            binding.rebound = True
+            return
         if len(node.chain) != 1:
             return
         name = str(node.chain[0])
-        if self._is_local(name):
-            return
         self.calls_out |= name in OUTBOUND_FUNCTIONS
+        self._other_call |= name in OUTBOUND_FUNCTIONS
         if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
+
+
+def _literal_string(args: list[ast.Expr]) -> str | None:
+    match args:
+        case [ast.Constant(value=str(value))]:
+            return value
+    return None
 
 
 def _hog_range_size(args: list[ast.Expr]) -> float:

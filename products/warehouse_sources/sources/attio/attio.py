@@ -33,7 +33,7 @@ class AttioResumeConfig:
     offset: int | None = None
     cursor: str | None = None
     # Fan-out tables only: the key of a child read (`<target>/<parent id>[/<attribute id>]`). With
-    # `offset` set, the child is read up to that offset. Without it, the child is read completely.
+    # `offset` or `cursor` set, the child continues at that page. Without both, the child is read completely.
     fanout_key: str | None = None
 
 
@@ -131,12 +131,19 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return lift_nested(item, "id", on_clash="nested")
 
 
+_PARENT_ID_FIELDS: dict[FanoutTarget, str] = {"lists": "list_id", "objects": "object_id", "meetings": "meeting_id"}
+
+
 def _parent_id(row: dict[str, Any], target: FanoutTarget) -> str | None:
     ids = row.get("id")
     if not isinstance(ids, dict):
         return None
-    value = ids.get("list_id" if target == "lists" else "object_id")
+    value = ids.get(_PARENT_ID_FIELDS[target])
     return str(value) if value else None
+
+
+def _cursor_paginator() -> JSONResponseCursorPaginator:
+    return JSONResponseCursorPaginator(cursor_path="pagination.next_cursor", cursor_param="cursor")
 
 
 def _parent_keys(
@@ -144,16 +151,24 @@ def _parent_keys(
     config: AttioEndpointConfig,
     resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
 ) -> list[tuple[FanoutTarget, str]]:
-    """List the objects and lists to fan out over, in a stable order so resume keys compare."""
+    """List the parents (objects, lists or meetings) to fan out over, in a stable order so resume keys compare."""
     parents: list[tuple[FanoutTarget, str]] = []
     for target in config.fanout_targets:
-        for page in client.paginate(path=f"/v2/{target}", paginator=SinglePagePaginator(), data_selector="data"):
+        # Objects and lists come in one response; meetings are paged by cursor.
+        paginator: BasePaginator
+        if target == "meetings":
+            paginator = _cursor_paginator()
+            params: dict[str, Any] | None = {"limit": ATTIO_ENDPOINTS["meetings"].page_size}
+        else:
+            paginator = SinglePagePaginator()
+            params = None
+        for page in client.paginate(path=f"/v2/{target}", params=params, paginator=paginator, data_selector="data"):
             parents.extend(
                 (target, parent_id)
                 for row in page
                 if isinstance(row, dict) and (parent_id := _parent_id(row, target)) is not None
             )
-        resumable_source_manager.safe_point()
+            resumable_source_manager.safe_point()
     return sorted(parents)
 
 
@@ -210,14 +225,18 @@ def _fanout_rows(
     config: AttioEndpointConfig,
     resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Read the child endpoint for each object or list, in ascending order of the child key.
+    """Read the child endpoint for each parent, in ascending order of the child key.
 
     The resume state is the key of the last child read, so it stays small however many objects,
-    lists and attributes a workspace has.
+    lists, meetings and attributes a workspace has.
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     resume_key = resume.fanout_key if resume else None
-    resume_offset = resume.offset if resume else None
+    resume_page: Optional[dict[str, Any]] = None
+    if resume is not None and resume.cursor is not None:
+        resume_page = {"cursor": resume.cursor}
+    elif resume is not None and resume.offset is not None:
+        resume_page = {"offset": resume.offset}
     next_page_state: Optional[dict[str, Any]] = None
 
     def track_child_page(state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
@@ -226,13 +245,15 @@ def _fanout_rows(
 
     for child in _fanout_children(client, config, resumable_source_manager, resume_key):
         key = child.key
-        if resume_key is not None and (key < resume_key or (key == resume_key and resume_offset is None)):
+        if resume_key is not None and (key < resume_key or (key == resume_key and resume_page is None)):
             continue
-        start_offset = resume_offset if key == resume_key else None
+        start_page = resume_page if key == resume_key else None
 
         paginator: BasePaginator
         if config.pagination == "single":
             paginator = SinglePagePaginator()
+        elif config.pagination == "cursor":
+            paginator = _cursor_paginator()
         else:
             paginator = AttioOffsetPaginator(limit=config.page_size, use_json_body=config.method == "POST")
 
@@ -244,15 +265,20 @@ def _fanout_rows(
             paginator=paginator,
             data_selector="data",
             hooks=_IGNORE_NOT_FOUND,
-            initial_paginator_state={"offset": start_offset} if start_offset is not None else None,
+            initial_paginator_state=start_page,
             page_state_hook=track_child_page,
         ):
             rows = [_shape_fanout_row(row, config, child.target) for row in page if isinstance(row, dict)]
             if not rows:
                 continue
             offset = next_page_state.get("offset") if next_page_state else None
+            cursor = next_page_state.get("cursor") if next_page_state else None
             resumable_source_manager.save_state(
-                AttioResumeConfig(fanout_key=key, offset=int(offset) if offset is not None else None)
+                AttioResumeConfig(
+                    fanout_key=key,
+                    offset=int(offset) if offset is not None else None,
+                    cursor=str(cursor) if cursor is not None else None,
+                )
             )
             yield rows
             yielded = True
@@ -292,9 +318,7 @@ def get_resource(name: str) -> EndpointResource:
         endpoint_config["paginator"] = SinglePagePaginator()
     elif config.pagination == "cursor":
         endpoint_config["params"] = {"limit": config.page_size}
-        endpoint_config["paginator"] = JSONResponseCursorPaginator(
-            cursor_path="pagination.next_cursor", cursor_param="cursor"
-        )
+        endpoint_config["paginator"] = _cursor_paginator()
     else:
         endpoint_config["paginator"] = AttioOffsetPaginator(limit=config.page_size)
 

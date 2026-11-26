@@ -38,6 +38,7 @@ from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -481,6 +482,32 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(FileSystem.objects.filter(pk=retired.pk).exists())
         self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
+
+    @parameterized.expand(
+        [
+            (f"{action}_{file_type}", action, file_type)
+            for action in ("create", "retype")
+            for file_type in ("message_template",)
+        ]
+    )
+    def test_the_tree_refuses_a_row_of_a_type_it_no_longer_files(self, _name: str, action: str, file_type: str) -> None:
+        base = f"/api/projects/{self.team.id}/file_system"
+        dashboard = FileSystem.objects.create(
+            team=self.team, path="Kept", type="dashboard", ref="1", created_by=self.user
+        )
+
+        if action == "create":
+            response = self.client.post(
+                f"{base}/", {"path": "Filed/T", "type": file_type, "ref": "0190a1b2-0000-7000-8000-000000000003"}
+            )
+        else:
+            response = self.client.patch(
+                f"{base}/{dashboard.pk}/", {"type": file_type, "ref": "0190a1b2-0000-7000-8000-000000000003"}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["attr"], "type")
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type=file_type).exists())
 
     def test_rows_of_retired_type_are_hidden_from_the_tree(self) -> None:
         folder, retired = self._create_retired_row_in_folder()
@@ -1758,6 +1785,44 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
     def _create_sibling_team(self) -> Team:
         return Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
 
+    @parameterized.expand(
+        [
+            (f"{file_type}_{caller}_{target}", file_type, caller, target, query)
+            for file_type in ("message_template",)
+            for caller in ("workflow_viewer", "token_without_workflow_scopes")
+            for target, query in (("file", ""), ("folder", ""), ("folder", "?recursive=false"))
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_hand_filed_row_of_an_unfiled_type_survives_a_delete_without_workflow_write_access(
+        self, _name: str, file_type: str, caller: str, target: str, query: str, _mock_flag: MagicMock
+    ) -> None:
+        folder = FileSystem.objects.create(
+            team=self.team, path="Hand filed", depth=1, type="folder", created_by=self.other_user
+        )
+        row = FileSystem.objects.create(
+            team=self.team,
+            path="Hand filed/Welcome",
+            depth=2,
+            type=file_type,
+            ref="0190a1b2-0000-7000-8000-000000000002",
+            created_by=self.other_user,
+        )
+        headers: dict[str, str] = {}
+        if caller == "workflow_viewer":
+            self._create_access_control(resource="hog_flow", resource_id=None, access_level="viewer")
+        else:
+            key = self.create_personal_api_key_with_scopes(["file_system:read", "file_system:write"])
+            headers["Authorization"] = f"Bearer {key}"
+            self.client.logout()
+
+        target_id = folder.pk if target == "folder" else row.pk
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
+
+        expected = status.HTTP_409_CONFLICT if query else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected, response.content)
+        self.assertTrue(FileSystem.objects.filter(pk=row.pk).exists())
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_frequent_files_filter_access_before_selecting_top_items(self, mock_flag: MagicMock) -> None:
         assert self.file_b.ref is not None
@@ -2263,6 +2328,36 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         destination.refresh_from_db()
         self.assertEqual((destination.deleted, destination.enabled), (False, enabled))
+
+    @parameterized.expand(
+        [
+            ("delete", "restricted", status.HTTP_403_FORBIDDEN),
+            ("delete", "granted", status.HTTP_200_OK),
+            ("restore", "restricted", status.HTTP_403_FORBIDDEN),
+            ("restore", "granted", status.HTTP_200_OK),
+        ]
+    )
+    def test_deleting_or_restoring_a_destination_follows_property_access(
+        self, change: str, access: PropertyAccess, expected: int
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        destination = HogFunction.objects.create(
+            team=self.team, name="Webhook", hog="return event", type=HogFunctionType.DESTINATION
+        )
+        if change == "delete":
+            entry = FileSystem.objects.get(team=self.team, type="hog_function/destination", ref=str(destination.id))
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        else:
+            HogFunction.objects.filter(pk=destination.pk).update(deleted=True)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "hog_function/destination", "ref": str(destination.id)}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected, response.content)
+        destination.refresh_from_db()
+        self.assertEqual(destination.deleted, (change == "delete") == (expected == status.HTTP_200_OK))
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(

@@ -11488,6 +11488,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
@@ -11586,6 +11590,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
                 },
                 "timezone": {
                     "type": "string"
@@ -15291,6 +15299,17 @@
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
+                },
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
                 },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
@@ -21130,6 +21149,10 @@
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "version": {
                             "description": "version of the node, used for schema migrations",
                             "type": "number"
@@ -21212,6 +21235,10 @@
                         },
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21310,6 +21337,10 @@
                         },
                         "timestamp_field": {
                             "type": "string"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21739,6 +21770,12 @@
                         }
                     ]
                 },
+                "role_default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsRoleDefaultPinnedProperties"
+                    },
+                    "type": "array"
+                },
                 "signup_event": {
                     "anyOf": [
                         {
@@ -21791,6 +21828,22 @@
                 }
             },
             "required": ["kind", "id"],
+            "type": "object"
+        },
+        "CustomerAnalyticsRoleDefaultPinnedProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
+                "role_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["role_id", "pinned_properties"],
             "type": "object"
         },
         "DangerousOperationResponse": {
@@ -27399,6 +27452,17 @@
         "ErrorTrackingIssueTag": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagColor"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Named color of the tag, or null for a color picked from the label."
+                },
                 "description": {
                     "description": "What the tag means, for a tooltip.",
                     "type": "string"
@@ -27418,6 +27482,11 @@
             },
             "required": ["key", "label", "description"],
             "type": "object"
+        },
+        "ErrorTrackingIssueTagColor": {
+            "enum": ["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple"],
+            "title": "ErrorTrackingIssueTagColor",
+            "type": "string"
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
@@ -29567,7 +29636,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29698,7 +29769,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29849,6 +29922,10 @@
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
+                },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
                 },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
@@ -30631,6 +30708,10 @@
                     "const": "ExperimentQuery",
                     "type": "string"
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -31341,6 +31422,31 @@
                 }
             },
             "required": ["connection_id", "kind", "query", "unit"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeRowsLeftOut": {
+            "additionalProperties": false,
+            "description": "Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run leaves the object out.",
+            "properties": {
+                "empty_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposure rows with an empty entity_id."
+                },
+                "exposed_without_rows": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed entities with no row of the metric query that counted, by variant.",
+                    "type": "object"
+                },
+                "unknown_variants": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposure rows whose variant is not one the flag serves, counted by the value seen.",
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "ExperimentWarehouseNativeUnitBinding": {
@@ -33600,6 +33706,10 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -33774,6 +33884,10 @@
                     "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {
+                    "type": "boolean"
+                },
+                "sessionFilterGlobalJoin": {
+                    "description": "Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.",
                     "type": "boolean"
                 },
                 "sessionIdPushdown": {
@@ -40835,6 +40949,28 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsConversionSource": {
+            "additionalProperties": false,
+            "properties": {
+                "goalNames": {
+                    "description": "Names of the conversion goals CPAs count. Empty for `google_ads`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSourceKind"
+                }
+            },
+            "required": ["kind", "goalNames"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsConversionSourceKind": {
+            "description": "`posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports.",
+            "enum": ["posthog", "google_ads"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsDataGap": {
             "additionalProperties": false,
             "properties": {
@@ -40853,7 +40989,14 @@
             "type": "object"
         },
         "MarketingAnalyticsRecommendationsDataGapKind": {
-            "enum": ["conversion_action_tables_not_synced", "performance_max_search_terms_count_primary_conversions"],
+            "enum": [
+                "conversion_action_tables_not_synced",
+                "performance_max_search_terms_count_primary_conversions",
+                "posthog_conversions_not_ready",
+                "posthog_conversion_goals_unusable",
+                "posthog_campaigns_unmatched",
+                "posthog_conversions_failed"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationsQuery": {
@@ -40906,6 +41049,17 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -48918,6 +49072,10 @@
                             "const": "ExperimentQuery",
                             "type": "string"
                         },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                        },
                         "variant_results": {
                             "anyOf": [
                                 {
@@ -48977,6 +49135,10 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
                         },
                         "sample_ratio_mismatch": {
                             "$ref": "#/definitions/SampleRatioMismatch"
@@ -50690,6 +50852,17 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "conversionSource": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                        },
                         "dataGaps": {
                             "description": "Data the rules needed but could not read, so some figures use a fallback.",
                             "items": {
@@ -57360,7 +57533,14 @@
         },
         "QueryScanFindingKind": {
             "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
-            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "enum": [
+                "no_event_filter",
+                "no_start_date",
+                "persons_join",
+                "repeated_cte_expansion",
+                "cross_join_equality",
+                "date_arrays_before_breakdown_limit"
+            ],
             "type": "string"
         },
         "QueryScanFixLocation": {
@@ -62195,6 +62375,12 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "eventsLimit": {
+                    "description": "Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event.",
+                    "maximum": 10000,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "includeSentiment": {
                     "description": "Include stored sentiment evaluation results for the trace and its generations.",

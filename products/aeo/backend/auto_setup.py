@@ -16,6 +16,7 @@ import datetime as dt
 from collections.abc import Iterable
 
 from django.core.cache import caches
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -27,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
-from products.aeo.backend import catalog, engine_settings, keyword_suggestions, suggestions
+from products.aeo.backend import catalog, engine_settings, keyword_suggestions, prompt_limit, suggestions
 from products.aeo.backend.facade.contracts import (
     MAX_SETUP_WEBSITES,
     SETUP_ENOUGH_KEYWORDS,
@@ -152,10 +153,12 @@ def website_candidates(team: Team) -> list[WebsiteCandidate]:
 def read_context(team: Team) -> SetupContext:
     from products.aeo.backend.tasks.tasks import citation_tracking_enabled  # noqa: PLC0415 -- import cycle
 
+    limit = prompt_limit.read(team.id)
     return SetupContext(
         websites=tuple(website_candidates(team)),
         own_domains=tuple(catalog.own_domains(team.id)),
-        active_prompts=_active_prompt_count(team.id),
+        active_prompts=limit.active_prompts,
+        max_active_prompts=limit.max_active_prompts,
         paused_prompts=AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).count(),
         keywords=AEOKeyword.objects.for_team(team.id).count(),
         has_checks=AEOCitationCheck.objects.for_team(team.id).exists(),
@@ -165,10 +168,6 @@ def read_context(team: Team) -> SetupContext:
         prompt_target=SETUP_PROMPT_COUNT,
         website_days=SETUP_WEBSITE_DAYS,
     )
-
-
-def _active_prompt_count(team_id: int) -> int:
-    return AEOPrompt.objects.for_team(team_id).filter(active=True, archived_at__isnull=True).count()
 
 
 def _job_key(team_id: int, job_id: str) -> str:
@@ -348,13 +347,15 @@ def _add_prompts(team: Team, request: SetupRequest) -> SetupStepState:
             )
             for item in found
         ],
+        fit_to_limit=True,
     )
-    return SetupStepState(
-        step=SetupStep.PROMPTS,
-        status=SetupStepStatus.DONE,
-        added=result["created"],
-        detail="" if active else "paused",
-    )
+    if not active:
+        detail = "paused"
+    elif result["held_back"]:
+        detail = "prompt_limit"
+    else:
+        detail = ""
+    return SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.DONE, added=result["created"], detail=detail)
 
 
 def _add_keywords(team_id: int, request: SetupRequest) -> SetupStepState:
@@ -370,6 +371,16 @@ def _add_keywords(team_id: int, request: SetupRequest) -> SetupStepState:
     )
     result = create_keywords(team_id, [item.keyword for item in found])
     return SetupStepState(step=SetupStep.KEYWORDS, status=SetupStepStatus.DONE, added=result.created)
+
+
+def _activate_paused_prompts(team_id: int) -> None:
+    with transaction.atomic():
+        limit = prompt_limit.lock(team_id)
+        paused = AEOPrompt.objects.for_team(team_id).filter(active=False, archived_at__isnull=True)
+        fitting = list(paused.order_by("-rank", "created_at", "id").values_list("id", flat=True)[: limit.remaining])
+        if fitting:
+            paused.filter(id__in=fitting).update(active=True)
+            bump_data_version_on_commit(team_id)
 
 
 def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
@@ -388,12 +399,11 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
     if not citation_tracking_enabled(team):
         return skipped("not_available")
     if request.only_first_run and request.activate_paused_prompts:
-        AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).update(active=True)
-        bump_data_version_on_commit(team.id)
+        _activate_paused_prompts(team.id)
     schedule = engine_settings.engine_schedule(team.id)
     if (
         not catalog.own_domains(team.id)
-        or _active_prompt_count(team.id) == 0
+        or prompt_limit.active_prompt_count(team.id) == 0
         or not (schedule.daily or schedule.weekly)
     ):
         # The run records nothing without an own brand, active prompts and an engine that can run today.
