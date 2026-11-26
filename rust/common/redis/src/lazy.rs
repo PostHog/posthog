@@ -21,6 +21,8 @@ pub struct LazyRedisClient {
     client: ArcSwapOption<RedisClient>,
     /// Also serializes connect attempts, so concurrent first reads start one connect.
     cooldown_started_at: tokio::sync::Mutex<Option<Instant>>,
+    /// A failed read that finds a heal running returns at once rather than queue on its connect.
+    heal_running: tokio::sync::Mutex<()>,
 }
 
 impl LazyRedisClient {
@@ -47,6 +49,7 @@ impl LazyRedisClient {
             connect_cooldown,
             client: ArcSwapOption::empty(),
             cooldown_started_at: tokio::sync::Mutex::new(None),
+            heal_running: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -113,8 +116,10 @@ impl Client for LazyRedisClient {
         if let Err(error) = &result {
             // A response timeout is not unrecoverable, but a hung connection never answers again.
             if matches!(error, CustomRedisError::Timeout) || error.is_unrecoverable_error() {
-                warn!(%error, "quota Redis read failed; asking the connection to heal");
-                client.heal_connection().await;
+                if let Ok(_heal_running) = self.heal_running.try_lock() {
+                    warn!(%error, "quota Redis read failed; asking the connection to heal");
+                    client.heal_connection().await;
+                }
             }
         }
         result
@@ -266,12 +271,13 @@ impl Client for LazyRedisClient {
 #[cfg(test)]
 mod tests {
     use std::fmt::Debug;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::tcp::OwnedReadHalf;
     use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::watch;
+    use tokio::task::JoinSet;
 
     use super::*;
 
@@ -295,7 +301,7 @@ mod tests {
     /// A Redis node that answers the connection setup and `ZRANGEBYSCORE`.
     struct FakeNode {
         port: u16,
-        connections: Arc<AtomicUsize>,
+        connections: watch::Receiver<usize>,
         fault: FaultPlan,
     }
 
@@ -303,12 +309,13 @@ mod tests {
         async fn start() -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = listener.local_addr().unwrap().port();
-            let connections = Arc::new(AtomicUsize::new(0));
+            let (accept_count, connections) = watch::channel(0);
             let fault: FaultPlan = Arc::new(Mutex::new((None, 0)));
-            let (accept_count, accept_fault) = (connections.clone(), fault.clone());
+            let accept_fault = fault.clone();
             tokio::spawn(async move {
                 while let Ok((socket, _)) = listener.accept().await {
-                    let index = accept_count.fetch_add(1, Ordering::SeqCst);
+                    let index = *accept_count.borrow();
+                    accept_count.send_replace(index + 1);
                     tokio::spawn(serve(socket, index, accept_fault.clone()));
                 }
             });
@@ -332,7 +339,15 @@ mod tests {
         }
 
         fn connections(&self) -> usize {
-            self.connections.load(Ordering::SeqCst)
+            *self.connections.borrow()
+        }
+
+        async fn wait_for_connections(&self, count: usize) {
+            let mut connections = self.connections.clone();
+            tokio::time::timeout(HANG_GUARD, connections.wait_for(|opened| *opened >= count))
+                .await
+                .expect("the node must accept the connection")
+                .unwrap();
         }
     }
 
@@ -541,5 +556,50 @@ mod tests {
                 assert_eq!(healed.unwrap(), vec![MEMBER.to_string()], "{fault:?}");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn failed_reads_return_at_once_while_another_read_heals() {
+        let node = FakeNode::start().await;
+        let heal_outlasts_test = HANG_GUARD * 6;
+        let client = Arc::new(
+            LazyRedisClient::with_cooldown(
+                node.url(),
+                RESPONSE_TIMEOUT,
+                heal_outlasts_test,
+                TEST_COOLDOWN,
+            )
+            .unwrap(),
+        );
+        assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
+
+        node.fault_every_connection(Some(Fault::Hang));
+        let mut reads = JoinSet::new();
+        for _ in 0..3 {
+            let client = client.clone();
+            reads.spawn(async move {
+                client
+                    .zrangebyscore(KEY.to_string(), "0".to_string(), "+inf".to_string())
+                    .await
+            });
+        }
+        for _ in 0..2 {
+            let result = tokio::time::timeout(HANG_GUARD, reads.join_next())
+                .await
+                .expect("a failed read must not wait for another read's heal")
+                .unwrap()
+                .unwrap();
+            assert!(
+                matches!(result, Err(CustomRedisError::Timeout)),
+                "{result:?}"
+            );
+        }
+        node.wait_for_connections(2).await;
+
+        assert!(
+            reads.try_join_next().is_none(),
+            "one read must still be healing"
+        );
+        assert_eq!(node.connections(), 2, "only one read may rebuild");
     }
 }

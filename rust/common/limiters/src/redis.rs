@@ -193,7 +193,7 @@ impl RedisLimiter {
 mod tests {
     use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
     use crate::redis::{QuotaResource, RedisLimiter, ServiceName};
-    use common_redis::MockRedisClient;
+    use common_redis::{CustomRedisError, MockRedisClient};
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
@@ -216,6 +216,26 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
         assert!(!limiter.is_limited("not_limited").await);
+        assert!(limiter.is_limited("banana").await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_refresh_keeps_the_last_set() {
+        let client = MockRedisClient::new()
+            .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")])
+            .zrangebyscore_error_from_call(1, CustomRedisError::Timeout);
+        let limiter = RedisLimiter::new(
+            Duration::from_secs(1),
+            Arc::new(client.clone()),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Events,
+            ServiceName::Capture,
+        )
+        .expect("Failed to create billing limiter");
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+
+        assert!(client.get_calls().len() > 1, "a refresh must have failed");
         assert!(limiter.is_limited("banana").await);
     }
 

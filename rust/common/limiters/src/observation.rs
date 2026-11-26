@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use common_redis::Client;
 use metrics::{counter, gauge, histogram};
 use tokio::task::JoinHandle;
+use tracing::warn;
 
 use crate::redis::{limiter_key, QuotaResource, RedisLimiter, ServiceName};
 
@@ -39,11 +40,19 @@ pub fn spawn_observation(
                     )
                     .set(set.len() as f64);
                 }
-                Err(_) => counter!(
-                    format!("{service_name}_billing_limits_observe_errors_total"),
-                    "cache_key" => cache_key.clone(),
-                )
-                .increment(1),
+                Err(error) => {
+                    warn!(
+                        service_name = %service_name,
+                        cache_key = %cache_key,
+                        %error,
+                        "quota observation read failed"
+                    );
+                    counter!(
+                        format!("{service_name}_billing_limits_observe_errors_total"),
+                        "cache_key" => cache_key.clone(),
+                    )
+                    .increment(1);
+                }
             }
         }
     })

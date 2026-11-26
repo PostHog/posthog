@@ -10,6 +10,9 @@ use crate::{Client, CustomRedisError, RedisValueFormat};
 #[derive(Clone)]
 pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
+    zrangebyscore_error_from_call: Option<(usize, CustomRedisError)>,
+    /// Shared via `Arc` so clones of the mock agree on call sequencing.
+    zrangebyscore_call_counter: Arc<AtomicUsize>,
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
     get_ret: HashMap<String, Result<String, CustomRedisError>>,
     get_raw_bytes_ret: HashMap<String, Result<Vec<u8>, CustomRedisError>>,
@@ -41,6 +44,8 @@ impl Default for MockRedisClient {
     fn default() -> Self {
         Self {
             zrangebyscore_ret: HashMap::new(),
+            zrangebyscore_error_from_call: None,
+            zrangebyscore_call_counter: Arc::new(AtomicUsize::new(0)),
             hincrby_ret: HashMap::new(),
             get_ret: HashMap::new(),
             get_raw_bytes_ret: HashMap::new(),
@@ -110,6 +115,16 @@ impl MockRedisClient {
 
     pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
         self.zrangebyscore_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    /// Fail every `zrangebyscore` call from the Nth (0-indexed) on with `err`.
+    pub fn zrangebyscore_error_from_call(
+        &mut self,
+        call_index: usize,
+        err: CustomRedisError,
+    ) -> Self {
+        self.zrangebyscore_error_from_call = Some((call_index, err));
         self.clone()
     }
 
@@ -272,6 +287,14 @@ impl Client for MockRedisClient {
             value: MockRedisValue::MinMax(min, max),
         });
 
+        let call_index = self
+            .zrangebyscore_call_counter
+            .fetch_add(1, Ordering::SeqCst);
+        if let Some((first_failing, err)) = &self.zrangebyscore_error_from_call {
+            if call_index >= *first_failing {
+                return Err(err.clone());
+            }
+        }
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
             None => Err(CustomRedisError::NotFound),
