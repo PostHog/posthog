@@ -14,7 +14,12 @@ from posthog.schema import CachedMetricsQueryResponse, MetricsQuery, MetricsQuer
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.metrics.backend.facade.api import run_metric_query, run_precomputed_metric_query, run_shadow_check
+from products.metrics.backend.facade.api import (
+    list_metric_query_counts,
+    run_metric_query,
+    run_precomputed_metric_query,
+    run_shadow_check,
+)
 from products.metrics.backend.facade.contracts import (
     MetricFilter,
     MetricGroupBy,
@@ -30,7 +35,7 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
-from products.metrics.backend.models import MetricDailyQueryCount, MetricPrecomputedMetric
+from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import get_or_create_precomputed_metric, leaf_for_clause
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.shadow import SHADOW_EVENT
@@ -207,7 +212,7 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.shadow_scheduled
         assert queued.call_count == 1
 
-        counts_before = list(MetricDailyQueryCount.objects.values_list("metric_name", "query_count"))
+        counts_before = list_metric_query_counts(team=self.team, days=1, limit=100)
         team_id, kind, payload = queued.call_args.kwargs["args"]
         with patch("products.metrics.backend.facade.api.ph_scoped_capture") as scoped_capture:
             run_shadow_check(team_id=team_id, kind=kind, payload=payload)
@@ -222,7 +227,7 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
                 "mismatched_points": 0,
             },
         )
-        assert list(MetricDailyQueryCount.objects.values_list("metric_name", "query_count")) == counts_before
+        assert list_metric_query_counts(team=self.team, days=1, limit=100) == counts_before
         with (
             patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
             patch("products.metrics.backend.facade.api.current_app.send_task"),
