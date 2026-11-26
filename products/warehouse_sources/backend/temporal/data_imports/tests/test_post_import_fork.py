@@ -748,10 +748,12 @@ def test_statistics_and_enrichment_start_only_when_the_child_has_work(
         schema.table = table
         schema.save()
         WarehouseColumnStatistics.objects.for_team(team.id).create(
-            team=team, table=table, column_name="email", computed_at=timezone.now() - timedelta(days=2)
+            team=team,
+            table=table,
+            column_name="email",
+            computed_at=timezone.now() - timedelta(days=2),
+            checked_at=timezone.now() - timedelta(hours=1),
         )
-        schema.sync_type_config = {"statistics_checked_at": (timezone.now() - timedelta(hours=1)).isoformat()}
-        schema.save()
 
     ctx = resolve_post_import_context_activity(
         PostImportWorkflowInputs(

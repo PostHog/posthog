@@ -161,15 +161,17 @@ class TestStatisticsStale:
     ) -> None:
         team = _team()
         table = _table(team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in column_ages})
-        schema = _schema(team, table)
-        if checked_ago is not None:
-            schema.sync_type_config = {"statistics_checked_at": (timezone.now() - checked_ago).isoformat()}
+        checked_at = timezone.now() - checked_ago if checked_ago is not None else None
         for column_name, age in column_ages.items():
             if age is not None:
                 WarehouseColumnStatistics.objects.for_team(team.id).create(
-                    team=team, table=table, column_name=column_name, computed_at=timezone.now() - age
+                    team=team,
+                    table=table,
+                    column_name=column_name,
+                    computed_at=timezone.now() - age,
+                    checked_at=checked_at,
                 )
-        assert _statistics_stale(team.id, table, schema=schema, wrote_rows=wrote_rows) is expected
+        assert _statistics_stale(team.id, table, wrote_rows=wrote_rows) is expected
 
 
 @pytest.mark.django_db

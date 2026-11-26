@@ -112,21 +112,15 @@ class V2PipelineRemovedError(NonReportableError):
     """
 
 
-def _statistics_stale(
-    team_id: int,
-    table: DataWarehouseTable | None,
-    *,
-    schema: ExternalDataSchema | None = None,
-    wrote_rows: bool = True,
-) -> bool:
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None, *, wrote_rows: bool | None = None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the minimum recompute interval. Mirrors compute_table_statistics' own skip check so we don't
     spawn a child that would immediately no-op on every sync.
 
-    The post-import gate also passes the schema and whether its sync wrote rows. For a sync that wrote
-    nothing, the child then starts only when the activity could recompute: a column has no row, the
-    oldest row is past the maximum interval, or no unchanged-version check ran in the last minimum
-    interval. A sync that writes after such a check passes `wrote_rows` itself.
+    The post-import gate also says whether its sync wrote rows. For a sync that wrote nothing, the
+    child then starts only when the activity could recompute: a column has no row, the oldest row is
+    past the maximum interval, or no unchanged-version check ran in the last minimum interval. A sync
+    that writes after such a check starts the child itself.
     """
     if table is None:
         # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
@@ -135,7 +129,6 @@ def _statistics_stale(
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
         MAX_RECOMPUTE_INTERVAL,
         MIN_RECOMPUTE_INTERVAL,
-        STATISTICS_CHECKED_AT_KEY,
         _all_columns_have_stats,
         _most_recent_computed_at,
     )
@@ -150,7 +143,7 @@ def _statistics_stale(
     now = timezone.now()
     if now - latest < MIN_RECOMPUTE_INTERVAL:
         return False
-    if schema is None or wrote_rows:
+    if wrote_rows is not False:
         return True
     # The activity skips an unchanged version only when every current column has a row, and it times
     # the maximum interval from the oldest of them, so a partly written run still has work.
@@ -161,17 +154,8 @@ def _statistics_stale(
     oldest = _most_recent_computed_at(existing, columns)
     if oldest is None or not _all_columns_have_stats(existing, columns) or now - oldest >= MAX_RECOMPUTE_INTERVAL:
         return True
-    checked_at = _parse_datetime((schema.sync_type_config or {}).get(STATISTICS_CHECKED_AT_KEY))
-    return checked_at is None or now - checked_at >= MIN_RECOMPUTE_INTERVAL
-
-
-def _parse_datetime(value: Any) -> dt.datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return dt.datetime.fromisoformat(value)
-    except ValueError:
-        return None
+    checked = [stamp for name in columns if (stamp := existing[name].checked_at) is not None]
+    return not checked or now - max(checked) >= MIN_RECOMPUTE_INTERVAL
 
 
 def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
