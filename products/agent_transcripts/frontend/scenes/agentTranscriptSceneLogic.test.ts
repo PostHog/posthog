@@ -8,21 +8,16 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { CustomerSubmissionStateApi } from '../generated/api.schemas'
-import { StorageUploadError, postFileToStorage } from '../logics/postFileToStorage'
 import { UPLOAD_FAILED_EVENT, agentTranscriptSceneLogic } from './agentTranscriptSceneLogic'
-
-jest.mock('../logics/postFileToStorage', () => ({
-    ...jest.requireActual('../logics/postFileToStorage'),
-    postFileToStorage: jest.fn(),
-}))
-
-const postFileToStorageMock = postFileToStorage as jest.Mock
 
 const SUBMISSION_URL = '/api/organizations/:organization_id/agent_transcripts/submission/'
 const START_UPLOAD_URL = '/api/organizations/:organization_id/agent_transcripts/start_upload/'
 const COMPLETE_UPLOAD_URL = '/api/organizations/:organization_id/agent_transcripts/complete_upload/'
 
 const MAX_SIZE_BYTES = 1024
+
+const STORAGE_ACCEPTED_STATUS = 204
+const STORAGE_REFUSED_STATUS = 403
 
 const NOT_STARTED: CustomerSubmissionStateApi = {
     status: null,
@@ -49,15 +44,23 @@ function errorBody(code: string, detail: string): Record<string, string | null> 
     return { type: 'validation_error', code, detail, attr: null }
 }
 
+interface StoredUpload {
+    key: FormDataEntryValue | null
+    fileName: string | null
+}
+
 describe('agentTranscriptSceneLogic', () => {
     let logic: ReturnType<typeof agentTranscriptSceneLogic.build>
     let startUploadRequests: number
+    let storedUploads: StoredUpload[]
 
     function useUploadEndpointMocks(
         startUpload: [number, unknown],
-        completeUpload: [number, unknown] = [200, { ...NOT_STARTED, status: 'submitted' }]
+        completeUpload: [number, unknown] = [200, { ...NOT_STARTED, status: 'submitted' }],
+        storageStatus: number = STORAGE_ACCEPTED_STATUS
     ): void {
         startUploadRequests = 0
+        storedUploads = []
         useMocks({
             get: { [SUBMISSION_URL]: () => [200, NOT_STARTED] },
             post: {
@@ -66,6 +69,16 @@ describe('agentTranscriptSceneLogic', () => {
                     return startUpload
                 },
                 [COMPLETE_UPLOAD_URL]: () => completeUpload,
+                [PRESIGNED_UPLOAD.upload_url]: async ({ request }) => {
+                    if (storageStatus !== STORAGE_ACCEPTED_STATUS) {
+                        return [storageStatus]
+                    }
+
+                    const form = await request.formData()
+                    const file = form.get('file')
+                    storedUploads.push({ key: form.get('key'), fileName: file instanceof File ? file.name : null })
+                    return [storageStatus]
+                },
             },
         })
     }
@@ -73,8 +86,6 @@ describe('agentTranscriptSceneLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         jest.spyOn(posthog, 'capture')
-        postFileToStorageMock.mockReset()
-        postFileToStorageMock.mockResolvedValue(undefined)
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.AGENT_TRANSCRIPT_REQUEST]: 'test' })
     })
@@ -100,9 +111,7 @@ describe('agentTranscriptSceneLogic', () => {
 
         await mountAndUpload(transcriptFile('session.jsonl', 10))
 
-        expect(postFileToStorageMock).toHaveBeenCalledWith(
-            expect.objectContaining({ presignedUpload: PRESIGNED_UPLOAD })
-        )
+        expect(storedUploads).toEqual([{ key: PRESIGNED_UPLOAD.form_fields.key, fileName: 'session.jsonl' }])
         expect(logic.values).toMatchObject({
             uploadError: null,
             isUploading: false,
@@ -131,10 +140,7 @@ describe('agentTranscriptSceneLogic', () => {
         ],
         [
             'a refused upload to storage',
-            () => {
-                useUploadEndpointMocks([200, PRESIGNED_UPLOAD])
-                postFileToStorageMock.mockRejectedValue(new StorageUploadError('refused'))
-            },
+            () => useUploadEndpointMocks([200, PRESIGNED_UPLOAD], undefined, STORAGE_REFUSED_STATUS),
             'storage_upload_failed',
             /Check your connection/,
         ],

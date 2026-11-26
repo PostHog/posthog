@@ -114,7 +114,7 @@ def complete_upload(data: CompleteUploadInput) -> AgentTranscriptSubmission:
         content.check_content(filename=submission.original_filename, content=transcript)
     except UploadRejected as rejection:
         if rejection.reason != UploadRejectionReason.NOT_UPLOADED:
-            _discard_staged_upload(submission.id, staging_key)
+            _discard_staged_upload(submission.organization_id, staging_key)
         raise
 
     storage_key = storage.build_storage_key(data.organization_id, submission.original_filename)
@@ -261,9 +261,9 @@ def _record_decision(
     return submission
 
 
-def _discard_staged_upload(submission_id: UUID, staging_key: str) -> None:
+def _discard_staged_upload(organization_id: UUID, staging_key: str) -> None:
     """Drop a rejected upload, so a later complete_upload cannot pick up the same bytes again."""
-    AgentTranscriptSubmission.objects.filter(id=submission_id, staging_key=staging_key).update(
+    AgentTranscriptSubmission.objects.filter(organization_id=organization_id, staging_key=staging_key).update(
         staging_key=None, updated_at=timezone.now()
     )
     storage.delete_quietly(staging_key)

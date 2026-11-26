@@ -29,6 +29,11 @@
         "params": [],
         "scope": "project"
     },
+    "agentTranscript": {
+        "template": "/agent-transcript",
+        "params": [],
+        "scope": "project"
+    },
     "agenticAccountMismatch": {
         "template": "/agentic/account-mismatch",
         "params": [],

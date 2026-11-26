@@ -1496,7 +1496,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              BillingAlertConfiguration
+                              AgentTranscriptSubmission
+                              |BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -1584,7 +1585,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        BillingAlertConfiguration
+                        AgentTranscriptSubmission
+                        |BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
