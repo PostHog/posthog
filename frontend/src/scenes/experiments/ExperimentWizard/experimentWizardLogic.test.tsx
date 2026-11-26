@@ -1023,6 +1023,39 @@ describe('experimentWizardLogic', () => {
             expect(logic.values.experiment.feature_flag_key).toEqual('')
             expect(logic.values.experiment.feature_flag_rule_id).toBeUndefined()
         })
+
+        it('renaming the experiment keeps the key of the linked flag', async () => {
+            // The key matches the name's slug, which is what made a rename rewrite it
+            createLogic.actions.setExperimentValue('name', 'Flag with rules')
+            logic.actions.setLinkedFeatureFlag(flagWithRules)
+            logic.actions.setFeatureFlagConfig({ feature_flag_key: 'flag-with-rules', feature_flag_rule_id: 'rule-b' })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+            await userEvent.type(screen.getByPlaceholderText('e.g. New checkout flow test'), ' v2')
+
+            expect(logic.values.experiment).toMatchObject({
+                name: 'Flag with rules v2',
+                feature_flag_key: 'flag-with-rules',
+                feature_flag_rule_id: 'rule-b',
+            })
+        })
+
+        it.each([
+            ['a custom exposure event', '$pageview', [expect.stringContaining('custom exposure event')]],
+            ['the default exposure event', '$feature_flag_called', []],
+        ])('checks %s against the linked rule on the analytics step', (_, event, expectedErrors) => {
+            logic.actions.setLinkedFeatureFlag(flagWithRules)
+            logic.actions.setFeatureFlagConfig({ feature_flag_key: 'flag-with-rules', feature_flag_rule_id: 'rule-b' })
+            logic.actions.setExposureCriteria({
+                exposure_config: { kind: NodeKind.ExperimentEventExposureConfig, event, properties: [] },
+            })
+
+            expect(logic.values.stepValidationErrors.analytics).toEqual(expectedErrors)
+        })
     })
 
     describe('VariantsStep with linked feature flag', () => {

@@ -152,16 +152,28 @@ export function getActivationConfig(
         return undefined
     }
     const exposureConfig = exposureCriteria?.exposure_config
-    if (
-        exposureConfig &&
-        !(
-            isEventConfig(exposureConfig) &&
-            [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(exposureConfig.event)
-        )
-    ) {
+    if (exposureConfig && !isDefaultExposureEventConfig(exposureConfig)) {
         return undefined
     }
     return activationConfig
+}
+
+function isDefaultExposureEventConfig(config: ExperimentExposureConfig): boolean {
+    return isEventConfig(config) && [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
+}
+
+/** Why the criteria can't apply to an experiment on a flag rule, or null. Mirrors the backend's `rule_exposure_criteria_error`. */
+export function ruleExposureCriteriaError(
+    exposureCriteria: ExperimentExposureCriteria | null | undefined
+): string | null {
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (exposureConfig && !isDefaultExposureEventConfig(exposureConfig)) {
+        return 'An experiment on a feature flag rule counts exposures on the $experiment_exposure event of its rule. A custom exposure event, action or warehouse query is not supported for it yet.'
+    }
+    if (exposureCriteria?.activation_config) {
+        return 'An activation event is not supported yet for an experiment on a feature flag rule.'
+    }
+    return null
 }
 
 export type ExposureSource = 'warehouse_native' | 'activation' | 'custom' | 'default'

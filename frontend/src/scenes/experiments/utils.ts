@@ -99,8 +99,13 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
 /**
  * Variants for an experiment. Saved experiments resolve from the linked feature flag (the source
  * of truth); an unsaved draft has no flag yet, so it resolves from the draft flag config instead.
+ * An experiment on a flag with rules reads the flag's current rule, not the snapshot taken at launch.
  */
 export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
+    const flag = experiment?.feature_flag
+    if (flag?.filters && isRulesV2FeatureFlagConfig(flag.filters)) {
+        return getFlagVariants(flag, experiment?.feature_flag_rule_id)
+    }
     return (
         experiment?.feature_flag?.filters?.multivariate?.variants ??
         experiment?.feature_flag_config?.filters?.multivariate?.variants ??

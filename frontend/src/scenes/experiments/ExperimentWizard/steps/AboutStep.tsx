@@ -87,10 +87,12 @@ export function AboutStep(): JSX.Element {
                     value={experiment.name}
                     onChange={(value) => {
                         setExperimentValue('name', value)
+                        // A linked flag keeps its key, whatever the experiment is called
                         if (
-                            !experiment.feature_flag_key ||
-                            experiment.feature_flag_key ===
-                                slugifyFeatureFlagKey(experiment.name, { fromTitleInput: true })
+                            !linkedFeatureFlag &&
+                            (!experiment.feature_flag_key ||
+                                experiment.feature_flag_key ===
+                                    slugifyFeatureFlagKey(experiment.name, { fromTitleInput: true }))
                         ) {
                             const newKey = slugifyFeatureFlagKey(value, { fromTitleInput: true })
                             setExperimentValue('feature_flag_key', newKey)

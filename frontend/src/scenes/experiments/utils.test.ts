@@ -37,6 +37,7 @@ import {
     getBaselineVariantKey,
     getDisplayOrderedIndices,
     getEventCountQuery,
+    getExperimentVariants,
     getFlagVariants,
     getFunnelDropoffReason,
     getMetricIncompleteReason,
@@ -433,6 +434,17 @@ describe('checkFeatureFlagEligibility', () => {
             ])
             expect(getFlagVariants(flag).map(({ key }) => key)).toEqual(['control', 'test'])
             expect(getFlagVariants(flag, 'missing')).toEqual([])
+        })
+
+        it('reads the variants of a saved experiment from its rule', () => {
+            const flag = withRules(experimentRule('a', ['control', 'test']), experimentRule('b', ['old', 'new']))
+
+            const variants = getExperimentVariants({
+                feature_flag: { ...flag, id: 1, team_id: 1 },
+                feature_flag_rule_id: 'b',
+            })
+
+            expect(variants.map(({ key }) => key)).toEqual(['old', 'new'])
         })
 
         it('links the experiment rule the experiment runs on, and no rule for a flag without rules', () => {

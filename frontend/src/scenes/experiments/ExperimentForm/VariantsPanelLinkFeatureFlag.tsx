@@ -4,22 +4,14 @@ import { IconX } from '@posthog/icons'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import type { FeatureFlagRulesV2ExperimentRule, FeatureFlagType } from '~/types'
 
-import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
-
-import {
-    experimentRuleIneligibleReason,
-    getFlagExperimentRule,
-    getFlagExperimentRules,
-    getFlagVariants,
-} from '../utils'
+import { ExperimentRuleSelect } from '../ExperimentRuleSelect'
+import { getFlagExperimentRule, getFlagVariants } from '../utils'
 
 interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
@@ -49,12 +41,6 @@ const getTargetingSummary = (flag: FeatureFlagType, rule: FeatureFlagRulesV2Expe
 
         return `${rollout}${usersMatching(group.properties)}${variant}`
     })
-}
-
-// Rules are numbered by their position in the flag, as on the flag's page
-const ruleLabel = (flag: FeatureFlagType, rule: FeatureFlagRulesV2ExperimentRule): string => {
-    const position = isRulesV2FeatureFlagConfig(flag.filters) ? flag.filters.rules.indexOf(rule) + 1 : 0
-    return rule.description ? `Rule ${position}: ${rule.description}` : `Rule ${position}`
 }
 
 const TargetingSummary = ({
@@ -130,7 +116,6 @@ export const VariantsPanelLinkFeatureFlag = ({
         )
     }
 
-    const experimentRules = getFlagExperimentRules(linkedFeatureFlag)
     const selectedRule = getFlagExperimentRule(linkedFeatureFlag, selectedRuleId)
     const variants = getFlagVariants(linkedFeatureFlag, selectedRule?.id)
 
@@ -181,32 +166,12 @@ export const VariantsPanelLinkFeatureFlag = ({
                     <div className="text-sm text-muted-alt -mt-2 mb-3">{linkedFeatureFlag.name}</div>
                 )}
 
-                {experimentRules.length > 0 && (
-                    <LemonField.Pure
-                        label="Experiment rule"
-                        info="The experiment counts the exposures of this rule of the flag."
-                        htmlFor="experiment-linked-flag-rule"
-                    >
-                        <LemonSelect
-                            id="experiment-linked-flag-rule"
-                            size="small"
-                            value={selectedRule?.id ?? null}
-                            onChange={(ruleId) => ruleId && onSelectRule?.(ruleId)}
-                            options={experimentRules.map((rule) => ({
-                                value: rule.id,
-                                label: ruleLabel(linkedFeatureFlag, rule),
-                                disabledReason: experimentRuleIneligibleReason(rule) ?? undefined,
-                            }))}
-                            placeholder="Select an experiment rule"
-                            disabledReason={
-                                disabled || !onSelectRule
-                                    ? 'You cannot change the rule when editing an experiment.'
-                                    : undefined
-                            }
-                            data-attr="experiment-linked-flag-rule"
-                        />
-                    </LemonField.Pure>
-                )}
+                <ExperimentRuleSelect
+                    flag={linkedFeatureFlag}
+                    ruleId={selectedRule?.id}
+                    onChange={onSelectRule}
+                    disabledReason={disabled ? 'You cannot change the rule when editing an experiment.' : undefined}
+                />
 
                 <div className="flex gap-10">
                     {/* Variants */}
